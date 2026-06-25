@@ -1,11 +1,15 @@
 use core::str;
 use std::collections::HashMap;
 
+use base64::Engine as _;
 use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+use hmac::{Hmac, Mac};
 use indexmap::IndexMap;
+use md5::Md5;
 use rand::Rng;
 use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value as JsonValue};
+use sha2::{Digest, Sha256};
 
 use crate::{
     construct_free_standing,
@@ -1029,6 +1033,122 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 Ok(HogLiteral::Boolean(is_ip_address_in_range(address, prefix)).into())
             }),
         ),
+        (
+            "md5Hex",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "md5Hex")?;
+                hash_with_encoding(vm, &args, |data| Md5::digest(data).to_vec(), "hex")
+            }),
+        ),
+        (
+            "md5",
+            native_func(|vm, args| {
+                hash_optional_encoding(vm, &args, "md5", |data| Md5::digest(data).to_vec())
+            }),
+        ),
+        (
+            "sha256Hex",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "sha256Hex")?;
+                hash_with_encoding(vm, &args, |data| Sha256::digest(data).to_vec(), "hex")
+            }),
+        ),
+        (
+            "sha256",
+            native_func(|vm, args| {
+                hash_optional_encoding(vm, &args, "sha256", |data| Sha256::digest(data).to_vec())
+            }),
+        ),
+        (
+            "sha256HmacChainHex",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "sha256HmacChainHex")?;
+                let digest = sha256_hmac_chain(vm, &args[0])?;
+                Ok(HogLiteral::String(to_hex(&digest)).into())
+            }),
+        ),
+        (
+            "sha256HmacChain",
+            native_func(|vm, args| {
+                if args.is_empty() || args.len() > 2 {
+                    return Err(VmError::NativeCallFailed(
+                        "sha256HmacChain takes 1 or 2 arguments".to_string(),
+                    ));
+                }
+                let digest = sha256_hmac_chain(vm, &args[0])?;
+                let encoding = encoding_arg(vm, &args, 1)?;
+                Ok(HogLiteral::String(encode_digest(&digest, &encoding)?).into())
+            }),
+        ),
+        (
+            "base64Encode",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "base64Encode")?;
+                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let out = base64::engine::general_purpose::STANDARD.encode(s.as_bytes());
+                Ok(HogLiteral::String(out).into())
+            }),
+        ),
+        (
+            "base64Decode",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "base64Decode")?;
+                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                Ok(HogLiteral::String(base64_decode_to_string(s)?).into())
+            }),
+        ),
+        (
+            "tryBase64Decode",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "tryBase64Decode")?;
+                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                // Reference returns "" on failure (Buffer.from never throws, but mirror the intent).
+                Ok(HogLiteral::String(base64_decode_to_string(s).unwrap_or_default()).into())
+            }),
+        ),
+        (
+            "encodeURLComponent",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "encodeURLComponent")?;
+                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                Ok(HogLiteral::String(encode_uri_component(s)).into())
+            }),
+        ),
+        (
+            "decodeURLComponent",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "decodeURLComponent")?;
+                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                decode_uri_component(s).map(|d| HogLiteral::String(d).into())
+            }),
+        ),
+        (
+            "tryDecodeURLComponent",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "tryDecodeURLComponent")?;
+                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                // Reference returns null on malformed input rather than erroring.
+                Ok(match decode_uri_component(s) {
+                    Ok(d) => HogLiteral::String(d).into(),
+                    Err(_) => HogLiteral::Null.into(),
+                })
+            }),
+        ),
+        (
+            "toUUID",
+            native_func(|vm, args| {
+                // Reference `toUUID` is just `toString`.
+                assert_argc(&args, 1, "toUUID")?;
+                to_string(&vm.heap, &args[0], 0).map(|s| HogLiteral::String(s).into())
+            }),
+        ),
+        (
+            "generateUUIDv4",
+            native_func(|_vm, args| {
+                assert_argc(&args, 0, "generateUUIDv4")?;
+                Ok(HogLiteral::String(generate_uuid_v4()).into())
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -1774,6 +1894,198 @@ fn ip_to_bytes(ip: &str, is_v4: bool) -> Option<Vec<u8>> {
         bytes[i * 2 + 1] = (v & 0xff) as u8;
     }
     Some(bytes)
+}
+
+type HmacSha256 = Hmac<Sha256>;
+
+// Hash `data` with the supplied digest fn, then encode. Used by md5Hex/sha256Hex (fixed "hex").
+// `null` data returns `null`, matching the reference.
+fn hash_with_encoding(
+    vm: &HogVM,
+    args: &[HogValue],
+    hasher: impl Fn(&[u8]) -> Vec<u8>,
+    encoding: &str,
+) -> Result<HogValue, VmError> {
+    match args[0].deref(&vm.heap)? {
+        HogLiteral::Null => Ok(HogLiteral::Null.into()),
+        lit => {
+            let data: &str = lit.try_as()?;
+            Ok(HogLiteral::String(encode_digest(&hasher(data.as_bytes()), encoding)?).into())
+        }
+    }
+}
+
+// md5/sha256 take an optional 2nd encoding arg (default "hex").
+fn hash_optional_encoding(
+    vm: &HogVM,
+    args: &[HogValue],
+    name: &str,
+    hasher: impl Fn(&[u8]) -> Vec<u8>,
+) -> Result<HogValue, VmError> {
+    if args.is_empty() || args.len() > 2 {
+        return Err(VmError::NativeCallFailed(format!(
+            "{name} takes 1 or 2 arguments"
+        )));
+    }
+    let encoding = encoding_arg(vm, args, 1)?;
+    hash_with_encoding(vm, args, hasher, &encoding)
+}
+
+// sha256HmacChain: HMAC-SHA256 chained across an array of strings, re-keying each step with the
+// previous raw digest. Mirrors common/hogvm/typescript/src/stl/crypto.ts.
+fn sha256_hmac_chain(vm: &HogVM, arg: &HogValue) -> Result<Vec<u8>, VmError> {
+    let arr = match arg.deref(&vm.heap)? {
+        HogLiteral::Array(a) => a.clone(),
+        _ => {
+            return Err(VmError::NativeCallFailed(
+                "sha256HmacChain expects an array".to_string(),
+            ))
+        }
+    };
+    if arr.len() < 2 {
+        return Err(VmError::NativeCallFailed(
+            "Data array must contain at least two elements.".to_string(),
+        ));
+    }
+    let key0: &str = arr[0].deref(&vm.heap)?.try_as()?;
+    let mut mac = HmacSha256::new_from_slice(key0.as_bytes())
+        .map_err(|e| VmError::NativeCallFailed(e.to_string()))?;
+    let msg1: &str = arr[1].deref(&vm.heap)?.try_as()?;
+    mac.update(msg1.as_bytes());
+    let mut digest = mac.finalize().into_bytes().to_vec();
+    for elem in &arr[2..] {
+        let mut next = HmacSha256::new_from_slice(&digest)
+            .map_err(|e| VmError::NativeCallFailed(e.to_string()))?;
+        let msg: &str = elem.deref(&vm.heap)?.try_as()?;
+        next.update(msg.as_bytes());
+        digest = next.finalize().into_bytes().to_vec();
+    }
+    Ok(digest)
+}
+
+// Encode raw digest bytes the way Node's `hash.digest(encoding)` does.
+fn encode_digest(digest: &[u8], encoding: &str) -> Result<String, VmError> {
+    match encoding {
+        "hex" => Ok(to_hex(digest)),
+        "base64" => Ok(base64::engine::general_purpose::STANDARD.encode(digest)),
+        "base64url" => Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)),
+        // Node's "binary"/"latin1" maps each byte to the code point equal to its value.
+        "binary" => Ok(digest.iter().map(|&b| b as char).collect()),
+        other => Err(VmError::NativeCallFailed(format!(
+            "Unsupported encoding: {other}"
+        ))),
+    }
+}
+
+// Read an optional encoding arg, defaulting to "hex" when absent or null.
+fn encoding_arg(vm: &HogVM, args: &[HogValue], idx: usize) -> Result<String, VmError> {
+    match args.get(idx) {
+        Some(v) => match v.deref(&vm.heap)? {
+            HogLiteral::String(s) => Ok(s.clone()),
+            _ => Ok("hex".to_string()),
+        },
+        None => Ok("hex".to_string()),
+    }
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0xf) as usize] as char);
+    }
+    out
+}
+
+// Node's `Buffer.from(s, 'base64').toString()` — lenient about padding, UTF-8 decode lossily.
+fn base64_decode_to_string(s: &str) -> Result<String, VmError> {
+    let engine = base64::engine::GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        base64::engine::GeneralPurposeConfig::new()
+            .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
+            .with_decode_allow_trailing_bits(true),
+    );
+    let bytes = engine
+        .decode(s.trim())
+        .map_err(|e| VmError::NativeCallFailed(format!("base64 decode failed: {e}")))?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+// JS `encodeURIComponent`: keep the unreserved set, percent-encode every other UTF-8 byte.
+fn encode_uri_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        let keep = b.is_ascii_alphanumeric()
+            || matches!(
+                b,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            );
+        if keep {
+            out.push(b as char);
+        } else {
+            out.push('%');
+            out.push((b"0123456789ABCDEF"[(b >> 4) as usize]) as char);
+            out.push((b"0123456789ABCDEF"[(b & 0xf) as usize]) as char);
+        }
+    }
+    out
+}
+
+// JS `decodeURIComponent`: decode %XX into bytes and require the result be valid UTF-8, erroring
+// (like JS's URIError) on a malformed escape or invalid UTF-8 — callers map that to null/"".
+fn decode_uri_component(s: &str) -> Result<String, VmError> {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len() {
+                return Err(VmError::NativeCallFailed("URI malformed".to_string()));
+            }
+            let hi = hex_val(bytes[i + 1]);
+            let lo = hex_val(bytes[i + 2]);
+            match (hi, lo) {
+                (Some(h), Some(l)) => out.push((h << 4) | l),
+                _ => return Err(VmError::NativeCallFailed("URI malformed".to_string())),
+            }
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| VmError::NativeCallFailed("URI malformed".to_string()))
+}
+
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+// Mirror the reference UUID v4 template fill: random hex for `x`, `(r & 0x3) | 0x8` for `y`.
+fn generate_uuid_v4() -> String {
+    let mut rng = rand::thread_rng();
+    let mut out = String::with_capacity(36);
+    for c in "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".chars() {
+        match c {
+            'x' => {
+                let r: u8 = rng.gen_range(0..16);
+                out.push(char::from_digit(u32::from(r), 16).unwrap());
+            }
+            'y' => {
+                let r: u8 = rng.gen_range(0..16);
+                let v = (r & 0x3) | 0x8;
+                out.push(char::from_digit(u32::from(v), 16).unwrap());
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {

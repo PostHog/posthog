@@ -31,6 +31,10 @@ rand = "0.8.5"
 chrono = { version = "0.4.44", features = ["default", "serde"] }
 chrono-tz = "0.10.1"
 indexmap = "2"
+md-5 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
 
 [dev-dependencies]
 rayon = "1.10"
