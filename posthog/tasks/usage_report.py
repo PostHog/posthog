@@ -1133,18 +1133,12 @@ def get_teams_with_ai_event_count_in_period(
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             """
-            -- Gateway-originated events are billed via the gateway wallet, so they
-            -- are exempted here to avoid double-billing. Each real gateway call has
-            -- a unique, signature-bound $ai_gateway_request_id (stamped by capture
-            -- after verification, #64806). Exempt one event per distinct verified
-            -- request_id rather than every verified event: a captured signature
-            -- replayed onto extra events all share one request_id, so it earns a
-            -- single exemption and the replayed copies stay billable.
-            -- $ai_gateway_verified/$ai_gateway_request_id are ingestion-stamped, not
-            -- client-settable, so they can't be forged to dodge AIO billing.
-            -- Require a non-empty request_id: capture treats an empty one as
-            -- untrusted, so a verified event without one stays billable rather than
-            -- collapsing a whole empty-string bucket into a single exemption.
+            -- Gateway events are wallet-billed; exempt them from the AIO meter. Exempt one
+            -- event per distinct verified $ai_gateway_request_id (a replayed signature reuses
+            -- one id, so it earns a single exemption and the copies stay billable). Both
+            -- markers are stamped by capture after verification (#64806), not client-settable.
+            -- A non-empty request_id is required so a verified event without one stays
+            -- billable, not blanket-exempted.
             SELECT
                 team_id,
                 COUNT() - uniqExactIf(
