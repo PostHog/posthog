@@ -194,15 +194,18 @@ function SandboxRunViewerContent({
                         onSubmit={onComposerSubmit!}
                         loading={composerLoading}
                     >
-                        {queuedMessages && queuedMessages.length > 0 && (
-                            <Composer.Banner>
-                                <QueuedMessageList
-                                    messages={queuedMessages}
-                                    onUpdate={onUpdateQueuedMessage!}
-                                    onRemove={onRemoveQueuedMessage!}
-                                />
-                            </Composer.Banner>
-                        )}
+                        {queuedMessages &&
+                            queuedMessages.length > 0 &&
+                            onUpdateQueuedMessage &&
+                            onRemoveQueuedMessage && (
+                                <Composer.Banner>
+                                    <QueuedMessageList
+                                        messages={queuedMessages}
+                                        onUpdate={onUpdateQueuedMessage}
+                                        onRemove={onRemoveQueuedMessage}
+                                    />
+                                </Composer.Banner>
+                            )}
                         <Composer.Frame>
                             <Composer.Field>
                                 <Composer.Placeholder>

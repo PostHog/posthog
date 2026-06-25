@@ -72,6 +72,8 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
         sendNow: (content: string, source: 'draft' | 'queue') => ({ content, source }),
         // Stage a follow-up, concatenating onto any message already queued so the buffer stays a single message.
         enqueueMessage: (content: string) => ({ content }),
+        // Re-stage unsent content ahead of anything queued since — used to restore a failed queue flush.
+        prependQueuedMessage: (content: string) => ({ content }),
         updateQueuedMessage: (id: string, content: string) => ({ id, content }),
         removeQueuedMessage: (id: string) => ({ id }),
         clearQueue: true,
@@ -108,6 +110,11 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
                     state.length > 0
                         ? [{ id: QUEUED_MESSAGE_ID, content: `${state[0].content}\n\n${content}` }]
                         : [{ id: QUEUED_MESSAGE_ID, content }],
+                // Restore the unsent content in front of anything staged since, preserving send order.
+                prependQueuedMessage: (state, { content }) =>
+                    state.length > 0
+                        ? [{ id: QUEUED_MESSAGE_ID, content: `${content}\n\n${state[0].content}` }]
+                        : [{ id: QUEUED_MESSAGE_ID, content }],
                 updateQueuedMessage: (state, { id, content }) =>
                     state.map((message) => (message.id === id ? { ...message, content } : message)),
                 removeQueuedMessage: (state, { id }) => state.filter((message) => message.id !== id),
@@ -140,33 +147,38 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
                 actions.startNewRun(content)
                 return
             }
-            // While the agent is working — or a message is already staged — concatenate this onto the single
-            // queued message so follow-ups never jump ahead or fan out; otherwise send it straight from the
-            // draft. When idle with a staged message, drain right away so it doesn't linger.
-            if (values.isBusy || values.queuedMessages.length > 0) {
+            // While the agent is working, a send is in flight, or a message is already staged — concatenate
+            // this onto the single queued message so follow-ups never jump ahead or fan out; otherwise send it
+            // straight from the draft. `flushQueue` self-guards, draining only when the run is fully idle.
+            if (values.isBusy || values.sending || values.queuedMessages.length > 0) {
                 actions.enqueueMessage(content)
                 actions.clearDraft()
-                if (!values.isBusy) {
-                    actions.flushQueue()
-                }
+                actions.flushQueue()
             } else {
                 actions.sendNow(content, 'draft')
             }
         },
 
-        // Drain the staged "Up next" message — but only when the run can actually take it, so a flush against
-        // a terminal/in-flight send keeps it rather than dropping it. The queue is cleared by `sendNow` on
-        // success, not here, so a failed flush retains the message.
+        // Drain the staged "Up next" message — only when the run is idle and can actually take it, so a flush
+        // against a busy/terminal/in-flight send is a no-op rather than dropping the message. The buffer is
+        // cleared up-front (not after the send) so a follow-up typed during the in-flight send stages cleanly
+        // instead of being wiped along with this send on success; `sendNow` re-stages it if the send fails.
         flushQueue: () => {
             const [queued] = values.queuedMessages
-            if (!queued || !values.canSend) {
+            if (!queued || values.isBusy || !values.canSend) {
                 return
             }
+            actions.clearQueue()
             actions.sendNow(queued.content, 'queue')
         },
 
         sendNow: async ({ content, source }) => {
             if (values.sending || !content.trim() || values.isTerminal || values.currentProjectId == null) {
+                // Nothing was sent. The queue buffer was already cleared in `flushQueue`, so re-stage for
+                // retry; the draft path leaves its content untouched in the composer.
+                if (source === 'queue') {
+                    actions.prependQueuedMessage(content)
+                }
                 return
             }
             actions.setSending(true)
@@ -176,15 +188,18 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
                     method: 'user_message',
                     params: { content },
                 })
-                // The SSE echo (`pushHumanMessage`) reopens the turn. Clear the source only on success so a
-                // failed send keeps the user's text (in the composer or the queue) for retry.
+                // The SSE echo (`pushHumanMessage`) reopens the turn. Clear the draft only on success so a
+                // failed send keeps the user's text in the composer; the queue buffer was already cleared.
                 actions.pushHumanMessage(content)
                 if (source === 'draft') {
                     actions.clearDraft()
-                } else {
-                    actions.clearQueue()
                 }
             } catch {
+                // Restore unsent content for retry — the draft stays in the composer, queue content re-stages
+                // ahead of anything typed during the failed send so send order is preserved.
+                if (source === 'queue') {
+                    actions.prependQueuedMessage(content)
+                }
                 lemonToast.error('Failed to send message. Please try again.')
             } finally {
                 actions.setSending(false)

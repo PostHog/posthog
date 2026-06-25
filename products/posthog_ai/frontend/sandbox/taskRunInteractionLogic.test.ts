@@ -225,6 +225,101 @@ describe('taskRunInteractionLogic', () => {
         expect(logic.values.draft).toBe('continue from here')
     })
 
+    const setProjectId = (id: number | null): void =>
+        (project.actions as unknown as { setCurrentProjectId: (id: number | null) => void }).setCurrentProjectId(id)
+
+    it('no-ops and keeps the draft when submitting idle without a current project', async () => {
+        setProjectId(null)
+        setThinking(false)
+        logic.actions.setDraft('ship it')
+
+        await expectLogic(logic, () => {
+            logic.actions.submit()
+        }).toFinishAllListeners()
+
+        // Nothing can be sent without a project — the draft is preserved rather than dropped.
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(logic.values.draft).toBe('ship it')
+        expect(logic.values.queuedMessages).toEqual([])
+    })
+
+    it('stages the message while busy without a current project and never silently sends it', async () => {
+        setProjectId(null)
+        setThinking(true)
+        logic.actions.setDraft('follow up')
+
+        await expectLogic(logic, () => {
+            logic.actions.submit()
+        }).toFinishAllListeners()
+
+        // Busy + no project: the message is staged, and the guarded flush keeps it there rather than POSTing.
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(logic.values.draft).toBe('')
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
+    })
+
+    it('keeps a follow-up typed during an in-flight queue flush instead of clearing it with the send', async () => {
+        let resolveSend: () => void = () => {}
+        ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
+            new Promise<void>((resolve) => {
+                resolveSend = () => resolve()
+            })
+        )
+
+        // Stage a message while busy, then complete the turn to start flushing it.
+        setThinking(true)
+        logic.actions.setDraft('first')
+        logic.actions.submit()
+
+        setThinking(false)
+        stream.actions.markTurnComplete()
+        // The flush is now in flight: the buffer is cleared up-front so a new follow-up stages cleanly.
+        expect(logic.values.sending).toBe(true)
+        expect(logic.values.queuedMessages).toEqual([])
+
+        logic.actions.setDraft('second')
+        logic.actions.submit()
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'second' }])
+
+        await expectLogic(logic, () => {
+            resolveSend()
+        }).toFinishAllListeners()
+
+        // Only the first message was sent; the follow-up survives the flush rather than being lost.
+        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('first'))
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'second' }])
+    })
+
+    it('re-stages a queued message ahead of newer follow-ups when its flush fails', async () => {
+        let rejectSend: () => void = () => {}
+        ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
+            new Promise<void>((_, reject) => {
+                rejectSend = () => reject(new Error('boom'))
+            })
+        )
+
+        setThinking(true)
+        logic.actions.setDraft('first')
+        logic.actions.submit()
+
+        setThinking(false)
+        stream.actions.markTurnComplete()
+        expect(logic.values.queuedMessages).toEqual([])
+
+        // A follow-up staged while the flush is in flight.
+        logic.actions.setDraft('second')
+        logic.actions.submit()
+
+        await expectLogic(logic, () => {
+            rejectSend()
+        }).toFinishAllListeners()
+
+        // The failed send re-stages 'first' in front of 'second', preserving order, and toasts.
+        expect(lemonToast.error).toHaveBeenCalled()
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'first\n\nsecond' }])
+    })
+
     it('no-ops on submit with an empty draft', async () => {
         await expectLogic(logic, () => {
             logic.actions.submit()
