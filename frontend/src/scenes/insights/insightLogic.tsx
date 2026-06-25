@@ -348,7 +348,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 state: Partial<QueryBasedInsightModel>,
                 { dashboardId, insightIds }: { dashboardId: number; insightIds: number[] }
             ) => {
-                if (insightIds.includes(state.id)) {
+                if (state.id != null && insightIds.includes(state.id)) {
                     return { ...state, dashboards: [...(state.dashboards || []), dashboardId] }
                 }
                 return state
