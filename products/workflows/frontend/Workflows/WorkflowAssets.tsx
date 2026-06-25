@@ -15,7 +15,8 @@ import { ListHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
-import { HogFlowBatchJob, MessageAsset } from './hogflows/types'
+import { HogFlowBatchJob } from './hogflows/types'
+import { MessageAsset } from './messageAssetsApi'
 import { workflowAssetsLogic } from './workflowAssetsLogic'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 

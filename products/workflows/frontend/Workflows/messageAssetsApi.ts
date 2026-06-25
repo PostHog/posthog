@@ -1,11 +1,38 @@
 import api, { ApiRequest } from 'lib/api'
 
-import { HogFlow, MessageAsset, MessageAssetsParams } from './hogflows/types'
+import { HogFlow } from './hogflows/types'
 
-// Asset endpoints live on the hog_flows viewset. Kept out of lib/api.ts on purpose:
-// editing that high-fan-in file balloons the changed-files-based Jest selection
-// (`--findRelatedTests`) to almost the whole suite. These are workflows-scoped, so
-// they belong with the rest of the workflows frontend.
+// Asset endpoints + their types live here, not in lib/api.ts or hogflows/types.ts:
+// both are imported by half the app, so editing either balloons the changed-files
+// Jest selection (`--findRelatedTests`) to almost the whole suite. Keeping this
+// workflows-scoped keeps that selection small.
+
+// A rendered email snapshot captured when a workflow sent it. Mirrors
+// MessageAssetSerializer in products/workflows/backend/api/message_assets.py.
+export interface MessageAsset {
+    invocation_id: string
+    action_id: string
+    /** HogFlowBatchJob id for batch-triggered sends; empty for event-triggered runs. */
+    parent_run_id: string
+    kind: string
+    distinct_id: string
+    person_id: string
+    recipient: string
+    subject: string
+    status: string
+    sent_at: string
+}
+
+export interface MessageAssetsParams {
+    parent_run_id?: string
+    action_id?: string
+    distinct_id?: string
+    search?: string
+    after?: string
+    before?: string
+    limit?: number
+    offset?: number
+}
 
 export async function getMessageAssets(
     hogFlowId: HogFlow['id'],

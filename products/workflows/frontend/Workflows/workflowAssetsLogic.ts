@@ -3,8 +3,7 @@ import { lazyLoaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { MessageAsset } from './hogflows/types'
-import { getMessageAssetContentUrl, getMessageAssetPdf, getMessageAssets } from './messageAssetsApi'
+import { getMessageAssetContentUrl, getMessageAssetPdf, getMessageAssets, MessageAsset } from './messageAssetsApi'
 import type { workflowAssetsLogicType } from './workflowAssetsLogicType'
 
 export interface WorkflowAssetsLogicProps {
