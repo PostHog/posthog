@@ -626,10 +626,9 @@ export interface TestHogResponseApi {
  * * `generation` - generation
  * * `evaluation` - evaluation
  */
-export type ClusteringJobAnalysisLevelEnumApi =
-    (typeof ClusteringJobAnalysisLevelEnumApi)[keyof typeof ClusteringJobAnalysisLevelEnumApi]
+export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
 
-export const ClusteringJobAnalysisLevelEnumApi = {
+export const AnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
     Evaluation: 'evaluation',
@@ -639,7 +638,7 @@ export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: ClusteringJobAnalysisLevelEnumApi
+    analysis_level: AnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at: string
@@ -659,7 +658,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: ClusteringJobAnalysisLevelEnumApi
+    analysis_level?: AnalysisLevelEnumApi
     event_filters?: unknown
     enabled?: boolean
     readonly created_at?: string
@@ -1497,85 +1496,6 @@ export interface ScoreDefinitionNewVersionApi {
 
 /**
  * * `trace` - trace
- * * `generation` - generation
- */
-export type SentimentRequestAnalysisLevelEnumApi =
-    (typeof SentimentRequestAnalysisLevelEnumApi)[keyof typeof SentimentRequestAnalysisLevelEnumApi]
-
-export const SentimentRequestAnalysisLevelEnumApi = {
-    Trace: 'trace',
-    Generation: 'generation',
-} as const
-
-export interface SentimentRequestApi {
-    /**
-     * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
-     * @minItems 1
-     * @maxItems 5
-     */
-    ids: string[]
-    /** Whether the IDs are 'trace' IDs or 'generation' IDs.
-     *
-     * * `trace` - trace
-     * * `generation` - generation */
-    analysis_level?: SentimentRequestAnalysisLevelEnumApi
-    /** If true, bypass cache and reclassify. */
-    force_refresh?: boolean
-    /**
-     * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
-     * @nullable
-     */
-    date_from?: string | null
-    /**
-     * End of date range for the lookup. Defaults to now.
-     * @nullable
-     */
-    date_to?: string | null
-}
-
-export type MessageSentimentApiScores = { [key: string]: number }
-
-export interface MessageSentimentApi {
-    label: string
-    score: number
-    scores: MessageSentimentApiScores
-}
-
-export type SentimentResultApiScores = { [key: string]: number }
-
-export type SentimentResultApiMessages = { [key: string]: MessageSentimentApi }
-
-export interface SentimentResultApi {
-    label: string
-    score: number
-    scores: SentimentResultApiScores
-    messages: SentimentResultApiMessages
-    message_count: number
-}
-
-export type SentimentBatchResponseApiResults = { [key: string]: SentimentResultApi }
-
-export interface SentimentBatchResponseApi {
-    results: SentimentBatchResponseApiResults
-}
-
-/**
- * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
- *
- * `filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
- * path used (dateRange, filterTestAccounts, properties), so the migration is
- * behaviour-preserving for callers that pass a request unchanged.
- */
-export interface SentimentGenerationsRequestApi {
-    filters?: unknown
-}
-
-export interface SentimentGenerationsResponseApi {
-    results: unknown[][]
-}
-
-/**
- * * `trace` - trace
  * * `event` - event
  */
 export type SummarizeTypeEnumApi = (typeof SummarizeTypeEnumApi)[keyof typeof SummarizeTypeEnumApi]
@@ -2360,6 +2280,14 @@ export type EvaluationsListParams = {
      */
     enabled?: boolean
     /**
+     * Filter by evaluation type
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
+     */
+    evaluation_type?: EvaluationsListEvaluationType
+    /**
      * Multiple values may be separated by commas.
      */
     id__in?: string[]
@@ -2387,6 +2315,15 @@ export type EvaluationsListParams = {
      */
     search?: string
 }
+
+export type EvaluationsListEvaluationType =
+    (typeof EvaluationsListEvaluationType)[keyof typeof EvaluationsListEvaluationType]
+
+export const EvaluationsListEvaluationType = {
+    Hog: 'hog',
+    LlmJudge: 'llm_judge',
+    Sentiment: 'sentiment',
+} as const
 
 export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown }
 
@@ -2562,14 +2499,6 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      */
     search?: string
 }
-
-export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 

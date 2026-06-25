@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
@@ -14,9 +14,9 @@ import { EmailTrackingCodeSigner } from '../../../src/cdp/services/messaging/hel
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
-import { parseJSON } from '../../utils/json-parse'
-import { promisifyCallback } from '../../utils/utils'
+import { createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
+import { promisifyCallback } from '~/common/utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
@@ -24,8 +24,8 @@ import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.servic
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
-jest.mock('~/utils/request', () => {
-    const original = jest.requireActual('~/utils/request')
+jest.mock('~/common/utils/request', () => {
+    const original = jest.requireActual('~/common/utils/request')
     return {
         ...original,
         fetch: jest.fn().mockImplementation((url, options) => {
@@ -34,7 +34,7 @@ jest.mock('~/utils/request', () => {
     }
 })
 
-import { fetch } from '~/utils/request'
+import { fetch } from '~/common/utils/request'
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -1770,7 +1770,7 @@ describe('Hog Executor', () => {
 
         describe('with non_failure_status_codes', () => {
             beforeEach(() => {
-                const actualRequest = jest.requireActual('~/utils/request') as { fetch: typeof fetch }
+                const actualRequest = jest.requireActual('~/common/utils/request') as { fetch: typeof fetch }
                 jest.mocked(fetch).mockImplementation((url, options) => actualRequest.fetch(url, options))
             })
 

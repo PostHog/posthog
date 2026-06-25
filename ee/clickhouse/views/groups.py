@@ -982,7 +982,7 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
             raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
 
     def _validate_data_warehouse(self, filters: dict, math, math_property):
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         missing = [field for field in _DW_FILTER_REQUIRED_FIELDS if not filters.get(field)]
         if missing:

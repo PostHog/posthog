@@ -5,11 +5,10 @@ from posthog.hogql import ast
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas.subscription import SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import extract_json_string
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 from products.warehouse_sources.backend.facade.sources import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 def build(handle: SourceHandle) -> BuiltQuery:

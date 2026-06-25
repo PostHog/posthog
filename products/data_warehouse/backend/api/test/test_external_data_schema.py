@@ -19,6 +19,7 @@ from temporalio.service import RPCError
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
@@ -452,6 +453,48 @@ class TestExternalDataSchema(APIBaseTest):
             schema.refresh_from_db()
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_update_schema_sync_type_is_logged_to_activity(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        )
+
+        with (
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "full_refresh"},
+            )
+            assert response.status_code == 200
+
+        logs = ActivityLog.objects.filter(scope="ExternalDataSchema", item_id=str(schema.id), activity="updated")
+        sync_type_changes = [
+            c for log in logs for c in (log.detail or {}).get("changes", []) if c["field"] == "sync_type"
+        ]
+        assert sync_type_changes == [
+            {
+                "type": "ExternalDataSchema",
+                "field": "sync_type",
+                "action": "changed",
+                "before": "incremental",
+                "after": "full_refresh",
+            }
+        ]
 
     def test_update_schema_sets_and_clears_incremental_field_lookback_seconds(self):
         source = ExternalDataSource.objects.create(
