@@ -178,18 +178,18 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 
 ### 🔭 Stage 3 — durable persistence & the loop-y review (cloud)
 
-> **Status: Stage 3 complete (steps 1–8 built & green).** Foundation, persist-after-success, explicit
+> **Status: Stage 3 complete (steps 1–9 built & green).** Foundation, persist-after-success, explicit
 > team/user identity, the per-turn **point-in-time diff snapshot**, and now **step 8 — Postgres is the
 > single source of truth and the on-disk `reviews/<pr>/` store is gone**. The pipeline passes objects
 > in-process within a run and persists every stage to rows; a `head_sha`-scoped **DB-driven resume** reuses
 > the turn-stable sandbox stages (chunk / analyze / lens review) on a re-run. The sandbox executor returns a
 > validated model (via `MultiTurnSession.start(model=…)`) instead of writing a file, and publish is
 > **DB-driven** (body from `ReviewReport.report_markdown`, inline comments from the finding/verdict rows). No
-> object storage. Lint + tach + the ReviewHog backend suite (125) + the Signals artefact suite pass. What
-> remains (next steps): **(9)** a `reset_review_hog` management command to wipe ReviewHog's DB rows for a clean
-> slate while iterating, then **(10)** the **Temporal migration** — orchestrator → parent workflow + the loop-y
-> re-check; plus the deferred `task_run` / `note` work-log artefacts and cross-turn finding identity (semantic,
-> not the per-turn positional `issue_key`). See the
+> object storage. **Step 9 — `reset_review_hog`** now wipes all ReviewHog DB rows (DEBUG-only, unscoped,
+> `--dry-run` / `--yes`) so iteration starts from a clean slate. Lint + tach + the ReviewHog backend suite
+> (128) + the Signals artefact suite pass. What remains (next step): **(10)** the **Temporal migration** —
+> orchestrator → parent workflow + the loop-y re-check; plus the deferred `task_run` / `note` work-log
+> artefacts and cross-turn finding identity (semantic, not the per-turn positional `issue_key`). See the
 > step list and the Deferred / future section below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
@@ -441,19 +441,23 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
    cross-turn identity before it re-reviews across commits. The `task_run` / `note` work-log artefacts and
    validation resume also land with the loop.
 
-9. ⏭️ **(next) `reset_review_hog` management command — wipe ReviewHog's DB state for a clean slate.** As we
-   iterate, a one-shot `python manage.py reset_review_hog` deletes all ReviewHog rows — every
+9. ✅ **`reset_review_hog` management command — wipe ReviewHog's DB state for a clean slate.** A one-shot
+   `python manage.py reset_review_hog` deletes **all** ReviewHog rows across every team — every
    `ReviewReportArtefact` (findings, verdicts, commit snapshots, and the `chunk_set` / `chunk_analysis` /
    `lens_result` working state) and every `ReviewReport` — so a re-run starts genuinely fresh instead of
-   resuming or accumulating against stale turns. Team-scoped (default `--team-id`, plus an explicit `--all` for
-   every team, and optionally `--pr-url` / `--repository` to scope to one report). Now that Postgres is the
-   single source of truth, this is the _entire_ "clean state" story — there are no files left to remove. (Write
-   it via the fail-closed managers, e.g. `ReviewReport.objects.for_team(team_id)`, not raw SQL.)
+   resuming or accumulating against stale turns. Now that Postgres is the single source of truth, this is the
+   _entire_ "clean state" story — there are no files left to remove. **Local iteration helper only:** it
+   refuses to run unless `DEBUG=True` (the only guard — a full wipe is intentionally non-prod), and is
+   deliberately **unscoped** — no `--team-id` / `--pr-url`, it just clears everything. `--dry-run` previews the
+   counts without touching the DB; `--yes` skips the interactive confirm for scripted runs. The wipe goes
+   through the fail-closed managers' cross-team escape hatch (`ReviewReport.objects.unscoped()` /
+   `ReviewReportArtefact.objects.unscoped()`), not raw SQL. (Tests in `backend/tests/test_reset_review_hog.py`:
+   the DEBUG gate, the cross-team wipe, and `--dry-run` safety.)
 10. ⏭️ **(after) Make the whole pipeline Temporal.** Rework `run.py main()` into a **parent workflow** with each
     stage a child workflow / activity (exchanging Postgres **row ids by reference**, ~2 MiB payload cap), and add
     the **loop-y re-check** as a long-running `continue-as-new` workflow advanced by the report's `head_sha` /
-    `last_seen_comment_id` watermark. Step 8's DB-driven, head*sha-scoped design exists precisely so this is an
-    \_orchestration* change, not a persistence one. Cross-turn finding identity (semantic, not the positional
+    `last_seen_comment_id` watermark. Step 8's DB-driven, `head_sha`-scoped design exists precisely so this is
+    an _orchestration_ change, not a persistence one. Cross-turn finding identity (semantic, not the positional
     `issue_key`) and the `task_run` / `note` work-log artefacts land here. Full design in _Everything on
     Temporal_ under Deferred / future below.
 
