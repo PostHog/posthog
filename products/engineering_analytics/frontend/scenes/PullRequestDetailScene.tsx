@@ -612,7 +612,7 @@ export function PullRequestDetailScene(): JSX.Element {
                 <LemonSkeleton className="h-5 w-96" />
             )}
 
-            <div className="max-w-5xl">
+            <div>
                 <PrSummaryCards
                     cost={prCost}
                     costLoading={prCostLoading}
@@ -627,7 +627,7 @@ export function PullRequestDetailScene(): JSX.Element {
             </div>
 
             {summary && pullRequest ? (
-                <div className="max-w-5xl">
+                <div>
                     <LifecycleStrip
                         summary={summary}
                         openedAt={summary.openedAt ?? pullRequest.created_at}
@@ -635,10 +635,10 @@ export function PullRequestDetailScene(): JSX.Element {
                     />
                 </div>
             ) : (
-                <LemonSkeleton className="h-12 w-full max-w-5xl" />
+                <LemonSkeleton className="h-12 w-full" />
             )}
 
-            <div className="max-w-5xl">
+            <div>
                 <div className="mb-2 flex items-baseline gap-3">
                     <h3 className="mb-0">CI runs</h3>
                     {runs.length > 0 && (
@@ -732,7 +732,7 @@ export function PullRequestDetailScene(): JSX.Element {
                 )}
             </div>
 
-            <div className="max-w-5xl text-xs text-tertiary">
+            <div className="text-xs text-tertiary">
                 CI runs attributed to this pull request across all its commits — review and comment activity isn't
                 tracked yet.
             </div>
