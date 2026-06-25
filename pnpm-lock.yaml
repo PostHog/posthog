@@ -4141,6 +4141,9 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+      msw:
+        specifier: '*'
+        version: 2.14.6(@types/node@25.8.0)(typescript@6.0.3)
 
   products/toolbar: {}
 
@@ -27090,7 +27093,6 @@ snapshots:
       '@inquirer/type': 4.0.7(@types/node@25.8.0)
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@inquirer/core@11.2.1(@types/node@22.18.8)':
     dependencies:
@@ -27115,7 +27117,6 @@ snapshots:
       signal-exit: 4.1.0
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@inquirer/figures@2.0.7': {}
 
@@ -27126,7 +27127,6 @@ snapshots:
   '@inquirer/type@4.0.7(@types/node@25.8.0)':
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@ioredis/commands@1.10.0':
     optional: true
@@ -41691,7 +41691,6 @@ snapshots:
       typescript: 6.0.3
     transitivePeerDependencies:
       - '@types/node'
-    optional: true
 
   muggle-string@0.4.1: {}
 

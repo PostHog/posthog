@@ -16,6 +16,7 @@ import {
 import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,
+    getDefaultErrorTrackingConsumerConfig,
     getDefaultErrorTrackingOutputsConfig,
 } from '~/ingestion/pipelines/errortracking/config'
 import { ErrorTrackingConsumer } from '~/ingestion/pipelines/errortracking/error-tracking-consumer'
@@ -36,6 +37,7 @@ import {
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
     RedisConnectionsConfig,
+    getDefaultIngestionConsumerConfig,
 } from '../ingestion/config'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
@@ -95,6 +97,8 @@ export class ErrorTrackingServer implements NodeServer {
     constructor(config: Partial<ErrorTrackingServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
+            ...overrideConfigWithEnv(getDefaultErrorTrackingConsumerConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultErrorTrackingOutputsConfig()),
