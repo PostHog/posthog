@@ -39,6 +39,7 @@
         "generate-cli-agent-scopes": "tsx scripts/build-cli-agent-scopes.ts",
         "scaffold-yaml": "tsx scripts/scaffold-yaml.ts",
         "lint-tool-names": "tsx scripts/lint-tool-names.ts",
+        "tool-search-debug": "tsx scripts/tool-search-debug.ts",
         "format": "oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {
