@@ -123,6 +123,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
     // `query_performance` is omitted — OAuth-hidden, PAT-grantable only (see `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py).
+    // `wizard_session` is also omitted for the same reason.
     { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
     { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
@@ -334,6 +335,24 @@ export const getScopeDescription = (scope: string): string | undefined => {
     const actionWord = action === 'write' ? 'Write' : 'Read'
 
     return `${actionWord} access to ${scopeObject.objectPlural}`
+}
+
+/**
+ * Like getScopeDescription but always returns a string. Falls back to a formatted
+ * version of the raw scope string for hidden/unknown scopes (e.g. `wizard_session:write`
+ * → "Write access to wizard session") so the OAuth consent screen never shows raw identifiers.
+ */
+export const formatScopeDescription = (scope: string): string => {
+    const known = getScopeDescription(scope)
+    if (known !== undefined) {
+        return known
+    }
+    const [object, action] = scope.split(':')
+    if (!object || !action) {
+        return scope
+    }
+    const actionWord = action === 'write' ? 'Write' : 'Read'
+    return `${actionWord} access to ${object.replace(/_/g, ' ')}`
 }
 
 export const getMinimumEquivalentScopes = (scopes: string[]): string[] => {
