@@ -562,8 +562,13 @@ impl<'a> HogVM<'a> {
             Operation::Closure => {
                 let callable: Callable = self.pop_stack_as()?;
                 let capture_count: usize = self.next()?;
-                // Irrefutable match for now
-                let Callable::Local(unwrapped) = &callable;
+                // Only hog-local callables are wrapped by the CLOSURE opcode; native (STL) callables
+                // are produced already-closed by GetGlobal, so they should never reach here.
+                let Callable::Local(unwrapped) = &callable else {
+                    return Err(VmError::InvalidCall(
+                        "cannot close over a native function".to_string(),
+                    ));
+                };
                 // Because captures are an implicit part of compilation, it's never valid
                 // for them to be different from the number of captures in the callable.
                 if capture_count != unwrapped.capture_count {
@@ -595,7 +600,22 @@ impl<'a> HogVM<'a> {
             Operation::CallLocal => {
                 let closure: Closure = self.pop_stack_as()?;
                 let arg_count: usize = self.next()?;
-                let Callable::Local(callable) = &closure.callable;
+                let callable = match &closure.callable {
+                    Callable::Local(callable) => callable,
+                    // A first-class native function value (e.g. `let f := base64Encode; f(x)`):
+                    // pop the args (push order, reversed for v>0 like CallGlobal) and dispatch natively.
+                    Callable::Stl(name) => {
+                        let name = name.clone();
+                        let mut args = Vec::with_capacity(arg_count);
+                        for _ in 0..arg_count {
+                            args.push(self.pop_stack()?);
+                        }
+                        if self.context.version() != 0 {
+                            args.reverse();
+                        }
+                        return Ok(self.prep_native_call(name, args));
+                    }
+                };
                 if arg_count > callable.stack_arg_count {
                     return Err(VmError::InvalidCall(format!(
                         "Too many args - expected {}, got {}",
@@ -825,7 +845,19 @@ impl<'a> HogVM<'a> {
 
     // TODO - we don't support function imports right now - most trivial programs don't need them,
     // and filters are generally trivial
-    fn get_fn_reference(&self, _chain: &[HogValue]) -> Result<HogLiteral, VmError> {
+    // Resolve a global name referenced as a first-class function value. Currently supports native
+    // (STL) functions — `let f := base64Encode` yields a closure that dispatches to the native fn.
+    fn get_fn_reference(&self, chain: &[HogValue]) -> Result<HogLiteral, VmError> {
+        if chain.len() != 1 {
+            return Err(VmError::NotImplemented("imports".to_string()));
+        }
+        let name: &str = chain[0].deref(&self.heap)?.try_as()?;
+        if self.context.has_native(name) {
+            return Ok(HogLiteral::Closure(Closure {
+                callable: Callable::Stl(name.to_string()),
+                captures: Vec::new(),
+            }));
+        }
         Err(VmError::NotImplemented("imports".to_string()))
     }
 

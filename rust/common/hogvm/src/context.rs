@@ -144,6 +144,12 @@ impl ExecutionContext {
             .ok_or(VmError::UnknownSymbol(symbol.to_string()))
     }
 
+    // Whether `name` is a registered native (STL/ext) function — used to resolve first-class
+    // references to native functions in GetGlobal.
+    pub fn has_native(&self, name: &str) -> bool {
+        self.native_fns.contains_key(name)
+    }
+
     pub fn execute_native_function_call(
         &self,
         vm: &mut HogVM,

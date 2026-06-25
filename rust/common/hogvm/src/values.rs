@@ -20,6 +20,9 @@ pub enum Num {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Callable {
     Local(LocalCallable),
+    // A reference to a native (STL) function used as a first-class value, e.g. `let f := base64Encode`.
+    // Calling it dispatches to the native function by name rather than jumping to hog bytecode.
+    Stl(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -773,6 +776,7 @@ impl Display for Callable {
                     c.name, c.stack_arg_count, c.capture_count, c.ip
                 )
             }
+            Self::Stl(name) => write!(f, "native fn {name}"),
         }
     }
 }

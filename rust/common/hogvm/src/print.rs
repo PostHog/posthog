@@ -131,8 +131,14 @@ fn format_literal(
 }
 
 fn print_callable(callable: &Callable) -> String {
-    let Callable::Local(local) = callable;
-    format!("fn<{}({})>", escape_identifier(&local.name), local.stack_arg_count)
+    match callable {
+        Callable::Local(local) => {
+            format!("fn<{}({})>", escape_identifier(&local.name), local.stack_arg_count)
+        }
+        // Native arity isn't tracked here; the reference prints maxArgs, but no corpus program
+        // prints a bare native-function value, so the count is a placeholder.
+        Callable::Stl(name) => format!("fn<{}(0)>", escape_identifier(name)),
+    }
 }
 
 // Render the Hog temporal duck-types: `{__hogDateTime__: true, dt, zone}` -> `DateTime(dt, 'zone')`
