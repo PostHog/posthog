@@ -1887,7 +1887,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
     HOME = "home"
-    APPS = "apps"
+    TOOLS = "tools"
     LIVE = "live"
     CHAT = "chat"
     SEARCH = "search"

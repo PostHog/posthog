@@ -55,15 +55,7 @@ export const Default: Story = { args: { granularity: 'day' } }
 
 export const Upcoming: Story = { args: { selectionPeriod: 'upcoming' } }
 
-export const UpcomingWithLimit: Story = {
-    args: { selectionPeriod: 'upcoming', selectionPeriodLimit: dayjs().add(1, 'day') },
-}
-
 export const Past: Story = { args: { selectionPeriod: 'past' } }
-
-export const PastWithLimit: Story = {
-    args: { selectionPeriod: 'past', selectionPeriodLimit: dayjs().subtract(1, 'day') },
-}
 
 export const Hour: Story = { args: { granularity: 'hour' } }
 

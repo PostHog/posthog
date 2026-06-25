@@ -107,7 +107,7 @@ def external_data_schema_workflow_jobs_full_refresh(external_data_source, team):
     )
 
 
-@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_github_issues_full_refresh(
@@ -130,7 +130,7 @@ async def test_github_issues_full_refresh(
     assert "/repos/owner/repo/issues" in api_calls[0].url
 
 
-@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_github_issues_incremental(
@@ -185,7 +185,7 @@ async def test_github_issues_incremental(
     assert "since" in second_call_params
 
 
-@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_github_commits_incremental(
@@ -207,7 +207,7 @@ async def test_github_commits_incremental(
     assert "/repos/owner/repo/commits" in api_calls[0].url
 
 
-@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_github_pull_requests_incremental(
@@ -233,7 +233,7 @@ async def test_github_pull_requests_incremental(
     assert "since" not in first_call_params
 
 
-@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_github_workflow_runs_full_refresh(
@@ -261,7 +261,7 @@ async def test_github_workflow_runs_full_refresh(
     assert "created" not in first_call_params
 
 
-@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_github_workflow_runs_incremental(
@@ -298,7 +298,7 @@ async def test_github_workflow_runs_incremental(
     assert "state" not in first_call_params
 
 
-@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_github_workflow_jobs_full_refresh(
@@ -335,7 +335,7 @@ async def test_github_workflow_jobs_full_refresh(
         assert "since" not in params
 
 
-@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_github_workflow_jobs_load_bearing_fields_land_queryable(

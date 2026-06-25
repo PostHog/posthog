@@ -15,6 +15,8 @@ import type {
     AccountsNotebooksListParams,
     CustomPropertyDefinitionApi,
     CustomPropertyDefinitionsListParams,
+    CustomPropertyValueApi,
+    CustomPropertyValueWriteApi,
     CustomerJourneyApi,
     CustomerJourneysListParams,
     CustomerProfileConfigApi,
@@ -92,6 +94,39 @@ export const accountsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(accountApi),
+    })
+}
+
+export const getAccountsCustomPropertyValuesListUrl = (projectId: string, accountId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/custom_property_values/`
+}
+
+export const accountsCustomPropertyValuesList = async (
+    projectId: string,
+    accountId: string,
+    options?: RequestInit
+): Promise<CustomPropertyValueApi[]> => {
+    return apiMutator<CustomPropertyValueApi[]>(getAccountsCustomPropertyValuesListUrl(projectId, accountId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsCustomPropertyValuesCreateUrl = (projectId: string, accountId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/custom_property_values/`
+}
+
+export const accountsCustomPropertyValuesCreate = async (
+    projectId: string,
+    accountId: string,
+    customPropertyValueWriteApi: CustomPropertyValueWriteApi,
+    options?: RequestInit
+): Promise<CustomPropertyValueApi> => {
+    return apiMutator<CustomPropertyValueApi>(getAccountsCustomPropertyValuesCreateUrl(projectId, accountId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customPropertyValueWriteApi),
     })
 }
 
