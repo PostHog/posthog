@@ -39,6 +39,7 @@ export default meta
 export const MCPMissingCapability: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/mcpMissingCapability.json')
 )
+/* eslint-enable @typescript-eslint/no-var-requires */
 MCPMissingCapability.parameters = {
     testOptions: { waitForSelector: '[data-attr=insights-table-graph] td' },
 }
