@@ -1707,6 +1707,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitMax)
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitDefault)
                                     .describe('Maximum number of events to return.'),
+                                eventName: zod
+                                    .union([zod.string().min(1), zod.null()])
+                                    .optional()
+                                    .describe('Limit the feed to a single event name. Omit or null for all events.'),
                             })
                             .optional()
                             .describe('New configuration for the recent events widget. Omit to leave unchanged.'),
