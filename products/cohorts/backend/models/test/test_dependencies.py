@@ -1269,6 +1269,31 @@ class TestFlagExcludedBehavioralCohortIds(BaseTest):
     def _ref_filters(self, cohort_id: int) -> dict:
         return {"properties": {"type": "OR", "values": [{"type": "cohort", "key": "id", "value": str(cohort_id)}]}}
 
+    def _nested_behavioral_filters(self) -> dict:
+        # Behavioral node buried inside an inner AND group, so detection has to recurse
+        # rather than read the top-level value list.
+        return {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"type": "person", "key": "email", "value": "a@b.com"},
+                            {
+                                "type": "behavioral",
+                                "key": "$pageview",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "time_value": 30,
+                                "time_interval": "day",
+                            },
+                        ],
+                    }
+                ],
+            }
+        }
+
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
@@ -1354,3 +1379,36 @@ class TestFlagExcludedBehavioralCohortIds(BaseTest):
 
         self.assertIn(realtime_behavioral.id, excluded_without)
         self.assertNotIn(realtime_behavioral.id, excluded_with)
+
+    def test_detects_behavioral_nested_in_group_and_two_hop_referrers(self) -> None:
+        # Behavioral node nested inside an inner AND group exercises the check_property_values recursion.
+        behavioral = Cohort.objects.create(
+            team=self.team, name="nested_behavioral", filters=self._nested_behavioral_filters()
+        )
+        # Two-hop chain hop2 -> hop1 -> behavioral exercises the reverse-walk traversal, not a single edge.
+        hop1 = Cohort.objects.create(team=self.team, name="hop1", filters=self._ref_filters(behavioral.id))
+        hop2 = Cohort.objects.create(team=self.team, name="hop2", filters=self._ref_filters(hop1.id))
+
+        excluded = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False)
+
+        self.assertEqual(excluded, {behavioral.id, hop1.id, hop2.id})
+
+    def test_cache_invalidated_when_cohort_deleted(self) -> None:
+        cache_key_false = _behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=False)
+        cache_key_true = _behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=True)
+        behavioral = Cohort.objects.create(team=self.team, name="behavioral", filters=self.BEHAVIORAL_FILTERS)
+
+        self.assertEqual(
+            get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False), {behavioral.id}
+        )
+        self.assertEqual(
+            get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=True), {behavioral.id}
+        )
+        self.assertIsNotNone(cache.get(cache_key_false))
+        self.assertIsNotNone(cache.get(cache_key_true))
+
+        # Deleting the cohort must invalidate both cache key variants.
+        behavioral.delete()
+
+        self.assertIsNone(cache.get(cache_key_false))
+        self.assertIsNone(cache.get(cache_key_true))
