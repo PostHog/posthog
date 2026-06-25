@@ -1,6 +1,14 @@
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
-import type { OrganizationMemberType, RoleType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    OrganizationMemberType,
+    PropertyFilterType,
+    PropertyOperator,
+    RoleType,
+} from '~/types'
 
+import { matchingExceptionsUrl, matchingIssuesUrl } from '../rules/ruleMatchUrls'
 import {
     bestAssigneeMatch,
     entriesByOwner,
@@ -12,7 +20,8 @@ import {
     patternToSourceValue,
 } from './codeowners'
 import { buildImpactRows } from './codeownersImpact'
-import { CodeOwnerRuleCandidate, buildMappingRows, buildSavableRows } from './codeownersImport'
+import { CodeOwnerRuleCandidate, buildMappingRows, buildOwnerFilters, buildSavableRows } from './codeownersImport'
+import { exceptionsUrl as codeOwnersExceptionsUrl, issuesUrl as codeOwnersIssuesUrl } from './codeownersUrls'
 
 function makeRole(name: string): RoleType {
     return { id: name.toLowerCase(), name } as RoleType
@@ -208,6 +217,38 @@ describe('codeowners helpers', () => {
                     patterns: ['a/**', 'b/**'],
                 },
             ])
+        })
+    })
+
+    describe('rule match URLs', () => {
+        const browserFilter: AnyPropertyFilter = {
+            key: '$browser',
+            value: ['Firefox'],
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+        }
+
+        it('builds exception and issue links for normal rule filters', () => {
+            const exceptionsUrl = decodeURIComponent(matchingExceptionsUrl([browserFilter], '-30d'))
+            const issuesUrl = decodeURIComponent(matchingIssuesUrl([browserFilter], FilterLogicalOperator.And, '-30d'))
+
+            expect(exceptionsUrl).toContain('$exception')
+            expect(exceptionsUrl).toContain('timestamp DESC')
+            expect(exceptionsUrl).toContain('-30d')
+            expect(issuesUrl).toContain('filterGroup')
+            expect(issuesUrl).toContain('"date_from":"-30d"')
+        })
+
+        it('uses the same rule match URL helpers for code owners impact links', () => {
+            const patterns = ['products/error_tracking/**']
+            const filters = buildOwnerFilters(patterns)
+
+            expect(codeOwnersExceptionsUrl(patterns, '-90d')).toEqual(
+                matchingExceptionsUrl(filters.values as AnyPropertyFilter[], '-90d')
+            )
+            expect(codeOwnersIssuesUrl(patterns, '-90d')).toEqual(
+                matchingIssuesUrl(filters.values as AnyPropertyFilter[], filters.type, '-90d')
+            )
         })
     })
 
