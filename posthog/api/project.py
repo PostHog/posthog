@@ -916,12 +916,7 @@ class ProjectBackwardCompatSerializer(
         return TeamSerializer.validate_workflows_config(value)
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
-        try:
-            team = project.passthrough_team
-        except Team.DoesNotExist:
-            # A project should always have a passthrough team; degrade gracefully
-            # rather than 500ing the whole retrieve if the row is missing.
-            return None
+        team = project.passthrough_team
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
@@ -931,12 +926,7 @@ class ProjectBackwardCompatSerializer(
         return cached_group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
-        try:
-            team = project.passthrough_team
-        except Team.DoesNotExist:
-            # A project should always have a passthrough team; degrade gracefully
-            # rather than 500ing the whole retrieve if the row is missing.
-            return None
+        team = project.passthrough_team
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return get_or_mint_live_events_token(team, user_id)
@@ -960,10 +950,7 @@ class ProjectBackwardCompatSerializer(
         # .delay() on every render, and read intents from a per-team cache. The old
         # unconditional .delay() did a broker round-trip on every retrieve and would
         # 500 the endpoint when the broker was unavailable.
-        try:
-            team = obj.passthrough_team
-        except Team.DoesNotExist:
-            return []
+        team = obj.passthrough_team
         enqueue_product_activation_calc_debounced(team.id)
         return cached_product_intents_for_team(team.id)
 
