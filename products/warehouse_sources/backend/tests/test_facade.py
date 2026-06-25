@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 
 from posthog.models import Team
 
-from products.warehouse_sources.backend.facade import api, contracts, hogql, sources, temporal
+from products.warehouse_sources.backend.facade import api, contracts, hogql, hooks, sources, temporal
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -116,8 +116,9 @@ def test_hogql_reexports_are_the_model_classes() -> None:
 
 
 def test_wiring_reexports_resolve() -> None:
-    assert callable(temporal.register_revenue_view_sync)
-    assert callable(temporal.register_emit_signals_gate)
+    assert callable(hooks.register_revenue_view_sync)
+    assert callable(hooks.register_emit_signals_gate)
+    assert hooks.EmitSignalsActivityInputs is not None
     assert temporal.ACTIVITIES is not None and temporal.WORKFLOWS is not None
     assert isinstance(sources.CHARGE_RESOURCE_NAME, str)
     assert sources.NamingConvention is not None
