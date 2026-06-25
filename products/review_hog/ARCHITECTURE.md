@@ -477,8 +477,11 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
     sync at run start. Delivery flipped to **pull**: `issues_review/prompt.jinja` instructs the agent to
     `skill-get(review-hog-perspective-…, version=N)` over MCP (the sandbox's default `full` scope carries
     `llm_skill:read`). The three couple into one ordered `PERSPECTIVES` registry (`reviewer/skill_loader.py`)
-    the Temporal fan-out will iterate. Per-team custom perspectives stay a later iteration. Full design in
-    _Perspectives as LLMA skills_ under Deferred / future below.
+    the Temporal fan-out will iterate. Per-team custom perspectives stay a later iteration. The perspectives
+    surface in the **Skills UI** under a **Review perspectives** tab (`category="review_perspective"` →
+    `SKILL_CATEGORY_TABS` in `products/skills/frontend/llmSkillsLogic.ts` + the `/skills/perspectives` route in
+    `products/skills/manifest.tsx`; mirrors the Signals "Scouts" tab — shows only when the team has ≥1
+    perspective row). Full design in _Perspectives as LLMA skills_ under Deferred / future below.
 11. ⏭️ **(next) Iterate on the review prompt — perspective-agnostic base + context-injection strategy.** Two
     coupled prompt changes that also de-risk Temporal: **(a)** make `issues_review/prompt.jinja` fully
     perspective-agnostic — strip the hardcoded perspective name/number from the prose so the only
