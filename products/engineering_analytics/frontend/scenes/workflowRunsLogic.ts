@@ -38,16 +38,12 @@ export interface WorkflowRunsLogicProps {
     workflowName: string
     // Which GitHub source the list was scoped to, threaded from `?source=` via paramsToProps.
     sourceId: string | null
-    tabId?: string
 }
 
 export const workflowRunsLogic = kea<workflowRunsLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'workflowRunsLogic']),
     props({} as WorkflowRunsLogicProps),
-    key(
-        (props) =>
-            `${props.tabId ?? 'default'}/${props.repoOwner}/${props.repoName}/${props.workflowName}@${props.sourceId ?? ''}`
-    ),
+    key((props) => `${props.repoOwner}/${props.repoName}/${props.workflowName}@${props.sourceId ?? ''}`),
 
     actions({
         // Row expansion is keyed by a per-row key (re-runs share a run_id); jobs are fetched per run+attempt.

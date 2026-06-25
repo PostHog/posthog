@@ -18,17 +18,13 @@ export interface WorkflowRunDetailLogicProps {
     runId: number
     // Which GitHub source the list was scoped to, threaded from `?source=` via paramsToProps.
     sourceId: string | null
-    tabId?: string
 }
 
 export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'workflowRunDetailLogic']),
     props({} as WorkflowRunDetailLogicProps),
     // sourceId is part of the identity: the same run id only exists within one source.
-    key(
-        (props) =>
-            `${props.tabId ?? 'default'}/${props.repoOwner}/${props.repoName}/runs/${props.runId}@${props.sourceId ?? ''}`
-    ),
+    key((props) => `${props.repoOwner}/${props.repoName}/runs/${props.runId}@${props.sourceId ?? ''}`),
 
     loaders(({ props }) => ({
         run: [

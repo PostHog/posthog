@@ -23,13 +23,12 @@ export interface AuthorLogicProps {
     handle: string
     // Which GitHub source the list was scoped to, threaded from `?source=` via paramsToProps.
     sourceId: string | null
-    tabId?: string
 }
 
 export const authorLogic = kea<authorLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'authorLogic']),
     props({} as AuthorLogicProps),
-    key((props) => `${props.tabId ?? 'default'}/author/${props.handle}@${props.sourceId ?? ''}`),
+    key((props) => `author/${props.handle}@${props.sourceId ?? ''}`),
 
     actions({
         // Window for the cost tiles only — the PR list below is not re-scoped by it.
