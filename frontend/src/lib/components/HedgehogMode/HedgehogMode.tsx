@@ -6,7 +6,7 @@ import { inStorybook } from 'lib/utils/dom'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
-import { useAppShortcut } from '../AppShortcuts/useAppShortcut'
+import { useShortcut } from '../Shortcuts/useShortcut'
 import { hedgehogModeLogic } from './hedgehogModeLogic'
 import { HedgehogModeConfig } from './types'
 
@@ -64,7 +64,7 @@ export function HedgehogMode({ enabledOverride }: HedgehogModeProps): JSX.Elemen
         },
     }
 
-    useAppShortcut({
+    useShortcut({
         name: 'ToggleHedgehogMode',
         keybind: [],
         intent: 'Toggle hedgehog mode',

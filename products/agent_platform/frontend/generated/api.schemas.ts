@@ -543,7 +543,10 @@ export type AgentRevisionApiSpecResume = {
 }
 
 export type AgentRevisionApiSpec = {
-    /** @minLength 1 */
+    /**
+     * @minLength 1
+     * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+     */
     model: string
     triggers: AgentRevisionApiSpecTriggersItem[]
     tools: AgentRevisionApiSpecToolsItem[]
@@ -943,7 +946,10 @@ export type PatchedAgentRevisionApiSpecResume = {
 }
 
 export type PatchedAgentRevisionApiSpec = {
-    /** @minLength 1 */
+    /**
+     * @minLength 1
+     * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+     */
     model: string
     triggers: PatchedAgentRevisionApiSpecTriggersItem[]
     tools: PatchedAgentRevisionApiSpecToolsItem[]

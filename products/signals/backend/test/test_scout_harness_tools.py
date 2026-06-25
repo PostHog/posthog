@@ -425,9 +425,48 @@ class TestSearchScratchpad(BaseTest):
 
         assert all(e.key == "mine" for e in results)
 
+    def test_filters_by_date_to_for_cursor_iteration(self) -> None:
+        """`date_to` is the upper bound the caller uses to walk past the result cap.
+
+        Entries sort by `updated_at`; set `date_to` to the oldest entry seen on the
+        prior page and the next call returns the next older slice. `.update()`
+        bypasses `auto_now` so we can pin `updated_at` deterministically.
+        """
+        for key in ("old", "middle", "recent"):
+            SignalScratchpad.objects.create(team=self.team, key=key, content=key)
+        middle_ts = timezone.now() - timedelta(days=7)
+        SignalScratchpad.objects.filter(team=self.team, key="old").update(
+            updated_at=timezone.now() - timedelta(days=14)
+        )
+        SignalScratchpad.objects.filter(team=self.team, key="middle").update(updated_at=middle_ts)
+        SignalScratchpad.objects.filter(team=self.team, key="recent").update(updated_at=timezone.now())
+
+        # Strict `<` bound: middle's own timestamp is excluded, only `old` is returned.
+        results = search_scratchpad(team_id=self.team.id, date_to=middle_ts)
+
+        assert [e.key for e in results] == ["old"]
+
+    def test_filters_by_date_from(self) -> None:
+        """`date_from` is an inclusive lower bound on `updated_at` — a separate ORM
+        branch from `date_to`, so it gets its own assertion (a `__gte`/`__gt` or
+        wrong-field typo would otherwise pass undetected)."""
+        for key in ("old", "recent"):
+            SignalScratchpad.objects.create(team=self.team, key=key, content=key)
+        SignalScratchpad.objects.filter(team=self.team, key="old").update(
+            updated_at=timezone.now() - timedelta(days=10)
+        )
+        SignalScratchpad.objects.filter(team=self.team, key="recent").update(updated_at=timezone.now())
+
+        results = search_scratchpad(team_id=self.team.id, date_from=timezone.now() - timedelta(days=1))
+
+        assert [e.key for e in results] == ["recent"]
+
     def test_limit_clamped_to_max(self) -> None:
-        for i in range(MAX_SCRATCHPAD_SEARCH_LIMIT + 5):
-            remember(team_id=self.team.id, key=f"k{i:03d}", content=f"c{i}")
+        # bulk_create over per-row remember() — one round-trip for the cap-sized fixture.
+        SignalScratchpad.objects.bulk_create(
+            SignalScratchpad(team=self.team, key=f"k{i:04d}", content=f"c{i}")
+            for i in range(MAX_SCRATCHPAD_SEARCH_LIMIT + 5)
+        )
 
         results = search_scratchpad(team_id=self.team.id, limit=MAX_SCRATCHPAD_SEARCH_LIMIT + 50)
 

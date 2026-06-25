@@ -7,7 +7,10 @@
 
 import { z } from 'zod'
 
-export const ModelIdSchema = z.string().min(1)
+export const ModelIdSchema = z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$/, 'must be "<provider>/<model-id>", e.g. "anthropic/claude-haiku-4-5"')
 
 /**
  * Auth modes. Auth is a property of the TRIGGER, not the spec — declarative

@@ -218,13 +218,13 @@ function TaskLogBody({
  * open a new tab, carrying the bind via the `bind_task` URL param. Gated to a terminal run — the live
  * Task log already covers an in-progress run, and taking over a running automation run is out of scope.
  */
-function OpenTaskButton({ taskId, runStatus }: { taskId: string; runStatus?: TaskRunStatus }): JSX.Element {
+export function OpenTaskButton({ taskId, runStatus }: { taskId: string; runStatus?: TaskRunStatus }): JSX.Element {
     const { openSidePanelMaxWithTaskBind } = useActions(maxGlobalLogic)
     const isTerminal = isTerminalRunStatus(runStatus)
 
     return (
         <LemonButton
-            size="xsmall"
+            size="small"
             type="secondary"
             to={combineUrl(urls.ai(), { [SANDBOX_BIND_TASK_PARAM]: taskId }).url}
             onClick={(e) => {
