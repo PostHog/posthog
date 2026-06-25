@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
@@ -230,7 +231,7 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
             }
         }
         HogLiteral::Object(obj) => {
-            let emplaced_obj: Result<HashMap<String, HogValue>, _> = obj
+            let emplaced_obj: Result<IndexMap<String, HogValue>, _> = obj
                 .into_iter()
                 .map(|(k, v)| Ok((k, walk_emplacing(vm, v)?)))
                 .collect();

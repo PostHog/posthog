@@ -49,10 +49,9 @@ The reference exposes **~123** STL names; Rust implements **~29** (23 native + 6
 | misc | `print` (consumer-provided), `sleep`, `extract` | ~3 |
 
 ### Value-model findings already confirmed by the harness
-1. **Objects use `HashMap<String, HogValue>` → insertion order is lost.** The reference uses
-   insertion-ordered maps. This breaks `print`, `keys()`, `values()`, and JSON serialization
-   order. → switch to an insertion-ordered map (`IndexMap` or `Vec<(String, _)>`).
-   *(Confirmed: `properties` mismatch.)*
+1. ✅ ~~**Objects use `HashMap<String, HogValue>` → insertion order is lost.**~~ Fixed: `Object`
+   now holds an `IndexMap`, so object literals, `keys()`/`values()`, JSON, and `print` preserve
+   insertion order. Flipped `properties` (corpus) and `values` (per-STL) to passing.
 2. **No distinct tuple type** — tuples are stored as `Array`, so they print as `[a, b]`
    instead of `(a, b)`. → needs a tuple marker.
 3. **`toString` vs canonical `print`** differ on nested-string quoting; reconcile when `toString`
@@ -89,7 +88,7 @@ In an unrestricted environment, simply:
 HOGVM_CORPUS_DIR=$PWD/common/hogvm/__tests__ cargo test -p hogvm --test parity -- --nocapture
 ```
 
-Current status: **7 PASS / 2 MISMATCH / 26 ERROR** of 35 programs. The loop drives ERROR→PASS.
+Current status: **8 PASS / 1 MISMATCH / 26 ERROR** of 35 programs. The loop drives ERROR→PASS.
 
 ### 2a-bis. Per-STL parity (`tests/stl_parity.rs`) — built, working
 Whole-program tests cover the STL only incidentally. To give **each STL function its own
@@ -103,7 +102,7 @@ Coverage: **103 / 130** STL functions have a direct case (**125 cases**). The 27
 operator aliases (`and`/`plus`/`equals`/…) and the lambda array fns (`arrayMap`/`arrayFilter`/…),
 both already exercised by the corpus harness, plus `run` (SQL) / `extract`.
 
-Current status: **29 PASS / 96 FAIL** — the FAILs are the STL backlog below.
+Current status: **30 PASS / 95 FAIL** — the FAILs are the STL backlog below.
 
 Regenerate the oracle (needs the reference VM deps `re2` + `pytz`; flox is unavailable here):
 ```bash
@@ -116,10 +115,10 @@ regenerate after adding/altering cases.
 ### 2b. Performance — three modes, ingestion-shaped
 We measure the *same* compiled program (`tests/static/perf_program.json`) over the same event
 stream in three execution modes:
-1. **Pure Node** — the reference TS VM (`common/hogvm/typescript`). *(pending Node harness)*
+1. **Pure Node** — the reference TS VM (`common/hogvm/typescript`). *(built)*
 2. **Pure Rust** — `sync_execute`, single-threaded floor + a **rayon** parallel batch. *(built)*
-3. **Rust-from-Node via FFI** — the realistic production shape (Node ingestion calls into Rust).
-   *(pending napi-rs binding)*
+3. **Rust-from-Node via FFI** — the realistic production shape (Node ingestion calls into Rust),
+   a napi-rs binding (`node/`). *(built)*
 
 Scenario: an **ingestion batch** — 10k events in **batches of 2k**, each running a non-trivial Hog
 program (several `arraySort`/`arrayReverse` passes over the event's numeric series — real
@@ -163,11 +162,13 @@ parallel **39.9k → 80.5k (6.14× Node)**; FFI **23.6k → 34.5k (2.63× Node)*
 was an implementation bug, not a property of the language.
 
 What remains (Phase 2): the residual cost is the value model itself — `Vec::clone` (12%) and
-`drop_in_place<HogLiteral>` (~16%) from cloning/dropping a `Vec<HogValue>` of fat enums on every
-array op. Levers: specialized numeric arrays (avoid `Vec<HogValue>` for number arrays), in-place ops
-when the array isn't aliased, a smaller `HogValue`, and caching the globals→`HogValue` conversion.
-For the FFI path, marshalling the batch across the boundary is still ~40% — compact/columnar event
-encoding is the lever.
+`drop_in_place<HogLiteral>` (~16%) from cloning/dropping a `Vec<HogValue>` on every array op.
+**Tried and rejected: shrinking `HogValue` 120→56 bytes by boxing the rare `Callable`/`Closure`
+variants made the sort workload ~8% *slower*** — so per-element *size* is not the lever; the cost is
+allocation count + per-element work (deref + `try_as::<Num>` + the new-Vec-per-op pattern). The real
+lever is fewer allocations: in-place array ops when the array is uniquely owned (copy-on-write /
+refcount), which is an architectural change with aliasing risk. For the FFI path, marshalling the
+batch across the boundary is still ~40% — compact/columnar event encoding is the lever.
 
 ---
 
@@ -210,12 +211,13 @@ green, then move to performance.
 **Phase 0 — value-model & semantics fixes (unblock whole categories):**
 1. ✅ Graceful top-level termination (run-off-the-end → return top/null). *(done — +6 PASS)*
 2. ✅ Canonical printer incl. `fn<name(argCount)>` callables. *(done)*
-3. Insertion-ordered objects (`IndexMap`) — fixes `properties` and every object-print/`keys`/
-   `values`/json-order case.
-4. Null-on-missing: out-of-bounds index & missing property → `null`, not error
+3. ✅ Insertion-ordered objects (`IndexMap`) — fixed `properties` (corpus) and `values` (per-STL);
+   `keys`/json/print order now correct too.
+4. ✅ `typeof` returns `integer`/`float` (was `number`).
+5. Null-on-missing: out-of-bounds index & missing property → `null`, not error
    (`arrays`, `ifJump`).
-5. Closure/upvalue capture bug (`scope` → 20 not 10).
-6. Tuple type/marker so tuples print as `(a, b)` (`tuples`).
+6. Closure/upvalue capture bug (`scope` → 20 not 10).
+7. Hog temporals in the printer + tuple type/marker (`tuples`, date prints).
 
 **Phase 1 — STL by category (each category is a loop step), ordered by corpus impact:**
 - strings: `concat` (3 programs), `trim`, `keys`, `empty`, `lower/upper/substring/…`

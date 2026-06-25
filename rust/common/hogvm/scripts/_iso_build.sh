@@ -30,6 +30,7 @@ regex = "1.11.1"
 rand = "0.8.5"
 chrono = { version = "0.4.44", features = ["default", "serde"] }
 chrono-tz = "0.10.1"
+indexmap = "2"
 
 [dev-dependencies]
 rayon = "1.10"

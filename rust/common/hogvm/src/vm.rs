@@ -1,5 +1,6 @@
-use std::{any::Any, collections::HashMap};
+use std::any::Any;
 
+use indexmap::IndexMap;
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value as JsonValue;
 
@@ -395,8 +396,10 @@ impl<'a> HogVM<'a> {
                     values.push(self.pop_stack()?);
                     keys.push(self.pop_stack_as::<String>()?);
                 }
-                let map: HashMap<String, HogValue> =
-                    HashMap::from_iter(keys.into_iter().zip(values));
+                // keys/values were popped in reverse (stack order), so reverse the zip to restore
+                // the source insertion order in the IndexMap.
+                let map: IndexMap<String, HogValue> =
+                    keys.into_iter().zip(values).rev().collect();
                 let obj = HogLiteral::Object(map);
                 // For the non-primitive types below (objects, arrays, "tuples"), we /always/ heap allocate them. The reason
                 // is that the pattern for e.g. nestedly setting an array value is to GetLocal followed by GetProperty, followed
@@ -898,7 +901,7 @@ impl<'a> HogVM<'a> {
                 Ok(ptr.into())
             }
             JsonValue::Object(obj) => {
-                let mut map = HashMap::new();
+                let mut map = IndexMap::new();
                 for (key, value) in obj {
                     map.insert(key, self.json_to_hog_impl(value, depth + 1)?);
                 }

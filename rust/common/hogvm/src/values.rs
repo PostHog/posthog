@@ -1,6 +1,7 @@
 use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr};
 
 use chrono::NaiveDate;
+use indexmap::IndexMap;
 use serde_json::Value as JsonValue;
 
 use crate::{
@@ -51,7 +52,9 @@ pub enum HogLiteral {
     Boolean(bool),
     String(String),
     Array(Vec<HogValue>),
-    Object(HashMap<String, HogValue>),
+    // Insertion-ordered (IndexMap, not HashMap) to match the reference VMs: object literals,
+    // `keys()`/`values()`, JSON serialization, and `print` all preserve the order keys were added.
+    Object(IndexMap<String, HogValue>),
     Callable(Callable),
     Closure(Closure),
     Null,
@@ -550,6 +553,14 @@ impl From<Vec<HogValue>> for HogLiteral {
 
 impl From<HashMap<String, HogValue>> for HogLiteral {
     fn from(value: HashMap<String, HogValue>) -> Self {
+        // External callers handing us an unordered HashMap get arbitrary key order; internal
+        // object construction (Dict op, json_to_hog) builds the IndexMap directly, in order.
+        Self::Object(value.into_iter().collect())
+    }
+}
+
+impl From<IndexMap<String, HogValue>> for HogLiteral {
+    fn from(value: IndexMap<String, HogValue>) -> Self {
         Self::Object(value)
     }
 }
@@ -763,7 +774,7 @@ pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogVa
             Ok(HogLiteral::Array(values).into())
         }
         JsonValue::Object(obj) => {
-            let mut map = HashMap::new();
+            let mut map = IndexMap::new();
             for (key, value) in obj {
                 map.insert(key, construct_free_standing(value, depth + 1)?);
             }
