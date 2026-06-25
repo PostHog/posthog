@@ -192,10 +192,13 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 > each perspective is a DB-synced `LLMSkill` (`products/review_hog/skills/review-hog-perspective-*/SKILL.md`,
 > the Signals-scout canonical-skill pattern) that the sandbox agent **pulls** over MCP via `skill-get`; the
 > three couple into one ordered `PERSPECTIVES` registry. Lint + tach + the ReviewHog backend suite (138) + the
-> Signals artefact suite pass. What remains: **(11)** the **Temporal migration** — `run.py main()` → a
-> **single-turn** `ReviewPRWorkflow` with the fan-out stages as child workflows. The loop-y re-check, cross-turn
-> finding identity, and the `task_run` / `note` work-log artefacts are deferred to a follow-up after the
-> single-turn workflow lands. See the step list and the Deferred / future section below.
+> Signals artefact suite pass. What remains: **(11)** **prompt iteration** — make the base review prompt fully
+> perspective-agnostic and settle the context-injection strategy (how much PR diff/metadata we inject vs. let
+> the head_sha-pinned sandbox derive), pinning the reviewed commit so "reviewed == recorded"; then **(12)** the
+> **Temporal migration** — `run.py main()` → a **single-turn** `ReviewPRWorkflow` with the fan-out stages as
+> child workflows. The loop-y re-check, cross-turn finding identity, and the `task_run` / `note` work-log
+> artefacts are deferred to a follow-up after the single-turn workflow lands. See the step list and the
+> Deferred / future section below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
 DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
@@ -476,7 +479,18 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
     `llm_skill:read`). The three couple into one ordered `PERSPECTIVES` registry (`reviewer/skill_loader.py`)
     the Temporal fan-out will iterate. Per-team custom perspectives stay a later iteration. Full design in
     _Perspectives as LLMA skills_ under Deferred / future below.
-11. ⏭️ **(after) Make the pipeline Temporal — single-turn workflow first.** Rework `run.py main()` into a
+11. ⏭️ **(next) Iterate on the review prompt — perspective-agnostic base + context-injection strategy.** Two
+    coupled prompt changes that also de-risk Temporal: **(a)** make `issues_review/prompt.jinja` fully
+    perspective-agnostic — strip the hardcoded perspective name/number from the prose so the only
+    perspective-specific input is the `skill-get(name, version)` line, and the skill owns the perspective's
+    identity + focus entirely (forward-compat for per-team custom perspectives); **(b)** settle how much PR
+    context we inject (today: full per-chunk diff hunks + PR metadata + `@path#L` refs, all duplicating the
+    sandbox working tree) vs. let the agent derive it — gated on **pinning the sandbox checkout to the reviewed
+    `head_sha`** so the working tree, the injected context, the persisted snapshot, and finding line-anchors all
+    agree (today the sandbox checks out the moving **branch tip**, shallow + single-branch, so it can drift from
+    the snapshotted commit and can't self-`git diff` against the base). Full design + the over-engineering
+    analysis in _Prompt iteration_ under Deferred / future below.
+12. ⏭️ **(after) Make the pipeline Temporal — single-turn workflow first.** Rework `run.py main()` into a
     single-turn **`ReviewPRWorkflow`** parent workflow with the three fan-out stages (analyze / perspective
     review / validate) as **child workflows** and the rest as **activities**, exchanging Postgres **row ids by
     reference** (~2 MiB payload cap). Step 8's DB-driven, `head_sha`-scoped design exists precisely so this is an
@@ -549,7 +563,64 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
     `PERSPECTIVES`-vs-enum order assert, the sync buckets, and the loader test) guards the wiring (138 backend
     tests green).
 
-- **Everything on Temporal — this is step 11** (the major step after perspectives-as-skills; design detail here).
+- **Prompt iteration — this is step 11** (lands _before_ Temporal; design detail + analysis here). Two coupled
+  prompt changes. Both also de-risk Temporal, because the consistency fix in (b) is exactly what the by-reference
+  workflow design needs.
+
+  **(a) Make the base review prompt fully perspective-agnostic.** _Analysis — is this worth it or
+  over-engineering?_ Today `issues_review/prompt.jinja` already keeps the perspective's **focus** out of the
+  prompt (it's pulled from the skill), but still names the perspective in the prose — `PASS_NAME`
+  ("Contracts & Security") in ~4 spots and `PASS_NUMBER` ("perspective 2"). None of that is load-bearing: the
+  agent pulls the skill as its first move (the skill body announces its own name + focus), and the pipeline
+  stamps `source_perspective` from the **registry ordinal** in `combine_issues` — _not_ from anything the agent
+  emits (the e2e proved this: the Contracts agent emitted issue ids `1-1-…` with pass=1 while it was ordinal 2,
+  and attribution was still correct). So the only perspective-specific input the prompt actually needs is the
+  `skill-get(name, version)` line. **Verdict: worth doing, low-effort, low-stakes _now_ — but not
+  over-engineering; it's strictly _less_ coupling.** The real payoff is forward-compat: per-team **custom
+  perspectives** (the deferred `ReviewPerspectiveConfig` iteration) must not have the base prompt hardcode the
+  three canonical names. Change: drop the `PASS_NAME`/`PASS_NUMBER` prose, keep the generic "you are one of
+  several parallel perspectives, report everything, dedup happens later" framing + the `skill-get` line; remove
+  `PASS_NAME` from `_render_prompt` (the issue-id ordinal can stay agent-chosen — we don't depend on it).
+
+  **(b) Settle the context-injection strategy (the wordiness concern).** Today the prompt injects, per chunk:
+  `@path#L…` change refs **+** the full `<pr_file_changes_for_chunk>` diff hunks **+** `PR_METADATA` **+**
+  `PR_COMMENTS` **+** the `ChunkAnalysis` goal — and the sandbox _also_ has the cloned working tree. That's the
+  same changes represented three ways (refs, hunks, tree), which is the real over-engineering risk — not the
+  idea of injecting context per se. _The injected diff is not gratuitous:_ it's currently the **only** reliable
+  source of the base→head changes, because the sandbox checkout is **`git fetch --depth 1 origin -- <branch> &&
+git checkout -B <branch> FETCH_HEAD`** (`products/tasks` `get_sandbox_for_repository.py`) — i.e. the **moving
+  branch tip**, shallow, single-branch. Two consequences: (1) the working tree can **drift** from the
+  `head_sha` we snapshotted (a commit landing between our GitHub fetch and sandbox boot — exactly the "changed
+  15 min later" case, and worse under the loop), so the `@path#L` line numbers and the agent's reading can
+  disagree with the reviewed/persisted diff; (2) with only the branch fetched shallowly, the agent **cannot**
+  self-`git diff <base>..<head>` (no base ref, no history). **Consistency principle:** the reviewed artifact is
+  one pinned commit — the working tree, the injected context (or pointers), the persisted `commit`-artefact
+  snapshot, and finding line-anchors must all agree on `head_sha`. "Let the agent fetch its own diff from a
+  moving branch" is the anti-pattern (reviewed ≠ recorded); self-derivation is only safe **after** the checkout
+  is pinned. Two options:
+  - **Option A — inject, but pin + dedupe (recommended; lower risk, no deep infra ask).** Ask `products/tasks`
+    to check out the exact **`head_sha`** (not the branch tip) so tree == snapshot (fixes line-drift + the loop
+    staleness). Keep injecting the reviewed diff as the consistency contract, but stop triple-representing it:
+    keep the `@path#L…` pointers + changed-file list + a trimmed diff, trim `PR_METADATA` to intent-bearing
+    fields (title/body/author/base/head), keep `PR_COMMENTS` (dedup signal). Leaner prompt, fully consistent.
+  - **Option B — pin + let the agent self-derive (leanest prompt, more infra).** Pin to `head_sha` **and** fetch
+    the base ref / enough history so the agent can `git diff <base>..<head_sha>` and read files itself; then drop
+    the big diff injection, inject only pointers (changed files, base/head SHA, PR title/body, prior comments).
+    Costs a deeper clone (boot time) + spends agent turns running git, and depends on `products/tasks` for both
+    the SHA pin and the base fetch.
+
+  Recommendation: **Option A** — the `head_sha` pin is the keystone (independently required for the loop and for
+  Temporal's by-reference activities), and dedupe captures most of the token win without the deeper-clone cost.
+  Revisit Option B only if prompt size is still a problem after dedupe.
+
+  **Data-hygiene audit (do as part of this step):** once the context approach changes, re-check that the
+  models/artefacts don't persist now-excessive or redundant data. Specifically audit: the `commit`-artefact
+  `diff` snapshot (still needed as the point-in-time record? size?), the `chunk_set` / `chunk_analysis` /
+  `perspective_result` working-state rows (do they embed more of the chunk/PR payload than the resume needs once
+  the agent reads from the pinned tree?), and whether `PRFile`/`pr_files` carry fields no longer used. Trim
+  anything stored only to feed the old injection path.
+
+- **Everything on Temporal — this is step 12** (the major step after prompt iteration; design detail here).
   Rework `run.py main()` into a **single-turn `ReviewPRWorkflow`** parent workflow (one run = one review turn);
   the **loop** is a deferred follow-up (below). Topology, all on a new `products/review_hog/backend/temporal/`
   package:
