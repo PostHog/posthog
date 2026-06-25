@@ -58,4 +58,15 @@ while read -r env role layers; do
   fi
 done < "$MANIFEST"
 
+# The committed build-from-scratch SQL (sql/<env>-<role>.sql) must match the HCL.
+echo "== sql: freshness =="
+tmp_sql="$(mktemp -d)"
+bash "$OPS_DIR/gen-sql.sh" "$tmp_sql" >/dev/null
+if ! diff -r "$OPS_DIR/sql" "$tmp_sql" >/dev/null 2>&1; then
+  echo "FAIL: sql/ is stale — run ops/gen-sql.sh and commit"; diff -r "$OPS_DIR/sql" "$tmp_sql" | head; rc=1
+else
+  echo "sql up to date"
+fi
+rm -rf "$tmp_sql"
+
 exit $rc
