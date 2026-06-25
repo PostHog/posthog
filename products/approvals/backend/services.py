@@ -5,18 +5,22 @@ from typing import Any, Optional
 from django.db import transaction
 from django.utils import timezone
 
-from posthog.approvals.actions.registry import get_action
-from posthog.approvals.exceptions import (
+from posthog.event_usage import report_user_action
+from posthog.models import User
+
+from products.approvals.backend.actions.registry import get_action
+from products.approvals.backend.exceptions import (
     AlreadyVotedError,
     ApplyFailed,
     InvalidStateError,
     PreconditionFailed,
     ReasonRequiredError,
 )
-from posthog.approvals.models import Approval, ApprovalDecision, ChangeRequest, ChangeRequestState
-from posthog.approvals.notifications import send_approval_applied_notification, send_approval_decision_notification
-from posthog.event_usage import report_user_action
-from posthog.models import User
+from products.approvals.backend.models import Approval, ApprovalDecision, ChangeRequest, ChangeRequestState
+from products.approvals.backend.notifications import (
+    send_approval_applied_notification,
+    send_approval_decision_notification,
+)
 
 logger = logging.getLogger(__name__)
 

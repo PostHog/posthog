@@ -6,8 +6,8 @@ from django.db import models
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 if TYPE_CHECKING:
-    from posthog.approvals.actions.base import BaseAction
-    from posthog.approvals.models import ApprovalPolicy as ApprovalPolicyType
+    from products.approvals.backend.actions.base import BaseAction
+    from products.approvals.backend.models import ApprovalPolicy as ApprovalPolicyType
 
 
 class ChangeRequestState(models.TextChoices):
@@ -71,7 +71,7 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     result_data = models.JSONField(null=True, blank=True)
 
     class Meta:
-        app_label = "posthog"
+        db_table = "posthog_changerequest"
         indexes = [
             models.Index(fields=["team", "state"]),
             models.Index(fields=["action_key", "state"]),
@@ -85,7 +85,7 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     def get_policy(self) -> Optional["ApprovalPolicyType"]:
         """Get the matching approval policy for this change request."""
-        from posthog.approvals.policies import PolicyEngine
+        from products.approvals.backend.policies import PolicyEngine
 
         return PolicyEngine().get_policy(self.action_key, self.team, self.organization)
 
@@ -100,7 +100,7 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     def get_action_class(self) -> Optional[type["BaseAction"]]:
         """Get the action class for this change request from the registry."""
-        from posthog.approvals.actions.registry import get_action
+        from products.approvals.backend.actions.registry import get_action
 
         return get_action(self.action_key)
 
@@ -126,7 +126,7 @@ class Approval(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     reason = models.TextField(blank=True)
 
     class Meta:
-        app_label = "posthog"
+        db_table = "posthog_approval"
         unique_together = [["change_request", "created_by"]]
         indexes = [
             models.Index(fields=["change_request", "decision"]),
@@ -170,6 +170,7 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         "ee.Role",
         blank=True,
         related_name="bypass_policies",
+        db_table="posthog_approvalpolicy_bypass_roles",
     )
 
     expires_after = models.DurationField(
@@ -182,7 +183,7 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     objects = ApprovalPolicyManager()
 
     class Meta:
-        app_label = "posthog"
+        db_table = "posthog_approvalpolicy"
         unique_together = [["organization", "team", "action_key"]]
         indexes = [
             models.Index(fields=["action_key", "enabled"]),

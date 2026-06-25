@@ -5,10 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.approvals.actions.feature_flags import UpdateFeatureFlagAction
-from posthog.approvals.models import ApprovalPolicy, ChangeRequest
-from posthog.approvals.policies import PolicyEngine
-
+from products.approvals.backend.actions.feature_flags import UpdateFeatureFlagAction
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SINGLE_DICT_PATHS = {"holdout"}
@@ -199,14 +198,14 @@ class TestCheckStaleness(APIBaseTest):
         intent = {"preconditions": {"version": stored_version}}
         context = {"instance": flag}
 
-        from posthog.approvals.actions.feature_flags import EnableFeatureFlagAction
+        from products.approvals.backend.actions.feature_flags import EnableFeatureFlagAction
 
         result = EnableFeatureFlagAction.check_staleness(intent, context)
 
         assert result is expected_stale
 
     def test_stale_when_no_instance_in_context(self):
-        from posthog.approvals.actions.feature_flags import EnableFeatureFlagAction
+        from products.approvals.backend.actions.feature_flags import EnableFeatureFlagAction
 
         intent = {"preconditions": {"version": 1}}
         result = EnableFeatureFlagAction.check_staleness(intent, {})
@@ -214,7 +213,7 @@ class TestCheckStaleness(APIBaseTest):
         assert result is True
 
     def test_not_stale_when_no_stored_version(self):
-        from posthog.approvals.actions.feature_flags import EnableFeatureFlagAction
+        from products.approvals.backend.actions.feature_flags import EnableFeatureFlagAction
 
         flag = self._create_flag()
         intent: dict[str, Any] = {"preconditions": {}}
@@ -248,7 +247,7 @@ class TestCheckStaleness(APIBaseTest):
         assert result is True
 
     def test_base_action_check_staleness_always_returns_false(self):
-        from posthog.approvals.actions.base import BaseAction
+        from products.approvals.backend.actions.base import BaseAction
 
         result = BaseAction.check_staleness({"preconditions": {"version": 1}}, {})
 
@@ -387,7 +386,7 @@ class TestMultiPolicyConflictDetection(APIBaseTest):
             created_by=self.user,
         )
 
-    @patch("posthog.approvals.decorators._is_approvals_enabled", return_value=True)
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
     def test_single_policy_match_returns_normal_approval_flow(self, mock_enabled):
         flag = self._create_flag()
         self._create_policy(
@@ -402,7 +401,7 @@ class TestMultiPolicyConflictDetection(APIBaseTest):
 
         assert response.status_code in [200, 409]
 
-    @patch("posthog.approvals.decorators._is_approvals_enabled", return_value=True)
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
     def test_matching_policy_returns_http_400(self, mock_enabled):
         flag = self._create_flag()
         self._create_policy(
@@ -423,7 +422,7 @@ class TestMultiPolicyConflictDetection(APIBaseTest):
 
 class TestActionRegistrationAndIntegration(APIBaseTest):
     def test_update_feature_flag_action_registered_in_registry(self):
-        from posthog.approvals.actions.registry import ACTION_REGISTRY, register_actions
+        from products.approvals.backend.actions.registry import ACTION_REGISTRY, register_actions
 
         register_actions()
 
@@ -431,7 +430,7 @@ class TestActionRegistrationAndIntegration(APIBaseTest):
         assert ACTION_REGISTRY["feature_flag.update"] == UpdateFeatureFlagAction
 
     def test_action_coexists_with_enable_disable_actions(self):
-        from posthog.approvals.actions.registry import ACTION_REGISTRY, register_actions
+        from products.approvals.backend.actions.registry import ACTION_REGISTRY, register_actions
 
         register_actions()
 
@@ -439,7 +438,7 @@ class TestActionRegistrationAndIntegration(APIBaseTest):
         assert "feature_flag.disable" in ACTION_REGISTRY
         assert "feature_flag.update" in ACTION_REGISTRY
 
-    @patch("posthog.approvals.decorators._is_approvals_enabled", return_value=True)
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
     def test_enable_disable_detected_before_update(self, mock_enabled):
         flag = FeatureFlag.objects.create(
             team=self.team,

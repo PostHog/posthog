@@ -4,9 +4,10 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from posthog.approvals.models import ApprovalPolicy
-from posthog.approvals.policies import PolicyEngine
 from posthog.models.organization import OrganizationMembership
+
+from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.policies import PolicyEngine
 
 
 class TestPolicyEngineBypass(APIBaseTest):

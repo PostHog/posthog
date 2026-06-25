@@ -1,12 +1,12 @@
 from typing import Optional
 
-from posthog.approvals.actions.base import BaseAction
+from products.approvals.backend.actions.base import BaseAction
 
 ACTION_REGISTRY: dict[str, type[BaseAction]] = {}
 
 
 def register_actions():
-    from posthog.approvals.actions.feature_flags import (
+    from products.approvals.backend.actions.feature_flags import (
         DisableFeatureFlagAction,
         EnableFeatureFlagAction,
         UpdateFeatureFlagAction,

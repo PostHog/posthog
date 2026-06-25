@@ -27,7 +27,7 @@ from posthog.schema import (
 )
 
 from posthog.api.cohort import CohortSerializer
-from posthog.approvals.policies import PolicyEngine
+from products.approvals.backend.policies import PolicyEngine
 from posthog.event_usage import EventSource, report_user_action
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import mute_selected_signals

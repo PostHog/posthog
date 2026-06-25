@@ -6,14 +6,17 @@ from django.utils import timezone
 from celery import shared_task
 from structlog import get_logger
 
-from posthog.approvals.models import ChangeRequest, ChangeRequestState, ValidationStatus
-from posthog.approvals.notifications import send_approval_expired_notification
 from posthog.scoping_audit import skip_team_scope_audit
+
+from products.approvals.backend.models import ChangeRequest, ChangeRequestState, ValidationStatus
+from products.approvals.backend.notifications import send_approval_expired_notification
 
 logger = get_logger(__name__)
 
 
-@shared_task(ignore_result=True)
+# Pin the task name to its pre-move path so the beat schedule and any in-flight
+# messages keep routing after the module moved out of posthog/approvals.
+@shared_task(ignore_result=True, name="posthog.approvals.tasks.validate_pending_change_requests")
 @skip_team_scope_audit
 def validate_pending_change_requests() -> dict[str, Any]:
     """
@@ -83,7 +86,7 @@ def validate_pending_change_requests() -> dict[str, Any]:
     return result
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, name="posthog.approvals.tasks.expire_old_change_requests")
 @skip_team_scope_audit
 def expire_old_change_requests() -> dict[str, Any]:
     """

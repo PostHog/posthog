@@ -10,14 +10,15 @@ from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from posthog.approvals.actions.registry import get_action
-from posthog.approvals.exceptions import ApprovalRequired
-from posthog.approvals.models import ChangeRequest, ChangeRequestState
-from posthog.approvals.notifications import send_approval_requested_notification
-from posthog.approvals.policies import PolicyDecision, PolicyEngine
-from posthog.approvals.serializers import ChangeRequestSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
+
+from products.approvals.backend.actions.registry import get_action
+from products.approvals.backend.exceptions import ApprovalRequired
+from products.approvals.backend.models import ChangeRequest, ChangeRequestState
+from products.approvals.backend.notifications import send_approval_requested_notification
+from products.approvals.backend.policies import PolicyDecision, PolicyEngine
+from products.approvals.backend.serializers import ChangeRequestSerializer
 
 logger = logging.getLogger(__name__)
 
