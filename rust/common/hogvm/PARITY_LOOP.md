@@ -154,20 +154,29 @@ Built (all three modes):
 A key efficiency point baked into the Rust paths — build the STL once per worker and swap
 `ctx.globals` per event, rather than rebuilding the STL map 10k times.
 
-**Results (4-core sandbox, 10k events / 2k batches):**
+**Results (4-core sandbox, 10k events / 2k batches).** Absolute throughput is noisy in this
+shared sandbox (±40% run-to-run), so read the **ratios within a single run**, not the absolutes.
+Every row's **core count is explicit** — comparing a 1-core row to a 4-core row is meaningless
+(an earlier version of this table did exactly that and so misleadingly showed parallel FFI
+"beating" single-threaded in-process Rust).
 
-| mode | initial | after perf fixes | final (full corpus) | vs Node |
+| mode | cores | marshalling? | events/s (representative) | vs Node (same cores) |
 |---|---|---|---|---|
-| Node (single, V8) | 13.6k | 13.1k | ~14.9k | 1.00× |
-| Rust single-thread | 10.3k | **21.1k** | ~20k | **1.3×** |
-| Rust-from-Node (napi FFI, parallel) | 23.6k | **34.5k** | ~35.6k | **2.4×** |
-| Rust parallel (in-process, 4 cores) | 39.9k | **80.5k** | ~77k | **5.2×** |
+| Node (V8) | 1 | — | ~10–15k | 1.00× |
+| Rust in-process | 1 | no | ~17–20k | **~1.3–1.5×** |
+| Rust in-process | 4 | no | ~60–80k | (≈3.7× the 1-core Rust) |
+| Rust-from-Node FFI | 1 | yes | ~12k | **~0.8–1.0×** (≈ or below Node) |
+| Rust-from-Node FFI | 4 | yes | ~28–36k | ~1.9–2.4× |
 
-The "final" column re-measures after the full correctness pass (corpus 13→32, STL 92→124):
-the small single-thread dip vs the perf-fix peak is the cost of the new value-model features
-(the `Tuple` variant, truthiness coercion, untyped-literal handling) and run-to-run noise; the
-goal holds — Rust beats Node in every mode (1.3× single, 2.4× FFI, 5.2× parallel). All three
-modes run the *same* current, reference-verified code.
+**The FFI boundary is the dominant cost, not the VM.** The napi round-trip (serde-materialising
+10k events × a 128-element series into `serde_json::Value`, then results back) costs ~250–300 ms —
+*larger than the 4-core compute itself* (~130–160 ms). So **single-threaded Rust-from-Node is
+actually ≈ or slower than pure Node**: the marshalling tax cancels Rust's single-core edge (note
+how `ffi single` ≈ 12k lands below both `Rust in-process single` and even Node). FFI only beats
+Node by spending cores against that fixed tax. The honest wins are in-process: **Rust beats Node
+~1.4× single-core and scales ~3.7× on 4 cores.** The FFI path is marshalling-bound and never used
+the efficient typed-array transfer its own design section (§3) advocated — a flat `Float64Array`
+per-event boundary instead of JS objects → `serde_json::Value` is the obvious next optimization.
 
 #### Perf investigation (why Rust started out *slower* than Node, and the fix)
 Initially Rust single-thread lost to V8 (0.76×) — suspicious for an interpreter. A `callgrind`
@@ -182,9 +191,11 @@ handling:
   every instruction fetch. Now borrow-deserializes from `&Value` with lazy error strings. (Minor for
   array-heavy workloads, but real for instruction-heavy ones.)
 
-Net: Rust single-thread **10.3k → 21.1k events/s (2.0×)**, flipping it from 0.76× to **1.61× Node**;
-parallel **39.9k → 80.5k (6.14× Node)**; FFI **23.6k → 34.5k (2.63× Node)**. Lesson: "Rust is slow"
-was an implementation bug, not a property of the language.
+Net: that perf work roughly doubled Rust single-thread throughput, flipping it from ~0.76× to
+~1.4× Node (both single-core) and giving ~3.7× rayon scaling on 4 cores. Lesson: "Rust is slow"
+was an implementation bug, not a property of the language. The *separate* lesson from the FFI
+decomposition above: once you cross the napi boundary, marshalling — not the VM — sets the ceiling,
+so the in-process parallel path is the one that actually leaves Node far behind.
 
 What remains (Phase 2): the residual cost is the value model itself — `Vec::clone` (12%) and
 `drop_in_place<HogLiteral>` (~16%) from cloning/dropping a `Vec<HogValue>` on every array op.
