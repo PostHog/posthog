@@ -32,7 +32,6 @@ import {
 import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
-import { SplitAiEventsStepConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import {
     GroupStoreBatchContext,
     createGroupStoreBeforeBatchStep,
@@ -86,7 +85,6 @@ export interface JoinedIngestionPipelineConfig {
         | PersonMergeEventsOutput
         | AppMetricsOutput
     >
-    splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions
     /**
      * Maximum number of batches the BatchingPipeline will accept concurrently.
@@ -155,7 +153,6 @@ export function createJoinedIngestionPipeline<
         personsPrefetchEnabled,
         cdpHogWatcherSampleRate,
         outputs,
-        splitAiEventsConfig,
         perDistinctIdOptions,
         concurrentBatches,
     } = config
@@ -204,7 +201,6 @@ export function createJoinedIngestionPipeline<
     const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
         outputs,
-        splitAiEventsConfig,
         aiSubpipelineFactory,
         teamManager,
         groupTypeManager,

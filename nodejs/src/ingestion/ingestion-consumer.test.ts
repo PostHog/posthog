@@ -922,11 +922,8 @@ describe('IngestionConsumer', () => {
             expect(nonAiEvent?.value.distinct_id).toBe('user-non-ai')
         })
 
-        it('should split AI events with large properties when splitting is enabled', async () => {
+        it('should split AI events with large properties into events + ai_events', async () => {
             await ingester.stop()
-            infra.config.INGESTION_AI_EVENT_SPLITTING_ENABLED = true
-            infra.config.INGESTION_AI_EVENT_SPLITTING_TEAMS = '*'
-            infra.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS = '*'
             ingester = await createIngestionConsumer(infra)
 
             const events = [
