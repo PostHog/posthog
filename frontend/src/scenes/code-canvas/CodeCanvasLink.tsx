@@ -19,25 +19,35 @@ export const scene: SceneExport<CodeCanvasLinkProps> = {
     }),
 }
 
+// The desktop app registers a different custom scheme per build: production
+// installs use `posthog-code://`, local dev builds use `posthog-code-dev://`.
+// A dev frontend (./bin/start) is exactly when you're testing against a dev
+// desktop build, so target that scheme there. Build-time constant, so it never
+// flips after mount and double-fires.
+const DESKTOP_SCHEME = process.env.NODE_ENV === 'development' ? 'posthog-code-dev' : 'posthog-code'
+
+function canvasDeepLink(channelId: string, dashboardId: string): string {
+    return `${DESKTOP_SCHEME}://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`
+}
+
 /**
  * Public, unauthenticated bridge for desktop-app "canvas" share links
  * (`/code/canvas/<channelId>/<dashboardId>`). On mount it deep-links into the desktop
- * app via the `posthog-code://` custom scheme; for visitors without the app installed it
- * shows a short explanation and a download link. The canvas itself only exists in the
- * desktop app, so nothing is rendered here beyond this interstitial.
+ * app via the `posthog-code(-dev)://` custom scheme; for visitors without the app it
+ * shows an explanation, a manual "open" button (in case the browser blocks the
+ * auto-redirect), and a download link. The canvas itself only exists in the desktop
+ * app, so nothing is rendered here beyond this interstitial.
  */
 export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps): JSX.Element {
+    // Null when a param is missing (a partial URL or params not yet resolved) —
+    // firing with an empty id would send a malformed `<scheme>://canvas//`.
+    const deepLink = channelId && dashboardId ? canvasDeepLink(channelId, dashboardId) : null
+
     useEffect(() => {
-        // Guard against a partial URL (one segment) or params not yet resolved —
-        // firing with an empty id would send a malformed `posthog-code://canvas//`.
-        if (!channelId || !dashboardId) {
-            return
+        if (deepLink) {
+            window.location.href = deepLink
         }
-        // Production custom scheme only — the public website has no dev build to target.
-        window.location.href = `posthog-code://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(
-            dashboardId
-        )}`
-    }, [channelId, dashboardId])
+    }, [deepLink])
 
     return (
         <BridgePage view="code-canvas-link">
@@ -45,12 +55,24 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
                 <IconLaptop className="text-5xl shrink-0" />
                 <h2 className="text-xl font-semibold m-0">Opening in PostHog Code…</h2>
                 <p className="text-muted mb-0">
-                    Canvases live in the PostHog Code desktop app. If it's installed, it should open automatically.
-                    Otherwise, download it to view this canvas.
+                    Canvases live in the PostHog Code desktop app. If it's installed, it should open automatically. If
+                    it didn't, use the button below — or download the app.
                 </p>
-                <LemonButton type="primary" to="https://posthog.com/code" targetBlank>
-                    Download PostHog Code
-                </LemonButton>
+                <div className="flex flex-col items-center gap-2">
+                    {deepLink && (
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                window.location.href = deepLink
+                            }}
+                        >
+                            Open in PostHog Code
+                        </LemonButton>
+                    )}
+                    <LemonButton type="secondary" to="https://posthog.com/code" targetBlank>
+                        Download PostHog Code
+                    </LemonButton>
+                </div>
             </div>
         </BridgePage>
     )
