@@ -130,7 +130,9 @@ def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -
         return False
 
     if source_config is not None:
-        ssh_tunnel = source_config.ssh_tunnel
+        # Not every source config carries an SSH tunnel (e.g. Snowflake), and the param is typed
+        # `Any` — only the tunnel opt-out can relax the SSL requirement, so its absence means "required".
+        ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
         if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
             return False
 
