@@ -149,7 +149,9 @@ class TestInsertPersonDistinctIds:
                         "SELECT COUNT(*) FROM posthog_persondistinctid WHERE team_id = %s",
                         (SYNC_TEST_TEAM_ID,),
                     )
-                    assert cur.fetchone()[0] == 0
+                    row = cur.fetchone()
+                    assert row is not None
+                    assert row[0] == 0
             finally:
                 _cleanup(conn)
 
