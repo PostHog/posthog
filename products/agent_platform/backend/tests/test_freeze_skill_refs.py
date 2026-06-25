@@ -179,7 +179,7 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         # -rejected `source_version_id`). Editing an unrelated spec field must NOT 400,
         # and an author can't change/spoof skills[] — it's pinned to the server value.
         self.revision.spec = {
-            "model": "old",
+            "model": "faux/old",
             "triggers": [],
             "skills": [{"id": "triage", "path": "skills/triage/SKILL.md", "source_version_id": "019e-real"}],
         }
@@ -189,7 +189,7 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
             self._detail_url,
             {
                 "spec": {
-                    "model": "new",
+                    "model": "faux/new",
                     "triggers": [],
                     # Author attempt to inject/spoof a skill — must be ignored.
                     "skills": [{"id": "evil", "path": "skills/evil/SKILL.md", "source_version_id": "019e-fake"}],
@@ -199,7 +199,7 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         )
         self.assertEqual(res.status_code, 200, res.content)
         self.revision.refresh_from_db()
-        self.assertEqual(self.revision.spec["model"], "new")
+        self.assertEqual(self.revision.spec["model"], "faux/new")
         # skills[] is the preserved server value, not the author's spoof.
         self.assertEqual([s["id"] for s in self.revision.spec["skills"]], ["triage"])
         self.assertEqual(self.revision.spec["skills"][0]["source_version_id"], "019e-real")

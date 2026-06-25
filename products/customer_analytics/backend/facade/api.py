@@ -16,6 +16,7 @@ Do NOT:
 """
 
 from typing import TYPE_CHECKING, Any, Optional, cast
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -32,6 +33,7 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
+from products.customer_analytics.backend.logic import custom_property_values as _custom_property_values_logic
 from products.customer_analytics.backend.logic.custom_property_definitions import coerce_is_big_number
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
@@ -58,6 +60,8 @@ from . import contracts
 if TYPE_CHECKING:
     from posthog.models.user import User
     from posthog.rbac.user_access_control import UserAccessControl
+
+    from products.customer_analytics.backend.models import CustomPropertyValue
 
 
 def _to_assignment(assignment) -> contracts.AccountAssignment | None:
@@ -1161,13 +1165,21 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
 
 
 def list_account_notebooks(
-    team_id: int, account_id: str, user_access_control: "UserAccessControl"
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    search: str | None = None,
+    order: str | None = None,
 ) -> list[contracts.AccountNotebookView] | None:
-    """Internal notebooks linked to an accessible account, newest first. None when the
-    parent account isn't accessible (→ 404)."""
+    """Internal notebooks linked to an accessible account. Optionally full-text filtered by
+    ``search`` (title + content) and sorted by ``order`` (creation date or author); defaults to
+    newest first. None when the parent account isn't accessible (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    return [_to_account_notebook_view(n) for n in notebooks.list_account_notebooks(account_id)]
+    return [
+        _to_account_notebook_view(n) for n in notebooks.list_account_notebooks(account_id, search=search, order=order)
+    ]
 
 
 def get_account_notebook(
@@ -1265,3 +1277,47 @@ def _enforce_object_access(obj, user_access_control: "UserAccessControl", requir
         return
     if not user_access_control.check_access_level_for_object(obj, required_level=required_level):  # type: ignore[arg-type]
         raise ResourceForbiddenError()
+
+
+# --- Custom property values ---
+
+# Re-exported from logic so the presentation layer can catch them — the import-linter forbids
+# presentation importing logic directly, so these errors are part of the facade's surface.
+CustomPropertyDefinitionNotFound = _custom_property_values_logic.CustomPropertyDefinitionNotFound
+CustomPropertyValueConflict = _custom_property_values_logic.CustomPropertyValueConflict
+InvalidCustomPropertyValue = _custom_property_values_logic.InvalidCustomPropertyValue
+
+
+def _to_custom_property_value(row: "CustomPropertyValue") -> contracts.CustomPropertyValue:
+    return contracts.CustomPropertyValue(
+        id=row.id,
+        account_id=row.account_id,
+        definition_id=row.definition_id,
+        value=_custom_property_values_logic.value_of(row),
+        created_at=row.created_at,
+        created_by_id=row.created_by_id,
+    )
+
+
+def set_custom_property_value(
+    team_id: int,
+    account_id: str | UUID,
+    definition_id: str | UUID,
+    value: Any,
+    *,
+    created_by_id: int | None = None,
+) -> contracts.CustomPropertyValue:
+    row = _custom_property_values_logic.set_custom_property_value(
+        team_id=team_id,
+        account_id=account_id,
+        definition_id=definition_id,
+        value=value,
+        created_by_id=created_by_id,
+    )
+    return _to_custom_property_value(row)
+
+
+def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> list[contracts.CustomPropertyValue]:
+    """The account's current (non-deleted) custom property values as contracts, newest first."""
+    rows = _custom_property_values_logic.list_active_custom_property_values(team_id=team_id, account_id=account_id)
+    return [_to_custom_property_value(row) for row in rows]

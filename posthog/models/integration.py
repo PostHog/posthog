@@ -8,7 +8,7 @@ import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self
 from urllib.parse import urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.db import models, transaction
+from django.db.models import Q
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -178,6 +179,38 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 
+class IntegrationQuerySet(models.QuerySet["Integration"]):
+    def for_github_installation_id(self, installation_id: str | int) -> Self:
+        return self.filter(
+            Q(config__installation_id=str(installation_id)) | Q(config__installation_id=int(installation_id))
+        )
+
+
+class IntegrationManager(models.Manager["Integration"]):
+    _queryset_class = IntegrationQuerySet
+
+    def get_queryset(self) -> IntegrationQuerySet:
+        return IntegrationQuerySet(self.model, using=self._db)
+
+    def filter(self, *args: Any, **kwargs: Any) -> IntegrationQuerySet:
+        return self.get_queryset().filter(*args, **kwargs)
+
+    def first_github_for_team_installation(self, team_id: int, installation_id: str) -> "Integration | None":
+        return (
+            self.filter(team_id=team_id, kind=Integration.IntegrationKind.GITHUB)
+            .for_github_installation_id(installation_id)
+            .first()
+        )
+
+    def first_github_for_user_installation(self, user: User, installation_id: str) -> "Integration | None":
+        user_team_ids = user.teams.values_list("id", flat=True)
+        return (
+            self.filter(team_id__in=user_team_ids, kind=Integration.IntegrationKind.GITHUB)
+            .for_github_installation_id(installation_id)
+            .first()
+        )
+
+
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
@@ -246,6 +279,8 @@ class Integration(models.Model):
     # Meta
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+
+    objects: IntegrationManager = IntegrationManager()
 
     class Meta:
         constraints = [
@@ -2399,28 +2434,72 @@ class GitHubInstallationAccess:
     repository_selection: str
 
 
+class GitHubInstallationAccessFetchError(Exception):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+def invalidate_github_repository_caches_for_installation(installation_id: str | int) -> None:
+    """Affects both team Integration and personal UserIntegration rows."""
+    from posthog.models.user_integration import UserIntegration
+
+    installation_id_str = str(installation_id)
+    Integration.objects.filter(kind="github", integration_id=installation_id_str).update(
+        repository_cache_updated_at=None
+    )
+    UserIntegration.objects.filter(
+        kind=UserIntegration.IntegrationKind.GITHUB,
+        integration_id=installation_id_str,
+    ).update(repository_cache_updated_at=None)
+
+
 class GitHubIntegration(GitHubIntegrationBase):
     integration: Integration
+
+    @classmethod
+    def fetch_installation_access(cls, installation_id: str) -> GitHubInstallationAccess:
+        try:
+            installation_info = cls.client_request(f"installations/{installation_id}").json()
+            access_token_response = cls.client_request(
+                f"installations/{installation_id}/access_tokens", method="POST"
+            ).json()
+        except Exception as exc:
+            raise GitHubInstallationAccessFetchError("installation_fetch_failed") from exc
+
+        installation_access_token = access_token_response.get("token")
+        token_expires_at = access_token_response.get("expires_at")
+        if not installation_access_token or not token_expires_at:
+            raise GitHubInstallationAccessFetchError("installation_token_failed")
+
+        return GitHubInstallationAccess(
+            installation_id=installation_id,
+            installation_info=installation_info,
+            access_token=installation_access_token,
+            token_expires_at=token_expires_at,
+            repository_selection=access_token_response.get("repository_selection", "selected"),
+        )
 
     @classmethod
     def integration_from_installation_id(
         cls, installation_id: str, team_id: int, created_by: User | None = None
     ) -> Integration:
-        installation_info = cls.client_request(f"installations/{installation_id}").json()
-        access_token = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST").json()
+        installation_access = cls.fetch_installation_access(installation_id)
+        now = int(time.time())
+        expires_in = int(datetime.fromisoformat(installation_access.token_expires_at).timestamp() - now)
 
         config = {
             "installation_id": installation_id,
-            "expires_in": datetime.fromisoformat(access_token["expires_at"]).timestamp() - int(time.time()),
-            "refreshed_at": int(time.time()),
-            "repository_selection": access_token["repository_selection"],
+            "expires_in": expires_in,
+            "refreshed_at": now,
+            "repository_selection": installation_access.repository_selection,
             "account": {
-                "type": dot_get(installation_info, "account.type", None),
-                "name": dot_get(installation_info, "account.login", installation_id),
+                "type": dot_get(installation_access.installation_info, "account.type", None),
+                "name": dot_get(installation_access.installation_info, "account.login", installation_id),
             },
         }
 
-        sensitive_config = {"access_token": access_token["token"]}
+        sensitive_config = {"access_token": installation_access.access_token}
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -2436,6 +2515,8 @@ class GitHubIntegration(GitHubIntegrationBase):
         if integration.errors:
             integration.errors = ""
             integration.save()
+
+        invalidate_github_repository_caches_for_installation(installation_id)
 
         return integration
 

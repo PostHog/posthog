@@ -10,7 +10,6 @@ from django.conf import settings
 from django.db import models
 from django.db.models.functions import Coalesce
 
-import posthoganalytics
 from natsort import natsorted, ns
 
 from posthog.schema import (
@@ -81,6 +80,7 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 
@@ -884,7 +884,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return any(breakdown.type == "session" for breakdown in (filter.breakdowns or []))
 
     def _team_flag_session_property_pre_aggregation(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "trends-session-property-pre-aggregation",
             str(self.team.uuid),
             groups={

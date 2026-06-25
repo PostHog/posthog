@@ -273,6 +273,7 @@
                 },
                 "model": {
                     "minLength": 1,
+                    "pattern": "^[a-z0-9_-]+\\/[a-zA-Z0-9._:-]+$",
                     "type": "string"
                 },
                 "reasoning": {

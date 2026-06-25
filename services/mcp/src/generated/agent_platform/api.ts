@@ -157,6 +157,8 @@ export const AgentApplicationsRevisionsCreateParams = /* @__PURE__ */ zod.object
 })
 
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
+
+export const agentApplicationsRevisionsCreateBodySpecModelRegExp = new RegExp('^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$')
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -273,7 +275,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model: zod.string().min(1).regex(agentApplicationsRevisionsCreateBodySpecModelRegExp),
             triggers: zod
                 .array(
                     zod.union([
@@ -833,6 +835,7 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
         ),
 })
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelRegExp = new RegExp('^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$')
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -949,7 +952,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model: zod.string().min(1).regex(agentApplicationsRevisionsPartialUpdateBodySpecModelRegExp),
             triggers: zod
                 .array(
                     zod.union([

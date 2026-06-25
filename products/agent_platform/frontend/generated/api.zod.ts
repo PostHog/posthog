@@ -105,6 +105,8 @@ export const AgentMemoryUpdateFileBody = /* @__PURE__ */ zod
  *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
+
+export const agentApplicationsRevisionsCreateBodySpecModelRegExp = new RegExp('^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$')
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -221,7 +223,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model: zod.string().min(1).regex(agentApplicationsRevisionsCreateBodySpecModelRegExp),
             triggers: zod
                 .array(
                     zod.union([
@@ -712,6 +714,8 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
  * ready/live the spec is frozen — change requires a new revision.
  */
 export const agentApplicationsRevisionsUpdateBodyBundleUriDefault = ``
+
+export const agentApplicationsRevisionsUpdateBodySpecModelRegExp = new RegExp('^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$')
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -828,7 +832,7 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model: zod.string().min(1).regex(agentApplicationsRevisionsUpdateBodySpecModelRegExp),
             triggers: zod
                 .array(
                     zod.union([
@@ -1342,6 +1346,8 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
  *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault = ``
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelRegExp = new RegExp('^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$')
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -1458,7 +1464,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model: zod.string().min(1).regex(agentApplicationsRevisionsPartialUpdateBodySpecModelRegExp),
             triggers: zod
                 .array(
                     zod.union([

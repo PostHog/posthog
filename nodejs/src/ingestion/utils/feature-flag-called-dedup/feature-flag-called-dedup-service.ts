@@ -1,11 +1,11 @@
 import { createHash } from 'crypto'
 import { Redis } from 'ioredis'
 
+import { timeoutGuard } from '~/common/utils/db/utils'
+import { parseTeamsList } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
 import { IngestionConsumerConfig, IngestionLane } from '~/ingestion/config'
 import { RedisPool } from '~/types'
-import { timeoutGuard } from '~/utils/db/utils'
-import { parseTeamsList } from '~/utils/env-utils'
-import { logger } from '~/utils/logger'
 
 import { featureFlagCalledDedupRedisLatency, featureFlagCalledDedupRedisOpsTotal } from './metrics'
 

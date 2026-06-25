@@ -27,8 +27,8 @@ top-level `required` array.
 - `AGENT_SPEC_JSON_SCHEMA` — full shape, used for OpenAPI annotation so the
   MCP tool surface advertises every field plus its default.
 - `AGENT_SPEC_JSON_SCHEMA_FOR_WRITE` — relaxed required list, used for
-  Django `validate_spec` so the same `{"model": "x"}` that zod accepts also
-  passes Django.
+  Django `validate_spec` so the same `{"model": "anthropic/claude-haiku-4-5"}`
+  that zod accepts also passes Django.
 """
 
 from __future__ import annotations
@@ -131,7 +131,15 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
-        "model": {"type": "string", "minLength": 1},
+        "model": {
+            "type": "string",
+            "minLength": 1,
+            # Mirror of `ModelIdSchema` in agent-shared/src/spec/spec.ts. Runtime
+            # `resolveModel` demands `<provider>/<model-id>`; rejecting bare ids
+            # at authoring time keeps the node side from failing every session
+            # against a freshly-promoted revision.
+            "pattern": r"^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$",
+        },
         "triggers": {
             "default": [],
             "type": "array",

@@ -11,9 +11,10 @@ from products.replay_vision.backend.temporal.scanners.classifier import Classifi
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput, ScorerScanner, ScoreScale
 from products.replay_vision.backend.temporal.scanners.summarizer import (
-    SummarizerLlmResponse,
+    SummarizerFacetsResponse,
     SummarizerOutput,
     SummarizerScanner,
+    SummarizerSummaryResponse,
 )
 from products.replay_vision.backend.temporal.types import AnyScannerOutput, ScannerSnapshot
 
@@ -79,7 +80,8 @@ __all__ = [
     "ScorerScanner",
     "ScorerOutput",
     "SummarizerScanner",
-    "SummarizerLlmResponse",
+    "SummarizerSummaryResponse",
+    "SummarizerFacetsResponse",
     "SummarizerOutput",
     "scanner_from_db",
     "scanner_from_snapshot",
