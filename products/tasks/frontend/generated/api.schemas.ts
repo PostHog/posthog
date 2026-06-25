@@ -1677,6 +1677,7 @@ export const ArtifactTypeEnumApi = {
 /**
  * * `slack_message` - slack_message
  * * `slack_canvas` - slack_canvas
+ * * `slack_file` - slack_file
  * * `document_connector` - document_connector
  * * `s3` - s3
  * * `github_pr` - github_pr
@@ -1686,6 +1687,7 @@ export type AdapterEnumApi = (typeof AdapterEnumApi)[keyof typeof AdapterEnumApi
 export const AdapterEnumApi = {
     SlackMessage: 'slack_message',
     SlackCanvas: 'slack_canvas',
+    SlackFile: 'slack_file',
     DocumentConnector: 'document_connector',
     S3: 's3',
     GithubPr: 'github_pr',
@@ -1715,7 +1717,7 @@ export interface TaskRunLivingArtifactResponseApi {
     team_id: number
     /** Human-readable artifact name. */
     name: string
-    /** Artifact format or delivery surface, such as document, slack_canvas, or slack_message.
+    /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
      *
      * * `slack_message` - slack_message
      * * `slack_canvas` - slack_canvas
@@ -1729,6 +1731,7 @@ export interface TaskRunLivingArtifactResponseApi {
      *
      * * `slack_message` - slack_message
      * * `slack_canvas` - slack_canvas
+     * * `slack_file` - slack_file
      * * `document_connector` - document_connector
      * * `s3` - s3
      * * `github_pr` - github_pr */
@@ -1774,7 +1777,7 @@ export interface TaskRunLivingArtifactCreateRequestApi {
      * @maxLength 255
      */
     name: string
-    /** Artifact format or delivery surface to create.
+    /** Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.
      *
      * * `slack_message` - slack_message
      * * `slack_canvas` - slack_canvas
@@ -1784,10 +1787,11 @@ export interface TaskRunLivingArtifactCreateRequestApi {
      * * `file` - file
      * * `github_pr` - github_pr */
     artifact_type?: ArtifactTypeEnumApi
-    /** Optional preferred storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted document artifacts use connector storage with S3 fallback.
+    /** Optional preferred storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted document and spreadsheet artifacts use connector storage with S3 fallback.
      *
      * * `slack_message` - slack_message
      * * `slack_canvas` - slack_canvas
+     * * `slack_file` - slack_file
      * * `document_connector` - document_connector
      * * `s3` - s3
      * * `github_pr` - github_pr */
@@ -1797,6 +1801,13 @@ export interface TaskRunLivingArtifactCreateRequestApi {
      * @maxLength 500000
      */
     content?: string
+    /** Base64-encoded binary content for Slack file uploads or binary S3-backed artifacts. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts. */
+    content_base64?: string
+    /**
+     * MIME type for content_base64 or source-backed artifacts, such as application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.
+     * @maxLength 255
+     */
+    content_type?: string
     /** Existing run artifact id to use as the initial content source. */
     source_artifact_id?: string
     /** Existing run artifact storage_path to use as the initial content source. */
@@ -1818,7 +1829,7 @@ export interface TaskRunLivingArtifactOpenResponseApi {
     team_id: number
     /** Human-readable artifact name. */
     name: string
-    /** Artifact format or delivery surface, such as document, slack_canvas, or slack_message.
+    /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
      *
      * * `slack_message` - slack_message
      * * `slack_canvas` - slack_canvas
@@ -1832,6 +1843,7 @@ export interface TaskRunLivingArtifactOpenResponseApi {
      *
      * * `slack_message` - slack_message
      * * `slack_canvas` - slack_canvas
+     * * `slack_file` - slack_file
      * * `document_connector` - document_connector
      * * `s3` - s3
      * * `github_pr` - github_pr */
@@ -1881,7 +1893,18 @@ export interface TaskRunLivingArtifactEditRequestApi {
      * Markdown or text content for the next version.
      * @maxLength 500000
      */
-    content: string
+    content?: string
+    /** Base64-encoded binary content for the next version, used by adapters such as slack_file. */
+    content_base64?: string
+    /**
+     * MIME type for content_base64 or source-backed edits.
+     * @maxLength 255
+     */
+    content_type?: string
+    /** Existing run artifact id to use as the next version content source. */
+    source_artifact_id?: string
+    /** Existing run artifact storage_path to use as the next version content source. */
+    source_storage_path?: string
     /** Optional metadata to merge into the artifact registry record. */
     metadata?: TaskRunLivingArtifactEditRequestApiMetadata
 }

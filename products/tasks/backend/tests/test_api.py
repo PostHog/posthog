@@ -29,6 +29,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
@@ -4260,6 +4261,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["adapter"], TaskArtifact.Adapter.DOCUMENT_CONNECTOR)
         self.assertEqual(artifact["current_version"], 1)
         self.assertEqual(artifact["versions"][0]["document_connector_status"], "fallback_s3")
+        self.assertEqual(artifact["versions"][0]["document_connector_fallback_reason"], "no_user_connector")
 
         open_response = self.client.get(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/{artifact['id']}/"
@@ -4280,6 +4282,60 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(mock_write.call_count, 2)
         self.assertEqual(mock_tag.call_count, 2)
         mock_read.assert_called()
+
+    @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_living_artifact_create_slack_file_from_base64(self, mock_integration_for_mapping, mock_post):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": "chat:write,files:write"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+        slack = MagicMock()
+        slack.api_call.side_effect = [
+            {"upload_url": "https://files.slack.test/upload", "file_id": "F123"},
+            {"files": [{"id": "F123", "title": "report.xlsx"}]},
+        ]
+        slack_integration = MagicMock()
+        slack_integration.client = slack
+        slack_integration.missing_scopes.return_value = set()
+        mock_integration_for_mapping.return_value = slack_integration
+
+        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/",
+            {
+                "name": "report.xlsx",
+                "artifact_type": "spreadsheet",
+                "adapter": "slack_file",
+                "content_base64": base64.b64encode(b"workbook bytes").decode("ascii"),
+                "content_type": content_type,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        artifact = response.json()
+        self.assertEqual(artifact["adapter"], TaskArtifact.Adapter.SLACK_FILE)
+        self.assertEqual(artifact["location"]["kind"], "slack_file")
+        self.assertEqual(artifact["location"]["file_id"], "F123")
+        self.assertEqual(artifact["versions"][0]["size"], 14)
+        self.assertEqual(mock_post.call_args.kwargs["data"], b"workbook bytes")
+        self.assertEqual(slack.api_call.call_args_list[0].args[0], "files.getUploadURLExternal")
+        self.assertEqual(slack.api_call.call_args_list[1].args[0], "files.completeUploadExternal")
 
     def test_living_artifact_create_requires_content_or_source(self):
         task = self.create_task()
@@ -6236,6 +6292,25 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/connection_token/", False),
+            ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/", True),
+            (
+                "task:read",
+                "GET",
+                f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/{{artifact_id}}/",
+                True,
+            ),
+            (
+                "task:read",
+                "POST",
+                f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/",
+                False,
+            ),
+            (
+                "task:read",
+                "POST",
+                f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/{{artifact_id}}/edit/",
+                False,
+            ),
             ("task:read", "GET", "/api/projects/@current/task_automations/", True),
             ("task:read", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
             ("task:read", "POST", "/api/projects/@current/tasks/", False),
@@ -6252,6 +6327,30 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/connection_token/", True),
             ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/start/", True),
+            (
+                "task:write",
+                "GET",
+                f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/",
+                True,
+            ),
+            (
+                "task:write",
+                "GET",
+                f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/{{artifact_id}}/",
+                True,
+            ),
+            (
+                "task:write",
+                "POST",
+                f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/",
+                True,
+            ),
+            (
+                "task:write",
+                "POST",
+                f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/{{artifact_id}}/edit/",
+                True,
+            ),
             ("task:write", "GET", "/api/projects/@current/task_automations/", True),
             ("task:write", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
             ("task:write", "POST", "/api/projects/@current/task_automations/", True),
@@ -6266,6 +6365,20 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
             ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/start/", True),
+            ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/", True),
+            (
+                "*",
+                "GET",
+                f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/{{artifact_id}}/",
+                True,
+            ),
+            ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/", True),
+            (
+                "*",
+                "POST",
+                f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/{{artifact_id}}/edit/",
+                True,
+            ),
             ("*", "GET", "/api/projects/@current/task_automations/", True),
             ("*", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
             ("*", "POST", "/api/projects/@current/task_automations/", True),
@@ -6286,7 +6399,12 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             scopes=[scope],
         )
 
-        url = url_template.format(task_id=task.id, run_id=run.id, automation_id=automation.id)
+        url = url_template.format(
+            task_id=task.id,
+            run_id=run.id,
+            automation_id=automation.id,
+            artifact_id=uuid.uuid4(),
+        )
 
         self.client.force_authenticate(None)
 
@@ -6309,6 +6427,8 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             data = {"name": "Updated Automation"}
         elif method == "PATCH" and "/tasks/" in url:
             data = {"title": "Updated Task"}
+        elif method == "POST" and "/living_artifacts/" in url and url.endswith("/edit/"):
+            data = {"content": "# Updated report"}
 
         if method == "GET":
             response = self.client.get(url, headers={"authorization": f"Bearer {api_key_value}"})

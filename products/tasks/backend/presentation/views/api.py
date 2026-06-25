@@ -21,6 +21,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
@@ -740,6 +741,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        super_method = getattr(super(), "dangerously_get_required_scopes", None)
+        if callable(super_method):
+            required_scopes = super_method(request, view)
+            if required_scopes is not None:
+                return required_scopes
+
+        if view.action in ("living_artifacts", "living_artifacts_create"):
+            return ["task:write"] if request.method == "POST" else ["task:read"]
+        if view.action == "living_artifact":
+            return ["task:read"]
+        if view.action == "living_artifact_edit":
+            return ["task:write"]
+        return None
+
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
@@ -1183,7 +1199,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             artifact_id=artifact_id,
-            content=request.validated_data["content"],
+            content=request.validated_data.get("content"),
+            content_bytes=request.validated_data.get("content_bytes"),
+            content_type=request.validated_data.get("content_type"),
+            source_artifact_id=request.validated_data.get("source_artifact_id"),
+            source_storage_path=request.validated_data.get("source_storage_path"),
             name=request.validated_data.get("name"),
             metadata=request.validated_data.get("metadata"),
         )

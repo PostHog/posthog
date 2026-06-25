@@ -47,6 +47,7 @@ class Migration(migrations.Migration):
                         choices=[
                             ("slack_message", "Slack message"),
                             ("slack_canvas", "Slack canvas"),
+                            ("slack_file", "Slack file"),
                             ("document_connector", "Document connector"),
                             ("s3", "S3"),
                             ("github_pr", "GitHub PR"),

@@ -17,6 +17,8 @@ REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
         "users:read",
         "users:read.email",
         "chat:write",
+        "canvases:write",
+        "files:write",
         "channels:history",
         "groups:history",
         "reactions:write",

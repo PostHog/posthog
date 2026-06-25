@@ -1294,6 +1294,7 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
     class Adapter(models.TextChoices):
         SLACK_MESSAGE = "slack_message", "Slack message"
         SLACK_CANVAS = "slack_canvas", "Slack canvas"
+        SLACK_FILE = "slack_file", "Slack file"
         DOCUMENT_CONNECTOR = "document_connector", "Document connector"
         S3 = "s3", "S3"
         GITHUB_PR = "github_pr", "GitHub PR"

@@ -1747,7 +1747,11 @@ def edit_task_run_living_artifact(
     team_id: int,
     *,
     artifact_id: str | UUID,
-    content: str,
+    content: str | None = None,
+    content_bytes: bytes | None = None,
+    content_type: str | None = None,
+    source_artifact_id: str | None = None,
+    source_storage_path: str | None = None,
     name: str | None = None,
     metadata: dict | None = None,
 ) -> tuple[dict | None, str | None]:
@@ -1764,7 +1768,16 @@ def edit_task_run_living_artifact(
     if artifact is None:
         return None, "not_found"
     try:
-        updated = edit_living_artifact(artifact=artifact, content=content, name=name, metadata=metadata)
+        updated = edit_living_artifact(
+            artifact=artifact,
+            content=content,
+            content_bytes=content_bytes,
+            content_type=content_type,
+            source_artifact_id=source_artifact_id,
+            source_storage_path=source_storage_path,
+            name=name,
+            metadata=metadata,
+        )
     except Exception as exc:
         logger.warning(
             "task_run.living_artifact_edit_failed",

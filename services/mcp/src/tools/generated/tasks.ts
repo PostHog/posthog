@@ -118,6 +118,12 @@ const tasksRunsLivingArtifactsCreate = (): ToolBase<
         if (params.content !== undefined) {
             body['content'] = params.content
         }
+        if (params.content_base64 !== undefined) {
+            body['content_base64'] = params.content_base64
+        }
+        if (params.content_type !== undefined) {
+            body['content_type'] = params.content_type
+        }
         if (params.source_artifact_id !== undefined) {
             body['source_artifact_id'] = params.source_artifact_id
         }
@@ -154,6 +160,18 @@ const tasksRunsLivingArtifactsEdit = (): ToolBase<
         }
         if (params.content !== undefined) {
             body['content'] = params.content
+        }
+        if (params.content_base64 !== undefined) {
+            body['content_base64'] = params.content_base64
+        }
+        if (params.content_type !== undefined) {
+            body['content_type'] = params.content_type
+        }
+        if (params.source_artifact_id !== undefined) {
+            body['source_artifact_id'] = params.source_artifact_id
+        }
+        if (params.source_storage_path !== undefined) {
+            body['source_storage_path'] = params.source_storage_path
         }
         if (params.metadata !== undefined) {
             body['metadata'] = params.metadata

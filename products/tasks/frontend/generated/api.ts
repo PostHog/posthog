@@ -940,7 +940,7 @@ export const tasksRunsLivingArtifactsEdit = async (
     taskId: string,
     id: string,
     artifactId: string,
-    taskRunLivingArtifactEditRequestApi: TaskRunLivingArtifactEditRequestApi,
+    taskRunLivingArtifactEditRequestApi?: TaskRunLivingArtifactEditRequestApi,
     options?: RequestInit
 ): Promise<TaskRunLivingArtifactResponseApi> => {
     return apiMutator<TaskRunLivingArtifactResponseApi>(

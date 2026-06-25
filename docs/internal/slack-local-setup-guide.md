@@ -113,6 +113,7 @@ oauth_config:
       - groups:history
       - chat:write
       - canvases:write
+      - files:write
       - reactions:write
       - users:read
       - users:read.email
