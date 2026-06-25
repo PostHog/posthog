@@ -137,7 +137,10 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                                 <Badge variant={condition.matched ? 'success' : 'destructive'}>
                                                     {condition.matched ? 'Matched' : 'No match'}
                                                 </Badge>
-                                                <Badge>{condition.rollout_percentage}% rollout</Badge>
+                                                {/* The enrollment super condition has no rollout — only show the badge for release conditions */}
+                                                {condition.index >= 0 && (
+                                                    <Badge>{condition.rollout_percentage}% rollout</Badge>
+                                                )}
                                                 {condition.variant && <Badge variant="info">{condition.variant}</Badge>}
                                             </div>
                                             {(condition.explanation || condition.reason) && (
