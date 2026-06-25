@@ -1,10 +1,10 @@
+import { parseJSON } from '~/common/utils/json-parse'
 import {
     aiOtelGroupsCounter,
     aiOtelOlderSpecEventsCounter,
     aiOtelSystemInstructionsCounter,
 } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
-import { parseJSON } from '~/utils/json-parse'
 
 const ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.input.messages': '$ai_input',

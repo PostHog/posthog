@@ -14,6 +14,7 @@ import {
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { urls } from 'scenes/urls'
 
 import { CyclotronJobFiltersType, HogFunctionSubTemplateType } from '~/types'
 
@@ -117,6 +118,7 @@ function HealthAlertsEntryPointInner(): JSX.Element {
         <HogFunctionList
             forceFilterGroups={HOG_FUNCTION_FILTER_LIST}
             type="internal_destination"
+            returnTo={urls.healthAlerts(selectedKinds ?? undefined)}
             onDeleteHogFunction={(hogFunction) => {
                 posthog.capture('health_alerts_deleted', { hog_function_id: hogFunction.id })
             }}

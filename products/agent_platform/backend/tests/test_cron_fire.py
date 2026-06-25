@@ -36,7 +36,7 @@ class TestCronFireAction(APIBaseTest):
         self.revision = AgentRevision.all_teams.create(
             application=self.application,
             spec={
-                "model": "x",
+                "model": "test/x",
                 "triggers": [
                     {
                         "type": "cron",

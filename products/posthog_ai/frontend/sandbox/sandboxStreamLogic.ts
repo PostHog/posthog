@@ -3,10 +3,13 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
+import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
 import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { parseSandboxQuestions } from './sandboxQuestionUtils'
@@ -82,6 +85,76 @@ export const SANDBOX_INITIAL_PERMISSION_MODE: TaskRunBootstrapCreateRequestIniti
 /** The crash-error string the in-sandbox agent server writes on a fatal exception. */
 const AGENT_CRASH_PREFIX = 'Agent server crashed'
 
+/**
+ * In-band durable end-of-run sentinel emitted by both the Django stream view and the agent-proxy
+ * (`event: stream-end`, `data: {"status":"complete"}`). Distinct from the rotation `end` event (a
+ * 15-min connection recycle that means "reconnect"): the sentinel means the run is finished, so the
+ * client stops reconnecting and drops its resume cursor instead of resuming.
+ */
+const STREAM_END_EVENT = 'stream-end'
+
+/**
+ * Per-run resume cursor persisted to sessionStorage. The sandbox's primary reload-resume is the S3
+ * history replay (see `bootstrapRun`); this cursor is the secondary hint the live reconnect path
+ * falls back to when the in-memory cursor is gone (a keyed-logic remount). Keyed by run id so two
+ * runs never collide. Cleared when the run's stream completes or reaches a terminal status.
+ */
+function sandboxStreamResumeKey(runId: string): string {
+    return `posthog-ai:stream-resume:${runId}`
+}
+function readSandboxStreamResumeId(runId: string): string | null {
+    try {
+        return window.sessionStorage.getItem(sandboxStreamResumeKey(runId))
+    } catch {
+        return null
+    }
+}
+function writeSandboxStreamResumeId(runId: string, eventId: string): void {
+    try {
+        window.sessionStorage.setItem(sandboxStreamResumeKey(runId), eventId)
+    } catch {
+        // sessionStorage may be unavailable (private mode / quota) — resume from in-memory state only.
+    }
+}
+function clearSandboxStreamResumeId(runId: string): void {
+    try {
+        window.sessionStorage.removeItem(sandboxStreamResumeKey(runId))
+    } catch {
+        // ignore
+    }
+}
+
+/** Resolved live-stream destination: the agent-proxy origin plus the run-scoped read token. */
+export interface SandboxStreamProxyTarget {
+    baseUrl: string
+    token: string
+}
+
+/**
+ * Resolve the proxy target for a run, or null to stream from Django. Purely additive: with the
+ * rollout flag off we skip the token mint entirely (pre-proxy behavior); with it on but the server
+ * resolves no base URL — or the mint throws — we fall back to Django so streaming never breaks.
+ */
+export async function resolveSandboxStreamTarget(
+    projectId: string,
+    taskId: string,
+    runId: string,
+    viaProxy: boolean
+): Promise<SandboxStreamProxyTarget | null> {
+    if (!viaProxy) {
+        return null
+    }
+    try {
+        const { token, stream_base_url } = await tasksRunsStreamTokenRetrieve(projectId, taskId, runId)
+        if (!stream_base_url) {
+            return null
+        }
+        return { baseUrl: stream_base_url, token }
+    } catch {
+        return null
+    }
+}
+
 const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled'])
 
 export function isTerminalRunStatus(status: string | null | undefined): boolean {
@@ -98,6 +171,11 @@ export interface StreamErrorEnvelope {
     errorTitle: string
     errorMessage?: string
     retryable: boolean
+    status?: number
+}
+
+function streamError(errorTitle: string, retryable: boolean, status: number | undefined): StreamErrorEnvelope {
+    return status === undefined ? { errorTitle, retryable } : { errorTitle, retryable, status }
 }
 
 /**
@@ -107,15 +185,15 @@ export interface StreamErrorEnvelope {
 export function mapHttpStatusToStreamError(status: number | undefined): StreamErrorEnvelope {
     switch (status) {
         case 401:
-            return { errorTitle: 'Cloud authentication expired', retryable: true }
+            return streamError('Cloud authentication expired', true, status)
         case 403:
-            return { errorTitle: 'Cloud access denied', retryable: true }
+            return streamError('Cloud access denied', true, status)
         case 404:
-            return { errorTitle: 'Conversation backing run not found', retryable: false }
+            return streamError('Conversation backing run not found', false, status)
         case 406:
-            return { errorTitle: 'Cloud stream unavailable', retryable: true }
+            return streamError('Cloud stream unavailable', true, status)
         default:
-            return { errorTitle: 'Cloud stream failed', retryable: true }
+            return streamError('Cloud stream failed', true, status)
     }
 }
 
@@ -963,7 +1041,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     key((props) => (props.replayOnly ? `replay:${props.streamKey}` : props.streamKey)),
     path((key) => ['products', 'posthog_ai', 'sandbox', 'sandboxStreamLogic', key]),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId']],
+        values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
     })),
     actions({
         /**
@@ -978,12 +1056,20 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
         /** Internal: the read-only replay snapshot finished loading — clears the bootstrap spinner. */
         bootstrapReplayComplete: true,
+        /** Internal: the live run history snapshot finished loading or was intentionally skipped. */
+        bootstrapLogReady: true,
         closeSse: true,
         sseConnecting: true,
         sseOpened: true,
         sseReconnecting: (attempt: number) => ({ attempt }),
         /** Internal: an SSE drop initiates the refetch + backoff loop. */
         sseDropped: true,
+        /**
+         * Internal: the in-band `stream-end` sentinel landed — the run's event stream is finished.
+         * Tears the connection down without reconnecting and finalizes the run status (a safety net
+         * for a stream that ended without a preceding terminal `task_run_state` frame).
+         */
+        streamEnded: true,
         /**
          * Frame ingestion — appends one frame to the log and runs its one-shot side effects
          * (telemetry, permission routing, value folds). Called by the live SSE listener
@@ -1055,7 +1141,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             errorMessage?: string | null
             replayedFromHistory?: boolean
         }) => status,
-        handleStreamError: (envelope: { errorTitle: string; errorMessage?: string; retryable: boolean }) => envelope,
+        handleStreamError: (envelope: StreamErrorEnvelope) => envelope,
         // Value-fold side effects emitted by ingestAcpFrame (thread items are derived in the projection).
         setCurrentMode: (mode: string) => ({ mode }),
         setCurrentProgress: (progress: string) => ({ progress }),
@@ -1157,6 +1243,28 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 bootstrapReplayComplete: () => false,
                 handleStreamError: () => false,
                 reset: () => false,
+            },
+        ],
+        // Live-mode bootstrapping remains true after the SSE opens and only clears once the
+        // historical log snapshot has been replayed. Fresh runs explicitly skip history.
+        logBootstrapLoading: [
+            false,
+            {
+                bootstrapRun: () => true,
+                bootstrapLogReady: () => false,
+                bootstrapReplayComplete: () => false,
+                handleStreamError: () => false,
+                reset: () => false,
+            },
+        ],
+        bootstrapError: [
+            null as StreamErrorEnvelope | null,
+            {
+                bootstrapRun: () => null,
+                bootstrapLogReady: () => null,
+                bootstrapReplayComplete: () => null,
+                handleStreamError: (_, envelope) => envelope,
+                reset: () => null,
             },
         ],
         // Whether the bootstrapped run is a resume run — drives the §6 resume-prompt filter in the
@@ -1378,6 +1486,17 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             (s) => [s.runArtifacts],
             (runArtifacts): boolean => !!runArtifacts.prUrl || !!runArtifacts.branch,
         ],
+        /**
+         * Gates routing the live stream through the standalone agent-proxy (the durable-streaming
+         * rollout). Local dev disables the analytics SDK, so DEBUG instances opt in unconditionally —
+         * the server still owns the final proxy-vs-Django decision via `stream_token` (no base URL
+         * ⇒ Django), so opting in here is safe even where the proxy isn't deployed.
+         */
+        streamViaProxyEnabled: [
+            (s) => [s.featureFlags, s.preflight],
+            (featureFlags, preflight): boolean =>
+                !!featureFlags[FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY] || !!preflight?.is_debug,
+        ],
     }),
     listeners(({ values, actions, cache, props }) => ({
         bootstrapRun: async ({ taskId, runId, justCreatedRun }, breakpoint) => {
@@ -1433,11 +1552,16 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // gap between bootstrap and the first connection/run_started. Cleared on the first
             // `sseOpened`/`_posthog/run_started`.
             cache.isBootstrapping = true
+            // Fresh run: clear the durable-stream end sentinel and the proxy re-mint budget so a
+            // reopened conversation starts clean.
+            cache.streamEnded = false
+            cache.streamTokenRefreshes = 0
 
             // Fresh-run fast path: nothing historical to assemble — stream from the top, with nothing
             // to buffer or drain.
             if (justCreatedRun) {
                 actions.openSseForRun({ taskId, runId, startLatest: false })
+                actions.bootstrapLogReady()
                 return
             }
 
@@ -1496,6 +1620,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 // Read-only history — surface the terminal status, do not open SSE. Flag the replay
                 // so the listener records the status without re-emitting termination telemetry.
                 actions.handleTerminalStatus({ status: run.status as SandboxRunStatus, replayedFromHistory: true })
+                actions.bootstrapLogReady()
                 return
             }
 
@@ -1506,6 +1631,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.bufferingLiveFrames = false
             cache.bufferedLiveFrames = undefined
             dedupeBufferedAgainstHistory(buffered, history).forEach((entry) => actions.ingestAcpFrame(entry, 'live'))
+            actions.bootstrapLogReady()
         },
         openSseForRun: ({ taskId, runId, startLatest }) => {
             // A read-only instance must never stream — guard here too, so even a stray or connected
@@ -1532,8 +1658,21 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 if (id) {
                     // The Redis stream id. Stamped (even for a buffered frame) so a reconnect resumes
                     // exactly after it via the Last-Event-ID header — an exclusive resume, so the
-                    // steady-state stream never re-delivers a frame we've already appended.
+                    // steady-state stream never re-delivers a frame we've already appended. Mirrored to
+                    // sessionStorage so a live reconnect that lost the in-memory cursor can recover it.
                     cache.lastEventId = id
+                    writeSandboxStreamResumeId(runId, id)
+                }
+                if (event === STREAM_END_EVENT) {
+                    // Durable end-of-run sentinel — the run's event stream is finished, so stop here
+                    // rather than treating the imminent connection close as a drop to reconnect. Drop
+                    // the persisted cursor (a completed run must never be resumed) and finalize via
+                    // the listener. `streamEnded` (read by the reader loop) suppresses the clean-EOF
+                    // drop that follows.
+                    cache.streamEnded = true
+                    clearSandboxStreamResumeId(runId)
+                    actions.streamEnded()
+                    return
                 }
                 if (event === 'error') {
                     // Named error envelope — surface verbatim. Real backend frames carry only `error`,
@@ -1604,12 +1743,32 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // whole stream. A clean EOF or read error (not an abort) is a drop → run the recovery
             // loop; an aborted signal (teardown) is silent.
             const streamRun = async (signal: AbortSignal): Promise<void> => {
+                // Resolve the destination fresh on every (re)connect: with the rollout flag on this
+                // mints a short-lived proxy read token (so a reconnect after a long stream always
+                // carries a valid one); with it off, or on the fallback, it's a no-op and we hit
+                // Django. A failed mint falls back to Django — streaming never breaks on the proxy.
+                const proxyTarget = values.streamViaProxyEnabled
+                    ? await resolveSandboxStreamTarget(String(projectId), taskId, runId, true)
+                    : null
+                if (signal.aborted) {
+                    return
+                }
+                // Resume cursor: prefer the in-memory id stamped by the reader; fall back to the
+                // persisted sessionStorage cursor only outside the bootstrap seam window
+                // (`bufferingLiveFrames`). The connect-first bootstrap deliberately streams
+                // `start=latest` and reconciles the S3 history seam, so a persisted cursor must never
+                // pre-empt it — only a live reconnect that lost its in-memory cursor honors it.
+                const lastEventId =
+                    (cache.lastEventId as string | undefined) ??
+                    (cache.bufferingLiveFrames ? undefined : (readSandboxStreamResumeId(runId) ?? undefined))
+
                 let response: Response
                 try {
                     response = await api.tasks.runs.openStream(taskId, runId, {
                         signal,
-                        lastEventId: cache.lastEventId as string | undefined,
+                        lastEventId,
                         startLatest,
+                        ...(proxyTarget ? { proxyTarget } : {}),
                     })
                 } catch (error) {
                     if (signal.aborted) {
@@ -1620,6 +1779,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     // stream error instead of looping the reconnect logic forever; treat a transient
                     // status or a network-level reject as a drop and let the recovery loop retry.
                     const status = (error as { status?: number })?.status
+                    // A 401 on the proxy leg means the short-lived read token expired between mint and
+                    // handshake — re-mint and retry once (free, off the reconnect budget) rather than
+                    // surfacing an auth error. Bounded so a genuinely revoked user can't loop; on
+                    // exhaustion it falls through to the normal drop handling (whose Django fallback
+                    // surfaces a real 401 as a retryable error).
+                    if (
+                        status === 401 &&
+                        proxyTarget &&
+                        (cache.streamTokenRefreshes ?? 0) < MAX_SSE_RECONNECT_ATTEMPTS
+                    ) {
+                        cache.streamTokenRefreshes = ((cache.streamTokenRefreshes as number | undefined) ?? 0) + 1
+                        return streamRun(signal)
+                    }
                     const mapped = status !== undefined ? mapHttpStatusToStreamError(status) : undefined
                     if (mapped && !mapped.retryable) {
                         actions.handleStreamError(mapped)
@@ -1651,14 +1823,15 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         }
                     }
                 } catch {
-                    if (!signal.aborted) {
+                    if (!signal.aborted && !cache.streamEnded) {
                         actions.sseDropped()
                     }
                     return
                 }
-                // Clean EOF: the server closed the stream. A terminal frame would already have torn
-                // us down (dispose → abort); otherwise this is a drop, so refetch status and decide.
-                if (!signal.aborted) {
+                // Clean EOF: the server closed the stream. A terminal frame or the `stream-end`
+                // sentinel would already have torn us down (dispose → abort / `streamEnded`);
+                // otherwise this is a drop, so refetch status and decide.
+                if (!signal.aborted && !cache.streamEnded) {
                     actions.sseDropped()
                 }
             }
@@ -1687,6 +1860,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // window (connect → snapshot → drain → first `run_started`) outlives the first connect.
             // It clears when the agent actually starts (`_posthog/run_started`) or on reset.
             cache.sseConnectedAtMs = Date.now()
+            // A successful handshake means the proxy token worked — reset the re-mint budget so a
+            // later expiry on this long-lived connection re-mints from a clean slate.
+            cache.streamTokenRefreshes = 0
         },
         sseDropped: async (_, breakpoint) => {
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
@@ -1759,6 +1935,34 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 'reconnect-backoff',
                 { pauseOnPageHidden: false }
             )
+        },
+        streamEnded: async (_, breakpoint) => {
+            // The durable `stream-end` sentinel landed: tear down without reconnecting.
+            cache.disposables.dispose('reconnect-backoff')
+            cache.disposables.dispose('event-source')
+            const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            // The terminal `task_run_state` frame ahead of the sentinel usually already finalized the
+            // run (and fired its telemetry); short-circuit so we don't refetch or double-count. Only
+            // when the stream ended without one do we refetch to resolve the authoritative status.
+            if (!activeRun || isTerminalRunStatus(values.currentRunStatus)) {
+                return
+            }
+            const result = await fetchRunStatus(activeRun.taskId, activeRun.runId)
+            breakpoint()
+            // The stream was closed or replaced while the refetch was in flight — drop this loop.
+            if (cache.activeRun !== activeRun) {
+                return
+            }
+            if ('error' in result) {
+                // Stream said done but the status is unreadable — leave the thread as-is and never
+                // reconnect; the durable stream is authoritatively finished.
+                return
+            }
+            // A reconnect/end refetch can be the first place a freshly-opened PR (or branch) shows up.
+            actions.mergeRunArtifacts(result.artifacts)
+            if (isTerminalRunStatus(result.status)) {
+                actions.handleTerminalStatus({ status: result.status as SandboxRunStatus })
+            }
         },
         routePermissionRequest: ({ record, replayedFromHistory }) => {
             // Replayed history is a read-only restore — never auto-approve (the run may be terminal).
@@ -1880,6 +2084,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
 
+            // The run is done — drop its persisted resume cursor so a later reopen can't try to
+            // resume a finished stream (the S3 history replay is the reopen path).
+            const terminalRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            if (terminalRun) {
+                clearSandboxStreamResumeId(terminalRun.runId)
+            }
+
             // A run that already terminated in a prior session is surfaced read-only on reopen —
             // the reducers still record the terminal status, but re-emitting telemetry on every
             // page load would inflate termination counts.
@@ -1948,6 +2159,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.bufferingLiveFrames = false
             cache.bufferedLiveFrames = undefined
             cache.sseConnectedAtMs = undefined
+            cache.streamEnded = false
+            cache.streamTokenRefreshes = 0
             // Drop the resume cursor so the next bootstrap opens fresh (start=latest) instead of
             // resuming a prior run's stream.
             cache.lastEventId = undefined

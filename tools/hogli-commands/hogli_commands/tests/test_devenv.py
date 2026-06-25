@@ -512,6 +512,15 @@ class TestMprocsRegistry:
         assert "shell" in config
         assert "start-backend" in config["shell"]
 
+    def test_all_declared_capabilities_are_defined(self) -> None:
+        """Every proc-declared capability must exist in intent-map.yaml; orphans raise ValueError on resolution."""
+        registry = create_mprocs_registry()
+        intent_map = load_intent_map()
+
+        orphans = registry.get_all_capabilities() - set(intent_map.capabilities)
+
+        assert not orphans, f"procs declare capabilities not defined in intent-map.yaml: {orphans}"
+
 
 class TestDevenvConfig:
     """Test DevenvConfig data class."""

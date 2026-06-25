@@ -10,7 +10,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceType
+from products.warehouse_sources.backend.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -130,7 +130,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.save()
 
         # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
-        from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
         SourceRegistry.get_source(ExternalDataSourceType(self.source_type)).cleanup_cdc_resources_on_deletion(self)
 
@@ -139,7 +139,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # this is a models module; the service import below pulls it anyway, but only at call time
         import temporalio.service  # noqa: PLC0415
 
-        from products.data_warehouse.backend.data_load.service import (
+        from products.data_warehouse.backend.logic.data_load.service import (
             sync_external_data_job_workflow,
             trigger_external_data_workflow,
         )

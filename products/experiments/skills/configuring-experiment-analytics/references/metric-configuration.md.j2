@@ -166,7 +166,7 @@ and completion events may be the same:
 
 - **Different events** (e.g. `$pageview` → `uploaded_file`) — conversion retention:
   "did the user reach the target action within the window?"
-- **Same event** (e.g. `promoted_product_clicked` → `promoted_product_clicked`) —
+- **Same event** (e.g. `nav_panel_clicked` → `nav_panel_clicked`) —
   repeat retention: "did the user fire it _again_ within the window?" `From 0`
   counts a repeat from the same period onward (same-day/same-hour repeats count);
   `From N` (N ≥ 1) requires the repeat in a later period. Use `start_handling: "first_seen"`
@@ -204,11 +204,11 @@ and completion events may be the same:
   "name": "7-day repeat-click retention",
   "start_event": {
     "kind": "EventsNode",
-    "event": "promoted_product_clicked"
+    "event": "nav_panel_clicked"
   },
   "completion_event": {
     "kind": "EventsNode",
-    "event": "promoted_product_clicked"
+    "event": "nav_panel_clicked"
   },
   "retention_window_start": 0,
   "retention_window_end": 7,

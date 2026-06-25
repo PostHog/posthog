@@ -1,6 +1,6 @@
+import { parseJSON } from '~/common/utils/json-parse'
 import { mustAddReasoningCost } from '~/ingestion/pipelines/ai/costs/output-costs'
 import { PluginEvent } from '~/plugin-scaffold'
-import { parseJSON } from '~/utils/json-parse'
 
 import { OtelLibraryMiddleware } from './types'
 

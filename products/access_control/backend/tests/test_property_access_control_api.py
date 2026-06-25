@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
 from posthog.models.event.util import ClickhouseEventSerializer
+from posthog.test.persons import create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -70,9 +71,7 @@ class TestClickhouseEventSerializerPropertyAccess(BaseTest):
         assert "$browser" in data["properties"]
 
     def test_restricted_person_property_stripped_from_embedded_person(self):
-        from posthog.models import Person
-
-        person = Person.objects.create(
+        person = create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "secret@example.com", "name": "Test User"},
@@ -93,9 +92,7 @@ class TestPersonSerializerPropertyAccess(BaseTest):
     def setUp(self):
         super().setUp()
         _enable_property_access_control(self.organization)
-        from posthog.models import Person
-
-        self.person = Person.objects.create(
+        self.person = create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={

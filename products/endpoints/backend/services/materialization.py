@@ -43,7 +43,7 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
 from products.endpoints.backend.services.activity import EndpointContext
 from products.endpoints.backend.services.strategies import apply_where_filter, strategy_for
-from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
+from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 logger = structlog.get_logger(__name__)
 
@@ -155,8 +155,24 @@ class EndpointMaterializationService:
             # (can_materialize) normally catches these, so reaching here is a backstop.
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
             raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")
-        except Exception:
+        except Exception as e:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="error").inc()
+            # Genuine system fault (user-query limitations are handled above). Log + capture so
+            # status="error" — which the alert fires on — is never a blind spot.
+            logger.exception(
+                "Failed to enable endpoint materialization",
+                endpoint_name=endpoint.name,
+                version=version.version,
+                team_id=self.team.pk,
+            )
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team.pk,
+                    "endpoint_name": endpoint.name,
+                },
+            )
             # Not a request-validation problem — surface as a server error, not a 400.
             raise APIException("Failed to enable materialization.")
 

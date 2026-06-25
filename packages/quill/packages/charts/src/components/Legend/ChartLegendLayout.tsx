@@ -33,7 +33,7 @@ export function ChartLegendLayout({
     // yet scrollable (plain center would push the top rows past the scroll origin).
     const legendClass = isRow
         ? 'flex flex-col self-stretch max-w-[45%] overflow-y-auto justify-center-safe'
-        : 'max-h-[40%] overflow-y-auto'
+        : 'self-stretch max-h-[40%] overflow-y-auto'
 
     const legendSlot = legend ? (
         <div className={`flex-none shrink-0 min-h-0 min-w-0 ${legendClass}`}>{legend}</div>

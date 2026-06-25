@@ -863,7 +863,9 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
-        response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 5}, format="json")
+        # 20 is below the 30-minute floor (the tightest cadence the UI offers) but above the old
+        # 10-minute floor, so this also guards against the floor being reverted.
+        response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 20}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_partial_update_cannot_change_skill_name(self) -> None:
@@ -1158,7 +1160,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     def test_create_rejects_interval_below_min(self) -> None:
         self._make_skill("signals-scout-fresh")
         response = self.client.post(
-            self._list_url(), data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 5}, format="json"
+            self._list_url(), data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 20}, format="json"
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 

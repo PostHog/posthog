@@ -1,14 +1,14 @@
 import { Message } from 'node-rdkafka'
 
+import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '~/common/config/kafka-topics'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
 import { resetKafka } from '~/tests/helpers/kafka'
-import { UUIDT } from '~/utils/utils'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { resetBehavioralCohortsDatabase } from '../../../tests/helpers/sql'
-import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '../../config/kafka-topics'
 import { Hub } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
-import { PostgresUse } from '../../utils/db/postgres'
 import { createCohortMembershipEvent, createCohortMembershipEvents, createKafkaMessage } from '../_tests/fixtures'
 import { CdpCohortMembershipConsumer } from './cdp-cohort-membership.consumer'
 

@@ -599,6 +599,14 @@ impl IngestionConsumer {
                 Ok(Some(Err(err))) => {
                     warn!(error = %err, "Kafka recv error");
                     counter!("ingestion_consumer_kafka_errors_total").increment(1);
+                    // A fatal client error (such as UnreleasedInstanceId from a
+                    // static-membership collision) permanently disables the
+                    // consumer. Propagate it so the process exits and Kubernetes
+                    // restarts the pod, instead of re-polling a dead client forever
+                    // while still reporting healthy.
+                    if let Some((code, reason)) = self.consumer.client().fatal_error() {
+                        anyhow::bail!("fatal Kafka client error ({code:?}): {reason}");
+                    }
                     break;
                 }
                 Ok(None) => break,
