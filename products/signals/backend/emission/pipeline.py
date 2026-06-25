@@ -28,6 +28,9 @@ LLM_CONCURRENCY_LIMIT = 20
 EMIT_CONCURRENCY_LIMIT = 50
 # Temporal gRPC payload size limit (2 MB)
 TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
+# Per-emission failure cause is truncated to this length before being surfaced in the
+# all-failed RuntimeError, so a verbose exception message can't bloat the raised error.
+_EMIT_FAILURE_CAUSE_MAX_CHARS = 300
 # Maximum number of attempts for LLM calls (summarization & actionability)
 LLM_MAX_ATTEMPTS = 3
 # Per-call timeout for LLM requests (seconds)
@@ -363,7 +366,10 @@ async def _emit_signals(
     _safe_heartbeat()
     completed_count = 0
 
-    async def _bounded_emit(output: SignalEmitterOutput) -> bool:
+    async def _bounded_emit(output: SignalEmitterOutput) -> str | None:
+        # Returns None on success, or a "ErrorType: message" string describing the failure cause.
+        # Surfacing the cause (rather than a bare False) lets the all-failed RuntimeError below
+        # name what actually went wrong — e.g. a Temporal connection blip vs a payload-size error.
         nonlocal completed_count
         async with semaphore:
             try:
@@ -395,22 +401,26 @@ async def _emit_signals(
                     weight=output.weight,
                     extra=output.extra,
                 )
-                return True
+                return None
             except Exception as e:
                 logger.exception(f"Error emitting signal for record: {e}", **extra)
-                return False
+                return f"{type(e).__name__}: {e}"[:_EMIT_FAILURE_CAUSE_MAX_CHARS]
             finally:
                 completed_count += 1
                 if completed_count % EMIT_CONCURRENCY_LIMIT == 0:
                     _safe_heartbeat()
 
-    results: dict[int, asyncio.Task[bool]] = {}
+    results: dict[int, asyncio.Task[str | None]] = {}
     async with asyncio.TaskGroup() as tg:
         for i, output in enumerate(outputs):
             results[i] = tg.create_task(_bounded_emit(output))
-    succeeded = sum(1 for task in results.values() if task.result())
+    failures = [cause for task in results.values() if (cause := task.result()) is not None]
+    succeeded = len(outputs) - len(failures)
     if succeeded == 0 and len(outputs) > 0:
-        raise RuntimeError(f"All {len(outputs)} signal emissions failed")
+        # Include the distinct causes so the failure is diagnosable from the raised error alone,
+        # without changing the intentional fail-and-retry behavior.
+        distinct_causes = sorted(set(failures))
+        raise RuntimeError(f"All {len(outputs)} signal emissions failed; distinct causes: {'; '.join(distinct_causes)}")
     return succeeded
 
 

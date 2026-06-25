@@ -533,11 +533,38 @@ class TestEmitSignals:
         outputs = [_make_output(source_id="1"), _make_output(source_id="2")]
 
         with (
-            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", side_effect=Exception("boom")),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", side_effect=ConnectionError("temporal unreachable")),
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
-            with pytest.raises(RuntimeError, match="All 2 signal emissions failed"):
+            # The swallowed per-record cause must surface in the raised error so the failure is
+            # diagnosable from error tracking alone (e.g. a Temporal connectivity blip).
+            with pytest.raises(
+                RuntimeError,
+                match="All 2 signal emissions failed; distinct causes: ConnectionError: temporal unreachable",
+            ):
                 await _emit_signals(team=MagicMock(), outputs=outputs, extra={})
+
+    @pytest.mark.asyncio
+    async def test_all_failed_error_lists_distinct_causes_once(self):
+        # Distinct causes are deduped and combined, so an operator can tell a uniform batch-wide
+        # failure (one cause) from a mix of unrelated per-record failures.
+        outputs = [_make_output(source_id="1"), _make_output(source_id="2"), _make_output(source_id="3")]
+
+        async def mock_emit(**kwargs):
+            if kwargs["source_id"] == "3":
+                raise ValueError("bad payload")
+            raise ConnectionError("temporal unreachable")
+
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", side_effect=mock_emit),
+            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                await _emit_signals(team=MagicMock(), outputs=outputs, extra={})
+
+        message = str(exc_info.value)
+        assert message.count("ConnectionError: temporal unreachable") == 1
+        assert "ValueError: bad payload" in message
 
 
 class TestPipelineStageTelemetry:
