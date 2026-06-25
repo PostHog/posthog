@@ -726,6 +726,11 @@ export interface TicketApi {
     readonly github_repo: string | null
     /** @nullable */
     readonly github_issue_number: number | null
+    /**
+     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * @nullable
+     */
+    readonly organization_id: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -806,6 +811,11 @@ export interface PatchedTicketApi {
     readonly github_repo?: string | null
     /** @nullable */
     readonly github_issue_number?: number | null
+    /**
+     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * @nullable
+     */
+    readonly organization_id?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }
