@@ -708,7 +708,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -795,10 +795,24 @@ from = [
     "products.warehouse_sources",
 ]
 
-# data_warehouse — facade landed (Phase 2). External consumers route through
-# backend.facade.* now; core tests still import a couple of its test helpers directly.
-# Shrinks as those fixtures relocate; the presentation wave (thinning the views, which
-# keep their import-linter allowances for now) and the final contract-check flip follow.
+# data_warehouse — facade landed (Phase 2). Dedicated block (not the canonical
+# alternation) because its facade is operational wiring (re-exports), so it has no
+# facade/contracts.py yet — contracts + the presentation wave come later. Exposes the
+# standard facade + view + route surface that external consumers route through now.
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.data_warehouse",
+]
+
+# data_warehouse legacy leaks — core tests still import a couple of its test helpers
+# directly. Shrinks as those fixtures relocate; the presentation wave (thinning the
+# views, which keep their import-linter allowances for now) and the final
+# contract-check flip follow.
 [[interfaces]]
 expose = [
     "backend\\.test.*",
