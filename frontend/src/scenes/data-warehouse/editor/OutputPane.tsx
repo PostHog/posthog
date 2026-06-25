@@ -1119,7 +1119,7 @@ const Content = ({
         }
 
         return (
-            <div className="flex-1 absolute inset-0 hide-scrollbar border-t overflow-auto">
+            <div className="absolute inset-0 flex flex-col hide-scrollbar border-t overflow-auto">
                 <SyncWarningsBanner warnings={response?.warnings} />
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}

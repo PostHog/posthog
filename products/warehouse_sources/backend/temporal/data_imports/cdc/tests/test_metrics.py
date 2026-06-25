@@ -239,7 +239,7 @@ def _sweeper_patches(adapter):
         patch(f"{_ACTIVITIES}.HeartbeaterSync"),
         patch(f"{_ACTIVITIES}.close_old_connections"),
         patch(f"{_ACTIVITIES}.get_cdc_adapter", return_value=adapter),
-        patch("products.data_warehouse.backend.data_load.service.delete_cdc_extraction_schedule"),
+        patch("products.data_warehouse.backend.logic.data_load.service.delete_cdc_extraction_schedule"),
     ):
         yield
 
