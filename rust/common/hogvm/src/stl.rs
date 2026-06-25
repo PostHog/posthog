@@ -279,11 +279,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                                 return Ok((i as i64).saturating_add(1).into());
                             }
                         }
-                        Ok(HogLiteral::Null.into())
+                        // The reference returns 0 (arr.indexOf(elem) + 1) when not found.
+                        Ok(HogLiteral::Number(Num::Integer(0)).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "indexOf() only supports arrays".to_string(),
-                    )),
+                    // Non-array arguments yield 0, matching the reference.
+                    _ => Ok(HogLiteral::Number(Num::Integer(0)).into()),
                 }
             }),
         ),

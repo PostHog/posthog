@@ -117,11 +117,24 @@ impl HogValue {
             }
             HogLiteral::Array(vals) => {
                 let index: &Num = chain[0].deref(heap)?.try_as()?;
-                if index.is_float() || index.to_integer() < 1 {
+                if index.is_float() {
                     return Err(VmError::InvalidIndex);
                 }
-                let index = (index.to_integer() as usize) - 1; // Hog indices are 1 based
-                let Some(found) = vals.get(index) else {
+                let raw = index.to_integer();
+                // Hog indices are 1-based; the reference VMs also allow negative indices counting
+                // from the end (-1 is the last element). Index 0 is an error; out of range is null.
+                let resolved = match raw {
+                    0 => return Err(VmError::InvalidIndex),
+                    r if r > 0 => (r as usize) - 1,
+                    r => {
+                        let from_end = vals.len() as i64 + r;
+                        if from_end < 0 {
+                            return Ok(None);
+                        }
+                        from_end as usize
+                    }
+                };
+                let Some(found) = vals.get(resolved) else {
                     return Ok(None);
                 };
                 found.get_nested(&chain[1..], heap)
@@ -142,13 +155,12 @@ impl HogValue {
         self.equals(rhs, heap)?.not()
     }
 
+    // Backs the `in`/`notIn` opcodes and the `has` STL. Both reference VMs define these as
+    // array/tuple membership *only* — a non-array haystack (string, object, null, …) is never a
+    // member, so it yields `false` rather than doing substring/key containment. Tuples are arrays
+    // in this VM, so the single Array arm covers them too.
     pub fn contains(&self, other: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
-        let (haystack, needle) = (self.deref(heap)?, other.deref(heap)?);
-        match haystack {
-            HogLiteral::String(s) => {
-                let needle: &str = needle.try_as()?;
-                Ok(s.contains(needle).into())
-            }
+        match self.deref(heap)? {
             HogLiteral::Array(vals) => {
                 for val in vals.iter() {
                     if *val.equals(other, heap)?.try_as::<bool>()? {
@@ -157,14 +169,7 @@ impl HogValue {
                 }
                 Ok(false.into())
             }
-            HogLiteral::Object(map) => {
-                let key: &str = needle.try_as()?;
-                Ok(map.contains_key(key).into())
-            }
-            _ => Err(VmError::CannotCoerce(
-                self.type_name().to_string(),
-                other.type_name().to_string(),
-            )),
+            _ => Ok(false.into()),
         }
     }
 

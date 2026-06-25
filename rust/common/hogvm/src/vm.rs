@@ -440,16 +440,11 @@ impl<'a> HogVM<'a> {
                 let ptr = self.heap.emplace(tuple)?;
                 self.push_stack(ptr)?;
             }
-            Operation::GetProperty => {
-                let needle = self.pop_stack()?;
-                let haystack = self.pop_stack()?;
-                let chain = [needle];
-                let Some(res) = haystack.get_nested(&chain, &self.heap)? else {
-                    return Err(VmError::UnknownProperty(format!("{:?}", chain[0])));
-                };
-                self.push_stack(res.clone())?;
-            }
-            Operation::GetPropertyNullish => {
+            // Both reference VMs (`getNestedValue`/`get_nested_value`) return null for a missing
+            // object key or out-of-range array index — the `nullish` flag only short-circuits a
+            // null *intermediate* in a multi-key chain, which these single-key opcodes never hit.
+            // So plain GetProperty and GetPropertyNullish behave identically here: null on miss.
+            Operation::GetProperty | Operation::GetPropertyNullish => {
                 let needle = self.pop_stack()?;
                 let haystack = self.pop_stack()?;
                 let chain = [needle];
