@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
-import { useState } from 'react'
+import { type CSSProperties, useState } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { TrendInsight } from 'scenes/trends/Trends'
@@ -130,8 +130,11 @@ function renderTrendInsight(insightFixture: any): JSX.Element {
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                {/* TrendInsight renders `.TrendsInsight` but not the `.InsightVizDisplay` ancestor that
+                    defines `--insight-viz-min-height`. Define it here so the chart's height behaves like the
+                    real insight page — without it the standard-height floor no-ops and a single bar collapses. */}
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div style={{ width: 720 }}>
+                <div style={{ width: 720, '--insight-viz-min-height': '32rem' } as CSSProperties}>
                     <TrendInsight view={InsightType.TRENDS} />
                 </div>
             </BindLogic>
