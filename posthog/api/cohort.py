@@ -1555,6 +1555,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             select=["id"],
             properties=cohort_properties,
             search=request.GET.get("search") or None,
+            # Match the legacy PersonQuery ordering (created_at DESC, id DESC) so pagination
+            # leads with the newest members; ActorsQuery otherwise defaults to id ASC.
+            orderBy=["created_at DESC", "id DESC"],
             limit=filter.limit,
             offset=filter.offset,
         )
