@@ -37,7 +37,7 @@ class ExternalDataSource:
     direct_query_enabled: bool
     created_via: str | None
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime | None
     # Direct-query capability, derived from source_type + access_method.
     is_direct_query: bool
     is_direct_postgres: bool
@@ -68,7 +68,7 @@ class ExternalDataSchema:
     initial_sync_complete: bool
     description: str | None
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime | None
     # Derived/related, commonly read alongside the schema.
     normalized_name: str
     is_incremental: bool
@@ -110,7 +110,7 @@ class ExternalDataJob:
     latest_error: str | None
     finished_at: datetime | None
     rows_synced: int
-    billable: bool
+    billable: bool | None
     schema_id: UUID | None
     pipeline_id: UUID | None
     workflow_id: str | None
