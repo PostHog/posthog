@@ -1215,6 +1215,31 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert comment.item_context["from_email"] is True
         assert comment.item_context["author_type"] == "customer"
 
+    @parameterized.expand(
+        [
+            # (name, extra_post_fields, expected_identity_verified)
+            ("spf_pass_aligned_domain", {"sender": "alice@external.com", "X-Mailgun-Spf": "Pass"}, True),
+            ("no_spf", {}, False),
+            ("spf_pass_misaligned_domain", {"sender": "alice@evil.com", "X-Mailgun-Spf": "Pass"}, False),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_identity_verified_reflects_spf(
+        self, _name: str, extra_fields: dict[str, str], expected_verified: bool, _mock_sig: MagicMock
+    ):
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": "Alice <alice@external.com>",
+                "Message-Id": f"<iv-{_name}@external.com>",
+                "subject": "Question",
+                "stripped-text": "Hello",
+                **extra_fields,
+            }
+        )
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.identity_verified is expected_verified
+
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     def test_no_spf_treated_as_customer(self, _mock_sig: MagicMock):
         """From header matches a team member but no SPF pass → customer."""

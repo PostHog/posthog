@@ -46,6 +46,10 @@ class Ticket(UUIDTModel):
     status = models.CharField(max_length=20, choices=Status, default=Status.NEW)
     priority = models.CharField(max_length=20, choices=Priority, null=True, blank=True)
     anonymous_traits = models.JSONField(default=dict, blank=True)
+    # Trust signal: True when the ticket's claimed identity was attested by the server
+    # (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook).
+    # False is the safe default for anonymous/unknown sources.
+    identity_verified = models.BooleanField(default=False)
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)
     ai_triage = models.JSONField(default=dict, blank=True)

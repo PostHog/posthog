@@ -118,6 +118,7 @@ export interface Ticket {
     channel_source: TicketChannel
     channel_detail?: TicketChannelDetail | null
     anonymous_traits: Record<string, any>
+    identity_verified: boolean
     ai_resolved: boolean
     escalation_reason?: string
     created_at: string

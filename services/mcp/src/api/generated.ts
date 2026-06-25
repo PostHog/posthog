@@ -34767,6 +34767,8 @@ export namespace Schemas {
       readonly assignee: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
+      /** Trust signal indicating the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). False for anonymous or unverified sources. */
+      readonly identity_verified: boolean;
       ai_resolved?: boolean;
       /** @nullable */
       escalation_reason?: string | null;
@@ -42114,6 +42116,8 @@ export namespace Schemas {
       readonly assignee?: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
+      /** Trust signal indicating the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). False for anonymous or unverified sources. */
+      readonly identity_verified?: boolean;
       ai_resolved?: boolean;
       /** @nullable */
       escalation_reason?: string | null;

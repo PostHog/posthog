@@ -486,6 +486,8 @@ def create_or_update_slack_ticket(
             slack_thread_ts=thread_ts,
             slack_team_id=slack_team_id,
             unread_team_count=0 if is_team_member else 1,
+            # Created from a signature-validated Slack webhook — platform-attested identity.
+            identity_verified=True,
         )
 
     Comment.objects.create(
