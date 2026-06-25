@@ -45,6 +45,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
     VirtualTable,
 )
+from posthog.hogql.errors import BaseHogQLError
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -132,6 +133,17 @@ _FIELD_TYPE_NAMES: list[tuple[type, str]] = [
     (StringDatabaseField, "String"),
     (UnknownDatabaseField, "Unknown"),
 ]
+
+
+def _capture_unexpected(message: str, error: Exception) -> None:
+    """Surface a genuinely-unexpected resolution failure (a bug, not an unresolvable field) to error
+    tracking — expected `BaseHogQLError`s are handled by the caller and never sent here."""
+    # Deferred: keeps the (heavier) capture dependency off this schema module's import path.
+    from posthog.exceptions_capture import capture_exception  # noqa: PLC0415
+
+    tracking_error = Exception(message)
+    tracking_error.__cause__ = error
+    capture_exception(tracking_error)
 
 
 def _field_type_name(field: DatabaseField) -> str:
@@ -420,19 +432,15 @@ class _Introspection:
     def _table_scope(self, table_name: str) -> Optional["ast.SelectQueryType"]:
         if table_name not in self._table_scope_cache:
             # Deferred: resolver imports the schema package, so a module-level import would cycle.
-            from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
+            from posthog.hogql.resolver import resolve_table_scope  # noqa: PLC0415
 
             scope: Optional[ast.SelectQueryType] = None
             try:
-                chain = table_name.replace("`", "").split(".")
-                if self.database.has_table(chain):
-                    select = ast.SelectQuery(
-                        select=[ast.Field(chain=["*"])],
-                        select_from=ast.JoinExpr(table=ast.Field(chain=chain)),
-                    )
-                    scope = resolve_types(select, self.context, "hogql").type
-            except Exception:
-                scope = None
+                scope = resolve_table_scope(table_name.replace("`", "").split("."), self.context, "hogql")
+            except BaseHogQLError:
+                scope = None  # genuinely unresolvable table — expected, fall back quietly
+            except Exception as e:
+                _capture_unexpected("information_schema: failed to resolve table scope", e)
             self._table_scope_cache[table_name] = scope
         return self._table_scope_cache[table_name]
 
@@ -452,7 +460,10 @@ class _Introspection:
             if resolved.type is None:
                 return "Expression"
             return resolved.type.resolve_constant_type(self.context).print_type()
-        except Exception:
+        except BaseHogQLError:
+            return "Expression"  # genuinely unresolvable expression — expected
+        except Exception as e:
+            _capture_unexpected("information_schema: failed to resolve expression column type", e)
             return "Expression"
 
     def _row_count(self, name: str, table: Table, table_type: str) -> Optional[int]:
