@@ -245,6 +245,7 @@ def _invoke_start_agent_server(
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            initial_permission_mode=ctx.initial_permission_mode,
             mcp_configs=params.mcp_configs or None,
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,

@@ -581,6 +581,7 @@ class TestGetTaskProcessingContextActivity:
                 "provider": "openai",
                 "model": "gpt-5.3-codex",
                 "reasoning_effort": "high",
+                "initial_permission_mode": "bypassPermissions",
             }
         )
 
@@ -591,3 +592,4 @@ class TestGetTaskProcessingContextActivity:
         assert result.provider == "openai"
         assert result.model == "gpt-5.3-codex"
         assert result.reasoning_effort == "high"
+        assert result.initial_permission_mode == "bypassPermissions"

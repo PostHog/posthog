@@ -118,6 +118,11 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     @property
+    def initial_permission_mode(self) -> str | None:
+        value = (self.state or {}).get("initial_permission_mode")
+        return value if isinstance(value, str) else None
+
+    @property
     def run_source(self) -> str | None:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
@@ -193,6 +198,7 @@ class TaskProcessingContext:
             "provider": self.provider,
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
+            "initial_permission_mode": self.initial_permission_mode,
         }
 
 
