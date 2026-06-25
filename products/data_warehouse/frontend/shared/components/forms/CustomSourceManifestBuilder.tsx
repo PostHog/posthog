@@ -85,7 +85,8 @@ export function CustomSourceManifestBuilder({
     setValue,
 }: CustomSourceManifestBuilderLogicProps): JSX.Element {
     const logic = customSourceManifestBuilderLogic({ initialManifestJson, setValue })
-    const { manifestState, manifestJson, manifestPreviewOpen, docsUrl, draftResultLoading } = useValues(logic)
+    const { manifestState, manifestJson, manifestPreviewOpen, docsUrl, sourceName, draftResultLoading, showBuilder } =
+        useValues(logic)
     const {
         updateState,
         updateTable,
@@ -97,30 +98,43 @@ export function CustomSourceManifestBuilder({
         updateHeader,
         setManifestPreviewOpen,
         setDocsUrl,
+        setSourceName,
         generateFromDocs,
+        setShowBuilder,
     } = useActions(logic)
 
-    return (
-        <div className="space-y-6">
-            <div className="rounded border border-border p-3 deprecated-space-y-2">
+    // Airbyte-style intro: name + docs URL → draft with AI, or skip to the manual builder.
+    if (!showBuilder) {
+        return (
+            <div className="space-y-4">
                 <div>
-                    <h4 className="mb-0 flex items-center gap-1">
-                        <IconSparkles /> Build from API docs
-                    </h4>
-                    <p className="m-0 text-xs text-secondary">
-                        Paste a link to the API's documentation and we'll draft the manifest below for you to review.
-                        Add your credentials after.
+                    <h3 className="mb-1 flex items-center gap-1">
+                        <IconSparkles /> Build a custom source from API docs
+                    </h3>
+                    <p className="m-0 text-secondary">
+                        Name your source and link to the API's documentation — we'll draft the connection for you to
+                        review and add credentials to. Or configure it manually.
                     </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <LemonField.Pure label="Source name">
                     <LemonInput
-                        className="flex-1"
+                        placeholder="Acme CRM"
+                        value={sourceName}
+                        onChange={setSourceName}
+                        onPressEnter={generateFromDocs}
+                        disabled={draftResultLoading}
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Documentation URL">
+                    <LemonInput
                         placeholder="https://docs.example.com/api"
                         value={docsUrl}
                         onChange={setDocsUrl}
                         onPressEnter={generateFromDocs}
                         disabled={draftResultLoading}
                     />
+                </LemonField.Pure>
+                <div className="flex items-center gap-2">
                     <LemonButton
                         type="primary"
                         icon={<IconSparkles />}
@@ -130,11 +144,25 @@ export function CustomSourceManifestBuilder({
                     >
                         Generate
                     </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => setShowBuilder(true)}
+                        disabledReason={draftResultLoading ? 'Generating…' : undefined}
+                    >
+                        Configure manually
+                    </LemonButton>
                 </div>
             </div>
+        )
+    }
 
-            <LemonDivider />
-
+    return (
+        <div className="space-y-6">
+            {!initialManifestJson && (
+                <LemonButton size="small" type="tertiary" onClick={() => setShowBuilder(false)}>
+                    ← Back to AI setup
+                </LemonButton>
+            )}
             <LemonField.Pure label="Base URL" htmlFor="custom-source-base-url">
                 <LemonInput
                     id="custom-source-base-url"

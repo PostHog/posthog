@@ -17,6 +17,7 @@ import structlog
 import temporalio
 from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from openai import APIConnectionError
 from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import APIException, ValidationError
@@ -2716,6 +2717,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 auth_token=data.get("auth_token") or None,
                 auth_api_key=data.get("auth_api_key") or None,
                 auth_password=data.get("auth_password") or None,
+            )
+        except APIConnectionError as e:
+            capture_exception(e, {"team_id": self.team_id})
+            return Response(
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                data={
+                    "message": "Couldn't reach the AI service. If you're running locally, the LLM gateway isn't running — author the manifest manually instead."
+                },
             )
         except Exception as e:
             capture_exception(e, {"team_id": self.team_id})

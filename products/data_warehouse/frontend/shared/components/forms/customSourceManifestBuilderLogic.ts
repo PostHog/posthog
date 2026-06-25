@@ -83,8 +83,11 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
         // UI-only: tracks the generated-manifest <details> disclosure so the
         // CodeSnippet (and its syntax highlighting) only renders while expanded.
         setManifestPreviewOpen: (open: boolean) => ({ open }),
-        // AI assist: the docs URL the user wants to draft a manifest from.
+        // AI assist: the docs URL + optional name the user wants to draft a manifest from.
         setDocsUrl: (docsUrl: string) => ({ docsUrl }),
+        setSourceName: (sourceName: string) => ({ sourceName }),
+        // Switch from the AI intro screen to the full manual builder.
+        setShowBuilder: (showBuilder: boolean) => ({ showBuilder }),
     }),
     reducers(({ props }) => ({
         manifestState: [
@@ -165,6 +168,20 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                 setDocsUrl: (_, { docsUrl }) => docsUrl,
             },
         ],
+        sourceName: [
+            '',
+            {
+                setSourceName: (_, { sourceName }) => sourceName,
+            },
+        ],
+        // The AI intro screen is the default for a fresh source; the configuration page (which passes
+        // an initial manifest) and the "Configure manually" button jump straight to the builder.
+        showBuilder: [
+            Boolean(props.initialManifestJson),
+            {
+                setShowBuilder: (_, { showBuilder }) => showBuilder,
+            },
+        ],
     })),
     loaders(({ values }) => ({
         // Drafts a manifest from the docs URL via the backend AI builder. The returned value drives
@@ -180,6 +197,7 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                     }
                     return await externalDataSourcesDraftCustomManifestCreate(String(ApiConfig.getCurrentTeamId()), {
                         docs_url: docsUrl,
+                        source_name: values.sourceName.trim() || undefined,
                     })
                 },
             },
@@ -223,6 +241,8 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
             // creating; secrets are never in the manifest, so the auth_* fields stay for them to fill.
             if (draftResult.manifest_json) {
                 actions.setManifestState(parseManifestIntoState(draftResult.manifest_json))
+                // Move to the builder so the user reviews the draft and fills in credentials.
+                actions.setShowBuilder(true)
             }
             if (draftResult.draft_status === 'ok') {
                 lemonToast.success(
@@ -235,7 +255,7 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
             }
         },
         generateFromDocsFailure: () => {
-            lemonToast.error('Failed to draft a manifest. Try again, or build it manually below.')
+            lemonToast.error('Failed to draft a manifest. Try again, or configure it manually.')
         },
     })),
     afterMount(({ actions, props }) => {
