@@ -15,14 +15,14 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsT
 
 
 class AiEventsTable(Table):
-    description: str = "LLM analytics events ($ai_generation, $ai_span, $ai_trace, etc.) capturing model calls, token usage, costs, and trace structure."
+    description: str = "AI observability events ($ai_generation, $ai_span, $ai_trace, $ai_evaluation, etc.) capturing model calls, token usage, costs, and trace structure."
     fields: dict[str, FieldOrTable] = {
         # Core
         "uuid": StringDatabaseField(name="uuid", nullable=False, description="Unique identifier of this event row."),
         "event": StringDatabaseField(
             name="event",
             nullable=False,
-            description="LLM analytics event name, e.g. '$ai_generation', '$ai_span', '$ai_trace'.",
+            description="AI observability event name, e.g. '$ai_generation', '$ai_span', '$ai_trace'.",
         ),
         "timestamp": DateTimeDatabaseField(
             name="timestamp", nullable=False, description="When the event occurred (UTC)."
@@ -39,7 +39,7 @@ class AiEventsTable(Table):
         "properties": StringJSONDatabaseField(
             name="properties",
             nullable=False,
-            description="JSON map of event properties (raw $ai_* properties live here).",
+            description="JSON map of event properties (raw properties live here).",
         ),
         "retention_days": IntegerDatabaseField(
             name="retention_days", nullable=False, description="Number of days the event is retained for."
@@ -66,7 +66,7 @@ class AiEventsTable(Table):
         "experiment_id": StringDatabaseField(
             name="experiment_id",
             nullable=True,
-            description="LLM analytics experiment this event is associated with, if any.",
+            description="AI observability experiment this event is associated with, if any.",
         ),
         # Names
         "span_name": StringDatabaseField(

@@ -1551,7 +1551,7 @@ review_queues: PostgresTable = PostgresTable(
     name="review_queues",
     postgres_table_name="llm_analytics_reviewqueue",
     access_scope="llm_analytics",
-    description="LLM analytics review queues: named lists of traces queued for human review; one row per queue.",
+    description="AI observability review queues: named lists of traces queued for human review; one row per queue.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Queue UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
