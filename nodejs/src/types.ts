@@ -7,10 +7,6 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import type { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
-import type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
-import type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/logs/config'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
@@ -25,7 +21,6 @@ import type {
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
-import type { IngestionConsumerConfig } from './ingestion/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
@@ -40,16 +35,7 @@ export type { CdpConfig } from './cdp/config'
 export type { AIObservabilityConfig } from './ai-observability/config'
 export { KafkaSaslMechanism, PluginServerMode, stringToPluginServerMode } from './common/config'
 export type { CommonConfig, LogLevel } from './common/config'
-export type {
-    IngestionConsumerConfig,
-    IngestionLane,
-    PersonBatchWritingDbWriteMode,
-    PersonBatchWritingMode,
-} from './ingestion/config'
-export type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
 export type { LogsIngestionConsumerConfig } from '~/logs/config'
-export type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
-export type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 
 interface HealthCheckResultResponse {
     service: string
@@ -116,13 +102,8 @@ export interface PluginsServerConfig
     extends CommonConfig,
         CdpConfig,
         AIObservabilityConfig,
-        IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
         TracesIngestionConsumerConfig,
-        ErrorTrackingConsumerConfig,
-        MetricsIngestionConsumerConfig,
-        SessionRecordingConfig,
-        SessionRecordingApiConfig,
         // Producer envs needed by the CDP producer registry the legacy big server builds.
         KafkaWarpstreamIngestionProducerEnvConfig,
         KafkaWarpstreamCalculatedEventsProducerEnvConfig,
@@ -133,14 +114,12 @@ export interface HubServices {
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     posthogRedisPool: GenericPool<Redis>
-    cookielessRedisPool: GenericPool<Redis>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     personRepository: PersonRepository
     geoipService: GeoIPService
     encryptedFields: EncryptedFields
-    cookielessManager: CookielessManager
     pubSub: PubSub
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting

@@ -4,7 +4,8 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, MCPHarnessBreakdownItem, NodeKind } from '~/queries/schema/schema-general'
+import { PropertyFilterType } from '~/types'
 
 import type { mcpAnalyticsToolDetailLogicType } from './mcpAnalyticsToolDetailLogicType'
 
@@ -332,23 +333,30 @@ LIMIT 5
         byHarnessRows: [
             [] as ResultRows,
             {
-                loadByHarnessRows: async (): Promise<ResultRows> =>
-                    queryRows(`
-SELECT
-    toString(properties.$mcp_client_name) AS harness,
-    count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    uniq(distinct_id) AS users
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${buildToolFilter(props.toolName)}
-    AND notEmpty(toString(properties.$mcp_client_name))
-GROUP BY harness
-ORDER BY calls DESC
-LIMIT 10
-`),
+                // Server-resolved harness labels via the same runner as the dashboard, so the
+                // pill matches the dashboard's bucketing exactly. The per-tool, new-SDK filter
+                // rides along as a HogQL property so the runner applies it inside its WHERE.
+                loadByHarnessRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPHarnessBreakdownQuery,
+                        // Absolute from/to give an exact 168h window. A relative '-7d' is rounded to
+                        // the start of that day by QueryDateRange, which would widen this table's
+                        // window past the page's other `now() - INTERVAL 7 DAY` queries and let its
+                        // counts drift from the summary / Top users sections after midnight.
+                        dateRange: {
+                            date_from: dayjs().subtract(7, 'day').toISOString(),
+                            date_to: dayjs().toISOString(),
+                        },
+                        properties: [{ type: PropertyFilterType.HogQL, key: buildToolFilter(props.toolName) }],
+                    })) as { results?: MCPHarnessBreakdownItem[] }
+                    return (response?.results ?? []).map((r) => [
+                        r.harness,
+                        r.total_calls,
+                        r.errors,
+                        r.error_rate_pct,
+                        r.sessions,
+                    ])
+                },
             },
         ],
         topUserRows: [

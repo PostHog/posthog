@@ -62,11 +62,11 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _collect_mutable_object_ids(obj: Any, ids: set[int]) -> None:
@@ -740,7 +740,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         invalidate_group_types_cache(self.team.project_id)
         db = Database.create_for(team=self.team)
 
-        assert db.get_table("events").fields["event"] == StringDatabaseField(name="event", nullable=False)
+        event_field = db.get_table("events").fields["event"]
+        assert isinstance(event_field, StringDatabaseField)
+        assert event_field.name == "event"
+        assert event_field.nullable is False
+        assert not event_field.array
+        assert event_field.hidden is False
 
     def test_database_expression_fields(self):
         db = Database.create_for(team=self.team)

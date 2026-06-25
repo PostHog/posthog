@@ -42,7 +42,7 @@ import { ActivityTab } from '~/types'
 
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
-import { inlineEditAppsLogic } from './inlineEditAppsLogic'
+import { inlineEditToolsLogic } from './inlineEditToolsLogic'
 import { navRecentsLogic } from './navRecentsLogic'
 
 const panelTriggerItems: {
@@ -62,7 +62,7 @@ const panelTriggerItems: {
     },
     {
         identifier: 'Products',
-        label: 'Apps',
+        label: 'Tools',
         icon: <IconApps />,
     },
     {
@@ -163,8 +163,8 @@ export function NavTabBrowse(): JSX.Element {
     } = useValues(panelLayoutLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
-    const { isEditMode, checkedItems } = useValues(inlineEditAppsLogic)
-    const { enterEditMode, saveAndExitEditMode, toggleProduct } = useActions(inlineEditAppsLogic)
+    const { isEditMode, checkedTools } = useValues(inlineEditToolsLogic)
+    const { enterEditMode, saveAndExitEditMode, toggleTool } = useActions(inlineEditToolsLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
     const currentPath = removeProjectIdIfPresent(pathname)
 
@@ -365,35 +365,35 @@ export function NavTabBrowse(): JSX.Element {
 
             {!isLayoutNavCollapsed && (
                 <Collapsible
-                    open={expandedNavSections.apps ?? false}
+                    open={expandedNavSections.tools ?? false}
                     onOpenChange={() => {
                         posthog.capture('nav section toggled', {
-                            section: 'apps',
-                            is_open: !expandedNavSections.apps,
+                            section: 'tools',
+                            is_open: !expandedNavSections.tools,
                         })
-                        toggleNavSection('apps')
+                        toggleNavSection('tools')
                     }}
                     className="mt-2 group/colorful-product-icons colorful-product-icons-true"
-                    data-attr="nav-section-apps"
+                    data-attr="nav-section-tools"
                 >
                     <div className="relative">
-                        <SectionTrigger icon={<IconApps />} label="My Apps" isCollapsed={isLayoutNavCollapsed} />
-                        {expandedNavSections.apps && (
+                        <SectionTrigger icon={<IconApps />} label="My Tools" isCollapsed={isLayoutNavCollapsed} />
+                        {expandedNavSections.tools && (
                             <ButtonPrimitive
                                 iconOnly
                                 size="xs"
-                                tooltip={isEditMode ? 'Save' : 'Choose which apps to show in the sidebar'}
+                                tooltip={isEditMode ? 'Save' : 'Choose which tools to show in the sidebar'}
                                 tooltipPlacement="top"
                                 onClick={() => {
                                     if (isEditMode) {
-                                        posthog.capture('nav apps edit saved')
+                                        posthog.capture('nav tools edit saved')
                                         saveAndExitEditMode()
                                     } else {
-                                        posthog.capture('nav apps edit toggled', { is_editing: true })
+                                        posthog.capture('nav tools edit toggled', { is_editing: true })
                                         enterEditMode()
                                     }
                                 }}
-                                data-attr="nav-apps-edit-button"
+                                data-attr="nav-tools-edit-button"
                                 className="absolute right-1 top-0 bottom-0 my-auto rounded-[var(--radius)] z-5"
                             >
                                 {isEditMode ? (
@@ -405,19 +405,19 @@ export function NavTabBrowse(): JSX.Element {
                         )}
                     </div>
                     <Collapsible.Panel className="-ml-2 pl-3 pr-1 w-[calc(100%+(var(--spacing)*4))]">
-                        {(expandedNavSections.apps ?? false) && (
+                        {(expandedNavSections.tools ?? false) && (
                             <ProjectTree
                                 root={isEditMode ? 'products://' : 'custom-products://'}
                                 onlyTree
                                 treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
                                 selectModeOverride={isEditMode ? 'multi' : undefined}
-                                checkedItemsOverride={isEditMode ? checkedItems : undefined}
+                                checkedItemsOverride={isEditMode ? checkedTools : undefined}
                                 onItemCheckedOverride={
                                     isEditMode
                                         ? (id) => {
                                               // Tree item IDs for products:// are "products/{path}"
-                                              const productPath = id.replace(/^products\//, '')
-                                              toggleProduct(productPath)
+                                              const toolPath = id.replace(/^products\//, '')
+                                              toggleTool(toolPath)
                                           }
                                         : undefined
                                 }

@@ -236,6 +236,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         date_from:
                             values.simulationDateFrom ??
                             getDefaultSimulationRange(values.alertForm.calculation_interval),
+                        // SQL insights have no series_index; the config carries the evaluated column
+                        // and read direction so the preview matches what the alert will score.
+                        config: formConfig,
                     })
                 },
                 clearSimulation: () => null,

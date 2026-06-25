@@ -1,8 +1,10 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -125,17 +127,24 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
             }),
         ],
         links: [
-            (s) => [s.account],
-            (account: AccountApi | null): AccountLink[] => {
+            (s) => [s.account, router.selectors.currentLocation],
+            (account: AccountApi | null, currentLocation): AccountLink[] => {
                 const externalId = account?.external_id ?? null
                 const billingId = account?.properties?.billing_id ?? null
                 const slackChannelId = account?.properties?.slack_channel_id ?? null
                 const usageDashboardLink = account?.properties?.usage_dashboard_link ?? null
+                const backUrl =
+                    removeProjectIdIfPresent(currentLocation.pathname) + currentLocation.search + currentLocation.hash
                 return [
                     {
                         key: 'organization',
                         label: 'Organization',
-                        to: externalId ? urls.group(ORGANIZATION_GROUP_TYPE_INDEX, externalId) : null,
+                        to: externalId
+                            ? combineUrl(urls.group(ORGANIZATION_GROUP_TYPE_INDEX, externalId), {
+                                  backUrl,
+                                  backName: 'Accounts',
+                              }).url
+                            : null,
                         targetBlank: false,
                         disabledReason: externalId ? null : 'No external ID set',
                     },
