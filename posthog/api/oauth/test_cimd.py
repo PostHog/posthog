@@ -398,9 +398,7 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
     )
     @patch("posthog.api.oauth.cimd.capture_exception")
     @patch("posthog.api.oauth.cimd.fetch_and_upsert_cimd_application")
-    def test_background_task_captures_unexpected_fetch_error(
-        self, _name, task_fn, mock_fetch, mock_capture, _url_mock
-    ):
+    def test_background_task_captures_unexpected_fetch_error(self, _name, task_fn, mock_fetch, mock_capture, _url_mock):
         error = CIMDFetchError("connection reset")
         mock_fetch.side_effect = error
         task_fn(VALID_CIMD_URL)
