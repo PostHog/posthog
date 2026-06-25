@@ -63,8 +63,7 @@ from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyType
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 from ee.clickhouse.materialized_columns.columns import (
     get_bloom_filter_index_name,
@@ -6882,6 +6881,20 @@ class TestDuckDBPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self._expr("properties['a\"b']", context=context)
         self.assertEqual(list(context.values.values()), ['$."a\\"b"'])
+
+    def test_repeated_property_access_reuses_one_placeholder(self):
+        # DuckDB rejects `GROUP BY <expr>` when the same JSON path is bound to a different placeholder
+        # in the SELECT than in the GROUP BY — it can't prove the two parameterized expressions are
+        # equal. Repeated identical reads must collapse to a single bound value so the printed
+        # expressions match textually.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select(
+            "SELECT properties.$ai_session_id AS s, count() AS n FROM events GROUP BY properties.$ai_session_id",
+            context=context,
+        )
+        self.assertEqual(list(context.values.values()).count('$."$ai_session_id"'), 1)
+        # the SELECT and GROUP BY reference the very same placeholder token
+        self.assertEqual(printed.count("(events.properties) ->> %(hogql_val_0)s"), 2)
 
 
 class TestMySQLPrinter(BaseTest):

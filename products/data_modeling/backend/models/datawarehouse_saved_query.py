@@ -347,7 +347,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         columns = self.columns or {}
         fields: dict[str, FieldOrTable] = {}
 
-        from products.warehouse_sources.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
+        from products.warehouse_sources.backend.facade.hogql import CLICKHOUSE_HOGQL_MAPPING
 
         for column, type in columns.items():
             # Support for 'old' style columns

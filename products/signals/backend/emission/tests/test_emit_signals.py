@@ -698,7 +698,7 @@ class TestEmitActivityTableNameResolution:
     async def test_passes_hogql_resolvable_table_name_to_fetcher(
         self, prefix: str | None, storage_name: str, expected_hogql_name: str
     ):
-        from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+        from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
         captured_context: dict[str, Any] = {}
 

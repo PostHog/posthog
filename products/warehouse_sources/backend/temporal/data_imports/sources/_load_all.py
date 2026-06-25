@@ -561,6 +561,7 @@ from .svix.source import SvixSource
 from .systeme.source import SystemeSource
 from .taboola.source import TaboolaSource
 from .tavus.source import TavusSource
+from .tawk_to.source import TawkToSource
 from .teamtailor.source import TeamtailorSource
 from .teamwork.source import TeamworkSource
 from .tempo.source import TempoSource

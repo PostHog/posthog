@@ -40,8 +40,8 @@ from products.revenue_analytics.backend.views.schemas import (
     SCHEMAS as VIEW_SCHEMAS,
     Schema as RevenueAnalyticsSchema,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 # This is the placeholder that we use for the breakdown_by field when the breakdown is not present
 NO_BREAKDOWN_PLACEHOLDER = "<none>"

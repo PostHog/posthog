@@ -23,7 +23,7 @@ from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInput
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
-from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
 class NodeSerializer(serializers.ModelSerializer):

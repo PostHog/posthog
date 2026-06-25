@@ -599,6 +599,7 @@
           ExternalDataSourceType.TVMAZE: TVMazeSourceConfig,
           ExternalDataSourceType.TABOOLA: TaboolaSourceConfig,
           ExternalDataSourceType.TAVUS: TavusSourceConfig,
+          ExternalDataSourceType.TAWKTO: TawkToSourceConfig,
           ExternalDataSourceType.TEAMTAILOR: TeamtailorSourceConfig,
           ExternalDataSourceType.TEAMWORK: TeamworkSourceConfig,
           ExternalDataSourceType.TEMPO: TempoSourceConfig,
