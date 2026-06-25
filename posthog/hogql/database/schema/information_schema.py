@@ -680,7 +680,9 @@ class InformationSchemaTablesTable(LazyTable):
     )
     fields: dict[str, FieldOrTable] = {
         "table_catalog": _string_field(
-            "table_catalog", nullable=False, description="Fully-qualified table name (same as table_name)."
+            "table_catalog",
+            nullable=False,
+            description="Table name (same as table_name); PostHog does not use a separate catalog identifier.",
         ),
         "table_schema": _string_field(
             "table_schema",
