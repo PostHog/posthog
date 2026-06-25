@@ -128,12 +128,32 @@ identical bytecode). Events come from a deterministic formula replicated in ever
 large fixture is shipped and the workload is identical across languages. The program is validated
 against the reference VM before timing (`scripts/gen_perf_workload.py` writes the oracle).
 
-Built: `benches/ingestion.rs` (`scripts/run_perf.sh`). A key efficiency point baked in — build the
-STL once per worker and swap `ctx.globals` per event, rather than rebuilding the STL map 10k times.
+Built (all three modes):
+- `benches/ingestion.rs` (`scripts/run_perf.sh`) — pure Rust, single + rayon parallel.
+- `benches/ingestion_node.js` — pure Node (reference TS VM), single-threaded.
+- `node/` (napi-rs binding) + `benches/ingestion_ffi.js` (`scripts/run_ffi.sh`) — Rust-from-Node.
 
-**First result (4-core sandbox):** single 10.3k events/s; rayon parallel 39.9k events/s — **3.87×
-speedup (~97% efficiency)**. Near-linear scaling is the lever for beating Node; the Node baseline +
-FFI numbers come next to complete the three-way comparison.
+A key efficiency point baked into the Rust paths — build the STL once per worker and swap
+`ctx.globals` per event, rather than rebuilding the STL map 10k times.
+
+**First results (4-core sandbox, 10k events / 2k batches):**
+
+| mode | events/s | vs Node |
+|---|---|---|
+| Node (single, V8) | 13.6k | 1.00× |
+| Rust single-thread | 10.3k | 0.76× |
+| Rust-from-Node (napi FFI, parallel) | 23.6k | **1.73×** |
+| Rust parallel (in-process, 4 cores) | 39.9k | 2.93× |
+
+Takeaways that steer the loop:
+1. **Single-threaded, the Rust VM is *slower* than Node** (V8's JIT is excellent here). The win is
+   entirely from parallelism — so Phase 2 must both (a) reclaim single-thread speed and (b) keep the
+   parallel scaling. There's real single-thread headroom (per-event heap allocs, globals re-parsed
+   to `HogValue` each run, STL lookups).
+2. **The realistic FFI path is 1.73× Node** — rayon parallelism wins, but marshalling the batch
+   across the boundary (JS objects → `serde_json::Value` → back) costs ~40% of the in-process gain.
+   Reducing that (compact/columnar event encoding, or more work per event) is the FFI lever.
+3. In-process Rust parallel is 2.93× Node and scales ~linearly (3.87× on 4 cores in isolation).
 
 ---
 
