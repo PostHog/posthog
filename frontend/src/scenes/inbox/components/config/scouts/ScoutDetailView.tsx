@@ -58,6 +58,10 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                 <>
                     <ScoutRowCard config={config} rollup={rollup} onUpdate={updateScoutConfig} asHeader />
 
+                    {config.description ? (
+                        <p className="text-sm text-secondary leading-snug mb-0 max-w-3xl">{config.description}</p>
+                    ) : null}
+
                     <div className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-default uppercase tracking-wide">
                             Last {SCOUT_RUNS_WINDOW_SPAN}

@@ -1,6 +1,6 @@
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { HogFlow } from '~/schema/hogflow'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { delay } from '~/utils/utils'

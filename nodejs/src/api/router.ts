@@ -9,7 +9,10 @@ import { logger } from '~/utils/logger'
 
 prometheus.collectDefaultMetrics()
 
-export function initializePrometheusLabels(ingestionPipeline: string | null, ingestionLane: string | null): void {
+export function initializePrometheusLabels(
+    ingestionPipeline: string | null = null,
+    ingestionLane: string | null = null
+): void {
     const labels: Record<string, string> = {}
     if (ingestionPipeline) {
         labels['ingestion_pipeline'] = ingestionPipeline

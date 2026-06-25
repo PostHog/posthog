@@ -79,7 +79,8 @@ class SignalSourceConfig(UUIDModel):
         """Check whether a given signal source is enabled for a team.
 
         AI observability signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
-        For everything else, the team must have a SignalSourceConfig row with enabled=True.
+        Scout findings are on by default (see below). For everything else, the team must have a
+        SignalSourceConfig row with enabled=True.
         """
         if source_product == cls.SourceProduct.LLM_ANALYTICS:
             return True
@@ -88,6 +89,17 @@ class SignalSourceConfig(UUIDModel):
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
             return True
+
+        # Scout findings surface to the inbox by default — the team-level toggle was retired from the
+        # UI, so this gate is fail-open: absence of a row means on. A team can still opt out via the
+        # MCP/API by writing an explicit disabled row, which this honors.
+        if source_product == cls.SourceProduct.SIGNALS_SCOUT and source_type == cls.SourceType.CROSS_SOURCE_ISSUE:
+            return not cls.objects.filter(
+                team_id=team_id,
+                source_product=source_product,
+                source_type=source_type,
+                enabled=False,
+            ).exists()
 
         # Session problem signals are emitted as part of session analysis,
         # so they're gated by the pre-existing session_analysis_cluster config
@@ -977,7 +989,8 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     emit = models.BooleanField(default=True, db_default=True)
     # Minutes between runs. The coordinator dispatches this scout when
     # `last_run_at is None or now - last_run_at >= run_interval_minutes`. Deterministic —
-    # no sampling. Floor of 10 keeps one scout from monopolising the worker pool; default
+    # no sampling. Floor of 30 keeps one scout from monopolising the worker pool and matches the
+    # tightest cadence the UI offers (RUN_INTERVAL_OPTIONS); default
     # 1440 = every 24 hours. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
     # `PositiveSmallIntegerField` (smallint, max 32767) so the documented 30-day ceiling fits.
     # Default chosen for run economics: most runs close out without a finding, so a tighter
@@ -988,7 +1001,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     run_interval_minutes = models.PositiveIntegerField(
         default=1440,
         db_default=1440,
-        validators=[MinValueValidator(10), MaxValueValidator(43200)],
+        validators=[MinValueValidator(30), MaxValueValidator(43200)],
     )
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).

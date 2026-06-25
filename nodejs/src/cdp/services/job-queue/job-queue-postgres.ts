@@ -15,7 +15,7 @@ import {
     CyclotronWorker,
 } from '@posthog/cyclotron'
 
-import { CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
+import { CyclotronInvocationQueueParametersType } from '~/cdp/schema/cyclotron'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { logger } from '../../../utils/logger'
