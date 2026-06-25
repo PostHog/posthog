@@ -43,7 +43,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
-import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { calculateDuplicateLayout, calculateInsertionLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import {
     chunkTileIds,
     fetchRunWidgets,
@@ -370,6 +370,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
+        /** Record the grid row where the next added tile should be inserted (inline "+" affordance). */
+        setPendingInsertionY: (pendingInsertionY: number | null) => ({ pendingInsertionY }),
+        /** Reposition a freshly-added tile to the pending insertion row, pushing tiles below it down. */
+        applyPendingInsertion: true,
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
@@ -1094,6 +1098,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return false
                 },
+            },
+        ],
+        pendingInsertionY: [
+            null as number | null,
+            {
+                setPendingInsertionY: (_, { pendingInsertionY }) => pendingInsertionY,
+                // Clear if the dashboard mode changes before the new tile arrives, to avoid a stale insert.
+                setDashboardMode: () => null,
             },
         ],
         urlSearchParamsAtEditModeEntry: [
@@ -2094,6 +2106,72 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
+        setPendingInsertionY: ({ pendingInsertionY }) => {
+            // Snapshot current tile ids so we can identify the tile the add flow appends afterwards.
+            cache.tileIdsBeforeInsertion =
+                pendingInsertionY != null ? new Set((values.tiles || []).map((t) => t.id)) : undefined
+        },
+        applyPendingInsertion: async () => {
+            const targetY = values.pendingInsertionY
+            const previousTileIds = cache.tileIdsBeforeInsertion as Set<number> | undefined
+            if (targetY == null || !previousTileIds) {
+                return
+            }
+
+            const newTile = (values.tiles || []).find((tile) => !tile.deleted && !previousTileIds.has(tile.id))
+            if (!newTile) {
+                // The appended tile hasn't reached state yet; a later arrival signal will retry.
+                return
+            }
+
+            // Clear before persisting so the resulting updateDashboardSuccess doesn't re-enter this listener.
+            actions.setPendingInsertionY(null)
+
+            const smLayout = values.layouts?.sm
+            const newTileLayoutEntry = smLayout?.find((l) => String(l.i) === String(newTile.id))
+            const w = newTileLayoutEntry?.w ?? 6
+            const h = newTileLayoutEntry?.h ?? 5
+
+            const { newTileLayout, tilesToUpdate } = calculateInsertionLayout(smLayout, newTile.id, targetY, w, h)
+
+            // Apply optimistically so the grid reflows immediately.
+            const shiftById = new Map(tilesToUpdate.map((t) => [t.id, t.layouts.sm]))
+            const newSmLayout = (smLayout || []).map((l) => {
+                if (String(l.i) === String(newTile.id)) {
+                    return { ...l, ...newTileLayout.sm }
+                }
+                const shifted = shiftById.get(parseInt(l.i))
+                return shifted ? { ...l, ...shifted } : l
+            })
+            actions.updateLayouts({ ...values.layouts, sm: newSmLayout })
+
+            // In edit mode the change is saved with the rest of the edit session.
+            if (values.layoutEditMode) {
+                return
+            }
+
+            // Persist the repositioning (same raw-PATCH shape as duplicateTile / saveEditModeChanges).
+            try {
+                const response: DashboardType<InsightModel> = await api.update(
+                    `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
+                    {
+                        tiles: [...tilesToUpdate, { id: newTile.id, layouts: newTileLayout }],
+                    }
+                )
+                const updated = getQueryBasedDashboard(response)
+                if (updated) {
+                    dashboardsModel.actions.updateDashboardSuccess(updated)
+                }
+            } catch (e) {
+                lemonToast.error('Could not position the new tile: ' + String(e))
+            }
+        },
+        [dashboardsModel.actionTypes.updateDashboardSuccess]: ({ dashboard }) => {
+            // Text/button (via updateDashboard) and widget (client-merged) tiles arrive through here.
+            if (dashboard?.id === props.id) {
+                actions.applyPendingInsertion()
+            }
+        },
         [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds, sourceDashboardId }) => {
             if (sourceDashboardId != null && sourceDashboardId !== props.id) {
                 // Same rationale as the reducer: ignore refresh payloads scoped to another dashboard.
@@ -2830,6 +2908,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.dashboardNotFound()
                     return // We hit a 404
                 }
+                // Insight tiles arrive via a dashboard reload; reposition to the pending insertion row.
+                actions.applyPendingInsertion()
             },
             sharedListeners.handleDashboardLoadComplete,
         ],

@@ -13,10 +13,14 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
+import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -74,7 +78,10 @@ export function DashboardItems(): JSX.Element {
         copyToDashboard,
         setTileOverride,
         setDashboardMode,
+        setAddWidgetModalOpen,
+        setPendingInsertionY,
     } = useActions(dashboardLogic)
+    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
@@ -199,6 +206,28 @@ export function DashboardItems(): JSX.Element {
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
+
+    const getInsertMenuItems = useCallback(
+        (targetY: number): LemonMenuItem[] =>
+            dashboard
+                ? getAddTileMenuItems({
+                      dashboardId: dashboard.id,
+                      dashboardWidgetsEnabled,
+                      showAddInsightToDashboardModal,
+                      push,
+                      setAddWidgetModalOpen,
+                      onBeforeSelect: () => setPendingInsertionY(targetY),
+                  })
+                : [],
+        [
+            dashboard,
+            dashboardWidgetsEnabled,
+            showAddInsightToDashboardModal,
+            push,
+            setAddWidgetModalOpen,
+            setPendingInsertionY,
+        ]
+    )
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
     const showEditingControls = isEditablePlacement || layoutEditMode
@@ -606,6 +635,18 @@ export function DashboardItems(): JSX.Element {
                             }
                         })}
                     </ReactGridLayout>
+                    {isEditablePlacement && (
+                        <InsertTileOverlay
+                            layout={layouts['sm']}
+                            gridWidth={gridWidth}
+                            rowHeight={rowHeight}
+                            marginY={margin[1]}
+                            canEditDashboard={canEditDashboard}
+                            isMobileView={isMobileView}
+                            disabled={resizingTileId !== null}
+                            getMenuItems={getInsertMenuItems}
+                        />
+                    )}
                 </div>
             )}
             {dashboardStreaming && (

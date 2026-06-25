@@ -113,6 +113,45 @@ export function calculateDuplicateLayout(
     return result
 }
 
+export interface InsertionLayoutResult {
+    newTileLayout: { sm: TileLayout }
+    tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout } }>
+}
+
+/**
+ * Layout for inserting a tile at a given grid row: the new tile lands full-left at `targetY`
+ * and every existing tile at or below `targetY` is pushed down by `h` rows to make room.
+ * Mirrors `calculateDuplicateLayout`'s `tilesToUpdate` shape so persistence is shared.
+ */
+export function calculateInsertionLayout(
+    currentSmLayout: Layout | undefined,
+    newTileId: number,
+    targetY: number,
+    w: number,
+    h: number
+): InsertionLayoutResult {
+    const result: InsertionLayoutResult = {
+        newTileLayout: { sm: { x: 0, y: targetY, w, h } },
+        tilesToUpdate: [],
+    }
+
+    for (const smLayout of currentSmLayout || []) {
+        // leave the new tile and anything above the insertion point untouched
+        if (String(smLayout.i) === String(newTileId) || smLayout.y < targetY) {
+            continue
+        }
+
+        result.tilesToUpdate.push({
+            id: parseInt(smLayout.i),
+            layouts: {
+                sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
+            },
+        })
+    }
+
+    return result
+}
+
 function canPlaceToRight(
     layouts: Layout,
     excludeTileId: number,
