@@ -203,9 +203,9 @@ async def arun_signals_scout(
 
     # Resolve the scout's agent model from the `scouts-model-selection` gate. `None` keeps the
     # agent-server default; an override routes this run on that model. The flag payload is a
-    # per-scout model distribution, bucketed per run on `run_id` — so a scout can A/B/n across
-    # models against itself across runs. Resolved once here so the whole run is consistent. Off the
-    # event loop — the flag reads do blocking network I/O.
+    # per-team, per-scout model distribution, bucketed per run on `run_id` — so a scout can A/B/n
+    # across models against itself across runs. Resolved once here so the whole run is consistent.
+    # Off the event loop — the flag read does blocking network I/O.
     model = await database_sync_to_async(resolve_scout_model, thread_sensitive=False)(team, skill.name, str(run_id))
     try:
         last_message, task_run_id = await _spawn_and_run(

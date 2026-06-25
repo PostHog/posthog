@@ -1,4 +1,4 @@
-"""Resolve which LLM the scout agent runs on, gated by the `scouts-model-selection` flag.
+"""Resolve which LLM the scout agent runs on, from the `scouts-model-selection` flag payload.
 
 Default posture: leave the agent model unset (`None`) so the sandbox agent server uses its
 built-in default. The flag lets scouts be routed onto other models — for no-deploy A/B/n trials of
@@ -7,37 +7,44 @@ resolved string is passed straight through `CustomPromptSandboxContext.model` �
 → the agent server, and per-run model is tagged on each `$ai_generation` so runs are comparable by
 model in LLM analytics.
 
-The flag's *release conditions* pick which teams are eligible (target team 2's project group in the
-flag UI). Its JSON *payload* is a per-scout model distribution, so within an eligible team each scout
-can be split across models per run — a team isn't all-or-nothing, and eager dogfooders on a shared
-team aren't all flipped onto an unproven model at once:
+Everything is driven by the flag's JSON payload, keyed by team → scout → model, so a single payload
+configures any number of teams (team 2, internal side projects, …) with a different model mix each —
+no per-team release-condition fiddling and no deploy. Like the sibling `signals-scout` flag in
+`team_limits.py`, the flag is kept 100%-on and the payload (read once via a synthetic discovery
+distinct_id) is the single source of truth; a team with no entry runs entirely on the default model.
 
     {
-        "scouts": {
-            "signals-scout-team-self-driving": {"@cf/zai-org/glm-5.2": 0.2, "gpt-5.5": 0.2},
-            "signals-scout-signals-dashboards": {"@cf/zai-org/glm-5.2": 0.25},
-            "*": {"@cf/zai-org/glm-5.2": 0.1}
+        "teams": {
+            "2": {
+                "scouts": {
+                    "signals-scout-team-self-driving": {"@cf/zai-org/glm-5.2": 0.2, "gpt-5.5": 0.2},
+                    "signals-scout-signals-dashboards": {"@cf/zai-org/glm-5.2": 0.25}
+                }
+            },
+            "112495": {"scouts": {"*": {"@cf/zai-org/glm-5.2": 0.5}}}
         }
     }
 
+- `teams` — `{team_id: {"scouts": {...}}}`. A team is configured iff it has an entry (or the `"*"`
+  team wildcard applies); either the canonical project id or a child-env id key resolves.
 - `scouts` — `{skill_name: {model_id: fraction}}`. Each value maps a model id to the fraction of
-  that scout's runs (0..1) it should serve. `signals-scout-team-self-driving` above runs 20% on
-  glm-5.2, 20% on gpt-5.5, and the remaining 60% on the agent-server default.
+  that scout's runs (0..1) it serves. `signals-scout-team-self-driving` above runs 20% on glm-5.2,
+  20% on gpt-5.5, and the remaining 60% on the agent-server default. `"*"` is the fallback
+  distribution for scouts not listed explicitly.
 - The reserved `"default"` key inside a scout's map names the model the *remaining* (unallocated)
-  runs use, instead of the agent-server default — e.g. `{"gpt-5.5": 0.2, "default": "@cf/zai-org/glm-5.2"}`
-  runs 20% on gpt-5.5 and 80% on glm-5.2. Its value is a model-id string, not a fraction.
-- `"*"` is the fallback distribution applied to any scout not listed explicitly.
+  runs use instead of the agent-server default — its value is a model-id string, not a fraction.
 
 Each run is bucketed deterministically on `run_id`, so a scout A/Bs against itself across runs and
-the per-run decision is reproducible. An absent payload / disabled flag / read failure all resolve
-to `None` — the agent-server default. Gating the model must never be able to fail a scout run.
+the per-run decision is reproducible. An absent payload / no matching team or scout / read failure
+all resolve to `None` — the agent-server default. Gating the model must never be able to fail a run.
 
-This is a separate gate from the `signals-scout` enrollment/limits payload flag in `team_limits.py`
-— that one decides *whether* a team runs scouts; this one decides *on which model*.
+This is separate from the `signals-scout` enrollment/limits flag — that decides *whether* a team
+runs scouts; this decides *on which model*.
 """
 
 from __future__ import annotations
 
+import json
 import hashlib
 
 import structlog
@@ -48,64 +55,90 @@ from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
 
-# Per-team gate: release conditions decide which teams are eligible for non-default scout models.
 SCOUTS_MODEL_FLAG = "scouts-model-selection"
+
+# Fixed distinct_id for the payload read — config is team-keyed in the payload, not per-user. Matches
+# the `signals-scout` discovery pattern: the flag stays 100%-on so the payload is always served, and
+# `match_value=True` forces the true-variant payload under local evaluation.
+SCOUTS_MODEL_DISCOVERY_DISTINCT_ID = "internal_scouts_model_selection_discovery"
 
 # Convenience constant for the model we're trialling first; the model ids themselves live entirely
 # in the flag payload now, so this is just a well-known id for docs/tests, not special-cased in code.
 GLM_MODEL = "@cf/zai-org/glm-5.2"
 
-# Payload key: `{skill_name: {model_id: fraction}}` distribution per scout.
+# Payload structure keys.
+TEAMS_KEY = "teams"
 SCOUTS_KEY = "scouts"
 
-# Skill key inside `scouts` that applies to any scout not listed explicitly.
-WILDCARD_SKILL = "*"
+# Wildcard token, used at both the team level (`teams["*"]`) and the scout level
+# (`scouts["*"]`): the fallback applied to any team / scout not listed explicitly.
+WILDCARD = "*"
 
-# Reserved key inside a scout's distribution naming the model for the unallocated remainder
-# (instead of the agent-server default). Its value is a model-id string, not a fraction — a model id
-# of literally "default" is not addressable, which is fine (real ids look like `@cf/...`, `gpt-5.5`).
+# Reserved key inside a scout's distribution naming the model for the unallocated remainder (instead
+# of the agent-server default). Its value is a model-id string, not a fraction — a model id of
+# literally "default" is not addressable, which is fine (real ids look like `@cf/...`, `gpt-5.5`).
 DEFAULT_MODEL_KEY = "default"
 
 
-def _team_flag_kwargs(team: Team) -> dict:
-    """Shared evaluation context for the gate + payload reads, so both see the same team match.
+def _read_payload() -> dict | None:
+    """Read + parse the `scouts-model-selection` flag's JSON payload once.
 
-    Evaluated against the team's organization + project groups so the rollout can be targeted by
-    org or project in the flag UI. `distinct_id` is the stable team uuid; the per-run split is NOT
-    expressed via the flag's own rollout % (that would be all-or-nothing per team) — it's the
-    payload distribution, bucketed per run in `_select_model`.
+    The flag must stay 100%-on so the payload is served for the synthetic discovery distinct_id;
+    `match_value=True` forces the true-variant payload under local evaluation. Returns the parsed
+    dict, or `None` when the payload is absent / not an object / unreadable. A read error never
+    breaks a run — the caller falls back to the default model.
     """
-    return {
-        "distinct_id": str(team.uuid),
-        "groups": {"organization": str(team.organization_id), "project": str(team.id)},
-        "group_properties": {
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id)},
-        },
-        "only_evaluate_locally": False,
-        "send_feature_flag_events": False,
-    }
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(
+            SCOUTS_MODEL_FLAG, SCOUTS_MODEL_DISCOVERY_DISTINCT_ID, match_value=True
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        return payload if isinstance(payload, dict) else None
+    except Exception as error:
+        capture_exception(error)
+        return None
 
 
-def _scout_config(payload: object, skill_name: str) -> tuple[dict[str, float], str | None]:
-    """The `(distribution, default_model)` for one scout, resolved from the flag payload.
+def _team_scouts(payload: object, team_id: int, canonical_team_id: int) -> dict:
+    """The `{skill_name: {...}}` scout map configured for a team, or `{}` when none applies.
 
-    Looks up `scouts[skill_name]`, falling back to the `"*"` wildcard distribution. The reserved
-    `"default"` string key is pulled out as `default_model` (the model for the unallocated
-    remainder; `None` = agent-server default); every other entry is a `model_id -> fraction` weight.
-    Defensive throughout — a missing/non-object payload, a non-object scout entry, or a malformed
-    weight (not a positive number, or a bool) is dropped rather than failing the run, so a typo
-    can't crash a scout or silently route it somewhere unintended.
+    Looks up `teams[team_id]`, then `teams[canonical_team_id]` (so an operator can key by either the
+    child-env id or the parent project id), then the `"*"` team wildcard. Returns the entry's
+    `scouts` map. Defensive — a non-object payload / `teams` / team entry / `scouts` value yields
+    `{}` (the team runs on the default model).
     """
     if not isinstance(payload, dict):
-        return {}, None
-    scouts = payload.get(SCOUTS_KEY)
-    if not isinstance(scouts, dict):
-        return {}, None
+        return {}
+    teams = payload.get(TEAMS_KEY)
+    if not isinstance(teams, dict):
+        return {}
 
+    entry: object = None
+    for key in (str(team_id), str(canonical_team_id), WILDCARD):
+        candidate = teams.get(key)
+        if isinstance(candidate, dict):
+            entry = candidate
+            break
+    if not isinstance(entry, dict):
+        return {}
+
+    scouts = entry.get(SCOUTS_KEY)
+    return scouts if isinstance(scouts, dict) else {}
+
+
+def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, float], str | None]:
+    """The `(distribution, default_model)` for one scout from a team's scout map.
+
+    Looks up `scouts[skill_name]`, falling back to the `"*"` scout wildcard. The reserved `"default"`
+    string key is pulled out as `default_model` (the model for the unallocated remainder; `None` =
+    agent-server default); every other entry is a `model_id -> fraction` weight. Defensive — a
+    missing/non-object scout entry, or a malformed weight (not a positive number, or a bool) is
+    dropped rather than failing the run, so a typo can't crash a scout or route it unintended.
+    """
     raw = scouts.get(skill_name)
     if not isinstance(raw, dict):
-        raw = scouts.get(WILDCARD_SKILL)
+        raw = scouts.get(WILDCARD)
     if not isinstance(raw, dict):
         return {}, None
 
@@ -154,26 +187,13 @@ def _select_model(run_id: str, distribution: dict[str, float], default_model: st
 def resolve_scout_model(team: Team, skill_name: str, run_id: str) -> str | None:
     """The agent-model override for one scout run, or `None` to keep the agent-server default.
 
-    Resolves the team's `scouts-model-selection` gate, then this scout's per-run model from the
-    payload distribution. Returns `None` (agent-server default) when the flag is disabled for the
-    team, the payload has no distribution for this scout, or the run falls in the unallocated
-    remainder with no named `default`. A flag/payload read failure is swallowed and falls back to
-    the default model — gating the model must never be able to fail a scout run.
+    Resolves this team's scout map from the `scouts-model-selection` payload, then this scout's
+    per-run model from its distribution. Returns `None` (agent-server default) when the team has no
+    entry, the scout has no distribution, or the run falls in the unallocated remainder with no
+    named `default`. A payload read failure is swallowed and falls back to the default model —
+    gating the model must never be able to fail a scout run.
     """
-    try:
-        kwargs = _team_flag_kwargs(team)
-        if not posthoganalytics.feature_enabled(SCOUTS_MODEL_FLAG, **kwargs):
-            return None
-        payload = posthoganalytics.get_feature_flag_payload(
-            SCOUTS_MODEL_FLAG,
-            kwargs["distinct_id"],
-            groups=kwargs["groups"],
-            group_properties=kwargs["group_properties"],
-            only_evaluate_locally=False,
-        )
-    except Exception as error:
-        capture_exception(error)
-        return None
-
-    distribution, default_model = _scout_config(payload, skill_name)
+    payload = _read_payload()
+    scouts = _team_scouts(payload, team.id, team.parent_team_id or team.id)
+    distribution, default_model = _scout_config(scouts, skill_name)
     return _select_model(run_id, distribution, default_model)
