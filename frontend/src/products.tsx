@@ -281,6 +281,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
+    '/skills/perspectives': ['Skills', 'skillsPerspectives'],
     '/skills/:name': ['Skill', 'skill'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskDetail', 'taskDetail'],

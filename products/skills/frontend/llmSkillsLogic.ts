@@ -103,6 +103,13 @@ export const SKILL_CATEGORY_TABS: SkillCategoryTab[] = [
         description:
             "Scouts — scheduled agents that scan your project and surface findings in your inbox. Includes PostHog's canonical scouts and any custom ones you author.",
     },
+    {
+        key: 'perspectives',
+        category: 'review_perspective',
+        label: 'Review perspectives',
+        description:
+            'Review perspectives — the specialist viewpoints ReviewHog applies in parallel when reviewing a pull request: logic & correctness, contracts & security, and performance & reliability.',
+    },
 ]
 
 export function skillCategoryForTabKey(tabKey: string): string {

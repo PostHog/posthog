@@ -30,6 +30,7 @@ export const manifest: ProductManifest = {
         // Category tabs (e.g. /skills/scouts) must precede the `/skills/:name` wildcard so they
         // aren't captured as a skill named after the tab. Route order = match precedence.
         '/skills/scouts': ['Skills', 'skillsScouts'],
+        '/skills/perspectives': ['Skills', 'skillsPerspectives'],
         '/skills/:name': ['Skill', 'skill'],
     },
     redirects: {
