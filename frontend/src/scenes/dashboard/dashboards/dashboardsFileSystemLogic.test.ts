@@ -49,7 +49,35 @@ describe('dashboardsFileSystemLogic', () => {
         expect(logic.values.entryByRef['1']?.path).toEqual('Marketing/A')
     })
 
+    it('pages through every dashboard entry instead of truncating at one page', async () => {
+        await expectLogic(logic).toDispatchActions([
+            'loadDashboardFileSystemEntriesSuccess',
+            'loadFolderEntriesSuccess',
+        ])
+        const entry = (n: number): any => ({ id: `fs-${n}`, type: 'dashboard', ref: String(n), path: `Folder/${n}` })
+        const fullPage = Array.from({ length: 500 }, (_, i) => entry(i))
+        ;(api.fileSystem.list as jest.Mock).mockImplementation(async ({ type, offset = 0 }: any) =>
+            type !== 'dashboard'
+                ? { count: 0, results: [], users: [] }
+                : offset === 0
+                  ? { count: 501, results: fullPage, users: [] }
+                  : { count: 501, results: [entry(500)], users: [] }
+        )
+        logic.unmount()
+        logic = dashboardsFileSystemLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDashboardFileSystemEntriesSuccess'])
+        // 500 (page 1) + 1 (page 2): the 501st entry is loaded, not dropped past the old single-page cap.
+        expect(logic.values.entryByRef['500']?.path).toEqual('Folder/500')
+        expect(Object.keys(logic.values.entryByRef)).toHaveLength(501)
+    })
+
     it('exposes empty folder rows in the folder tree', async () => {
+        // Drain the beforeEach mount's loaders so their (uncancelled) results don't race the re-mock below.
+        await expectLogic(logic).toDispatchActions([
+            'loadDashboardFileSystemEntriesSuccess',
+            'loadFolderEntriesSuccess',
+        ])
         ;(api.fileSystem.list as jest.Mock).mockImplementation(
             async ({ type }: { type?: string } = {}) =>
                 (type === 'folder'

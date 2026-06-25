@@ -20,7 +20,31 @@ import {
 } from './dashboardsFileSystemUtils'
 import { dashboardsLogic } from './dashboardsLogic'
 
-const DASHBOARD_FS_PAGE_LIMIT = 500
+const FILE_SYSTEM_PAGE_SIZE = 500
+// Safety ceiling so a misbehaving endpoint can't loop forever — 40 pages = 20k entries, far above any real project.
+const MAX_FILE_SYSTEM_PAGES = 40
+
+// Page through every dashboard/folder FileSystem entry so large projects render their full tree instead of
+// being silently truncated to the first page — the experiment measures navigation, and big projects are
+// exactly the ones the tree is meant to help.
+async function fetchAllFileSystemEntries(type: 'dashboard' | 'folder'): Promise<FileSystemEntry[]> {
+    const entries: FileSystemEntry[] = []
+    for (let page = 0; page < MAX_FILE_SYSTEM_PAGES; page++) {
+        const response = await api.fileSystem.list({
+            type,
+            limit: FILE_SYSTEM_PAGE_SIZE,
+            offset: page * FILE_SYSTEM_PAGE_SIZE,
+        })
+        entries.push(...response.results)
+        if (response.results.length < FILE_SYSTEM_PAGE_SIZE) {
+            return entries
+        }
+    }
+    console.warn(
+        `dashboardsFileSystemLogic: stopped paging ${type} entries at the ${MAX_FILE_SYSTEM_PAGES * FILE_SYSTEM_PAGE_SIZE}-entry ceiling.`
+    )
+    return entries
+}
 
 // Folder mutations reuse projectTreeDataLogic's move/delete; this key only scopes that logic's optional
 // post-processing (selection clearing, undo re-expand), which safely no-ops for our unmounted instance.
@@ -56,17 +80,8 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         dashboardFileSystemEntries: [
             [] as FileSystemEntry[],
             {
-                loadDashboardFileSystemEntries: async (): Promise<FileSystemEntry[]> => {
-                    const response = await api.fileSystem.list({ type: 'dashboard', limit: DASHBOARD_FS_PAGE_LIMIT })
-                    if (response.results.length >= DASHBOARD_FS_PAGE_LIMIT) {
-                        // v1 reads a single page; surplus dashboards fall back to Unfiled in the tree.
-                        // Pagination is deferred — warn so the truncation is detectable rather than silent.
-                        console.warn(
-                            `dashboardsFileSystemLogic: hit the ${DASHBOARD_FS_PAGE_LIMIT}-entry page limit — some dashboards may appear under Unfiled.`
-                        )
-                    }
-                    return response.results
-                },
+                loadDashboardFileSystemEntries: async (): Promise<FileSystemEntry[]> =>
+                    await fetchAllFileSystemEntries('dashboard'),
             },
         ],
         // Real folder rows, so empty folders (and ones the user creates) show up in the tree — not just
@@ -74,16 +89,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         folderEntries: [
             [] as FileSystemEntry[],
             {
-                loadFolderEntries: async (): Promise<FileSystemEntry[]> => {
-                    const response = await api.fileSystem.list({ type: 'folder', limit: DASHBOARD_FS_PAGE_LIMIT })
-                    if (response.results.length >= DASHBOARD_FS_PAGE_LIMIT) {
-                        // Same single-page cap as the dashboard loader; warn so truncation is detectable.
-                        console.warn(
-                            `dashboardsFileSystemLogic: hit the ${DASHBOARD_FS_PAGE_LIMIT}-entry folder page limit — some folders may not appear.`
-                        )
-                    }
-                    return response.results
-                },
+                loadFolderEntries: async (): Promise<FileSystemEntry[]> => await fetchAllFileSystemEntries('folder'),
             },
         ],
     }),
