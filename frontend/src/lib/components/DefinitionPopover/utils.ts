@@ -1,4 +1,3 @@
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { allOperatorsMapping, genericOperatorMap } from 'lib/utils/operators'
 
@@ -15,8 +14,12 @@ export function operatorToHumanName(operator?: string): string {
 }
 
 export function genericOperatorToHumanName(property?: AnyPropertyFilter | null): string {
-    if (isPropertyFilterWithOperator(property) && property.operator && genericOperatorMap[property.operator]) {
-        return genericOperatorMap[property.operator].slice(2)
+    // Read the operator directly rather than gating on isPropertyFilterWithOperator: legacy action
+    // step properties are stored as bare `{ key, value, operator }` without a `type`, so the type
+    // guard rejects them and every operator (>=, <, etc.) would collapse to the "equals" fallback.
+    const operator = property && 'operator' in property ? property.operator : undefined
+    if (operator && genericOperatorMap[operator]) {
+        return genericOperatorMap[operator].slice(2)
     }
     return 'equals'
 }
