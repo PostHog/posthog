@@ -963,6 +963,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # The partial-split guarantee: the original person keeps its properties.
         original = get_person_by_id(self.team.id, person1.pk)
+        assert original is not None
         self.assertEqual(original.properties, {"$browser": "whatever", "$os": "Mac OS X"})
 
     def test_split_people_partial_rejects_unknown_distinct_id(self) -> None:
@@ -982,6 +983,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Nothing should have moved.
         original = get_person_by_id(self.team.id, person1.pk)
+        assert original is not None
         self.assertCountEqual(original.distinct_ids, ["a", "b"])
 
     def test_split_people_partial_rejects_combined_with_main_distinct_id(self) -> None:

@@ -200,11 +200,11 @@ def bulk_create_events(
             person_id = person.uuid
             person_created_at = person.created_at or datetime64_default_timestamp
         else:
-            person = _resolve_person_for_bulk_event(team_id, event["distinct_id"])
-            if person is not None:
-                person_properties = person.properties
-                person_id = person.uuid
-                person_created_at = person.created_at or datetime64_default_timestamp
+            resolved_person = _resolve_person_for_bulk_event(team_id, event["distinct_id"])
+            if resolved_person is not None:
+                person_properties = resolved_person.properties
+                person_id = resolved_person.uuid
+                person_created_at = resolved_person.created_at or datetime64_default_timestamp
             else:
                 person_properties = {}
                 person_id = event.get("person_id", uuid.uuid4())
