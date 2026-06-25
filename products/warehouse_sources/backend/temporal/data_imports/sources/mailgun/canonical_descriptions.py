@@ -25,6 +25,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "web_scheme": "The URL scheme used for tracking links (http or https).",
             "spam_action": "How spam is handled for the domain (disabled, block, tag).",
             "wildcard": "Whether the domain accepts mail for all subdomains.",
+            "skip_verification": "Whether the TLS certificate and hostname are not verified when delivering mail for the domain.",
         },
     },
     "events": {
