@@ -2509,9 +2509,9 @@ snapshots:
     insights-funnelstepsbarchart--default--light:
         hash: v1.k794b7964.fe6293e80ff3014aac37a652107195613baf23e61d8612e7a2156478bce8a138.FLFOJroOGoBFApFzYil15PPT2jNF01yQtezK_StFjHU
     insights-funneltimetoconverttable--default--dark:
-        hash: v1.k794b7964.e2a3f17ff6af3123e411605b157f30c5c23d44a2e235e9404d00f3ff58fb622b.hb8Eho7lF-lq_Uy1bzTivTu7Zz1w5F5GfswF_bpsPV4
+        hash: v1.k794b7964.705be97725fbf4864c1ee89bfe71f783b8258340a17c845c6c4c7a2ca2649a86.EErdKEVTegibMohKXzFfjUSUW495svDW88KdGAc9eDg
     insights-funneltimetoconverttable--default--light:
-        hash: v1.k794b7964.ca567ad1628cef0af8b20165f60bfd42c995fad41a54e065ba4bcc27e2cc9980.0r6gnow2LWF9p8gkZ_05U1VLbGFE2S95wR1GWhOiFpQ
+        hash: v1.k794b7964.83cd092fa665620f25c17d1428c1e580b85ce58b656cc2822c0740acc6737672.4d-H48foMqcCvgBqXDofSUrHeYQkq2u2UMQhbtUboU4
     insights-funneltrendstable--compare--dark:
         hash: v1.k794b7964.fdf271136de0fb4ac28d7e9020ffb7c26de456a66dbd04fd7c2d8dd6cd7010c6.jSj67TCdgW9Bid3EfaiMeaNI9yvhoPgBOWvAEDsXoi0
     insights-funneltrendstable--compare--light:
@@ -4861,9 +4861,9 @@ snapshots:
     scenes-app-customer-analytics-dashboard--gated-without-matching-early-access-feature--light:
         hash: v1.k794b7964.7d6ccd02ee0082c022a3b4df37a08e9ac8607bf47a4fbfa05524fa595a3ab282.mUbv6RihkGQwA0APhk0qNUlX44XfRDv1f1xlV3UuWaQ
     scenes-app-customer-analytics-journey-builder--new-journey--dark:
-        hash: v1.k794b7964.8d4f5e8abd93455fc41c5c472bbe8424a8a1119c688c3a33869d719baf5f234a.AAJzhdx82JDaI_ANDaMOQsqbeP6kvtm0cLr32iLyACc
+        hash: v1.k794b7964.8c09922c7502e589b60efc14da2a6397210ea44c8569d0a1f0b979b67ad4b6e3.a5pXqCNy73E_xKLTywDwvAGpqAW05QJvr-t6Ah1VtWU
     scenes-app-customer-analytics-journey-builder--new-journey--light:
-        hash: v1.k794b7964.33eaf28eabade5f850f804a8b825e58cd040f6e463c768a0e864e3386dc6f003.7Ti493BTSwmzCBbO4r1E_QqQm0pN6nZHNDkmCMHz43s
+        hash: v1.k794b7964.4ec23fa920fb3a691d7750b60c48f783ba26e7c624b748925f6441730c34104e.CsKc8sb1uPswmMJCu-7XXDPfwET8-oCEF2RgW4EDR4U
     scenes-app-customer-analytics-journey-templates--templates-with-events-configured--dark:
         hash: v1.k794b7964.5e52bdead0cfcfe4f65bffd07da179ec92e7165506f8ed25d7224d86b4e2d18f.L1qeFrgQKgvTXUxv3B3CN-aLKkAF_dk3PmJ8L1u2euo
     scenes-app-customer-analytics-journey-templates--templates-with-events-configured--light:
@@ -4877,17 +4877,17 @@ snapshots:
     scenes-app-customer-analytics-journeys--empty-state--light:
         hash: v1.k794b7964.52a1d577d8b3e8ee237b38780bac9afcb9bbf26b2e1c5ba97b5baaa09fcecc93.CeHoa1ffwpMQ-A07wBv5sUuLj-BQoW3pFHjK_qqmz7o
     scenes-app-customer-analytics-journeys--journey-with-empty-steps--dark:
-        hash: v1.k794b7964.575197439dab0753c4d91d5080225ebb34e9bfb3939e2c343985190b5d7fc546.jKekiYQiV8z6ymL606jMLq_Vu5YtL6oKf3sbXEBs3Mo
+        hash: v1.k794b7964.96014c53c81aa3bfbed304d5f59d5a75022e34e5c4f4c7e461f1af495d163cfd.jzNLk4GIPq8kewh4lbsNY6SXmwziHfcrSu7hijg9HWc
     scenes-app-customer-analytics-journeys--journey-with-empty-steps--light:
-        hash: v1.k794b7964.568cf08ab72b05d9bbb46105df72376c0cad5524416da6e50c20dff86d29913c.wSHfsCwRd_W-_68hqzl9WjPQOS2WAtlwH5yp8Weg3to
+        hash: v1.k794b7964.f33f0dd149c91921557622973dd8720f653ac8fcc0b2b1f0955561946d138325.D_KAYVY5wjVAnM0Xji-KoY_h8BsWl3cGSNdegAxkFYo
     scenes-app-customer-analytics-journeys--journey-with-optional-steps--dark:
-        hash: v1.k794b7964.7b6776c2f8b58b1ddffe71b174103e7e9dd0127d377c094aff1ecb347496cdac.E0EhWVCIoAPgsbg7Y9UOj94hRWgs46kKoRYW-6n7o8E
+        hash: v1.k794b7964.6440e0dd4cafc8c405739907aa8f686be4dd751f3476c01f8dbe8a4c4c05155c.bsUTuVoP0ATrpGah2OIP61JZcGuJB42ZVHDW1ka0K_Q
     scenes-app-customer-analytics-journeys--journey-with-optional-steps--light:
         hash: v1.k794b7964.e7bc20e1000e085dd8ff1df197237996c89ca41a49bc85a9196d7810cdbb99b3.TJAkAus1O-nLpH0DbgV3I3iNIyCmy-pkRAB9mXOH9sw
     scenes-app-customer-analytics-journeys--journey-with-required-steps--dark:
-        hash: v1.k794b7964.f191a2a8d8cee4fce45f5c087a4ba9178a53541dc5bffe66e262e4b1a69422b1.NxV1O1i_oGKplaKZTzJ1MTHLYr64hscedmzn1Q4zMGU
+        hash: v1.k794b7964.07a86fda5dc270067bf5d0dba3149b2a4fadb19164d33e28d4ab8a23fe93b871.bNyN1SNVwq3gND-vrn-DAesggTaEhggm3sPS1TiiggI
     scenes-app-customer-analytics-journeys--journey-with-required-steps--light:
-        hash: v1.k794b7964.4b19483ac2bdaecad600badecceaff11b03741d0fe8adea25f6e6ae0755411b0.x8M01k87Kw-7cOj9L-sM1CQHd3BDspSlYdoCaMvJIB0
+        hash: v1.k794b7964.b6d8cddafb01447a2e9ee5bb1e01a927ace110f995040f2603449205ed8a39ce.obRlWW7dWF7-goXBNCaBiaDyRxoUKN55V7Itk_jGVoM
     scenes-app-customer-analytics-journeys-nodes-builderpathflownode--all-variants--dark:
         hash: v1.k794b7964.8a9c965ccc0120f1cc67cb102fec65f0430c6f82b8093be93bb343c2dec4ca8c.ZVj7XydD6QOuxYLe5XNliqupVSH2WwEVl__cx2nM7kQ
     scenes-app-customer-analytics-journeys-nodes-builderpathflownode--all-variants--light:
