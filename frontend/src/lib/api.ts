@@ -70,7 +70,6 @@ import {
     MatchingEventsResponse,
     Node,
     NodeKind,
-    PersistedFolder,
     QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
@@ -614,15 +613,6 @@ export class ApiRequest {
 
     public fileSystemShortcutReorder(teamId?: TeamType['id']): ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent('reorder')
-    }
-
-    // # Persisted folder
-    public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('persisted_folder')
-    }
-
-    public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
-        return this.persistedFolder(projectId).addPathComponent(id)
     }
 
     // # User product list
@@ -2595,27 +2585,12 @@ const api = {
         },
     },
 
-    persistedFolder: {
-        async list(): Promise<CountedPaginatedResponse<PersistedFolder>> {
-            return await new ApiRequest().persistedFolder().get()
-        },
-        async create(data: { protocol: string; path: string; type?: string }): Promise<PersistedFolder> {
-            return await new ApiRequest().persistedFolder().create({ data })
-        },
-        async delete(id: PersistedFolder['id']): Promise<void> {
-            return await new ApiRequest().persistedFolderDetail(id).delete()
-        },
-    },
-
     userProductList: {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
         async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().withAction('seed').create()
-        },
-        async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
-            return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
         async bulkUpdate(
             items: { product_path: string; enabled: boolean }[]

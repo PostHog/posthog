@@ -31322,48 +31322,6 @@ export namespace Schemas {
       results: PauseStateResponse[];
     }
 
-    /**
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products
-     */
-    export type PersistedFolderTypeEnum = typeof PersistedFolderTypeEnum[keyof typeof PersistedFolderTypeEnum];
-
-
-    export const PersistedFolderTypeEnum = {
-      Home: 'home',
-      Pinned: 'pinned',
-      CustomProducts: 'custom_products',
-    } as const;
-
-    export interface PersistedFolder {
-      readonly id: string;
-      /** Which persisted folder this is for the user (home, pinned, custom_products).
-       *
-       * * `home` - Home
-       * * `pinned` - Pinned
-       * * `custom_products` - Custom Products */
-      type: PersistedFolderTypeEnum;
-      /**
-         * Protocol prefix of the folder location, e.g. 'products://'.
-         * @maxLength 64
-         */
-      protocol?: string;
-      /** Path within the protocol that the folder resolves to. */
-      path?: string;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedPersistedFolderList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: PersistedFolder[];
-    }
-
     export interface PersonRecord {
       /** Numeric person ID. */
       readonly id: number;
@@ -38365,25 +38323,6 @@ export namespace Schemas {
       delete_insights?: boolean;
     }
 
-    export interface PatchedPersistedFolder {
-      readonly id?: string;
-      /** Which persisted folder this is for the user (home, pinned, custom_products).
-       *
-       * * `home` - Home
-       * * `pinned` - Pinned
-       * * `custom_products` - Custom Products */
-      type?: PersistedFolderTypeEnum;
-      /**
-         * Protocol prefix of the folder location, e.g. 'products://'.
-         * @maxLength 64
-         */
-      protocol?: string;
-      /** Path within the protocol that the folder resolves to. */
-      path?: string;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-    }
-
     export interface PatchedPersonRecord {
       /** Numeric person ID. */
       readonly id?: number;
@@ -43380,14 +43319,6 @@ export namespace Schemas {
       source_version: string;
       /** Structured profile content. v1 has `inventory` only. */
       payload: ProjectProfilePayload;
-    }
-
-    export interface PromotedProductIntent {
-      /**
-         * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-         * @nullable
-         */
-      product_key: string | null;
     }
 
     export interface Property {
@@ -56953,17 +56884,6 @@ export namespace Schemas {
     target_type?: string;
     };
 
-    export type EnvironmentsPersistedFolderListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type EnvironmentsPersonsListParams = {
     /**
      * Filter list by distinct id.
@@ -60072,17 +59992,6 @@ export namespace Schemas {
     };
 
     export type DesktopFileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type DesktopPersistedFolderListParams = {
     /**
      * Number of results to return per page.
      */
@@ -63455,17 +63364,6 @@ export namespace Schemas {
     };
 
     export type ObjectMediaPreviewsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type PersistedFolderListParams = {
     /**
      * Number of results to return per page.
      */
