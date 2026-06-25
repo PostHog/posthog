@@ -148,7 +148,7 @@ actually lands.
 
 1. Ship the scout (the default `emit=true`) with a short `run_interval_minutes` so it fires
    soon — set it at creation via
-   `posthog:signals-scout-config-create {"skill_name": ..., "run_interval_minutes": 10}`
+   `posthog:signals-scout-config-create {"skill_name": ..., "run_interval_minutes": 30}`
    right after `skill-create`, rather than waiting for the coordinator to
    auto-register the default every-24-hours schedule.
 2. After a tick, read what it did: `posthog:inbox-reports-list` (the findings it actually
