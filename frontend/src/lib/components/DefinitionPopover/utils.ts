@@ -14,9 +14,8 @@ export function operatorToHumanName(operator?: string): string {
 }
 
 export function genericOperatorToHumanName(property?: AnyPropertyFilter | null): string {
-    // Read the operator directly rather than gating on isPropertyFilterWithOperator: legacy action
-    // step properties are stored as bare `{ key, value, operator }` without a `type`, so the type
-    // guard rejects them and every operator (>=, <, etc.) would collapse to the "equals" fallback.
+    // Legacy action step properties have no `type`, so isPropertyFilterWithOperator would reject them
+    // and collapse every operator to "equals" — read the operator directly instead.
     const operator = property && 'operator' in property ? property.operator : undefined
     if (operator && genericOperatorMap[operator]) {
         return genericOperatorMap[operator].slice(2)
