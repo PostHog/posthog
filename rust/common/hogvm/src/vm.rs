@@ -291,16 +291,13 @@ impl<'a> HogVM<'a> {
             Operation::Null => {
                 self.push_stack(HogLiteral::Null)?;
             }
-            Operation::String => {
-                let val: String = self.next()?;
-                self.push_stack(val)?;
-            }
-            Operation::Integer => {
-                let val: i64 = self.next()?;
-                self.push_stack(val)?;
-            }
-            Operation::Float => {
-                let val: f64 = self.next()?;
+            // The reference's STRING/INTEGER/FLOAT opcodes are all `pushStack(next())` with no type
+            // enforcement; the SQL-AST compiler relies on this (it emits INTEGER with a boolean
+            // operand). Push the raw token as whatever Hog value it deserializes to.
+            Operation::String | Operation::Integer | Operation::Float => {
+                let token = self.context.get_bytecode(self.ip, &self.current_symbol)?.clone();
+                self.ip += 1;
+                let val = self.json_to_hog(token)?;
                 self.push_stack(val)?;
             }
             Operation::Pop => {
