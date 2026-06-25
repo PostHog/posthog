@@ -672,6 +672,106 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 Ok(HogLiteral::Array(arr).into())
             }),
         ),
+        (
+            "substring",
+            native_func(|vm, args| {
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(VmError::NativeCallFailed(
+                        "substring takes 2 or 3 arguments".to_string(),
+                    ));
+                }
+                let chars: Vec<char> = match args[0].deref(&vm.heap)? {
+                    HogLiteral::String(s) => s.chars().collect(),
+                    _ => return Ok(HogLiteral::String(String::new()).into()),
+                };
+                // start is 1-based.
+                let start_idx = args[1].deref(&vm.heap)?.try_as::<Num>()?.to_integer() - 1;
+                let length = if args.len() > 2 {
+                    args[2].deref(&vm.heap)?.try_as::<Num>()?.to_integer()
+                } else {
+                    chars.len() as i64 - start_idx
+                };
+                if start_idx < 0 || length < 0 || start_idx >= chars.len() as i64 {
+                    return Ok(HogLiteral::String(String::new()).into());
+                }
+                let s_u = start_idx as usize;
+                let e_u = ((start_idx + length) as usize).min(chars.len());
+                Ok(HogLiteral::String(chars[s_u..e_u].iter().collect()).into())
+            }),
+        ),
+        (
+            "replaceOne",
+            native_func(|vm, args| {
+                assert_argc(&args, 3, "replaceOne")?;
+                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let from: &str = args[1].deref(&vm.heap)?.try_as()?;
+                let to: &str = args[2].deref(&vm.heap)?.try_as()?;
+                Ok(HogLiteral::String(s.replacen(from, to, 1)).into())
+            }),
+        ),
+        (
+            "replaceAll",
+            native_func(|vm, args| {
+                assert_argc(&args, 3, "replaceAll")?;
+                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let from: &str = args[1].deref(&vm.heap)?.try_as()?;
+                let to: &str = args[2].deref(&vm.heap)?.try_as()?;
+                Ok(HogLiteral::String(s.replace(from, to)).into())
+            }),
+        ),
+        (
+            "splitByString",
+            native_func(|vm, args| {
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(VmError::NativeCallFailed(
+                        "splitByString takes 2 or 3 arguments".to_string(),
+                    ));
+                }
+                // splitByString(separator, string[, max])
+                let sep: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let s: &str = args[1].deref(&vm.heap)?.try_as()?;
+                let parts: Vec<HogValue> = if args.len() > 2 {
+                    let max = args[2].deref(&vm.heap)?.try_as::<Num>()?.to_integer();
+                    let max = if max < 0 { 0 } else { max as usize };
+                    s.split(sep)
+                        .take(max)
+                        .map(|p| HogLiteral::String(p.to_string()).into())
+                        .collect()
+                } else {
+                    s.split(sep)
+                        .map(|p| HogLiteral::String(p.to_string()).into())
+                        .collect()
+                };
+                Ok(HogLiteral::Array(parts).into())
+            }),
+        ),
+        (
+            "startsWith",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "startsWith")?;
+                let result = matches!(
+                    (args[0].deref(&vm.heap)?, args[1].deref(&vm.heap)?),
+                    (HogLiteral::String(s), HogLiteral::String(p)) if s.starts_with(p.as_str())
+                );
+                Ok(HogLiteral::Boolean(result).into())
+            }),
+        ),
+        (
+            "position",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "position")?;
+                Ok(HogLiteral::Number(Num::Integer(position_impl(vm, &args[0], &args[1], false)?))
+                    .into())
+            }),
+        ),
+        (
+            "positionCaseInsensitive",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "positionCaseInsensitive")?;
+                Ok(HogLiteral::Number(Num::Integer(position_impl(vm, &args[0], &args[1], true)?))
+                    .into())
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -985,6 +1085,30 @@ fn json_stringify(
         marked.pop();
     }
     result
+}
+
+// position(haystack, needle): 1-based char index of str(needle) in haystack, or 0 if absent (or
+// haystack isn't a string). The case-insensitive variant lowercases both first.
+fn position_impl(
+    vm: &HogVM,
+    haystack: &HogValue,
+    needle: &HogValue,
+    ci: bool,
+) -> Result<i64, VmError> {
+    let s = match haystack.deref(&vm.heap)? {
+        HogLiteral::String(s) => s.clone(),
+        _ => return Ok(0),
+    };
+    let n = to_string(&vm.heap, needle, 0)?; // str(needle)
+    let (s, n) = if ci {
+        (s.to_lowercase(), n.to_lowercase())
+    } else {
+        (s, n)
+    };
+    match s.find(&n) {
+        Some(byte_idx) => Ok(s[..byte_idx].chars().count() as i64 + 1),
+        None => Ok(0),
+    }
 }
 
 enum TrimSide {
