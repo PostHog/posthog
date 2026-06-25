@@ -27,7 +27,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A checkout a customer started but did not complete, leaving items in their cart.",
         "docs_url": "https://shopify.dev/docs/api/admin-graphql/latest/objects/AbandonedCheckout",
         "columns": _columns(
-            abandonedCheckoutUrl="URL the customer can use to recover and complete the abandoned checkout.",
+            abandoned_checkout_url="URL the customer can use to recover and complete the abandoned checkout.",
             totalPriceSet="Total price of the checkout, in shop and presentment currencies.",
             subtotalPriceSet="Subtotal of the line items before taxes and shipping.",
             totalTaxSet="Total tax charged on the checkout.",
@@ -98,6 +98,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             tags="List of tags applied to the customer.",
             defaultAddress="The customer's default mailing address.",
             note="Free-form note attached to the customer.",
+            metafields="Custom metadata attached to the customer as metafields.",
         ),
     },
     "discountCodes": {
@@ -143,7 +144,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             vendor="The product's vendor.",
             status="The product's status (ACTIVE, ARCHIVED, or DRAFT).",
             tags="List of tags applied to the product.",
-            totalInventory="Total quantity of the product in stock across all variants.",
+            total_inventory="Total quantity of the product in stock across all variants.",
+            price_range_v2="Minimum and maximum variant prices for the product.",
             variants="The product's variants (combinations of options like size and color).",
             publishedAt="Date and time when the product was published to the online store.",
         ),

@@ -29,6 +29,9 @@ _REPORT_METRICS = {
     "Revenue": "Revenue attributed to the ads over the period.",
     "ReturnOnAdSpend": "Return on ad spend — revenue divided by spend.",
     "Assists": "Number of conversions the ad assisted but did not directly drive.",
+    # Normalized (snake_case) column names as stored after sync.
+    "time_period": "Date the aggregated metrics apply to.",
+    "average_cpc": "Average cost per click.",
 }
 
 
@@ -40,6 +43,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "Id": "Unique identifier of the campaign.",
             "Name": "Name of the campaign.",
             "Status": "Campaign status (e.g. Active, Paused, BudgetPaused).",
+            "status": "Campaign status (e.g. Active, Paused, BudgetPaused).",
             "CampaignType": "Type of campaign (e.g. Search, Shopping, DynamicSearchAds, Audience).",
             "BudgetType": "How the budget is applied (e.g. DailyBudgetStandard, DailyBudgetAccelerated).",
             "DailyBudget": "Daily spending limit for the campaign.",

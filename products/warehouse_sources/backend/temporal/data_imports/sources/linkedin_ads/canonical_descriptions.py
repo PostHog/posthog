@@ -21,6 +21,7 @@ _STATS_COLUMNS = {
     "costInUsd": "Amount spent in USD over the reporting period.",
     "costInLocalCurrency": "Amount spent in the account's local currency over the reporting period.",
     "externalWebsiteConversions": "Conversions tracked on an external website attributed to the ad.",
+    "external_website_conversions": "Conversions tracked on an external website attributed to the ad.",
     "conversionValueInLocalCurrency": "Total value of conversions in the account's local currency.",
     "landingPageClicks": "Clicks that led to the ad's landing page.",
     "totalEngagements": "Total engagements (clicks, reactions, comments, shares, follows) on the ad.",
@@ -61,6 +62,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "targetingCriteria": "The audience targeting criteria applied to the campaign.",
             "locale": "The campaign's locale.",
             "changeAuditStamps": "Created and last-modified audit timestamps.",
+            "change_audit_stamps": "Created and last-modified audit timestamps.",
+            "last_modified_time": "Time the campaign was last modified.",
             "created_time": "Time the campaign was created.",
             "version": "Version metadata for optimistic concurrency.",
         },
@@ -89,6 +92,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "campaign_id": "ID of the campaign the creative belongs to.",
             "intendedStatus": "The creative's intended status (e.g. ACTIVE, PAUSED, DRAFT).",
             "isServing": "Whether the creative is currently being served.",
+            "is_serving": "Whether the creative is currently being served.",
             "review": "The creative's ad review status.",
             "createdAt": "Time the creative was created.",
             "lastModifiedAt": "Time the creative was last modified.",
@@ -117,6 +121,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             **_STATS_COLUMNS,
             "creative_id": "ID of the creative these metrics are for.",
+            "date_range": "The reporting date range these metrics cover.",
         },
     },
 }
