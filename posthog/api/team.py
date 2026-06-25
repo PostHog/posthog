@@ -46,7 +46,6 @@ from posthog.models.event_ingestion_restriction_config import EventIngestionRest
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import OrganizationMembership
-from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
     cached_product_intents_for_team,
@@ -285,27 +284,6 @@ def _format_serializer_errors(serializer_errors: dict) -> str:
         else:
             error_messages.append(f"{field}: {field_errors}")
     return ". ".join(error_messages)
-
-
-PROMOTED_PRODUCT_INTENT_DESCRIPTION = (
-    "Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary "
-    "product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` "
-    "record (the one carrying the `onboarding product selected - primary` context) — not from the "
-    "`user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no "
-    "primary onboarding product intent has been captured (e.g. teams created before this signal existed, or "
-    "where onboarding was skipped)."
-)
-
-
-class PromotedProductIntentSerializer(serializers.Serializer):
-    product_key = serializers.CharField(
-        allow_null=True,
-        help_text=(
-            "The product key the team selected as their primary product during onboarding "
-            "(e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no "
-            "primary onboarding product intent has been captured for this team."
-        ),
-    )
 
 
 class CachingTeamSerializer(serializers.ModelSerializer):
@@ -2328,17 +2306,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
-    @extend_schema(
-        tags=["platform_features"],
-        responses={200: PromotedProductIntentSerializer},
-        description=PROMOTED_PRODUCT_INTENT_DESCRIPTION,
-    )
-    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
-    def promoted_product_intent(self, request: request.Request, **kwargs) -> response.Response:
-        team = self.get_object()
-        product_key = promoted_product_lookup.get_promoted_product_intent(team.pk)
-        return response.Response({"product_key": product_key})
-
     @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="event_ingestion_restrictions")
     def event_ingestion_restrictions(self, request, **kwargs):
         team = self.get_object()
@@ -2413,6 +2380,12 @@ def validate_team_attrs(
 ) -> dict[str, Any]:
     if instance is not None:
         admin_fields_touched = TEAM_CONFIG_ADMIN_FIELDS_SET & attrs.keys()
+        # `app_urls` (the toolbar / web analytics authorized URLs) carries a `field_access_control`
+        # tying it to web analytics editor access. When access controls are enabled, defer to that
+        # field-level check instead of the blanket project-admin gate, so a web analytics editor can
+        # manage authorized URLs. Without access controls we keep the stricter admin-only behavior.
+        if view.user_access_control.access_controls_supported:
+            admin_fields_touched = admin_fields_touched - {"app_urls"}
         if admin_fields_touched:
             team_for_check = instance if isinstance(instance, Team) else instance.passthrough_team
             level = view.user_permissions.team(team_for_check).effective_membership_level

@@ -224,3 +224,19 @@ class TestWebhookEventMapping:
         # CustomerPaymentMethod keeps its mapping, so payment_method.* events stay subscribed.
         assert RESOURCE_TO_STRIPE_WEBHOOK_EVENT[CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME] == "payment_method"
         assert any(e.startswith("payment_method.") for e in _all_known_webhook_events())
+
+
+class TestSchemaWebhookCapability:
+    def setup_method(self):
+        self.source = StripeSource()
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test_123")
+        )
+        self.by_name = {s.name: s for s in self.source.get_schemas(config, team_id=1)}
+
+    def test_webhook_capability_matches_event_map(self):
+        # supports_webhooks must track the webhook-event map exactly (plus webhook-only tables),
+        # so the capability and the actual event subscription never drift apart.
+        for name, schema in self.by_name.items():
+            expected = name in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or schema.webhook_only
+            assert schema.supports_webhooks is expected, name

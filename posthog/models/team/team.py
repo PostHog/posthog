@@ -311,7 +311,7 @@ class Team(UUIDTClassicModel):
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
     app_urls: ArrayField = field_access_control(
-        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "project", "admin"
+        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "web_analytics", "editor"
     )
     name = models.CharField(
         max_length=200,
