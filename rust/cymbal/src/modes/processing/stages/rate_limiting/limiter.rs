@@ -96,11 +96,7 @@ pub struct RedisRateLimiter {
 }
 
 impl RedisRateLimiter {
-    pub fn new(
-        redis: Arc<dyn ScriptRunner>,
-        key_prefix: String,
-        bucket_ttl_seconds: u64,
-    ) -> Self {
+    pub fn new(redis: Arc<dyn ScriptRunner>, key_prefix: String, bucket_ttl_seconds: u64) -> Self {
         Self {
             redis,
             key_prefix,
@@ -235,12 +231,18 @@ mod tests {
 
         /// A bucket big enough to never be the binding limit in a test.
         fn unlimited() -> Bucket {
-            Bucket { max: 1e9, rate: 0.0 }
+            Bucket {
+                max: 1e9,
+                rate: 0.0,
+            }
         }
 
         /// A disabled limit — admits everything offered to it.
         fn disabled() -> Bucket {
-            Bucket { max: -1.0, rate: 0.0 }
+            Bucket {
+                max: -1.0,
+                rate: 0.0,
+            }
         }
 
         /// Inputs for one direct evaluation of `RATE_LIMIT_LUA`. Named fields so
@@ -294,7 +296,10 @@ mod tests {
                     issue: "a",
                     now: 1000,
                     n: 10,
-                    per_issue: Bucket { max: 5.0, rate: 0.0 },
+                    per_issue: Bucket {
+                        max: 5.0,
+                        rate: 0.0,
+                    },
                     project: unlimited(),
                 },
             )
@@ -312,12 +317,16 @@ mod tests {
                 issue: "a",
                 now: 1000,
                 n: 10,
-                per_issue: Bucket { max: 5.0, rate: 1.0 },
+                per_issue: Bucket {
+                    max: 5.0,
+                    rate: 1.0,
+                },
                 project: unlimited(),
             };
             assert_eq!(charge(&client, base).await.0, 5); // drains the bucket
             assert_eq!(charge(&client, base).await.0, 0); // same second: empty
-            assert_eq!(charge(&client, Charge { now: 1003, ..base }).await.0, 3); // +3s -> +3 tokens
+            assert_eq!(charge(&client, Charge { now: 1003, ..base }).await.0, 3);
+            // +3s -> +3 tokens
         }
 
         #[tokio::test]
@@ -331,11 +340,25 @@ mod tests {
                 issue: "a",
                 now: 1000,
                 n: 10,
-                per_issue: Bucket { max: 5.0, rate: 1.0 },
+                per_issue: Bucket {
+                    max: 5.0,
+                    rate: 1.0,
+                },
                 project: unlimited(),
             };
             assert_eq!(charge(&client, base).await.0, 5);
-            assert_eq!(charge(&client, Charge { now: 1_001_000_000, ..base }).await.0, 5);
+            assert_eq!(
+                charge(
+                    &client,
+                    Charge {
+                        now: 1_001_000_000,
+                        ..base
+                    }
+                )
+                .await
+                .0,
+                5
+            );
         }
 
         #[tokio::test]
@@ -348,11 +371,14 @@ mod tests {
                 issue: "a",
                 now: 1000,
                 n: 10,
-                per_issue: Bucket { max: 10.0, rate: 0.5 },
+                per_issue: Bucket {
+                    max: 10.0,
+                    rate: 0.5,
+                },
                 project: unlimited(),
             };
             assert_eq!(charge(&client, base).await.0, 10); // drain at t=1000
-            // +1s -> 0.5 tokens -> floor -> admit 0, but the 0.5 stays in the pool.
+                                                           // +1s -> 0.5 tokens -> floor -> admit 0, but the 0.5 stays in the pool.
             assert_eq!(charge(&client, Charge { now: 1001, ..base }).await.0, 0);
             // +1s more -> 0.5 carried + 0.5 fresh = 1.0 -> admit 1.
             assert_eq!(charge(&client, Charge { now: 1002, ..base }).await.0, 1);
@@ -372,7 +398,10 @@ mod tests {
                     now: 1000,
                     n: 10,
                     per_issue: disabled(),
-                    project: Bucket { max: 4.0, rate: 0.0 },
+                    project: Bucket {
+                        max: 4.0,
+                        rate: 0.0,
+                    },
                 },
             )
             .await;
@@ -390,8 +419,14 @@ mod tests {
                 issue: "a",
                 now: 1000,
                 n: 10,
-                per_issue: Bucket { max: 5.0, rate: 0.0 },
-                project: Bucket { max: 3.0, rate: 0.0 },
+                per_issue: Bucket {
+                    max: 5.0,
+                    rate: 0.0,
+                },
+                project: Bucket {
+                    max: 3.0,
+                    rate: 0.0,
+                },
             };
             assert_eq!(charge(&client, base).await, (5, 3));
             // A different issue on the same team draws on the *shared* project

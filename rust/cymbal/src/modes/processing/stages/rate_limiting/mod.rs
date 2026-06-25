@@ -171,7 +171,10 @@ async fn apply_rate_limits(
         }
 
         let n = indices.len() as u32;
-        let decision = match limiter.admit(team_id, issue_id, per_issue, project, n).await {
+        let decision = match limiter
+            .admit(team_id, issue_id, per_issue, project, n)
+            .await
+        {
             Ok(decision) => decision,
             Err(e) => {
                 // Fail open: keep everything, but record it so we can alert on it.
@@ -191,7 +194,13 @@ async fn apply_rate_limits(
         );
         drops.extend(group.drops);
         if let Some((allowed, limited)) = group.per_issue {
-            add_outcome(&mut outcomes, team_id, LimitKind::PerIssue, allowed, limited);
+            add_outcome(
+                &mut outcomes,
+                team_id,
+                LimitKind::PerIssue,
+                allowed,
+                limited,
+            );
         }
         if let Some((allowed, limited)) = group.project {
             add_outcome(&mut outcomes, team_id, LimitKind::Project, allowed, limited);
@@ -540,7 +549,14 @@ mod tests {
     #[test]
     fn all_admitted_no_drops() {
         let indices = vec![0, 1];
-        let out = classify_group(1, Some(Uuid::now_v7()), &indices, decision(2, 2), true, true);
+        let out = classify_group(
+            1,
+            Some(Uuid::now_v7()),
+            &indices,
+            decision(2, 2),
+            true,
+            true,
+        );
         assert!(out.drops.is_empty());
         assert_eq!(out.per_issue, Some((2, 0)));
         assert_eq!(out.project, Some((2, 0)));
