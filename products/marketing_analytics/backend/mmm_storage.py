@@ -29,13 +29,19 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
-# Dataset path segments under `<prefix>/team_<team_id>/<job_id>/`. Each dataset is a single Parquet
+# Dataset folder segments under `<prefix>/team_<team_id>/<job_id>/`. Each dataset is a single Parquet
 # object (MMM results are kilobytes — a few channels × the modeling window — so unlike identity
-# matching there is no multi-part write).
-MMM_RUN_META = "run_meta/data.parquet"
-MMM_CONTRIBUTIONS = "contributions/data.parquet"
-MMM_CURVES = "curves/data.parquet"
-MMM_ROI = "roi/data.parquet"
+# matching there is no multi-part write). Writes land a named `data.parquet` inside the folder; reads
+# glob `<folder>/*.parquet` so a missing run matches zero objects (the "no run yet" path) instead of
+# 404-ing on a literal key.
+MMM_RUN_META = "run_meta"
+MMM_CONTRIBUTIONS = "contributions"
+MMM_CURVES = "curves"
+MMM_ROI = "roi"
+
+# Inside each dataset folder: the single object writes target, and the glob reads match.
+_MMM_WRITE_FILENAME = "data.parquet"
+_MMM_READ_GLOB = "*.parquet"
 
 MMM_MODEL_VERSION = "mmm_v1"
 
@@ -43,7 +49,7 @@ MMM_MODEL_VERSION = "mmm_v1"
 # identically on write and read so ClickHouse never infers schema (a glob matching no objects then
 # returns zero rows instead of failing inference — the "no run yet" path). `job_id` is `String`
 # because ClickHouse cannot write `UUID` to Parquet. The column order here must match each write's
-# row-tuple order, since `INSERT ... SELECT * FROM input(structure)` casts positionally.
+# row-tuple order, since the `INSERT ... VALUES` write casts positionally into the s3() structure.
 MMM_RUN_META_STRUCTURE = """
     job_id String, team_id Int64, status String, model_version String,
     outcome_kind String, outcome_ref String,
@@ -151,9 +157,9 @@ def mmm_s3_args(team_id: int, job_id: str, relative_path: str, structure: str) -
 
 
 def _insert_rows(
-    client: Client, *, query: str, rows: list[tuple[Any, ...]], query_settings: dict[str, Any]
+    client: Client, *, query: str, parameters: dict[str, Any], query_settings: dict[str, Any]
 ) -> list[tuple[Any, ...]]:
-    return client.execute(query, rows, settings=query_settings)
+    return client.execute(query, parameters, settings=query_settings)
 
 
 def write_dataset(
@@ -172,16 +178,24 @@ def write_dataset(
     via clickhouse_driver (not `sync_execute`), so it can't read the thread-local query tags directly —
     callers (the Dagster op) pass `query_settings` carrying a `log_comment` (snapshot of the active
     `tags_context` via `settings_with_log_comment`) so the INSERT is still attributed.
+
+    The rows are embedded as `VALUES (%(..)s), ...` placeholders, not handed to clickhouse_driver's
+    native-block insert path: that path (`INSERT ... SELECT * FROM input(...)` with a list of tuples)
+    hangs against `INSERT INTO FUNCTION s3(...)`, whereas server-parsed substitution writes reliably.
     """
     if not rows:
         return
-    args = mmm_s3_args(team_id, job_id, relative_path, structure)
-    # `input(...)` takes the structure as its own SQL literal — no quote-escaping (none of the MMM
-    # structures contain a quote), unlike the s3() structure arg which lives inside a quoted literal.
-    compact = " ".join(structure.split())
-    query = f"INSERT INTO FUNCTION s3({args}) SELECT * FROM input('{compact}')"
+    args = mmm_s3_args(team_id, job_id, f"{relative_path}/{_MMM_WRITE_FILENAME}", structure)
+    columns = len(rows[0])
+    placeholders: list[str] = []
+    parameters: dict[str, Any] = {}
+    for i, row in enumerate(rows):
+        keys = [f"v{i}_{j}" for j in range(columns)]
+        placeholders.append("(" + ", ".join(f"%({key})s" for key in keys) + ")")
+        parameters.update(zip(keys, row, strict=True))
+    query = f"INSERT INTO FUNCTION s3({args}) VALUES {', '.join(placeholders)}"
     settings = {**_MMM_WRITE_SETTINGS, **(query_settings or {})}
-    cluster.any_host(partial(_insert_rows, query=query, rows=rows, query_settings=settings)).result()
+    cluster.any_host(partial(_insert_rows, query=query, parameters=parameters, query_settings=settings)).result()
 
 
 def read_dataset(
@@ -198,7 +212,7 @@ def read_dataset(
     A glob matching no objects returns zero rows (not an error) via `s3_throw_on_zero_files_match=0`.
     `team_id` stays as a defensive predicate even though the S3 path already scopes the team.
     """
-    args = mmm_s3_args(team_id, job_id, relative_path, structure)
+    args = mmm_s3_args(team_id, job_id, f"{relative_path}/{_MMM_READ_GLOB}", structure)
     sql = f"SELECT {', '.join(columns)} FROM s3({args}) WHERE team_id = %(team_id)s {where}"  # noqa: S608 — s3() args from team_id (int) and a validated job_id/`*` (see _validate_job_id); columns/where are in-code constants, values parameterized
     # Tag the query with product/feature so it's attributed in ClickHouse resource management — and so
     # it doesn't raise UntaggedQueryError in local dev (DEBUG). Mirrors identity matching's read API.

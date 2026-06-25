@@ -955,7 +955,8 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     marketing_mmm_summary: {
         name: 'Summarize marketing mix model',
-        description: 'Summarize the latest marketing mix modeling run with channel contributions and budget guidance',
+        description:
+            'Summarize marketing mix model results: channel contributions, ROI, and budget guidance from the latest run',
         product: Scene.MarketingAnalytics,
         icon: iconForType('marketing_analytics'),
         displayFormatter: (toolCall) =>
