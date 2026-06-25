@@ -53,8 +53,10 @@ async def main(pr_url: str, *, team_id: int, user_id: int) -> None:
     ``team_id`` / ``user_id`` are explicit inputs from the trigger (the `run_review` CLI today, the
     Temporal trigger later): the team the review runs and persists under, and the user the sandbox
     tasks run as. Inter-stage state lives in Postgres (`ReviewReport` + `ReviewReportArtefact`),
-    passed in-process within this run and persisted per stage so a re-run resumes from rows — there
-    is no on-disk store.
+    passed in-process within this run and persisted per stage — there is no on-disk store. A re-run
+    on the same ``head_sha`` reuses the expensive, turn-stable sandbox stages (chunk / analyze /
+    lens review) from rows; dedup and validation recompute, since their post-dedup issue set isn't
+    stable across re-runs.
     """
 
     # 1. Parse PR URL into PR metadata

@@ -3,7 +3,9 @@
 Postgres is the single source of truth for a review. Each stage passes its outputs in-process
 within one run and persists them as rows; the DB-driven resume reads those rows back so a re-run
 (or a future Temporal activity on another worker) skips completed sandbox work. There is no
-on-disk store.
+on-disk store. Resume is head_sha-scoped and covers the turn-stable sandbox stages — chunk_set /
+chunk_analysis / lens_result; dedup and validation recompute on a re-run because their post-dedup
+issue set (and thus the per-issue ids) isn't stable across runs.
 
 Durable rows this layer writes:
 
@@ -286,6 +288,12 @@ def load_valid_findings(*, team_id: int, report_id: str) -> list[tuple[ReviewIss
     The DB-driven source for publishing: the latest finding and latest verdict for each `issue_key`
     are joined, and only pairs the validator ruled valid are returned. This is the canonical
     latest-wins read the artefact log was designed for.
+
+    This reads the report's whole history (all turns), not just the current head — correct for the
+    single-turn run today (one turn's findings) and publish being disabled. Cross-turn supersession
+    (mark a finding resolved / still-open / newly-appeared instead of accumulating) needs semantic
+    identity, not the per-turn positional `issue_key`, and lands with the loop (see ARCHITECTURE.md,
+    Deferred / future).
     """
     findings: dict[str, ReviewIssueFinding] = {}
     verdicts: dict[str, ValidationVerdict] = {}

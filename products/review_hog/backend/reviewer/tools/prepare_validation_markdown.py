@@ -8,7 +8,7 @@ high-level summary body. The detailed per-issue findings are published as inline
 
 import logging
 
-from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
+from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority
 from products.review_hog.backend.reviewer.models.prepare_validation_markdown import (
@@ -16,7 +16,7 @@ from products.review_hog.backend.reviewer.models.prepare_validation_markdown imp
     ValidationMarkdownReportChunk,
     ValidationMarkdownReportIssue,
 )
-from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList
 
 logger = logging.getLogger(__name__)
 
@@ -62,19 +62,31 @@ def _assemble_report(
 
     report_chunks: list[ValidationMarkdownReportChunk] = []
     for chunk in chunks_data.chunks:
+        validated_issues = [
+            ValidationMarkdownReportIssue(issue=issue, validation=validations[issue.id])
+            for issue in issues_by_chunk.get(chunk.chunk_id, [])
+            if (v := validations.get(issue.id)) is not None and v.is_valid
+        ]
         analysis = analyses.get(chunk.chunk_id)
         if analysis is None:
-            logger.warning(f"Skipping chunk {chunk.chunk_id} - no analysis found")
-            continue
-        validated_issues: list[ValidationMarkdownReportIssue] = []
-        for issue in issues_by_chunk.get(chunk.chunk_id, []):
-            validation = validations.get(issue.id)
-            if validation is not None and validation.is_valid:
-                validated_issues.append(ValidationMarkdownReportIssue(issue=issue, validation=validation))
+            # Analysis is best-effort and can fail transiently. Dropping the chunk would hide a valid
+            # finding that publish (DB-driven) still posts an inline comment for — so keep the chunk
+            # (with a placeholder) when it has validated issues, and stay quiet otherwise.
+            if not validated_issues:
+                continue
+            analysis = _placeholder_analysis(chunk)
         report_chunks.append(
             ValidationMarkdownReportChunk(chunk=chunk, chunk_analysis=analysis, validated_issues=validated_issues)
         )
     return ValidationMarkdownReport(chunks=report_chunks)
+
+
+def _placeholder_analysis(chunk: Chunk) -> ChunkAnalysis:
+    """A stand-in analysis for a chunk whose analysis sandbox failed but which has validated issues."""
+    return ChunkAnalysis(
+        goal="(analysis unavailable for this chunk)",
+        chunk_meta=ChunkMeta(chunk_id=chunk.chunk_id, files_in_this_chunk=[f.filename for f in chunk.files]),
+    )
 
 
 def _render_review_body(report: ValidationMarkdownReport) -> str:

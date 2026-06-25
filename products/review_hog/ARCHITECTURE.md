@@ -12,8 +12,9 @@ a markdown report, and posts inline review comments back to the PR.
 Every LLM step runs inside a **sandbox agent** spawned through the shared `products/tasks` infrastructure
 (`Task`/`TaskRun` → Temporal `ProcessTaskWorkflow` → Modal/Docker sandbox → agent-server). ReviewHog does
 **not** call an LLM SDK directly and does **not** own any sandbox/Temporal code — it composes a prompt,
-hands it to the Tasks runner, and parses the agent's final message. All run artifacts are written to a
-gitignored `reviews/<pr_number>/` directory; the only external side effect is the GitHub review it posts.
+hands it to the Tasks runner, and gets back the validated model. Run state is persisted to Postgres
+(`ReviewReport` + `ReviewReportArtefact`) — there is **no on-disk store**; the only external side effect is
+the GitHub review it posts.
 
 This document is the living architecture reference for the product and the working tracker for the
 multi-stage effort to bring this (originally March 2026) branch up to date with `master`. See
@@ -177,18 +178,17 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 
 ### 🔭 Stage 3 — durable persistence & the loop-y review (cloud)
 
-> **Status: Stage 3 complete (steps 1–7 built & green).** Foundation, persist-after-success, explicit
-> team/user identity, and the per-turn **point-in-time diff snapshot** are all in place: the two tables,
-> the artefact funnel/registry, the Signals leaf move, the tach block, the `0001` migration, the
-> persistence layer (`reviewer/persistence.py`), explicit `team_id`/`user_id` threading, and now the
-> `commit`-artefact diff snapshot — captured at review time, gated on the `head_sha` watermark, with both
-> watermarks (`head_sha` + `last_seen_comment_id`) advanced per turn. No object storage. Lint + tach + the
-> ReviewHog backend suite (incl. the new snapshot tests) pass, and the snapshot is verified end-to-end against
-> a real public PR (the `commit` artefact stores the 52 KB diff with the watermark advanced). What remains:
-> **step 8** — make Postgres the single source of truth for inter-stage state and remove the on-disk store
-> (no scratch layer; today the DB mirrors only the _outputs_) — plus the **loop itself**
-> (Temporal + the re-check) and the deferred `task_run` / `note` work-log artefacts. See the step list and
-> _Deferred / future_ below.
+> **Status: Stage 3 complete (steps 1–8 built & green).** Foundation, persist-after-success, explicit
+> team/user identity, the per-turn **point-in-time diff snapshot**, and now **step 8 — Postgres is the
+> single source of truth and the on-disk `reviews/<pr>/` store is gone**. The pipeline passes objects
+> in-process within a run and persists every stage to rows; a head*sha-scoped **DB-driven resume** reuses
+> the turn-stable sandbox stages (chunk / analyze / lens review) on a re-run. The sandbox executor returns a
+> validated model (via `MultiTurnSession.start(model=…)`) instead of writing a file, and publish is
+> **DB-driven** (body from `ReviewReport.report_markdown`, inline comments from the finding/verdict rows). No
+> object storage. Lint + tach + the ReviewHog backend suite (125) + the Signals artefact suite pass. What
+> remains: the **loop itself** (Temporal + the re-check), the deferred `task_run` / `note` work-log
+> artefacts, and cross-turn finding identity (semantic, not the per-turn positional `issue_key`). See the
+> step list and \_Deferred / future* below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
 DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
@@ -324,9 +324,9 @@ artefact: the reused Signals `Commit` schema gained one minor optional `diff` fi
 Signals-neutral — see step 7) to carry the point-in-time diff alongside the head-commit metadata. `get_diff`
 re-fetch is reserved for the **next** turn's _current_ diff — never for reconstructing a past turn. The data is moderate (tens–hundreds of KB per turn) and Postgres handles
 it comfortably (the team-scoped worktree cache stores far larger blobs in Postgres successfully); object storage
-is reserved for a blob that is both large _and_ irreproducible, of which ReviewHog has none. Per-stage
-prompt/JSON scratch still lives on the **orchestrator host** working tree (`reviews/<pr>/`) today — that is the
-one remaining file dependency, and **step 8** removes it (DB becomes authoritative for inter-stage state too).
+is reserved for a blob that is both large _and_ irreproducible, of which ReviewHog has none. There is **no
+on-disk store** — step 8 made the DB authoritative for inter-stage state too; per-stage prompts/outputs are
+either DB rows, in-process values within the run, or the S3 agent log (`task_run.log_url`).
 
 ##### Implementation steps (ordered)
 
@@ -395,72 +395,49 @@ one remaining file dependency, and **step 8** removes it (DB becomes authoritati
    TOAST); **no object storage**. The remaining per-turn `task_run` / `note` work-log artefacts are deferred to
    the loop — they need per-call task ids / comment-driven notes the pipeline doesn't surface yet.
 
-8. ⏭️ **(next — not built) Make Postgres the single source of truth; remove the on-disk store (no scratch
-   layer).** _Why does `reviews/<pr>/` still exist if we persist to the DB now?_ Because today there are **two**
-   stores with different jobs, and the DB doesn't yet hold everything:
-   - The on-disk `reviews/<pr_number>/` tree is the pipeline's **working memory** — every stage reads its inputs
-     from disk and writes its outputs there, and idempotent resume is literally "skip the stage if its output
-     file already exists." Crucially, several intermediate artefacts (`chunks.json`, the per-chunk analyses, the
-     raw/cleaned issue sets, the per-issue validation summaries, all rendered prompts) live **only** on disk.
-   - Postgres holds a durable, team-scoped **mirror of the canonical _outputs_** (findings, verdicts, the
-     point-in-time diff, the report markdown, the watermark) — added in steps 5–7 _on top of_ the file pipeline,
-     not replacing it.
+8. ✅ **Postgres is the single source of truth; the on-disk `reviews/<pr>/` store is removed.** The pipeline
+   no longer writes any durable files — every piece of inter-stage state is a DB row or an in-process value
+   passed within the run. What was built:
+   - **Three new working-state artefact types** (`ReviewReportArtefact`): `chunk_set`, `chunk_analysis`,
+     `lens_result`, each carrying the turn's `head_sha`. Their content schemas live in `artefact_content.py`
+     (they embed the live `Chunk` / `ChunkAnalysis` / `IssuesReview` pipeline models — per-turn scaffolding, not
+     cross-turn-stable findings, so tracking the live shape is fine). A new `add_working_state` appender + the
+     `WORKING_STATE_ARTEFACT_TYPES` set gate them, mirroring `add_log`. Migration `0002` adds the enum values
+     (state-only, no SQL).
+   - **DB-driven, head_sha-scoped resume** (`persistence.py`: `persist_/load_chunk_set`, `…chunk_analyses`,
+     `…lens_results`, with `_load_working_state` latest-wins per key for the current head). `split_pr_into_chunks`
+     / `analyze_chunks` / `review_chunks` now take `team_id` / `report_id` / `head_sha`, check the rows first, run
+     the sandbox only for missing items, persist, and return objects. A re-run on the same head reuses these
+     **turn-stable** sandbox stages. **Dedup and validation recompute** on a re-run — their post-dedup issue set
+     (and the per-issue ids) isn't stable across runs, so per-issue resume would be unreliable; this is a
+     deliberate scope boundary (the costliest stage, validation, therefore re-runs — acceptable until the loop).
+   - **Fetch is in-process.** `PRFetcher.fetch_pr_data()` returns `(pr_metadata, pr_comments, pr_files, diff)` and
+     writes nothing; the reviewed diff snapshot rides back as the `diff` string and is persisted by
+     `persist_commit_snapshot(…, diff=…)` (the watermark guard is unchanged). `pr_files_scope.jsonl` and its
+     generator are deleted (no reader). Combine → scope-clean → dedup chain entirely in-process (`list[Issue]`).
+   - **Executor returns a model.** `run_sandbox_review(...) -> Model | None` via
+     `MultiTurnSession.start(model=…)` — no `output_path`, no `_error.txt`, no manual `extract_json_from_text`.
+     This also closes the pending Stage-2 `start(model=)` item; the session is ended on the success path and
+     `start` ends its own session on failure.
+   - **Publish is DB-driven & unified.** The body is `ReviewReport.report_markdown` (rendered once in-process by
+     `build_review_body` and stored at finalize); inline comments are rebuilt from the **finding/verdict rows**
+     via `load_valid_findings` (latest-wins per `issue_key`, valid-only), positioned against the current diff.
+     The old second from-disk report rebuild is gone. A chunk whose (best-effort) analysis failed but that has a
+     validated issue is shown in the body with a placeholder, so the body and the posted inline comments stay
+     consistent.
+   - **Cleanup:** `reviews/<pr>/` is gone; the orphaned `reviewer/utils/json_utils.py` (+ empty `utils/`) deleted.
 
-   So "everything is in the DB" isn't true yet — the DB has the outputs; the pipeline still passes inter-stage
-   state through local files. The disk store exists only because the pipeline was built **file-first as a local
-   CLI**; it is not a design requirement. It turns into a liability in the cloud: under Temporal the stages run
-   as separate **activities/workers that don't share a filesystem**, and pod-local disk is ephemeral — so both
-   file-based inter-stage passing and file-existence resume break across workers, and the files duplicate state
-   the DB now owns. The next step **removes the host filesystem from the design** — and, deliberately, does
-   _not_ replace it with an ephemeral scratch dir (a deleted temp dir would only _hurt_ debuggability and buy
-   nothing):
-   - **Inter-stage state → the DB.** Persist the intermediate artefacts a later stage consumes that aren't stored
-     yet (chunks, per-chunk analyses, raw/cleaned issue sets — the final issue set and verdicts are already
-     `issue_finding` / `validation_verdict` rows) as their own artefact rows (or a typed working-state row), and
-     have each stage read its inputs from those rows / from values passed in-process within one activity, not by
-     re-reading files.
-   - **Resume → DB-driven.** Replace "skip if the output file exists" with "skip if this stage's artefact already
-     exists for this turn" — idempotency that holds across workers and across loop turns, not just on one host.
-   - **No host-side store at all.** Each stage-activity runs in memory: read inputs by row-id / value, call the
-     sandbox, persist outputs to Postgres, return a row-id. Nothing on the orchestrator host is load-bearing.
-     **Debuggability is covered by three durable, queryable stores that beat per-host files** (and survive across
-     workers, which local files don't): the **artefact rows** (inter-stage + output state), the **Temporal
-     workflow history** (each activity's recorded input/output), and the **agent logs already persisted to S3**
-     at `task_run.log_url` (the full prompt + conversation per sandbox call — the executor already relies on
-     these instead of copying logs locally). If one activity ever needs a real file path internally (a library
-     that demands one), that's an incidental activity-local temp, not an architectural store. The committed-to
-     local `reviews/<pr>/` tree goes away. _(Optional, if local-dev ergonomics want it: a write-only, never-read,
-     DEBUG-gated dump of prompts/outputs — explicitly outside the contract; the pipeline never reads it back.)_
+   **Debuggability** is the three durable, queryable, cross-worker stores the plan called for: the **artefact
+   rows** (inter-stage + output state), the **Temporal workflow history** (later), and the **S3 agent logs** at
+   `task_run.log_url` (full prompt + conversation per sandbox call). Nothing on the orchestrator host is
+   load-bearing — the natural companion to the Temporal migration (each stage an activity exchanging **row ids by
+   reference**; see _Cloud host, Temporal_ below).
 
-   This is the natural companion to the Temporal migration (each stage an activity / child workflow exchanging
-   **row ids by reference**) — see _Cloud host, Temporal_ below and _Everything on Temporal_ under Deferred.
-   Steps 5–7 deliberately left the disk tree as scratch while standing up the durable DB outputs first; this
-   step finishes the job by making the DB authoritative for _inter-stage_ state too.
-
-   **End state: the pipeline writes no durable files.** `reviews/<pr>/` goes away entirely; every piece of state
-   becomes a DB row, an in-process value within a stage, or (for prompts/logs) the S3 agent log that already
-   exists. The only thing that may ever touch disk is an _incidental_ per-activity temp if some library demands a
-   path — never a shared or durable store, and never read by another stage.
-
-   The table below is the **elimination work-list** to get there — every file the pipeline writes **today** and
-   what it becomes **instead** (none survive). The "produced by → consumed by" column is only so you know which
-   _reader_ to rewire to the new source when you delete each writer:
-
-   | File written today (`reviews/<pr>/`)                                                                                                          | produced by → consumed by                                 | becomes (file removed)                                                                                                                 |
-   | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-   | `pr_meta.json`, `pr_comments.jsonl`, `pr_files.jsonl`, `pr_files_scope.jsonl`                                                                 | fetch → every stage's prompts, publish                    | **in-process value** from the fetch activity (re-fetchable from GitHub); the reviewed `pr_diff.patch` is already the `commit` artefact |
-   | **`chunks.json`** (`ChunksList`)                                                                                                              | chunk → analyze, review, validate, report build           | **new DB row** (artefact / working-state) — the one genuinely-missing intermediate                                                     |
-   | **`chunk-{id}-analysis.json`** (`ChunkAnalysis`)                                                                                              | analyze → review (`CHUNK_ANALYSIS_CONTEXT`), report build | **new DB row** — the other genuinely-missing intermediate                                                                              |
-   | `pass{N}_results/chunk-{id}-issues-review.json` (`IssuesReview`), `issues_found_raw.json`, `issues_cleaned.json`, `issues_outside_scope.json` | review/combine/clean → dedup                              | **in-process values** passed down the combine→clean→dedup chain (they collapse into the canonical issue set)                           |
-   | `issues_found.json` (`IssueCombination`)                                                                                                      | dedup → validate, report, publish                         | already the `issue_finding` rows — read those                                                                                          |
-   | `…/validation/summaries/*.json` (`IssueValidation`)                                                                                           | validate → report, persist                                | already the `validation_verdict` rows — read those                                                                                     |
-   | `review_report.md`                                                                                                                            | report build → publish, finalize                          | already `ReviewReport.report_markdown`                                                                                                 |
-   | `*_prompt.md`, `pass{N}_prompts/*`, `*_error.txt`                                                                                             | each stage                                                | dropped — the full prompt + conversation is already in the S3 agent log (`task_run.log_url`)                                           |
-
-   So the **only new persistence** step 8 needs is `chunks` + per-chunk `analyses` (two new rows); everything else
-   is already a row, becomes an in-process value, or is dropped. After it, the report builder
-   (`prepare_validation_markdown`) and the lens/validation stages read from rows / passed values, and `reviews/<pr>/`
-   is gone.
+   **Known follow-ups (deferred to the loop):** findings/verdicts are read report-wide and keyed by the per-turn
+   positional `issue_key`, so cross-turn supersession (resolved / still-open / newly-appeared) is **not** yet
+   modeled — correct for the single-turn run today (publish is disabled), but the loop must add **semantic**
+   cross-turn identity before it re-reviews across commits. The `task_run` / `note` work-log artefacts and
+   validation resume also land with the loop.
 
 ##### Cloud host, Temporal & GitHub (assumed / later)
 
@@ -504,19 +481,21 @@ turn's current diff only); _reuse from the Signals leaf_ — `Commit` / `CodeRef
 `NoteArtefact` content models + `ArtefactContentValidationError` (from `artefact_schemas`), and
 `ArtefactAttribution` (from the new `artefact_attribution` leaf); _ReviewHog-owned_ — `ReviewReport` +
 `ReviewReportArtefact`, the funnel, **its own registry + `artefact_type_for` / `parse_artefact_content` helpers**
-(the Signals helpers close over Signals' module-global registry and can't take ours), and the
-`ReviewIssueFinding` / `ValidationVerdict` schemas. The on-disk `reviews/<pr>/` tree degrades to sandbox-only
-scratch.
+(the Signals helpers close over Signals' module-global registry and can't take ours), the
+`ReviewIssueFinding` / `ValidationVerdict` schemas, and the working-state schemas
+(`ChunkSetArtefact` / `ChunkAnalysisArtefact` / `LensResultArtefact`). There is no on-disk store.
 
 ---
 
 ## Pipeline
 
-The orchestration lives in `backend/reviewer/run.py` (`async def main(pr_url)`), a flat sequential async
-function. Steps that fan out over chunks use `asyncio.gather`; all sandbox calls are globally throttled to
-`MAX_CONCURRENT_SANDBOXES` (`constants.py`) via one module-level semaphore in `executor.py`. Most steps
-are **idempotent** — they skip work whose output file already exists, so a failed run can be re-run and will
-resume.
+The orchestration lives in `backend/reviewer/run.py` (`async def main(pr_url, *, team_id, user_id)`), a flat
+sequential async function. State is passed **in-process** between stages and persisted to Postgres
+(`ReviewReport` + `ReviewReportArtefact`); there is **no on-disk store**. Steps that fan out over chunks use
+`asyncio.gather`; all sandbox calls are globally throttled to `MAX_CONCURRENT_SANDBOXES` (`constants.py`) via
+one module-level semaphore in `executor.py`. The expensive, turn-stable sandbox stages (chunk / analyze /
+lens review) are **idempotent via a head_sha-scoped DB resume** — a re-run reuses their rows instead of
+re-calling the sandbox; dedup and validation recompute.
 
 See `ARCHITECTURE_DIAGRAM.mmd` (rendered: `ARCHITECTURE_DIAGRAM.png`) for the visual flow. Compact form:
 
@@ -535,65 +514,62 @@ flowchart TD
     COMBINE --> CLEAN["7. Scope clean (local)"]
     CLEAN --> DEDUP{{"8. Deduplicate (pre-filter + sandbox)"}}
     DEDUP --> VALIDATE{{"9. Per-issue validation (sandbox)"}}
-    VALIDATE --> MD["10. Build review_report.md (local)"]
-    MD --> PUBLISH["11. Publish PR review (GitHub API)"]
+    VALIDATE --> MD["10. Build review body + finalize (DB)"]
+    MD --> PUBLISH["11. Publish PR review (GitHub API, DB-driven)"]
 ```
 
 ### Step-by-step (as coded in `run.py`)
 
 1. **Parse PR URL** — `PRParser.parse_github_pr_url` regex-extracts `owner/repo/pr_number`; raises on a
    malformed URL.
-2. **Create output dir** — `reviews/<pr_number>/` under `_REVIEW_HOG_DIR` (which resolves to the product root
-   `products/review_hog/`, so artifacts land in `products/review_hog/reviews/<pr_number>/`).
-3. **Fetch PR data** — `PRFetcher.fetch_pr_data` (`tools/github_meta.py`, PyGithub, needs `GITHUB_TOKEN`)
-   writes `pr_meta.json` (incl. `head_sha`), `pr_comments.jsonl` (incl. comment `id`), `pr_files.jsonl`,
-   `pr_files_scope.jsonl`, and `pr_diff.patch` (the reviewed files' raw unified patch, for the durable diff
-   snapshot). Lockfiles, minified assets, snapshots, `*.schema.py`, `*.txt`, build dirs, and test files are
-   filtered out. `branch = pr_metadata.head_branch` is threaded into every sandbox step so the agent reviews
-   the PR branch. Immediately after fetch, `run.py` opens/updates the living `ReviewReport` and calls
-   `persist_commit_snapshot` to record this turn's point-in-time diff (gated on the `head_sha` watermark).
-4. **Generate schemas** — `generate_all_schemas()` materializes `Model.model_json_schema()` for the five
-   LLM-facing models into `prompts/<stage>/schema.json`; the prompt templates embed these. Must run before
-   any prompt rendering.
-5. **Chunk the PR** — `split_pr_into_chunks` (1 sandbox call, validates `ChunksList`) groups changed files
-   into logically reviewable chunks ordered by review priority. Writes `chunks.json`.
-6. **Per-chunk analysis** — `analyze_chunks` (1 sandbox call per chunk, **parallel** via `asyncio.gather`)
-   writes a `goal` narrative per chunk to `chunk-{id}-analysis.json` (`ChunkAnalysis`). Informational, not
-   issue-finding. On partial failure it logs and returns (does not raise).
-7. **Parallel lens review** — `review_chunks` runs **three independent specialist lenses concurrently** per
-   chunk (`asyncio.gather` over `(lens × chunk)`, bounded by the global semaphore). Each lens covers a
-   different concern and runs with **no cross-lens context** — overlap is left to the dedupe step (10):
+2. **Fetch PR data** — `PRFetcher(owner, repo, pr_number).fetch_pr_data()` (`tools/github_meta.py`, PyGithub,
+   needs `GITHUB_TOKEN`) returns `(pr_metadata, pr_comments, pr_files, diff)` **in-process** — no files. The
+   `diff` is the reviewed files' raw unified patch (the point-in-time snapshot). Lockfiles, minified assets,
+   snapshots, `*.schema.py`, `*.txt`, build dirs, and test files are filtered out. `branch =
+pr_metadata.head_branch` is threaded into every sandbox step. Then `bind_sandbox_identity` validates the
+   team's GitHub integration, `upsert_review_report` opens the living `ReviewReport`, and
+   `persist_commit_snapshot(…, diff=…)` records this turn's snapshot (gated on the `head_sha` watermark).
+3. **Generate schemas** — `generate_all_schemas()` materializes `Model.model_json_schema()` for the five
+   LLM-facing models into `prompts/<stage>/schema.json` (static package assets, **not** per-run state); the
+   prompt templates embed these. Must run before any prompt rendering.
+4. **Chunk the PR** — `split_pr_into_chunks` (1 sandbox call, validates `ChunksList`) groups changed files
+   into logically reviewable chunks ordered by review priority. Returns the `ChunksList`; persists a
+   `chunk_set` row (and resumes from it on a re-run of the same head).
+5. **Per-chunk analysis** — `analyze_chunks` (1 sandbox call per chunk, **parallel** via `asyncio.gather`)
+   returns a `dict[chunk_id, ChunkAnalysis]` (a `goal` narrative per chunk). Informational; best-effort (logs
+   and continues on partial failure). Persists/resumes per-chunk `chunk_analysis` rows.
+6. **Parallel lens review** — `review_chunks` runs **three independent specialist lenses concurrently** per
+   chunk (`asyncio.gather` over `(lens × chunk)`, bounded by the global semaphore), each with **no cross-lens
+   context** — overlap is left to dedup (8):
    - **Logic & Correctness** (`PassType.LOGIC_CORRECTNESS`)
    - **Contracts & Security** (`PassType.CONTRACTS_SECURITY`)
    - **Performance & Reliability** (`PassType.PERFORMANCE_RELIABILITY`)
 
    Each lens×chunk is one sandbox call validating `IssuesReview` (step name `issues-review-p{lens}-c{chunk}`),
-   with the chunk's `ChunkAnalysis.goal` injected as `CHUNK_ANALYSIS_CONTEXT`. Output:
-   `pass{N}_results/chunk-{id}-issues-review.json` (the `pass{N}` dirs are retained as the per-lens location).
+   with the chunk's `ChunkAnalysis.goal` injected as `CHUNK_ANALYSIS_CONTEXT`. Returns
+   `dict[(pass, chunk), IssuesReview]`; persists/resumes per-pair `lens_result` rows.
 
-8. **Combine** — `combine_issues` (local) flattens every lens×chunk `Issue` into `issues_found_raw.json`,
-   stamping each issue's `source_lens` (which lens produced it).
-9. **Scope clean** — `clean_issues` (local) drops issues whose file/lines don't overlap the PR diff. Writes
-   `issues_cleaned.json` + `issues_outside_scope.json`.
-10. **Deduplicate** — `deduplicate_issues` first runs a **deterministic positional pre-filter**
-    (`_select_dedup_candidates`): only issues sharing a file + overlapping lines with another issue or a
-    prior bot comment can be duplicates, so positionally-isolated issues survive **without** an LLM call
-    (and if there are no candidates the sandbox call is skipped entirely). The colliding candidates go to the
-    single sandbox dedupe call (`IssueDeduplication`), which also drops issues already raised by a competing
-    bot's prior comments (hardcoded `greptile-apps[bot]`). Survivors = unique + LLM-kept candidates →
-    `issues_found.json` (the canonical post-dedup set).
-11. **Validate** — `validate_issues` (1 sandbox call per issue) asks the agent whether each surviving issue
-    is real, writing `…/validation/summaries/chunk-{c}-issue-{i}-validation-summary.json` (`IssueValidation`,
-    `is_valid` + `category`).
-12. **Build report** — `prepare_validation_markdown` (local) joins chunks + analyses + valid issues into
-    `review_report.md`.
-13. **Publish** — `publish_review` (PyGithub) rebuilds the report from disk, posts a standalone
-    "ReviewHog Alpha 🦔" feedback-solicitation comment, then a PR review (`event="COMMENT"`) with inline
-    comments for `is_valid` `MUST_FIX`/`SHOULD_FIX` issues that land on a line present in the diff
-    (`CONSIDER` is dropped from inline comments). Falls back to a body-only review on `GithubException`.
-
-> The `run.py` numbering differs slightly from the prose above (it counts schema generation and the report
-> step separately); the logical flow is identical.
+7. **Combine + scope-clean** — `combine_issues(lens_results)` flattens every lens×chunk `Issue` (stamping
+   `source_lens`), then `clean_issues(issues, pr_files)` drops issues whose file/lines don't overlap the PR
+   diff. Both pure, in-process.
+8. **Deduplicate** — `deduplicate_issues(issues, pr_metadata, pr_comments, …)` first runs a **deterministic
+   positional pre-filter** (`_select_dedup_candidates`): only issues sharing a file + overlapping lines with
+   another issue or a prior bot comment can be duplicates, so isolated issues survive **without** an LLM call
+   (and a zero-candidate run skips the sandbox). Colliding candidates go to the single sandbox dedupe call
+   (`IssueDeduplication`), which also drops issues already raised by a competing bot's prior comments
+   (`greptile-apps[bot]`). Returns the canonical post-dedup `list[Issue]`; `persist_findings` mirrors them to
+   `issue_finding` rows.
+9. **Validate** — `validate_issues` (1 sandbox call per issue, all concurrent under the semaphore) returns a
+   `dict[issue.id, IssueValidation]`; `persist_verdicts` mirrors them to `validation_verdict` rows (paired to
+   findings by `issue_key`).
+10. **Build report + finalize** — `build_review_body(chunks, analyses, issues, validations)` renders the
+    public body in-process; `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps the
+    run watermark.
+11. **Publish** — `publish_review` (PyGithub, **DB-driven**) reads the body from `ReviewReport.report_markdown`
+    and the inline comments from the valid finding/verdict rows (`load_valid_findings`), posts a standalone
+    "ReviewHog Alpha 🦔" feedback comment, then a PR review (`event="COMMENT"`) with inline comments for
+    `is_valid` `MUST_FIX`/`SHOULD_FIX` findings that land on a line present in the current diff (`CONSIDER`
+    dropped). Falls back to a body-only review on `GithubException`. Disabled by `PUBLISH_REVIEW_ENABLED=False`.
 
 ---
 
@@ -603,11 +579,10 @@ All LLM work funnels through one helper, `run_sandbox_review(...)`, in
 `backend/reviewer/sandbox/executor.py`. The five LLM steps (chunking, chunk analysis, issues review,
 deduplication, validation) call it with a prompt, the Pydantic model to validate against, and a `step_name`.
 
-`run_sandbox_review(prompt, system_prompt, branch, output_path, model_to_validate, step_name)`:
+`run_sandbox_review(prompt, system_prompt, branch, repository, model_to_validate, step_name) -> Model | None`:
 
 1. Acquires the global `_sandbox_semaphore` (`asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)`), so at most
-   `MAX_CONCURRENT_SANDBOXES` sandbox
-   agents run at once **per process** (in-memory; not cross-worker).
+   `MAX_CONCURRENT_SANDBOXES` sandbox agents run at once **per process** (in-memory; not cross-worker).
 2. Concatenates `full_prompt = f"{system_prompt}\n\n{prompt}"` — there is no separate system role; the agent
    receives one combined prompt.
 3. Builds a `CustomPromptSandboxContext` via `_sandbox_context_for(repository)`, which combines the PR's
@@ -615,17 +590,16 @@ deduplication, validation) call it with a prompt, the Pydantic model to validate
    `bind_sandbox_identity(team_id, user_id)` (a `contextvars.ContextVar`; the `asyncio.gather` fan-out
    inherits it). The `team_id` / `user_id` are explicit inputs threaded from the entry point — the
    `run_review` `--team-id` / `--user-id` CLI args today, the Temporal trigger (the PR's author + their team)
-   later. There is no `settings.DEBUG` branch or hardcoded fallback; `bind_sandbox_identity` validates the
-   team's `kind="github"` `Integration` up front (raising with setup guidance if absent).
-4. Spawns the agent via `_run_prompt(...)` → **`MultiTurnSession.start_raw(prompt, context, branch, step_name)`**
-   (imported from the Tasks facade `products.tasks.backend.facade.agents`; the implementation lives at
-   `products.tasks.backend.logic.services.custom_prompt_multi_turn_runner`), then **always `session.end()`s**
-   the session — the runner keeps the workflow/sandbox alive between turns, so a single-turn caller must end
-   it. Returns the agent's final message (`last_message`). The runner already persists the full agent log at
-   `task_run.log_url` (S3 / Tasks UI), so the executor does **not** re-read or copy it locally.
-5. `extract_json_from_text(last_message)` → `model_to_validate.model_validate(...)` → writes pretty JSON to
-   `output_path`. On extraction/validation failure it writes the raw message to `<output>_error.txt` and
-   returns `False`.
+   later. `bind_sandbox_identity` validates the team's `kind="github"` `Integration` up front.
+4. Spawns the agent via `_run_prompt(...)` → **`MultiTurnSession.start(prompt, context, model=…, branch, step_name)`**
+   (imported from the Tasks facade `products.tasks.backend.facade.agents`; impl at
+   `products.tasks.backend.logic.services.custom_prompt_multi_turn_runner`). `start` runs the agent **and
+   validates its end-of-turn JSON against `model_to_validate` internally**, returning `(session, model)`. On
+   success the caller **`session.end()`s** (the runner keeps the workflow/sandbox alive between turns, so a
+   single-turn caller must end it) and returns the validated model; on a sandbox error or a parse/validation
+   failure `start` ends its own session and raises, so the helper logs and returns **`None`**. There is no
+   `output_path` / `_error.txt` and no manual JSON extraction — persistence is the caller's job. The runner
+   persists the full agent log at `task_run.log_url` (S3 / Tasks UI), so the executor never copies it locally.
 
 `backend/reviewer/sandbox/code_context.py` is pure-local: `prepare_code_context(chunk_filenames, pr_files)`
 emits Claude-Code-style `@path#Lstart-end` references for the changed line ranges of each file (merging
@@ -635,9 +609,9 @@ adjacent ranges), so the agent reads exactly the changed lines. These are embedd
 
 ```python
 run_sandbox_review (executor.py)
-  → imports MultiTurnSession / CustomPromptSandboxContext / extract_json_from_text
+  → imports MultiTurnSession / CustomPromptSandboxContext
       from products.tasks.backend.facade.agents   (facade re-export; impl under logic/services/)
-  → MultiTurnSession.start_raw            (logic/services/custom_prompt_multi_turn_runner.py)
+  → MultiTurnSession.start(model=…)       (logic/services/custom_prompt_multi_turn_runner.py)
     → create_task_and_trigger             (logic/services/custom_prompt_internals.py)
       → Task.create_and_run(..., create_pr=False, mode="background", branch=…)
         → Temporal ProcessTaskWorkflow
@@ -645,17 +619,16 @@ run_sandbox_review (executor.py)
             → Sandbox.create() (Modal default; Docker when SANDBOX_PROVIDER=docker)
             → clone_repository(...)  +  git fetch --depth 1 origin <branch> && git checkout -B <branch> FETCH_HEAD
           → agent-server runs the prompt, streams JSONL (ACP session/update) to S3 (TaskRun.log_url)
-  → MultiTurnSession polls S3 for the agent's end-of-turn message
-  → extract_json_from_text + model_validate → write output_path(.json) / _error.txt (on failure)
+  → start() polls S3 for the end-of-turn message, parses + validates against the model internally
+  → returns (session, model); caller ends the session and returns the model (None on failure)
 ```
 
 The PR-branch checkout that ReviewHog depends on is performed by master's
 `get_sandbox_for_repository.py` block (driven by `ctx.branch`, which originates from `TaskRun.branch`), **not**
 by ReviewHog. The contract surface ReviewHog binds to — **imported only through the Tasks facade
 `products.tasks.backend.facade.agents`** (Tasks is an isolated product; `tach` enforces the boundary) and
-that any future merge must preserve: `MultiTurnSession.start_raw(...) -> (session, last_message)`,
-`CustomPromptSandboxContext(team_id, user_id, repository)`, `session.end()`, and
-`extract_json_from_text(text, label)`.
+that any future merge must preserve: `MultiTurnSession.start(prompt, context, model, *, branch, step_name)
+-> (session, model)`, `CustomPromptSandboxContext(team_id, user_id, repository)`, and `session.end()`.
 
 ---
 
@@ -679,9 +652,6 @@ the model and regenerate, never hand-edit.**
 `Issue.id` encodes provenance as `"{pass_number}-{chunk_id}-{issue_number}"` and is parsed back throughout
 the pipeline to route validations and group the report. `IssuePriority` is `MUST_FIX` / `SHOULD_FIX` /
 `CONSIDER`.
-
-`utils/json_utils.py` holds JSONL helpers (`load_jsonl`, `process_jsonl`, `filter_jsonl`) and a local
-`extract_json_from_text` (note: the executor uses the Tasks-layer one via the facade, not this).
 
 ---
 
@@ -714,25 +684,23 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
 
 ---
 
-## Artifacts (`reviews/<pr_number>/` layout)
+## Persistence (Postgres — no on-disk store)
 
-Root: `products/review_hog/reviews/<pr_number>/` (gitignored via the product-root `.gitignore`
-entry `reviews/`). Per-run files:
+There is **no `reviews/<pr>/` tree** (removed in step 8). A run's state is in-process within `main()` and
+mirrored to Postgres on `ReviewReport` / `ReviewReportArtefact` (see [Data model](#data-model-productsreview_hogbackendmodelspy)).
+Per-run state by kind:
 
-- **Fetch:** `pr_meta.json` (incl. `head_sha`), `pr_comments.jsonl` (incl. comment `id`), `pr_files.jsonl`,
-  `pr_files_scope.jsonl`, `pr_diff.patch` (the reviewed files' raw unified patch — source for the durable
-  per-turn diff snapshot)
-- **Chunking:** `chunking_prompt.md`, `chunks.json`
-- **Analysis:** `prompts/chunk-{id}-prompt.md`, `chunk-{id}-analysis.json`
-- **Review passes:** `pass{N}_prompts/chunk-{id}-code-prompt.md`,
-  `pass{N}_results/chunk-{id}-issues-review.json`, `pass{N}_results/validation/{prompts,summaries,combined}/`
-- **Aggregate:** `issues_found_raw.json` → `issues_cleaned.json` / `issues_outside_scope.json` →
-  `deduplication_prompt.md` / `deduplicator.json` / `issues_found.json`
-- **Validation:** `…/validation/summaries/chunk-{c}-issue-{i}-validation-summary.json`
-- **Report:** `review_report.md`
-- **Sandbox side-artifact** (next to the output JSON, on failure only): `<name>_error.txt` (raw agent
-  message when JSON extraction/validation fails). The full agent log is **not** copied locally — it lives
-  at the run's `task_run.log_url` (S3 / Tasks UI).
+- **Fetch outputs** (`pr_metadata`, `pr_comments`, `pr_files`) — in-process return values, never persisted
+  (re-fetchable from GitHub). The reviewed unified `diff` rides back as a string and becomes the per-turn
+  **`commit`** artefact (the durable point-in-time snapshot).
+- **Working state** (the resume substrate, head_sha-scoped): `chunk_set`, `chunk_analysis`, `lens_result`
+  artefacts. The raw/cleaned/combined issue sets are in-process values down the combine→clean→dedup chain.
+- **Outputs:** `issue_finding` + `validation_verdict` artefacts (the canonical findings/verdicts) and
+  `ReviewReport.report_markdown` (the rendered review body) + the `head_sha` / `last_seen_comment_id`
+  watermark.
+- **Prompts / agent logs:** rendered in-process and sent to the sandbox; the full prompt + conversation is in
+  the S3 agent log at `task_run.log_url` (the executor never copies it locally). Generated `prompts/<stage>/schema.json`
+  are static package assets in the source tree, not per-run state.
 
 ---
 
@@ -772,29 +740,20 @@ Found during Stage 1 analysis and the first parallel run (PR #65862); **document
   is genuinely parallel, but not balanced per-chunk. Fix: interleave the task list by chunk
   (`L1c1, L2c1, L3c1, L1c2, …`) so a chunk's three lenses co-schedule. (Raising `MAX_CONCURRENT_SANDBOXES`
   partly mitigates by leaving fewer tasks queued.)
-- **Neutered validation parallelism** — `issue_validation.create_validation_task` is `async` and `await`s
-  `run_validation` while the task list is being _built_, so the "batches of 10" `asyncio.gather` operates on
-  already-resolved booleans. Effective per-issue concurrency is only the global semaphore
-  (`MAX_CONCURRENT_SANDBOXES`); the batching
-  does nothing.
-- **Duplicate report generation** — step 12 (`prepare_validation_markdown`) and step 13 (`publish_review`)
-  independently rebuild essentially the same validation report from disk, with **divergent strictness**: the
-  markdown step **raises** `FileNotFoundError` on a missing validation summary, while publish only **warns
-  and skips**.
-- **Inconsistent failure handling** — chunk analysis (step 6) and issue review (step 7) log and `return` on
-  partial chunk failure (pipeline silently proceeds with incomplete results), whereas chunking and dedup
-  raise `RuntimeError`.
+  _(Step 8 fixed several Stage-1 issues: the neutered validation batching is gone — `validate_issues` now
+  fans out one `asyncio.gather` over all issues under the semaphore; and the duplicate report build is gone —
+  publish is DB-driven and the report is rendered once.)_
+- **Inconsistent failure handling** — chunk analysis (step 5) and lens review (step 6) log and continue on
+  partial chunk failure (pipeline proceeds with incomplete results — by design, those stages are
+  best-effort), whereas chunking and dedup raise `RuntimeError`.
 - **Prompt/schema mismatch** — the `Issue` field is still misspelled `is_directy_related_to_changes` (in
-  both the model and the generated schema). _(The stale `detected_in_pass` prompt instruction was removed
-  with the parallel-lens change.)_
+  both the model and the generated schema). _(The durable `ReviewIssueFinding` maps it to the correctly-spelled
+  `is_directly_related_to_changes`.)_
 - **Diff-parser gap** — `parse_patch` only emits `addition`/`deletion`/`context`, never `modification`, yet
   `issue_cleaner._build_modified_files_map` looks for `modification` ranges (dead branch; only `addition`
   ranges are ever used for scope).
-- **Dead scaffolding** — `pass{N}_results/validation/combined/` directories are created but never
-  written/read; commented-out `wakawaka` debug code remains in `prepare_validation_markdown.py`;
-  `constants.py` has an orphaned `# ISSUE CLEANER` header.
-- **Hardcoded reviewer assumption** — deduplication only recognizes `greptile-apps[bot]` as the prior
-  reviewer.
+- **Hardcoded reviewer assumption** — deduplication only recognizes `greptile-apps[bot]` (now the
+  `_PRIOR_REVIEWER_BOT` constant) as the prior reviewer.
 - **Alpha maturity** — the published comment literally says "ReviewHog Alpha" and asks users to reply
   "valid"/"invalid"; identity/config is hardcoded (see above).
 - **Flat orchestration** — `run.py` is a single async function with a top-of-file

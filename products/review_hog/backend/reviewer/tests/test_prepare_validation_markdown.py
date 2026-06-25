@@ -53,8 +53,8 @@ def test_body_contains_header_chunk_header_and_analysis_goal() -> None:
     assert goal in body
 
 
-def test_chunk_without_analysis_is_skipped() -> None:
-    # chunk 2 has no analysis entry, so it must not appear in the rendered body.
+def test_chunk_without_analysis_and_no_valid_issue_is_skipped() -> None:
+    # chunk 2 has no analysis and no validated issue, so it must not appear in the rendered body.
     chunks_data = ChunksList(chunks=[_chunk(1, "bugfix"), _chunk(2, "frontend")])
     analyses = {1: _analysis(1, "Fix the auth bug")}
 
@@ -62,3 +62,18 @@ def test_chunk_without_analysis_is_skipped() -> None:
 
     assert "## Bugfix" in body
     assert "## Frontend" not in body
+
+
+def test_analysis_less_chunk_with_valid_issue_still_appears() -> None:
+    # A transient analysis failure must not drop a valid finding that publish (DB-driven) would still
+    # comment on — the chunk appears (with a placeholder analysis) so body and publish stay consistent.
+    chunks_data = ChunksList(chunks=[_chunk(1, "bugfix"), _chunk(2, "frontend")])
+    analyses = {1: _analysis(1, "Fix the auth bug")}  # chunk 2's analysis "failed"
+    issues = [_issue("1-2-1")]  # a valid issue in chunk 2
+    validations = {"1-2-1": IssueValidation(is_valid=True, argumentation="real", category="bug")}
+
+    body = build_review_body(chunks_data=chunks_data, analyses=analyses, issues=issues, validations=validations)
+
+    assert "## Frontend" in body
+    assert "**Issues:** 1 issue" in body
+    assert "(analysis unavailable for this chunk)" in body
