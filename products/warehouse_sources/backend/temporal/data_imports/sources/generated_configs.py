@@ -1478,6 +1478,11 @@ class HighLevelSourceConfig(config.Config):
 
 
 @config.config
+class HightouchSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class HoorayHRSourceConfig(config.Config):
     pass
 
@@ -3811,6 +3816,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.HELPSCOUT: HelpScoutSourceConfig,
         ExternalDataSourceType.HIBOB: HiBobSourceConfig,
         ExternalDataSourceType.HIGHLEVEL: HighLevelSourceConfig,
+        ExternalDataSourceType.HIGHTOUCH: HightouchSourceConfig,
         ExternalDataSourceType.HOORAYHR: HoorayHRSourceConfig,
         ExternalDataSourceType.HUBPLANNER: HubplannerSourceConfig,
         ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,
