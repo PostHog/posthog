@@ -21486,7 +21486,8 @@
                 "RB2B",
                 "Superwall",
                 "Liana",
-                "TawkTo"
+                "TawkTo",
+                "Hightouch"
             ],
             "type": "string"
         },
