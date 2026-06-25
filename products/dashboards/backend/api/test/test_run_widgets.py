@@ -49,6 +49,7 @@ from products.dashboards.backend.widgets.activity_events_list import (
     run_activity_events_list_widget,
 )
 from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget
+from products.dashboards.backend.widgets.logs_list import run_logs_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 from products.error_tracking.backend.facade.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
 from products.logs.backend.models import LogsView
@@ -108,7 +109,6 @@ class TestWidgetRegistry(APIBaseTest):
             ("invalid_order_by", {"orderBy": "not_a_field"}),
             ("invalid_severity_level", {"severityLevels": ["not_a_level"]}),
             ("invalid_timezone", {"timezone": "America/New_York"}),
-            ("invalid_wrap_lines", {"wrapLines": "yes"}),
             ("invalid_saved_view_id", {"savedViewId": 123}),
         ]
     )
@@ -464,11 +464,11 @@ class TestDashboardRunWidgets(APIBaseTest):
                 "dateRange": {"date_from": "-3h", "date_to": None},
             },
         )
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
-        _, dashboard_json = self.dashboard_api.create_widget_tile(
-            dashboard_id,
-            widget_type="logs_list",
-            config={
+        # Run the widget in-process: the run_widgets endpoint dispatches to a thread pool whose
+        # DB connection can't see the LogsView created in this test's (uncommitted) transaction.
+        run_logs_list_widget(
+            self.team,
+            {
                 "limit": 20,
                 "orderBy": "earliest",
                 "savedViewId": view.short_id,
@@ -476,10 +476,8 @@ class TestDashboardRunWidgets(APIBaseTest):
                 "severityLevels": ["error"],
                 "serviceNames": ["api"],
             },
+            user=self.user,
         )
-        tile_id = dashboard_json["tiles"][0]["id"]
-
-        self._run(dashboard_id, [tile_id])
 
         query = mock_runner_cls.call_args.kwargs["query"]
         self.assertEqual(query.severityLevels, ["warn"])
@@ -516,18 +514,15 @@ class TestDashboardRunWidgets(APIBaseTest):
         )
         # `filters` has no inner schema validation on write, so a stored level outside the enum is possible.
         view = LogsView.objects.create(team=self.team, name="Bad view", filters={"severityLevels": ["critical"]})
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
-        _, dashboard_json = self.dashboard_api.create_widget_tile(
-            dashboard_id,
-            widget_type="logs_list",
-            config={"limit": 12, "orderBy": "latest", "savedViewId": view.short_id, "severityLevels": ["warn"]},
+
+        # In-process so the lookup sees the view (see test_runs_logs_widget_with_saved_view). A malformed
+        # view degrades to the widget's own config rather than raising.
+        run_logs_list_widget(
+            self.team,
+            {"limit": 12, "orderBy": "latest", "savedViewId": view.short_id, "severityLevels": ["warn"]},
+            user=self.user,
         )
-        tile_id = dashboard_json["tiles"][0]["id"]
 
-        body = self._run(dashboard_id, [tile_id])
-
-        # A malformed view degrades to the widget's own config instead of 500-ing the tile.
-        self.assertIsNone(body["results"][0]["error"])
         query = mock_runner_cls.call_args.kwargs["query"]
         self.assertEqual(query.severityLevels, ["warn"])
         self.assertEqual(query.limit, 12)

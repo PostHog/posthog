@@ -61,7 +61,10 @@ export function LogsWidgetRow({
             data-attr="logs-widget-row"
         >
             <Tooltip title={severityLabel(line)}>
-                <div className={cn('w-1 shrink-0 self-stretch rounded-full', severityBarClass(line))} />
+                <div
+                    aria-label={severityLabel(line)}
+                    className={cn('w-1 shrink-0 self-stretch rounded-full', severityBarClass(line))}
+                />
             </Tooltip>
             <span className="shrink-0 font-mono text-xs text-muted">
                 <TZLabel
