@@ -58,6 +58,7 @@ export function DashboardItems(): JSX.Element {
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
+        inlineTileInsertionEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
@@ -635,7 +636,7 @@ export function DashboardItems(): JSX.Element {
                             }
                         })}
                     </ReactGridLayout>
-                    {isEditablePlacement && (
+                    {isEditablePlacement && inlineTileInsertionEnabled && (
                         <InsertTileOverlay
                             layout={layouts['sm']}
                             gridWidth={gridWidth}

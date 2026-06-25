@@ -21,6 +21,10 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
+import {
+    DASHBOARD_WIDGET_CATALOG,
+    getDashboardWidgetCatalogEntry,
+} from '@posthog/products-dashboards/frontend/widget_types/catalog'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 import {
     applyIssueMetadataToWidgetListResult,
@@ -42,6 +46,7 @@ import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
+import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import { calculateDuplicateLayout, calculateInsertionLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import {
@@ -1106,6 +1111,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setPendingInsertionY: (_, { pendingInsertionY }) => pendingInsertionY,
                 // Clear if the dashboard mode changes before the new tile arrives, to avoid a stale insert.
                 setDashboardMode: () => null,
+                // Insight always opens (and navigates away via) this modal; cancelling it must not leave a
+                // stale target that later hijacks an unrelated tile. Safe because the insight flow never
+                // relies on the target surviving the modal — it appends after returning from the editor.
+                [addInsightToDashboardLogic.actionTypes.hideAddInsightToDashboardModal]: () => null,
             },
         ],
         urlSearchParamsAtEditModeEntry: [
@@ -1661,6 +1670,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
                 return !!featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
             },
+        ],
+        inlineTileInsertionEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION],
         ],
         insightTiles: [
             (s) => [s.tiles],
@@ -2678,14 +2691,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
             try {
                 const previousWidgetTileIds = new Set(values.widgetTiles.map((tile) => tile.id))
 
+                // Inline insertion: create the widget at the chosen row instead of the backend's
+                // default bottom placement, and let applyPendingInsertion shift existing tiles down.
+                // Only single-widget adds insert positionally — applyPendingInsertion repositions one
+                // tile, so a multi-select add can't be cleanly inserted at a single row; it appends.
+                if (values.pendingInsertionY != null && widgets.length !== 1) {
+                    actions.setPendingInsertionY(null)
+                }
+                const insertAtY = widgets.length === 1 ? values.pendingInsertionY : null
+                const widgetsPayload = widgets.map(({ widgetType, config }) => {
+                    if (insertAtY == null) {
+                        return { widget_type: widgetType, config }
+                    }
+                    const defaultLayout =
+                        widgetType in DASHBOARD_WIDGET_CATALOG
+                            ? getDashboardWidgetCatalogEntry(widgetType).defaultLayout
+                            : undefined
+                    const w = defaultLayout?.w ?? 6
+                    const h = defaultLayout?.h ?? 5
+                    return { widget_type: widgetType, config, layouts: { sm: { x: 0, y: insertAtY, w, h } } }
+                })
+
                 const response = await api.create(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${dashboardId}/widgets/batch/`,
-                    {
-                        widgets: widgets.map(({ widgetType, config }) => ({
-                            widget_type: widgetType,
-                            config,
-                        })),
-                    }
+                    { widgets: widgetsPayload }
                 )
                 const createdTiles = findNewlyAddedWidgetTiles(previousWidgetTileIds, response.tiles)
                 if (createdTiles.length > 0 && values.dashboard?.id === dashboardId) {
@@ -2696,9 +2725,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (dashboard) {
                         dashboardsModel.actions.updateDashboardSuccess(dashboard)
 
-                        // New tiles are stacked at the bottom (backend), so ask the view to scroll
-                        // down once they've rendered to reveal what was just added.
-                        actions.requestScrollToBottom()
+                        // Only auto-scroll when the new tiles actually went to the bottom.
+                        if (insertAtY == null) {
+                            actions.requestScrollToBottom()
+                        }
                     }
                 }
 

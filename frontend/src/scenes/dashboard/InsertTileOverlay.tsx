@@ -60,8 +60,9 @@ export function InsertTileOverlay({
                 <InsertionStrip
                     key={targetY}
                     targetY={targetY}
-                    // Center the strip on the gap above the tiles that start at this row.
-                    topPx={Math.max(0, targetY * (rowHeight + marginY) - marginY / 2)}
+                    // Center the strip on the gap above the tiles that start at this row. The lower bound
+                    // keeps the targetY=0 strip inside the top gap rather than clipped above the container.
+                    topPx={Math.max(marginY / 2, targetY * (rowHeight + marginY) - marginY / 2)}
                     gridWidth={gridWidth}
                     getMenuItems={getMenuItems}
                 />
