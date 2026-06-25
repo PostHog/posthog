@@ -10,6 +10,7 @@ import structlog
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.integration import invalidate_github_repository_caches_for_installation
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
@@ -334,8 +335,7 @@ def user_github_integration_from_installation(
     """
     now = int(time.time())
     try:
-        raw_expires = installation.token_expires_at
-        expires_in = int(datetime.fromisoformat(raw_expires.replace("Z", "+00:00")).timestamp() - now)
+        expires_in = int(datetime.fromisoformat(installation.token_expires_at).timestamp() - now)
     except (ValueError, AttributeError):
         expires_in = 3600
 
@@ -382,6 +382,43 @@ def user_github_integration_from_installation(
                 "sensitive_config": sensitive_config,
             },
         )
+        invalidate_github_repository_caches_for_installation(installation.installation_id)
+    return integration
+
+
+def refresh_user_github_installation_access(
+    integration: UserIntegration,
+    installation: "GitHubInstallationAccess",
+) -> UserIntegration:
+    """Refresh installation token metadata without overwriting stored user OAuth credentials."""
+    now = int(time.time())
+    try:
+        expires_in = int(datetime.fromisoformat(installation.token_expires_at).timestamp() - now)
+    except (ValueError, AttributeError):
+        expires_in = 3600
+
+    config = dict(integration.config)
+    config.update(
+        {
+            "expires_in": expires_in,
+            "refreshed_at": now,
+            "repository_selection": installation.repository_selection,
+            "account": {
+                "type": (installation.installation_info.get("account") or {}).get("type"),
+                "name": (installation.installation_info.get("account") or {}).get(
+                    "login", installation.installation_id
+                ),
+            },
+        }
+    )
+
+    sensitive_config = dict(integration.sensitive_config)
+    sensitive_config["access_token"] = installation.access_token
+
+    integration.config = config
+    integration.sensitive_config = sensitive_config
+    integration.save(update_fields=["config", "sensitive_config"])
+    invalidate_github_repository_caches_for_installation(installation.installation_id)
     return integration
 
 

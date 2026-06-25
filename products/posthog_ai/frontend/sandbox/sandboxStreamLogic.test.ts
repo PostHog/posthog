@@ -1223,17 +1223,28 @@ describe('sandboxStreamLogic', () => {
             expect(mapHttpStatusToStreamError(401)).toEqual({
                 errorTitle: 'Cloud authentication expired',
                 retryable: true,
+                status: 401,
             })
-            expect(mapHttpStatusToStreamError(403)).toEqual({ errorTitle: 'Cloud access denied', retryable: true })
+            expect(mapHttpStatusToStreamError(403)).toEqual({
+                errorTitle: 'Cloud access denied',
+                retryable: true,
+                status: 403,
+            })
             expect(mapHttpStatusToStreamError(404)).toEqual({
                 errorTitle: 'Conversation backing run not found',
                 retryable: false,
+                status: 404,
             })
             expect(mapHttpStatusToStreamError(406)).toEqual({
                 errorTitle: 'Cloud stream unavailable',
                 retryable: true,
+                status: 406,
             })
-            expect(mapHttpStatusToStreamError(500)).toEqual({ errorTitle: 'Cloud stream failed', retryable: true })
+            expect(mapHttpStatusToStreamError(500)).toEqual({
+                errorTitle: 'Cloud stream failed',
+                retryable: true,
+                status: 500,
+            })
             expect(mapHttpStatusToStreamError(undefined)).toEqual({
                 errorTitle: 'Cloud stream failed',
                 retryable: true,
@@ -1255,6 +1266,46 @@ describe('sandboxStreamLogic', () => {
             })
 
             expect(logic.values.sseStatus).toEqual('error')
+        })
+    })
+
+    describe('bootstrap log loading state', () => {
+        it('keeps log bootstrap loading after SSE opens until history is ready', async () => {
+            let resolveRun: (run: { status: string }) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'get').mockReturnValue(
+                new Promise((resolve) => {
+                    resolveRun = resolve
+                }) as Promise<any>
+            )
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+
+            expect(logic.values.bootstrapLoading).toBe(true)
+            expect(logic.values.logBootstrapLoading).toBe(true)
+
+            logic.actions.sseOpened()
+
+            expect(logic.values.bootstrapLoading).toBe(false)
+            expect(logic.values.logBootstrapLoading).toBe(true)
+
+            logic.actions.bootstrapLogReady()
+
+            expect(logic.values.logBootstrapLoading).toBe(false)
+
+            resolveRun({ status: 'completed' })
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('stores bootstrap errors for inline task-run error UI', async () => {
+            const error = mapHttpStatusToStreamError(404)
+
+            await expectLogic(logic, () => {
+                logic.actions.handleStreamError(error)
+            }).toFinishAllListeners()
+
+            expect(logic.values.logBootstrapLoading).toBe(false)
+            expect(logic.values.bootstrapError).toEqual(error)
         })
     })
 
@@ -2757,6 +2808,7 @@ describe('sandboxStreamLogic', () => {
         })
 
         it('drives a generic task viewer with no conversation id', async () => {
+            expect.assertions(4)
             // The renderer must work for runs created by other products that never mint a Conversation:
             // keyed by task id, commanding the relay by (task, run), with conversation_id absent from telemetry.
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
@@ -2776,8 +2828,12 @@ describe('sandboxStreamLogic', () => {
                 })
                 const permRequested = captureSpy.mock.calls.find((c) => c[0] === 'permission_requested')
                 expect(permRequested).not.toBeUndefined()
-                expect((permRequested?.[1] as any).conversation_id).toBeUndefined()
-                expect((permRequested?.[1] as any).task_id).toEqual('task-7')
+                if (!permRequested) {
+                    throw new Error('permission_requested telemetry was not captured')
+                }
+                const telemetryPayload = permRequested[1] as any
+                expect(telemetryPayload.conversation_id).toBeUndefined()
+                expect(telemetryPayload.task_id).toEqual('task-7')
             } finally {
                 viewerLogic.unmount()
             }

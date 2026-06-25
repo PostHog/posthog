@@ -56,7 +56,7 @@ from posthog.temporal.tests.utils.events import generate_test_events_in_clickhou
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

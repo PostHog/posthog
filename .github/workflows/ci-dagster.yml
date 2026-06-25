@@ -138,6 +138,7 @@ jobs:
                         - 'products/cohorts/backend/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
+                        - 'products/warehouse_sources/backend/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'

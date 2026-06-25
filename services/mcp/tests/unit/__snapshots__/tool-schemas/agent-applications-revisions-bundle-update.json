@@ -11,24 +11,6 @@
             "description": "A UUID string identifying this agent revision.",
             "type": "string"
         },
-        "skills": {
-            "items": {
-                "description": "Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored\nat the canonical `skills/<skill_id>/SKILL.md` path in the bundle.",
-                "properties": {
-                    "body": {
-                        "description": "The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`.",
-                        "type": "string"
-                    },
-                    "description": {
-                        "description": "One-line summary shown in the skill index; the model uses it to decide when to load the skill.",
-                        "type": "string"
-                    }
-                },
-                "required": ["description", "body"],
-                "type": "object"
-            },
-            "type": "array"
-        },
         "spec": {
             "additionalProperties": {},
             "propertyNames": {

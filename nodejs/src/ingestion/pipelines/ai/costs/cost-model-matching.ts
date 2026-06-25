@@ -1,5 +1,5 @@
+import { logger } from '~/common/utils/logger'
 import { Properties } from '~/plugin-scaffold'
-import { logger } from '~/utils/logger'
 
 import { resolveModelCostForProvider } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
