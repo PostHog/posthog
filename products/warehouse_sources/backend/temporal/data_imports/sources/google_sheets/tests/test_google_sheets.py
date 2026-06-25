@@ -54,7 +54,7 @@ def test_get_worksheet_backoff():
         mock_spreadsheet.get_worksheet_by_id = mock_get_worksheet_by_id
 
         with pytest.raises(gspread.exceptions.APIError):
-            _get_worksheet("url", 1)
+            _get_worksheet("url", 1, None, 1)
 
         assert mock_get_worksheet_by_id.call_count == 10
 
@@ -90,7 +90,7 @@ def test_get_worksheet_retries_transient_api_errors(status_code):
 
         # Use a unique worksheet id per status code to avoid the module-level TTLCache
         with pytest.raises(gspread.exceptions.APIError):
-            _get_worksheet("transient-url", status_code)
+            _get_worksheet("transient-url", status_code, None, 1)
 
         assert mock_get_worksheet_by_id.call_count == 10
 
@@ -115,10 +115,10 @@ def test_get_schemas_retries_transient_api_errors(status_code):
         instance = mock_google_sheets_client.return_value
         instance.open_by_url.side_effect = gspread.exceptions.APIError(mock_response)
 
-        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        config = GoogleSheetsSourceConfig.from_dict({"spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake"})
 
         with pytest.raises(gspread.exceptions.APIError):
-            get_schemas(config)
+            get_schemas(config, 1)
 
         assert instance.open_by_url.call_count == 10
 
@@ -140,10 +140,10 @@ def test_get_schemas_does_not_retry_non_transient_api_error():
         instance = mock_google_sheets_client.return_value
         instance.open_by_url.side_effect = gspread.exceptions.APIError(mock_response)
 
-        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        config = GoogleSheetsSourceConfig.from_dict({"spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake"})
 
         with pytest.raises(gspread.exceptions.APIError):
-            get_schemas(config)
+            get_schemas(config, 1)
 
         assert instance.open_by_url.call_count == 1
 
@@ -172,7 +172,7 @@ def test_get_worksheet_does_not_retry_non_transient_api_error():
         mock_spreadsheet.get_worksheet_by_id = mock_get_worksheet_by_id
 
         with pytest.raises(gspread.exceptions.APIError):
-            _get_worksheet("non-transient-url", 400)
+            _get_worksheet("non-transient-url", 400, None, 1)
 
         assert mock_get_worksheet_by_id.call_count == 1
 
@@ -183,16 +183,16 @@ def test_get_worksheet_caching():
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
         ) as mock_google_sheets_client,
     ):
-        _get_worksheet("url", 1)
-        _get_worksheet("url", 1)
-        _get_worksheet("url", 1)
+        _get_worksheet("url", 1, None, 1)
+        _get_worksheet("url", 1, None, 1)
+        _get_worksheet("url", 1, None, 1)
 
         # It should only have 1 call, the others should be returning the cached value
         assert mock_google_sheets_client.call_count == 1
 
-        _get_worksheet("url", 2)
-        _get_worksheet("url", 2)
-        _get_worksheet("url", 2)
+        _get_worksheet("url", 2, None, 1)
+        _get_worksheet("url", 2, None, 1)
+        _get_worksheet("url", 2, None, 1)
 
         # It should now have 2 calls, we've changed one of the arguments, but the second/third calls should be cached
         assert mock_google_sheets_client.call_count == 2
@@ -203,12 +203,13 @@ def test_get_worksheet_caching():
     [
         pytest.param(
             lambda: get_schemas(
-                GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+                GoogleSheetsSourceConfig.from_dict({"spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake"}),
+                1,
             ),
             id="get_schemas",
         ),
         # Use a unique url/id to avoid the module-level TTLCache returning a prior result
-        pytest.param(lambda: _get_worksheet("permission-error-url", 999), id="_get_worksheet"),
+        pytest.param(lambda: _get_worksheet("permission-error-url", 999, None, 1), id="_get_worksheet"),
     ],
 )
 def test_reraises_permission_error_with_message(call_site):
@@ -325,7 +326,7 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
     Sheets API requests separate from worksheet acquisition, so they need the same
     backoff — otherwise a "[503]: The service is currently unavailable." blip fails the
     sync."""
-    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+    config = GoogleSheetsSourceConfig.from_dict({"spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake"})
 
     mock_worksheet = mock.MagicMock()
     # First header read hits a transient 503, then succeeds on retry.
@@ -344,7 +345,7 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
         ),
         mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"),
     ):
-        response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
+        response = google_sheets_source(config, 1, "sheet1", db_incremental_field_last_value=None)
         list(cast(Iterable[Any], response.items()))
 
     assert mock_worksheet.get_all_values.call_count == 2
@@ -352,7 +353,7 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
 
 
 def test_google_sheets_source_reads_blank_cells_as_null():
-    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+    config = GoogleSheetsSourceConfig.from_dict({"spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake"})
 
     mock_worksheet = mock.MagicMock()
     mock_worksheet.get_all_values.return_value = [["id", "NumericColumnWithBlanks"]]
@@ -371,7 +372,7 @@ def test_google_sheets_source_reads_blank_cells_as_null():
             return_value=mock_worksheet,
         ),
     ):
-        response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
+        response = google_sheets_source(config, 1, "sheet1", db_incremental_field_last_value=None)
         list(cast(Iterable[Any], response.items()))
 
     mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
@@ -409,7 +410,7 @@ def test_get_schema_incremental_fields_skips_unparseable_range():
     """Google rejects the unbounded "1:2" row range with a 400 'Unable to parse range' for some
     worksheets (e.g. empty sheets). That deterministic error must not break schema discovery — the
     worksheet should just report no incremental fields so the rest of the spreadsheet still syncs."""
-    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+    config = GoogleSheetsSourceConfig.from_dict({"spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake"})
 
     mock_worksheet = mock.MagicMock()
     mock_worksheet.get_all_values.side_effect = _api_error(
@@ -426,14 +427,14 @@ def test_get_schema_incremental_fields_skips_unparseable_range():
             return_value=mock_worksheet,
         ),
     ):
-        assert get_schema_incremental_fields(config, "csm_followups") == []
+        assert get_schema_incremental_fields(config, 1, "csm_followups") == []
 
 
 def test_get_schema_incremental_fields_reraises_other_api_errors():
     """Only the deterministic 'Unable to parse range' 400 is swallowed. Transient 5xx errors are
     retried with backoff and, once retries are exhausted, must still propagate so Temporal can retry
     the activity rather than schema discovery silently reporting no incremental fields."""
-    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+    config = GoogleSheetsSourceConfig.from_dict({"spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake"})
 
     mock_worksheet = mock.MagicMock()
     mock_worksheet.get_all_values.side_effect = _api_error(500, "Internal error encountered.", "INTERNAL")
@@ -450,7 +451,7 @@ def test_get_schema_incremental_fields_reraises_other_api_errors():
         ),
         pytest.raises(gspread.exceptions.APIError),
     ):
-        get_schema_incremental_fields(config, "sheet1")
+        get_schema_incremental_fields(config, 1, "sheet1")
 
     assert mock_worksheet.get_all_values.call_count == 10
 
@@ -471,7 +472,79 @@ def test_google_sheets_client_sets_request_timeout():
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.make_tracked_adapter"
         ),
     ):
-        client = google_sheets_client()
+        client = google_sheets_client(None, 1)
 
     assert client.http_client.timeout == _REQUEST_TIMEOUT_SECONDS
     assert client.http_client.timeout is not None
+
+
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets"
+
+
+# Cross-tenant guard: a cached worksheet carries the requesting team's OAuth session, so the cache
+# must key on auth identity. Reverting the key to (url, worksheet_id) would let one team read through
+# another team's credentials — the leak this auth split closes.
+def test_get_worksheet_cache_keyed_by_auth_identity():
+    with mock.patch(f"{_MODULE}.google_sheets_client") as mock_client:
+        # Same URL + worksheet id, different (integration_id, team_id) → must not share a cache entry.
+        _get_worksheet("auth-identity-url", 4242, None, 1)
+        _get_worksheet("auth-identity-url", 4242, None, 1)  # cached: same identity
+        _get_worksheet("auth-identity-url", 4242, 99, 2)  # different identity: rebuilds
+
+        assert mock_client.call_count == 2
+        mock_client.assert_any_call(None, 1)
+        mock_client.assert_any_call(99, 2)
+
+
+@pytest.mark.parametrize(
+    "integration_id,team_id,expect_oauth",
+    [
+        (None, 1, False),  # legacy / service-account selection → shared service account
+        (55, 3, True),  # OAuth → authenticate as the team's own connected Google account
+    ],
+)
+# `integration_id` presence — not the stored `selection` — picks the auth path: legacy configs
+# (which predate the selector and hydrate with no integration) stay on the service account; OAuth
+# sources authenticate as their own Google identity, scoped by team_id.
+def test_google_sheets_client_selects_auth_by_integration(integration_id, team_id, expect_oauth):
+    with (
+        mock.patch(f"{_MODULE}.service_account") as mock_service_account,
+        mock.patch(f"{_MODULE}.OAuthCredentials") as mock_oauth_credentials,
+        mock.patch(f"{_MODULE}.Integration") as mock_integration,
+        mock.patch(f"{_MODULE}.close_old_connections"),
+        mock.patch(f"{_MODULE}.AuthorizedSession"),
+        mock.patch(f"{_MODULE}.make_tracked_adapter"),
+    ):
+        google_sheets_client(integration_id, team_id)
+
+    if expect_oauth:
+        # Tenant isolation boundary: the integration is fetched scoped by BOTH id and team_id.
+        mock_integration.objects.get.assert_called_once_with(id=integration_id, team_id=team_id)
+        assert mock_oauth_credentials.called
+        assert not mock_service_account.Credentials.from_service_account_info.called
+    else:
+        assert mock_service_account.Credentials.from_service_account_info.called
+        assert not mock_oauth_credentials.called
+        assert not mock_integration.objects.get.called
+
+
+# A missing connected account must yield a friendly validation failure, not an exception — else
+# source create/update 500s instead of telling the user to reconnect.
+def test_validate_credentials_missing_oauth_integration_fails_gracefully():
+    from posthog.models.integration import Integration
+
+    config = GoogleSheetsSourceConfig.from_dict(
+        {
+            "spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake",
+            "auth_method": {"google_sheets_integration_id": 1},
+        }
+    )
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client",
+        side_effect=Integration.DoesNotExist,
+    ):
+        ok, error = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert ok is False
+    assert error is not None and "reconnect" in error.lower()
