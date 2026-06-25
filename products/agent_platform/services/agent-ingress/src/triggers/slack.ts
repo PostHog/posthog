@@ -227,7 +227,11 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     const admission = buildAdmission(deps, resolved.revision)
     if (admission) {
         const result = await admission.resolve(
-            { transport: 'slack', subjectId: principalId, attributes: { workspace: workspaceId, slack_user: event.user } },
+            {
+                transport: 'slack',
+                subjectId: principalId,
+                attributes: { workspace: workspaceId, slack_user: event.user },
+            },
             { application: resolved.application, revision: resolved.revision }
         )
         if (result.kind === 'auth_required') {

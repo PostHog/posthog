@@ -55,8 +55,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="agenttransportbinding",
-            index=models.Index(
-                fields=["application_id", "canonical_agent_user_id"], name="atb_canonical_idx"
-            ),
+            index=models.Index(fields=["application_id", "canonical_agent_user_id"], name="atb_canonical_idx"),
         ),
     ]

@@ -143,7 +143,12 @@ maybeDescribe('edge admission e2e (Slack, authoritative provider, mocked inferen
 
         // Turn 1: unbound → auth_required, NO session enqueued.
         c.setScript([fauxText('should not run yet')])
-        const first = await c.slackPost('gatedbot', 'events', slackMention({ text: '<@U0BOT> hi', ts: '100.0' }), SLACK_SECRET)
+        const first = await c.slackPost(
+            'gatedbot',
+            'events',
+            slackMention({ text: '<@U0BOT> hi', ts: '100.0' }),
+            SLACK_SECRET
+        )
         expect(first.body.auth_required).toBe(true)
         expect(first.body.provider).toBe('dogs')
         expect(first.body.session_id).toBeUndefined()
@@ -194,7 +199,12 @@ maybeDescribe('edge admission e2e (Slack, authoritative provider, mocked inferen
             encrypted_env: SLACK_ENV,
         })
         c.setScript([fauxText('hello right away')])
-        const res = await c.slackPost('openbot', 'events', slackMention({ text: '<@U0BOT> hi', ts: '200.0' }), SLACK_SECRET)
+        const res = await c.slackPost(
+            'openbot',
+            'events',
+            slackMention({ text: '<@U0BOT> hi', ts: '200.0' }),
+            SLACK_SECRET
+        )
         expect(res.body.auth_required).toBeUndefined()
         expect(res.body.session_id).toBeTruthy()
         await c.drain()

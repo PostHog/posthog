@@ -99,8 +99,20 @@ maybeDescribe('PgTransportBindingStore (real PG)', () => {
         const canonical = randomUUID()
         const slack = randomUUID()
         const discord = randomUUID()
-        await store.bind({ teamId: 1, applicationId: APP, transportAgentUserId: slack, canonicalAgentUserId: canonical, provider: 'work' })
-        await store.bind({ teamId: 1, applicationId: APP, transportAgentUserId: discord, canonicalAgentUserId: canonical, provider: 'work' })
+        await store.bind({
+            teamId: 1,
+            applicationId: APP,
+            transportAgentUserId: slack,
+            canonicalAgentUserId: canonical,
+            provider: 'work',
+        })
+        await store.bind({
+            teamId: 1,
+            applicationId: APP,
+            transportAgentUserId: discord,
+            canonicalAgentUserId: canonical,
+            provider: 'work',
+        })
 
         const all = await store.listForCanonical(APP, canonical)
         expect(all.map((b) => b.transportAgentUserId).sort()).toEqual([slack, discord].sort())
@@ -111,7 +123,13 @@ maybeDescribe('PgTransportBindingStore (real PG)', () => {
             return
         }
         const transport = randomUUID()
-        await store.bind({ teamId: 1, applicationId: APP, transportAgentUserId: transport, canonicalAgentUserId: randomUUID(), provider: 'work' })
+        await store.bind({
+            teamId: 1,
+            applicationId: APP,
+            transportAgentUserId: transport,
+            canonicalAgentUserId: randomUUID(),
+            provider: 'work',
+        })
         await store.unbind(APP, transport)
         expect(await store.find(APP, transport)).toBeNull()
     })

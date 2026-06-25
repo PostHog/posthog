@@ -19,8 +19,8 @@ import type { CreateLinkStateInput, IdentityLinkStateStore, LinkState } from './
 import type { BearerVerification, IdentityProvider } from './identity-provider'
 import { MapIdentityProviderRegistry } from './identity-provider'
 import { Oauth2AuthProvider } from './oauth2-identity-provider'
-import { MemoryTransportBindingStore } from './transport-binding-store'
 import type { TransportClaim } from './transport'
+import { MemoryTransportBindingStore } from './transport-binding-store'
 
 // ---------- in-memory stores ----------
 
@@ -54,7 +54,11 @@ class MemIdentityStore implements IdentityStore {
         this.rows.set(k, row)
         return row
     }
-    async find(input: { application_id: string; principal_kind: string; principal_id: string }): Promise<AgentUser | null> {
+    async find(input: {
+        application_id: string
+        principal_kind: string
+        principal_id: string
+    }): Promise<AgentUser | null> {
         return this.rows.get(this.key(input.application_id, input.principal_kind, input.principal_id)) ?? null
     }
     async getById(agentUserId: string): Promise<AgentUser | null> {
@@ -168,7 +172,12 @@ function combinedHttp(idps: FakeIdp[]): HttpFetcher {
                 const token = `${idp.sub}-at-${idp.issued.length + 1}`
                 idp.issued.push(token)
                 return new Response(
-                    JSON.stringify({ access_token: token, refresh_token: `${idp.sub}-rt`, token_type: 'Bearer', expires_in: 3600 }),
+                    JSON.stringify({
+                        access_token: token,
+                        refresh_token: `${idp.sub}-rt`,
+                        token_type: 'Bearer',
+                        expires_in: 3600,
+                    }),
                     { status: 200, headers: { 'content-type': 'application/json' } }
                 )
             }
@@ -306,7 +315,10 @@ describe('AdmissionService', () => {
         const h = harness([work])
         const rev = revWith('work')
 
-        const slack = await h.admission.resolve({ transport: 'slack', subjectId: 'T:US' }, { application: APP, revision: rev })
+        const slack = await h.admission.resolve(
+            { transport: 'slack', subjectId: 'T:US' },
+            { application: APP, revision: rev }
+        )
         const slackId = slack.kind === 'auth_required' ? (await driveLink(h, slack.authorizeUrl)).canonicalId : ''
 
         const discord = await h.admission.resolve(
@@ -329,7 +341,10 @@ describe('AdmissionService', () => {
         const rev = revWith('work')
 
         // Admit via Slack.
-        const admit = await h.admission.resolve({ transport: 'slack', subjectId: 'T:US' }, { application: APP, revision: rev })
+        const admit = await h.admission.resolve(
+            { transport: 'slack', subjectId: 'T:US' },
+            { application: APP, revision: rev }
+        )
         const canonicalId = admit.kind === 'auth_required' ? (await driveLink(h, admit.authorizeUrl)).canonicalId : ''
         expect(canonicalId).toBeTruthy()
 
@@ -347,7 +362,12 @@ describe('AdmissionService', () => {
 
         // Resolvable as the canonical identity → usable from ANY of that person's
         // transports, because every transport binds to this one canonical id.
-        const dogCred = await dogsProvider.resolve({ agentUserId: canonicalId, teamId: 7, applicationId: 'app-1', scopes: [] })
+        const dogCred = await dogsProvider.resolve({
+            agentUserId: canonicalId,
+            teamId: 7,
+            applicationId: 'app-1',
+            scopes: [],
+        })
         expect(dogCred?.kind).toBe('oauth_bearer')
         expect(dogCred && 'token' in dogCred ? dogCred.token : '').toBe('alice-dog-at-1')
     })
@@ -426,7 +446,10 @@ describe('AdmissionService', () => {
     it('replay: completing the same link state twice fails (single-use)', async () => {
         const work = makeIdp('https://work.example', 'alice')
         const h = harness([work])
-        const first = await h.admission.resolve({ transport: 'slack', subjectId: 'T:U' }, { application: APP, revision: revWith('work') })
+        const first = await h.admission.resolve(
+            { transport: 'slack', subjectId: 'T:U' },
+            { application: APP, revision: revWith('work') }
+        )
         if (first.kind !== 'auth_required') {
             throw new Error('expected auth_required')
         }
