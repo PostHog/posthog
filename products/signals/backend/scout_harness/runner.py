@@ -369,8 +369,8 @@ async def _spawn_and_run(
         # right scope to call them.
         posthog_mcp_scopes="signals_scout",
         # `None` keeps the agent-server default; an override pins the whole run on one model
-        # (the `scouts-glm` gate routes glm-5.2 here). The model the gateway actually serves is
-        # tagged on each $ai_generation, so per-run model is queryable in LLM analytics.
+        # (the `scouts-model-selection` gate routes it here). The model the gateway actually serves
+        # is tagged on each $ai_generation, so per-run model is queryable in LLM analytics.
         model=model,
     )
     prompt = build_run_prompt(skill, run_id=str(run_id), team_id=team.id, started_at=started_at)

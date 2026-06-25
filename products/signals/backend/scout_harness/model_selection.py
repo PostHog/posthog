@@ -47,13 +47,10 @@ from __future__ import annotations
 import json
 import hashlib
 
-import structlog
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
-
-logger = structlog.get_logger(__name__)
 
 SCOUTS_MODEL_FLAG = "scouts-model-selection"
 
