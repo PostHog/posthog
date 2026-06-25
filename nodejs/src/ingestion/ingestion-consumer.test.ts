@@ -11,7 +11,6 @@ import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoi
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -28,10 +27,6 @@ import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CookielessServerHashMode, PipelineEvent, Team } from '~/types'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { UUIDT } from '~/common/utils/utils'
 
 import { IngestionConsumer } from './ingestion-consumer'
 

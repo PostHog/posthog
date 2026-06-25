@@ -25,7 +25,6 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { REDIS_KEY_PREFIX, RedisRestrictionType } from '~/common/utils/event-ingestion-restrictions/redis-schema'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -39,9 +38,6 @@ import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Team } from '~/types'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { REDIS_KEY_PREFIX, RedisRestrictionType } from '~/common/utils/event-ingestion-restrictions/redis-schema'
-import { parseJSON } from '~/common/utils/json-parse'
 
 // Test configuration - matches local dev environment (MinIO API on port 19000)
 const TEST_CONFIG = {

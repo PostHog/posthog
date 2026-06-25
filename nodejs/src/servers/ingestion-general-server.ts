@@ -1,27 +1,9 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { initializePrometheusLabels } from '~/common/api/router'
-import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
-import {
-    KAFKA_EVENTS_PLUGIN_INGESTION,
-    KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
-    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-} from '~/common/config/kafka-topics'
-import {
-    createCookielessRedisConnectionConfig,
-    createIngestionRedisConnectionConfig,
-} from '~/common/config/redis-pools'
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { ServerCommands } from '~/common/utils/commands'
-import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
-import { RedisPoolComponent } from '~/common/utils/db/redis'
-import { GeoIPService } from '~/common/utils/geoip'
-import { logger } from '~/common/utils/logger'
-import { PubSub } from '~/common/utils/pubsub'
-import { TeamManagerComponent } from '~/common/utils/team-manager'
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
 import { KafkaProducerRegistryComponent } from '~/ingestion/common/producer-registry'
 import {
@@ -41,6 +23,7 @@ import {
     createHogTransformerService,
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
+import { initializePrometheusLabels } from '../common/api/router'
 import { CommonConfig, PluginServerMode } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../common/config/config'
 import {
@@ -52,7 +35,14 @@ import {
     createCookielessRedisConnectionConfig,
     createFeatureFlagCalledDedupRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
-} from '../config/redis-pools'
+} from '../common/config/redis-pools'
+import { ServerCommands } from '../common/utils/commands'
+import { PostgresRouter, PostgresRouterComponent } from '../common/utils/db/postgres'
+import { RedisPoolComponent } from '../common/utils/db/redis'
+import { GeoIPService } from '../common/utils/geoip'
+import { logger } from '../common/utils/logger'
+import { PubSub } from '../common/utils/pubsub'
+import { TeamManagerComponent } from '../common/utils/team-manager'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { extend, newScope } from '../ingestion/common/scopes'
 import {

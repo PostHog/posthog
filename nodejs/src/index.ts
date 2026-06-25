@@ -2,6 +2,7 @@
 import { PluginServerMode } from '~/common/config'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { initTracing } from '~/common/tracing/otel'
+import { initSuperProperties } from '~/common/utils/posthog'
 import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { PluginServer } from '~/server'
 import { NodeServer } from '~/servers/base-server'

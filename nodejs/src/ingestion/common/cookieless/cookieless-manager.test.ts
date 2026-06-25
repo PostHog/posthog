@@ -4,7 +4,6 @@ import path from 'path'
 
 import { cookielessRedisErrorCounter } from '~/common/metrics'
 import { RedisOperationError } from '~/common/utils/db/error'
-import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUID7 } from '~/common/utils/utils'
@@ -14,10 +13,6 @@ import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 import { CookielessServerHashMode, EventHeaders, PipelineEvent, Team } from '~/types'
-import { RedisOperationError } from '~/common/utils/db/error'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUID7 } from '~/common/utils/utils'
 
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,

@@ -29,15 +29,7 @@ import { OverflowLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirec
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
 import { PluginEvent } from '~/plugin-scaffold'
-import { HealthCheckResult, IngestionLane, PluginServerService } from '~/types'
-import { ErrorTrackingSettingsManager } from '~/common/utils/error-tracking-settings-manager'
-import {
-    EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerComponent,
-} from '~/common/utils/event-ingestion-restrictions'
-import { logger } from '~/common/utils/logger'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { TeamManager } from '~/common/utils/team-manager'
+import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { CymbalClient } from './cymbal'
 import {

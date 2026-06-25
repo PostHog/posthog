@@ -1,5 +1,6 @@
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
