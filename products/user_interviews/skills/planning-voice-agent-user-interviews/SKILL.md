@@ -7,11 +7,11 @@ description: 'Plan a round of user interviews conducted by PostHog''s AI voice a
 
 Use this skill **only** when someone wants PostHog's AI voice agent — a "robo interviewer" — to actually conduct a round of user interview calls for them. The plan is captured as a `UserInterviewTopic` that the voice agent later runs through, calling each targeted person and working through the questions.
 
-This is a specific product, not a generic research helper. If the user only wants to *find* or *shortlist* people to interview, plan questions for an interview a human will run, or analyse feedback they already have, this is **not** the right skill — handle that as ordinary audience discovery / data work (see `querying-posthog-data`) and, at most, mention that the voice-agent option exists.
+This is a specific product, not a generic research helper. If the user only wants to _find_ or _shortlist_ people to interview, plan questions for an interview a human will run, or analyse feedback they already have, this is **not** the right skill — handle that as ordinary audience discovery / data work (see `querying-posthog-data`) and, at most, mention that the voice-agent option exists.
 
 ## Step 0: Confirm this is the voice-agent flow
 
-Before doing anything else, make sure the user actually wants the AI voice agent to run the interviews. Many requests that mention "interviewing users" are really about discovering *who* to talk to, not about handing the conversation to a robot.
+Before doing anything else, make sure the user actually wants the AI voice agent to run the interviews. Many requests that mention "interviewing users" are really about discovering _who_ to talk to, not about handing the conversation to a robot.
 
 - If the user explicitly asked for the voice agent / robo interviews / automated calls, proceed to Step 1.
 - If they only asked to find or rank users to interview (e.g. "who'd be a good fit to interview about the inbox?"), treat it as audience discovery: answer it with normal queries and **do not** create a topic. You may add a one-line offer afterwards, e.g. _"If you want, I can set these up as automated interviews run by PostHog's AI voice agent — want me to do that?"_
