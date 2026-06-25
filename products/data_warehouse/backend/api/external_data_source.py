@@ -42,32 +42,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter, source_type_supports_cdc
-from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
-from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
-from posthog.temporal.data_imports.sources.common.config import Config
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
-from posthog.temporal.data_imports.sources.common.sql import (
-    RowFilterValidationError,
-    filter_dwh_columns_by_enabled_columns,
-    sql_schema_metadata,
-    validate_and_coerce_row_filters,
-)
-from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
-from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
-from posthog.temporal.data_imports.sources.postgres.cdc.config import (
-    DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
-    DEFAULT_LAG_WARNING_THRESHOLD_MB,
-)
-from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
-from posthog.temporal.data_imports.sources.postgres.postgres import (
-    SSLRequiredError,
-    get_primary_key_columns,
-    source_requires_ssl,
-)
-from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -117,7 +91,6 @@ from products.data_warehouse.backend.sql_warehouse_migration import (
     is_multi_schema_capable_sql_source,
     source_namespace_is_blank,
 )
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -132,6 +105,48 @@ from products.warehouse_sources.backend.models.util import (
     postgres_columns_to_dwh_columns,
     validate_source_prefix,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
+    CDCSourceAdapter,
+    get_cdc_adapter,
+    source_type_supports_cdc,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    AnySource,
+    ExternalWebhookInfo,
+    FieldType,
+    WebhookSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_default_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    RowFilterValidationError,
+    filter_dwh_columns_by_enabled_columns,
+    sql_schema_metadata,
+    validate_and_coerce_row_filters,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
+    MAX_CUSTOM_SOURCES_PER_TEAM,
+    manifest_request_hosts,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
+    DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
+    DEFAULT_LAG_WARNING_THRESHOLD_MB,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    SSLRequiredError,
+    get_primary_key_columns,
+    source_requires_ssl,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 

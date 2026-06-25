@@ -6,9 +6,8 @@ from django.core.management.base import BaseCommand, CommandError
 
 import yaml
 
-from posthog.temporal.data_imports.sources import SourceRegistry
-
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Matches the slug in a posthog.com source docsUrl, e.g.
 # https://posthog.com/docs/cdp/sources/active-campaign -> "active-campaign".
