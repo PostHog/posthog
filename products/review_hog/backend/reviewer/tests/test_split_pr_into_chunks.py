@@ -6,9 +6,9 @@ from unittest.mock import MagicMock, patch
 
 from jinja2 import Environment
 
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
-from products.review_hog.backend.reviewer.tools.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     generate_chunking_prompt,
     split_pr_into_chunks,
@@ -77,7 +77,7 @@ class TestGenerateChunkingPrompt:
         with monkeypatch.context() as m:
             m.setattr(Environment, "get_template", mock_get_template)
 
-            with pytest.raises(RuntimeError, match="Error loading prompt template"):
+            with pytest.raises(FileNotFoundError, match="Could not load prompt.jinja template"):
                 generate_chunking_prompt(
                     pr_metadata=pr_metadata,
                     pr_comments=pr_comments,

@@ -1,13 +1,11 @@
 import json
 import logging
-from pathlib import Path
-
-from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, LineRange
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
+from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
 
 logger = logging.getLogger(__name__)
 
@@ -104,11 +102,7 @@ async def deduplicate_issues(
         logger.info("No positional duplicate candidates; kept all issues")
         return issues
 
-    prompts_dir = Path(__file__).parent.parent / "prompts" / "issue_deduplicator"
-    with (prompts_dir / "schema.json").open() as f:
-        schema = f.read()
-    env = Environment(loader=FileSystemLoader(prompts_dir), autoescape=select_autoescape())
-    template = env.get_template("prompt.jinja")
+    template, schema = load_template_and_schema("issue_deduplicator")
     prompt = template.render(
         CLAUDE_CODE_CONTEXT="",  # No specific code context needed for deduplication
         PR_CONTEXT=json.dumps(pr_metadata.model_dump(mode="json"), indent=2),

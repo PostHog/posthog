@@ -1,9 +1,8 @@
 import json
 import asyncio
 import logging
-from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, Template, select_autoescape
+from jinja2 import Template
 
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
@@ -11,6 +10,7 @@ from products.review_hog.backend.reviewer.models.issues_review import Issue
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList
 from products.review_hog.backend.reviewer.sandbox.code_context import prepare_code_context
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
+from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ async def validate_issues(
     sandbox call fails is dropped from the result.
     """
     chunks_map = {chunk.chunk_id: chunk for chunk in chunks_data.chunks}
-    template, schema = _load_template_and_schema()
+    template, schema = load_template_and_schema("issue_validation")
 
     issue_ids: list[str] = []
     tasks = []
@@ -77,15 +77,6 @@ async def validate_issues(
     if len(validations) != len(tasks):
         logger.error(f"Failed to validate {len(tasks) - len(validations)} issue(s)")
     return validations
-
-
-def _load_template_and_schema() -> tuple[Template, str]:
-    """Load the issue-validation Jinja template and its output schema (static package assets)."""
-    prompts_dir = Path(__file__).parent.parent / "prompts" / "issue_validation"
-    env = Environment(loader=FileSystemLoader(prompts_dir), autoescape=select_autoescape())
-    template = env.get_template("prompt.jinja")
-    with (prompts_dir / "schema.json").open() as f:
-        return template, f.read()
 
 
 async def _validate_one(

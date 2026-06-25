@@ -198,8 +198,13 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 > plus the PR's **title + description** as intent; the full `PRMetadata` dump is gone. A lead-in tells the agent
 > the repo is checked out (read files freely) but shallow + single-branch (no base ref / history → don't
 > `git diff`). The reviewed-commit **`head_sha` pin** was deliberately deferred to the Temporal step, where it's
-> independently load-bearing. What remains: **(12)** **module consolidation** — collapse the two parallel
-> `github_meta` model modules (`reviewer/models/` vs `reviewer/tools/`) into one before Temporal; **(13)** **validator-as-skills** — make the relevance/severity gate a
+> independently load-bearing. **Step 12 — pre-Temporal cleanup** is done: there were **no** duplicate model
+> definitions to collapse (the premise was wrong — `tools/github_meta.py` imports the models from `models/`). The
+> real smell was an inconsistent import path (four consumers reached the `github_meta` models through `tools/`
+> instead of `models/`); fixed that, folded five copy-pasted prompt-asset loaders + the `pr_intent` one-liner +
+> the per-chunk context block into a shared `tools/prompt_helpers.py`, and removed two dead-code spots (an
+> unreachable `i += 1`; a never-emitted `"modification"` change-type branch). What remains: **(13)**
+> **validator-as-skills** — make the relevance/severity gate a
 > team-customizable pulled skill (keep only what matters; drop overengineering / paranoia / never-gonna-happen);
 > then **(14)** the **Temporal migration** — `run.py main()` → a **single-turn** `ReviewPRWorkflow` with the fan-out stages as child
 > workflows. The loop-y re-check, cross-turn finding identity, and the `task_run` / `note` work-log artefacts are
@@ -508,16 +513,21 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
     diff snapshot, `chunk_set` / `chunk_analysis` / `perspective_result`, findings / verdicts) carries new or
     now-excessive data; the one hygiene finding (the duplicate `github_meta` modules) became step 12. Full
     as-built record in _Prompt iteration_ under Deferred / future below.
-12. ⏭️ **(next) Consolidate the duplicate `github_meta` modules.** `reviewer/models/github_meta.py` and
-    `reviewer/tools/github_meta.py` **both** define `PRMetadata` / `PRComment` / `PRFile` (the `tools` one also
-    holds `PRFetcher` / `PRParser` / `PRFilter`). Different stages import different copies — `issues_review` /
-    `chunk_analysis` from `models`, `split_pr_into_chunks` / `code_context` / `run` / `conftest` from `tools` — and
-    the pipeline only works because the two definitions are field-identical (duck-typed where they meet). That's a
-    real divergence hazard (edit one schema, the other silently lags) and the reason step 11's `pr_intent`
-    one-liner is inlined in three renderers rather than shared. Collapse to a **single** `github_meta` model
-    module, re-point every importer, and DRY the `pr_intent` helper — a focused, behavior-preserving refactor to
-    land **before** Temporal so the workflow rewrite threads one model set, not two. Full design in _Module
-    consolidation_ under Deferred / future below.
+12. ✅ **(done) Pre-Temporal cleanup — clear duplications + dead code.** The roadmap premise here was wrong:
+    `reviewer/tools/github_meta.py` does **not** redefine the models — it `import`s `PRMetadata` / `PRComment` /
+    `PRFile` / `PRFileUpdate` from `reviewer/models/github_meta.py` (their single home) and only adds `PRFetcher` /
+    `PRParser` / `PRFilter`. The real smell was an **inconsistent import path**: four consumers
+    (`split_pr_into_chunks`, `sandbox/code_context`, `tests/conftest`, `tests/test_split_pr_into_chunks`) reached
+    the models _through_ `tools.github_meta` instead of `models.github_meta`. As-built: (a) re-pointed those four to
+    `models.github_meta` (`run.py` / `test_github_meta` stay on `tools` — they use the IO classes); (b) folded the
+    **five** copy-pasted prompt-asset loaders (chunk-analysis / issues-review / validation / dedup / chunking), the
+    thrice-inlined `pr_intent` one-liner, and the duplicated per-chunk context block into a shared
+    `tools/prompt_helpers.py` (`load_template_and_schema` / `format_pr_intent` / `build_chunk_prompt_context`);
+    (c) removed two dead-code spots — an unreachable `i += 1` after `continue` in `parse_patch`, and the
+    never-emitted `"modification"` branch in `issue_cleaner`. Behavior-preserving (the chunking loader's
+    template-failure now raises `FileNotFoundError` like the others — the caller already caught both; one test
+    assertion updated to the unified contract). 138 tests green, ruff + tach clean. Full record in _Pre-Temporal
+    cleanup_ under Deferred / future below.
 13. ⏭️ **Make the validator a team-customizable skill.** Move the validation stage's keep/drop **criteria** out of
     `prompts/issue_validation/*` into a **DB-synced LLMA skill** the validator agent **pulls** (the step-10
     pattern), so the bar for "this issue matters" is **owned by the team, not the prompt** — different teams care
@@ -693,21 +703,35 @@ git checkout -B <branch> FETCH_HEAD`** (`products/tasks` `get_sandbox_for_reposi
   the agent reads from the pinned tree?), and whether `PRFile`/`pr_files` carry fields no longer used. Trim
   anything stored only to feed the old injection path.
 
-- **Module consolidation — this is step 12** (lands _before_ Temporal; design detail here). The reviewer has two
-  parallel `github_meta` modules: `reviewer/models/github_meta.py` (the pydantic `PRMetadata` / `PRComment` /
-  `PRFile` / `PRFileUpdate`) and `reviewer/tools/github_meta.py` (the **same** three models **plus** the
-  `PRFetcher` / `PRParser` / `PRFilter` GitHub-IO classes). Importers are split: `issues_review.py` /
-  `chunk_analysis.py` / `test_issues_review.py` / `test_chunk_analysis.py` use the `models` copy;
-  `split_pr_into_chunks.py` / `code_context.py` / `run.py` / `conftest.py` / `test_split_pr_into_chunks.py` use the
-  `tools` copy. The pipeline only works because the two model definitions are field-identical and get duck-typed
-  where they meet (e.g. a `tools.PRMetadata` fixture flows into a `_render_prompt` typed for `models.PRMetadata`).
-  That's a latent divergence hazard and the reason step 11's `pr_intent` one-liner is inlined in three renderers
-  instead of shared. **Plan:** keep one model home (the lean `models/github_meta.py` is the natural target — the IO
-  classes can sit beside it or move to a `tools/github_fetch.py` that imports the models), delete the duplicate
-  definitions, re-point every importer, then DRY the `pr_intent` helper into that one module. Pure refactor, no
-  behavior change; land it before Temporal so the workflow rewrite threads a single model set. (The two
-  `split_pr_into_chunks` modules are **not** a duplicate — `models/` is the `Chunk` / `ChunksList` schema, `tools/`
-  is the logic; that's a legitimate split, leave it.)
+- **Pre-Temporal cleanup — this was step 12 (✅ done).** Audited the whole reviewer package for clear duplication
+  - dead code (a parallel multi-lens sweep, each finding adversarially verified) to shrink the surface before the
+    Temporal rewrite threads through it. **Correction to the original premise:** there were **no** duplicate model
+    definitions — `tools/github_meta.py` `import`s `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate` from
+    `models/github_meta.py` (their only home) for its `PRFetcher` / `PRParser` / `PRFilter` IO classes. The actual
+    smell was an inconsistent **import path**: four consumers (`split_pr_into_chunks.py`, `sandbox/code_context.py`,
+    `tests/conftest.py`, `tests/test_split_pr_into_chunks.py`) reached the models _through_ `tools.github_meta`
+    rather than `models.github_meta`. **As-built:**
+  - Re-pointed those four imports to `models.github_meta` (canonical home). `run.py` / `test_github_meta.py` keep
+    importing the IO classes from `tools.github_meta` — correct, those genuinely live there.
+  - New `tools/prompt_helpers.py` holds the prompt-construction logic that was copy-pasted across stages:
+    `load_template_and_schema(subdir)` (replaces **five** near-identical Jinja-template+schema loaders in
+    chunk-analysis / issues-review / validation / dedup / chunking), `format_pr_intent(meta)` (replaces the
+    thrice-inlined title+description one-liner), and `build_chunk_prompt_context(...)` (the per-chunk
+    file-filter → code-context → comments/files-serialization block that was byte-identical in the two
+    `_render_prompt`s). The `id` / `created_at` comment-exclusion (watermark contract) is preserved in the shared
+    builder.
+  - Removed two dead-code spots: an unreachable `i += 1` after `continue` in `parse_patch`, and the
+    `"modification"` change-type branch in `issue_cleaner` that `parse_patch` never emits (only
+    addition / deletion / context).
+  - Unifying the five loaders made the chunking loader raise `FileNotFoundError` on template-load failure (it used
+    to raise `RuntimeError`); `split_pr_into_chunks` already caught both, so end-to-end behavior is unchanged — one
+    test assertion was updated to the unified contract. Behavior-preserving overall; 138 tests green, ruff + tach
+    clean.
+  - **Deliberately left alone** (not duplication / dead-code; touching them would be speculative refactor):
+    `PRFilter` / `PRParser` as static-method classes vs free functions, `PRFetcher`'s single-use statefulness, and
+    the dead-but-harmless `ReviewReportArtefact.updated_at` column (removing it is migration churn for no Temporal
+    benefit). The two `split_pr_into_chunks` modules are **not** a duplicate either — `models/` is the `Chunk` /
+    `ChunksList` schema, `tools/` is the logic; legitimate split, kept.
 
 - **Validator as a team-customizable skill — this is step 13** (lands _before_ Temporal; design detail here).
   Today the validation stage (`tools/issue_validation.py` + `prompts/issue_validation/*`) sends each chunk's
@@ -772,6 +796,17 @@ git checkout -B <branch> FETCH_HEAD`** (`products/tasks` `get_sandbox_for_reposi
     their team — plus **cross-turn finding identity** (semantic, not the positional `issue_key`) and the
     `task_run` / `note` work-log artefacts. (See _Cloud host, Temporal & GitHub_ above.)
 
+- **Future cost optimization (not scheduled) — collapse per-call sandboxes into one multi-step session.** Today
+  every stage call (chunk-analysis, each perspective review, each validation, dedup) spins up its **own** sandbox
+  via a fresh `run_sandbox_review` single-turn `MultiTurnSession` — N sandboxes per review, each paying cold-start
+  - repo-checkout cost. Worth exploring later: run a stage's calls (or even a whole chunk's analyze → review →
+    validate chain) as **sequential steps inside one long-lived multi-turn session in the same sandbox**, so the
+    checkout + agent boot amortize across steps and intermediate context can stay warm. Tensions to weigh first: it
+    trades the current **per-call isolation + independent parallelism** (each sandbox fails / retries / scales on its
+    own) for **fewer, fatter sessions** (shared failure blast radius, harder fan-out, ordering constraints), and the
+    `head_sha`-pinned checkout must still hold for every step. Purely a future idea to evaluate against real
+    sandbox-cost numbers — **do not implement now**; revisit after the Temporal single-turn workflow (step 14) lands
+    and per-sandbox cost is measurable.
 - **API viewset + frontend** to browse reviews (`/improving-drf-endpoints`).
 - **Emit into the Signals inbox.** Like `replay_vision`, ReviewHog could emit notable findings into Signals via
   the facade `emit_signal` so they surface in the inbox — a product feature, separate from this storage work.
@@ -1057,9 +1092,6 @@ Found during Stage 1 analysis and the first parallel run (PR #65862); **document
 - **Prompt/schema mismatch** — the `Issue` field is still misspelled `is_directy_related_to_changes` (in
   both the model and the generated schema). _(The durable `ReviewIssueFinding` maps it to the correctly-spelled
   `is_directly_related_to_changes`.)_
-- **Diff-parser gap** — `parse_patch` only emits `addition`/`deletion`/`context`, never `modification`, yet
-  `issue_cleaner._build_modified_files_map` looks for `modification` ranges (dead branch; only `addition`
-  ranges are ever used for scope).
 - **Hardcoded reviewer assumption** — deduplication only recognizes `greptile-apps[bot]` (now the
   `_PRIOR_REVIEWER_BOT` constant) as the prior reviewer.
 - **Alpha maturity** — the published comment literally says "ReviewHog Alpha" and asks users to reply

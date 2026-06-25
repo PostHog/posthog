@@ -1,4 +1,4 @@
-from products.review_hog.backend.reviewer.tools.github_meta import PRFile
+from products.review_hog.backend.reviewer.models.github_meta import PRFile
 
 
 def prepare_code_context(chunk_filenames: list[str], pr_files: list[PRFile]) -> str:

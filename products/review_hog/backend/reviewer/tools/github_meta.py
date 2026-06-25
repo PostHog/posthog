@@ -215,8 +215,6 @@ class PRParser:
             flush_current()
             continue
 
-            i += 1
-
         return changes
 
 

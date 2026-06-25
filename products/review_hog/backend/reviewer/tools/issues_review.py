@@ -1,19 +1,21 @@
 import json
 import asyncio
 import logging
-from pathlib import Path
 
 from asgiref.sync import sync_to_async
-from jinja2 import Environment, FileSystemLoader, Template, select_autoescape
+from jinja2 import Template
 
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuesReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList
 from products.review_hog.backend.reviewer.persistence import load_perspective_results, persist_perspective_results
-from products.review_hog.backend.reviewer.sandbox.code_context import prepare_code_context
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 from products.review_hog.backend.reviewer.skill_loader import LoadedPerspective, load_perspectives_for_run
+from products.review_hog.backend.reviewer.tools.prompt_helpers import (
+    build_chunk_prompt_context,
+    load_template_and_schema,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -64,7 +66,7 @@ async def review_chunks(
         logger.info("All (perspective, chunk) reviews already completed for this turn")
         return existing
 
-    main_template, output_schema = _load_review_assets()
+    main_template, output_schema = load_template_and_schema("issues_review")
 
     logger.info(f"Running {len(todo)} (perspective, chunk) review(s) for PR {pr_metadata.number}")
     results = await asyncio.gather(
@@ -98,23 +100,6 @@ async def review_chunks(
     return {**existing, **new}
 
 
-def _load_review_assets() -> tuple[Template, str]:
-    """Load the issues-review Jinja template and its output schema."""
-    prompts_dir = Path(__file__).parent.parent / "prompts" / "issues_review"
-    if not prompts_dir.exists():
-        raise FileNotFoundError(f"Prompts directory not found at {prompts_dir}")
-    env = Environment(loader=FileSystemLoader(prompts_dir), autoescape=select_autoescape())
-    try:
-        template = env.get_template("prompt.jinja")
-    except Exception as e:
-        raise FileNotFoundError(f"Could not load prompt.jinja template: {e}") from e
-    schema_path = prompts_dir / "schema.json"
-    if not schema_path.exists():
-        raise FileNotFoundError(f"Schema file not found at {schema_path}")
-    with schema_path.open() as f:
-        return template, f.read()
-
-
 def _render_prompt(
     *,
     perspective: LoadedPerspective,
@@ -132,20 +117,9 @@ def _render_prompt(
     MCP — so we pass the perspective's skill name and pinned version, not its body.
     """
     chunk_analysis_context = json.dumps(analysis.model_dump(mode="json"), indent=2) if analysis is not None else None
-    chunk_files = [f.filename for f in chunk.files]
-    pr_chunk_comments = [comment for comment in pr_comments if comment.path in chunk_files]
-    pr_chunk_files = [file for file in pr_files if file.filename in chunk_files]
-    claude_code_context = prepare_code_context(chunk_files, pr_chunk_files)
-    pr_intent = f"Title: {pr_metadata.title}\n\nDescription:\n{pr_metadata.body.strip() or '(no description provided)'}"
     return main_template.render(
-        CLAUDE_CODE_CONTEXT=claude_code_context,
-        CURRENT_CHUNK=json.dumps(chunk.model_dump(by_alias=True), indent=2),
+        **build_chunk_prompt_context(chunk, pr_metadata, pr_comments, pr_files),
         CHUNK_ANALYSIS_CONTEXT=chunk_analysis_context,
-        PR_INTENT=pr_intent,
-        PR_COMMENTS=json.dumps(
-            [c.model_dump(mode="json", exclude={"id", "created_at"}) for c in pr_chunk_comments], indent=2
-        ),
-        PR_FILE_CHANGES=json.dumps([c.model_dump(mode="json") for c in pr_chunk_files], indent=2),
         OUTPUT_SCHEMA=output_schema,
         PERSPECTIVE_SKILL_NAME=perspective.skill_name,
         PERSPECTIVE_SKILL_VERSION=perspective.version,

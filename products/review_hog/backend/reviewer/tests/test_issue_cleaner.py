@@ -115,7 +115,6 @@ class TestBuildModifiedFilesMap:
     @parameterized.expand(
         [
             ("addition", "addition", True),
-            ("modification", "modification", True),
             # context/deletion changes don't define a reviewable changed range.
             ("context", "context", False),
             ("deletion", "deletion", False),

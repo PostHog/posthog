@@ -35,7 +35,7 @@ def _build_modified_files_map(
             continue
         line_ranges = []
         for change in pr_file.changes:
-            if change.type not in ["addition", "modification"]:
+            if change.type != "addition":
                 continue
             # Use new_start_line and new_end_line for additions
             if change.new_start_line is not None and change.new_end_line is not None:

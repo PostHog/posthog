@@ -1,14 +1,13 @@
 import logging
-from pathlib import Path
 
 from asgiref.sync import sync_to_async
 from dotenv import load_dotenv
-from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.persistence import load_chunk_set, persist_chunk_set
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
-from products.review_hog.backend.reviewer.tools.github_meta import PRComment, PRFile, PRMetadata
+from products.review_hog.backend.reviewer.tools.prompt_helpers import format_pr_intent, load_template_and_schema
 
 # Load environment variables
 load_dotenv()
@@ -23,23 +22,9 @@ def generate_chunking_prompt(
     pr_files: list[PRFile],
 ) -> str:
     """Render the chunking prompt for the sandbox agent."""
-    # Load example output format
-    prompts_dir = Path(__file__).parent.parent / "prompts" / "chunking"
-    schema_path = prompts_dir / "schema.json"
-    if not schema_path.exists():
-        raise FileNotFoundError(f"Schema file not found at {schema_path}")
-    with schema_path.open() as f:
-        output_schema = f.read()
-    # Setup Jinja environment
-    env = Environment(loader=FileSystemLoader(prompts_dir), autoescape=select_autoescape())
-    # Render main prompt
-    try:
-        prompt_template = env.get_template("prompt.jinja")
-    except Exception as e:
-        raise RuntimeError(f"Error loading prompt template: {e}") from e
-    pr_intent = f"Title: {pr_metadata.title}\n\nDescription:\n{pr_metadata.body.strip() or '(no description provided)'}"
+    prompt_template, output_schema = load_template_and_schema("chunking")
     return prompt_template.render(
-        PR_INTENT=pr_intent,
+        PR_INTENT=format_pr_intent(pr_metadata),
         PR_COMMENTS=[x.model_dump_json(exclude={"id", "created_at"}) for x in pr_comments],
         PR_FILES=[x.model_dump_json() for x in pr_files],
         OUTPUT_SCHEMA=output_schema,
