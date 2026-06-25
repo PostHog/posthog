@@ -98,7 +98,8 @@ def query_pr_cost(
 # Pre-aggregated in SQL (per PR × runner-label combo) so the row count stays small — a raw per-job
 # SELECT over every PR's jobs blows past HogQL's default row cap and silently truncates. Each group
 # carries finished/elapsed/unfinished, which is expanded back into per-job tuples (cost is linear in
-# elapsed) so the pure aggregate_pr_cost still produces the exact rollup.
+# elapsed) so the pure aggregate_pr_cost still produces the exact rollup. Scoped to the PR numbers the
+# list is actually showing so a team with deep CI history doesn't pay an all-time jobs×runs join per page.
 _LIST_SELECT = """
     SELECT
         r.repo_owner, r.repo_name, r.pr_number, j.labels,
@@ -107,23 +108,30 @@ _LIST_SELECT = """
         countIf(j.duration_seconds IS NULL) AS unfinished
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
-    WHERE r.pr_number > 0
+    WHERE r.pr_number IN {pr_numbers}
     GROUP BY r.repo_owner, r.repo_name, r.pr_number, j.labels
     LIMIT 1000000
 """
 
 
-def query_pr_list_costs(*, curated: CuratedGitHubSource) -> dict[tuple[str, str, int], PRCostAggregate]:
-    """Per-PR billable cost across every attributed run, keyed by (repo_owner, repo_name, pr_number).
+def query_pr_list_costs(
+    *, curated: CuratedGitHubSource, pr_numbers: list[int]
+) -> dict[tuple[str, str, int], PRCostAggregate]:
+    """Per-PR billable cost across the given PR numbers' runs, keyed by (repo_owner, repo_name, pr_number).
 
-    Empty when the jobs source isn't synced. One grouped pass over jobs ⋈ runs so the PR list can show a
-    cost/minutes column per row without a query per PR.
+    Empty when the jobs source isn't synced or no PR numbers are given. One grouped pass over jobs ⋈ runs
+    so the PR list can show a cost/minutes column per row without a query per PR; scoped to the visible PR
+    numbers so the scan tracks the page, not the team's whole CI history.
     """
     jobs_source = curated.jobs_source()
-    if jobs_source is None:
+    if jobs_source is None or not pr_numbers:
         return {}
     sql = _LIST_SELECT.replace("__JOBS_SOURCE__", jobs_source).replace("__RUNS_SOURCE__", curated.run_source())
-    response = curated.run(sql, query_type="engineering_analytics.pr_list_costs", placeholders={})
+    response = curated.run(
+        sql,
+        query_type="engineering_analytics.pr_list_costs",
+        placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
+    )
     by_pr: dict[tuple[str, str, int], list[tuple[list[str], float | None]]] = defaultdict(list)
     for repo_owner, repo_name, pr_number, labels, finished, elapsed, unfinished in response.results or []:
         by_pr[(repo_owner, repo_name, int(pr_number))].extend(

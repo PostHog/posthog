@@ -1,4 +1,4 @@
-import { afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
@@ -26,7 +26,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
     // sourceId is part of the identity: the same run id only exists within one source.
     key((props) => `${props.repoOwner}/${props.repoName}/runs/${props.runId}@${props.sourceId ?? ''}`),
 
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         run: [
             null as WorkflowRunDetailApi | null,
             {
@@ -39,12 +39,15 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
         ],
         // A single workflow run drills into its jobs — the same breakdown the PR view shows on expand.
         // null while not loaded (kea reducers can't hold undefined), [] when the source isn't synced.
+        // Scoped to the run's actual attempt (loaded first): a rerun's jobs source can lag, and the
+        // backend's omitted-attempt fallback would otherwise show an older attempt's jobs/costs here.
         jobs: [
             null as WorkflowJobApi[] | null,
             {
                 loadJobs: async (): Promise<WorkflowJobApi[]> =>
                     await engineeringAnalyticsWorkflowJobs(projectId(), {
                         run_id: props.runId,
+                        run_attempt: values.run?.run_attempt ?? undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
             },
@@ -88,11 +91,16 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
         ],
     }),
 
+    listeners(({ actions }) => ({
+        // Load jobs only once the run is in, so they can be scoped to the run's real attempt.
+        loadRunSuccess: () => actions.loadJobs(),
+    })),
+
     afterMount(({ actions, props }) => {
         // Skip the load for a non-numeric run id (NaN) — it would just 400; the scene renders "not found".
+        // Jobs load on loadRunSuccess (needs the run's attempt first).
         if (Number.isFinite(props.runId)) {
             actions.loadRun()
-            actions.loadJobs()
         }
     }),
 ])

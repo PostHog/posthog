@@ -66,8 +66,12 @@ def query_pull_request_list(
     )
     rows = response.results or []
     truncated = len(rows) > _LIMIT
-    cost_by_pr = query_pr_list_costs(curated=curated)
-    items = [_map_row(row, cost_by_pr) for row in rows[:_LIMIT]]
+    visible = rows[:_LIMIT]
+    # Scope the cost rollup to exactly the PRs we're about to show (row[0] is pr.number), so the
+    # jobs×runs join tracks the page instead of scanning the team's whole CI history.
+    pr_numbers = sorted({int(row[0]) for row in visible})
+    cost_by_pr = query_pr_list_costs(curated=curated, pr_numbers=pr_numbers)
+    items = [_map_row(row, cost_by_pr) for row in visible]
     return PullRequestList(items=items, truncated=truncated, limit=_LIMIT)
 
 
