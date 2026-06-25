@@ -25,7 +25,7 @@ from typing import Literal
 import structlog
 from openai import OpenAI
 
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import Product, get_llm_client
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
@@ -40,7 +40,7 @@ logger = structlog.get_logger(__name__)
 
 # Gateway product tag — registered in `posthog/llm/gateway_client.py` and
 # `services/llm-gateway/src/llm_gateway/products/config.py`, where it is locked to this model.
-CUSTOM_SOURCE_BUILDER_PRODUCT = "warehouse_custom_source_builder"
+CUSTOM_SOURCE_BUILDER_PRODUCT: Product = "warehouse_custom_source_builder"
 # Manifest authoring is a high-stakes, low-volume reasoning task (a wrong manifest = a broken source),
 # and API docs can be large — so we pay for the strongest long-context model rather than the cheap
 # per-row model the semantic-enrichment context layer uses.
