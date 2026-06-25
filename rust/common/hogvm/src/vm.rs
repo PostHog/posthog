@@ -212,10 +212,9 @@ impl<'a> HogVM<'a> {
                 self.push_stack(acc)?;
             }
             Operation::Not => {
-                let val = self.pop_stack_as::<bool>()?;
-                // TODO - technically, we could assert here that this push will always succeed,
-                // and it'd let us skip a bounds check I /think/, but lets not go microoptimizing yet
-                self.push_stack(HogLiteral::from(!val))?;
+                let val = self.pop_stack()?;
+                let result = val.deref(&self.heap)?.not()?;
+                self.push_stack(result)?;
             }
             Operation::Plus => {
                 let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
@@ -364,7 +363,9 @@ impl<'a> HogVM<'a> {
             Operation::JumpIfFalse => {
                 // i32 to permit branching backwards
                 let offset: i32 = self.next()?;
-                if !self.pop_stack_as::<bool>()? {
+                // The reference coerces with `!popStack()`, so any falsy value (0, "", null, …) branches.
+                let val = self.pop_stack()?;
+                if !val.deref(&self.heap)?.truthy() {
                     self.ip = ((self.ip as i64)
                         .checked_add(offset as i64)
                         .ok_or(VmError::IntegerOverflow)?) as usize;

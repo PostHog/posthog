@@ -229,16 +229,35 @@ impl HogLiteral {
         T::from_val(self)
     }
 
+    // JS-style truthiness, matching the reference VMs' `!!` coercion in AND/OR/NOT/JUMP_IF_FALSE:
+    // false, 0, NaN, "" and null are falsy; everything else (including empty arrays/objects) is truthy.
+    pub fn truthy(&self) -> bool {
+        match self {
+            Self::Boolean(b) => *b,
+            Self::Number(n) => {
+                if n.is_float() {
+                    let f = n.to_float();
+                    f != 0.0 && !f.is_nan()
+                } else {
+                    n.to_integer() != 0
+                }
+            }
+            Self::String(s) => !s.is_empty(),
+            Self::Null => false,
+            _ => true,
+        }
+    }
+
     pub fn and(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
-        Ok(Self::Boolean(*self.try_as()? && *rhs.try_as()?))
+        Ok(Self::Boolean(self.truthy() && rhs.truthy()))
     }
 
     pub fn or(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
-        Ok(Self::Boolean(*self.try_as()? || *rhs.try_as()?))
+        Ok(Self::Boolean(self.truthy() || rhs.truthy()))
     }
 
     pub fn not(&self) -> Result<HogLiteral, VmError> {
-        Ok(Self::Boolean(!*self.try_as::<bool>()?))
+        Ok(Self::Boolean(!self.truthy()))
     }
 
     fn coerce_types(&self, rhs: &HogLiteral) -> Result<(HogLiteral, HogLiteral), VmError> {
