@@ -1652,7 +1652,11 @@
         // Entrance animations with an opacity:0 base that fade in via forwards fill.
         .InsightQuickStart__card,
         .QuestionInput__SuggestionsList,
-        .QuestionInput__QuestionSuggestion {
+        .QuestionInput__QuestionSuggestion,
+        // posthog-js survey preview fades in via `ph-survey-fade-in` (opacity 0 -> 1); without
+        // this pin headless Chromium paints the 0% keyframe, leaving the survey card invisible.
+        .survey-form,
+        .thank-you-message {
             opacity: 1 !important;
         }
 
