@@ -257,18 +257,17 @@ describe('buildLifecycleValueLabelFormatter', () => {
         { name: 'values only', showValues: true, showPercentages: false, expected: '20' },
         { name: 'values + percentages', showValues: true, showPercentages: true, expected: '20 (25%)' },
         { name: 'percentages only', showValues: false, showPercentages: true, expected: '25%' },
-    ])('renders an active segment $name as "$expected" (share of active total, dormant excluded)', ({
-        showValues,
-        showPercentages,
-        expected,
-    }) => {
-        const formatter = buildLifecycleValueLabelFormatter(formatValue, {
-            showValues,
-            showPercentages,
-            dormantBaseByDataIndex,
-        })
-        expect(formatter(20, 0, 2, band)).toBe(expected)
-    })
+    ])(
+        'renders an active segment $name as "$expected" (share of active total, dormant excluded)',
+        ({ showValues, showPercentages, expected }) => {
+            const formatter = buildLifecycleValueLabelFormatter(formatValue, {
+                showValues,
+                showPercentages,
+                dormantBaseByDataIndex,
+            })
+            expect(formatter(20, 0, 2, band)).toBe(expected)
+        }
+    )
 
     it('shares the dormant segment against the previous-period active base (churn), not the band', () => {
         const formatter = buildLifecycleValueLabelFormatter(formatValue, {
@@ -301,16 +300,43 @@ describe('buildLifecycleValueLabelFormatter', () => {
 })
 
 describe('lifecyclePrevActiveBaseByDataIndex', () => {
-    it('sums active statuses per period and shifts forward one (dormant churns against the prior base)', () => {
-        const results: TrendsLifecycleResultLike[] = [
-            { status: 'new', label: 'Pageview - new', data: [10, 20, 30] },
-            { status: 'returning', label: 'Pageview - returning', data: [5, 6, 7] },
-            { status: 'resurrecting', label: 'Pageview - resurrecting', data: [1, 2, 3] },
+    const cases: { name: string; results: TrendsLifecycleResultLike[]; expected: number[] }[] = [
+        {
+            // active totals per period = [16, 28, 40]; shifted forward (base[d] = active[d-1]) → [0, 16, 28].
             // Dormant is negative and must be excluded from the active total entirely.
-            { status: 'dormant', label: 'Pageview - dormant', data: [-4, -5, -6] },
-        ]
-        // active totals per period = [16, 28, 40]; shifted forward (base[d] = active[d-1]) → [0, 16, 28].
-        expect(lifecyclePrevActiveBaseByDataIndex(results)).toEqual([0, 16, 28])
+            name: 'sums active statuses, shifts forward one period, and excludes dormant',
+            results: [
+                { status: 'new', label: 'Pageview - new', data: [10, 20, 30] },
+                { status: 'returning', label: 'Pageview - returning', data: [5, 6, 7] },
+                { status: 'resurrecting', label: 'Pageview - resurrecting', data: [1, 2, 3] },
+                { status: 'dormant', label: 'Pageview - dormant', data: [-4, -5, -6] },
+            ],
+            expected: [0, 16, 28],
+        },
+        {
+            // No active series → no prior base in any period, so dormant gets no percentage anywhere.
+            name: 'returns all-zero when every series is dormant',
+            results: [
+                { status: 'dormant', label: 'd1', data: [-3, -4, -5] },
+                { status: 'dormant', label: 'd2', data: [-1, -1, -1] },
+            ],
+            expected: [0, 0, 0],
+        },
+        {
+            // Ragged lengths: period count follows the longest series; shorter series just don't
+            // contribute past their end. active totals = [15, 25, 30, 40] → shifted → [0, 15, 25, 30].
+            name: 'uses the longest data length when series lengths differ',
+            results: [
+                { status: 'new', label: 'new', data: [10, 20, 30, 40] },
+                { status: 'returning', label: 'returning', data: [5, 5] },
+            ],
+            expected: [0, 15, 25, 30],
+        },
+        { name: 'returns an empty array for no results', results: [], expected: [] },
+    ]
+
+    it.each(cases)('$name', ({ results, expected }) => {
+        expect(lifecyclePrevActiveBaseByDataIndex(results)).toEqual(expected)
     })
 })
 
