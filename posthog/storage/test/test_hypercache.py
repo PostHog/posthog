@@ -1389,8 +1389,6 @@ class TestHyperCacheSkipIfUnchanged(BaseTest):
 
     def setUp(self):
         super().setUp()
-        from django.core.cache import cache
-
         cache.clear()
 
     def test_skips_redundant_write_when_unchanged(self):
@@ -1411,6 +1409,7 @@ class TestHyperCacheSkipIfUnchanged(BaseTest):
         s3_write.assert_called_once()
         # The skip counter is the only signal ops have that the optimization fired.
         skip_counter.labels.assert_called_once_with(namespace="skip_ns", value="skip_value")
+        skip_counter.labels.return_value.inc.assert_called_once()
         assert size == len(json.dumps(self.sample_data, sort_keys=True))
         # The stored ETag is untouched, so readers comparing ETags won't refetch.
         assert hc.get_etag(self.team.id) == etag_before

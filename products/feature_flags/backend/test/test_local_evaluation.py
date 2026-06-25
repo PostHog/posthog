@@ -266,6 +266,7 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
         assert mock_skip_counter.labels.call_count == 2
         mock_skip_counter.labels.assert_any_call(namespace="feature_flags", value="flags_with_cohorts.json")
         mock_skip_counter.labels.assert_any_call(namespace="feature_flags", value="flags_without_cohorts.json")
+        assert mock_skip_counter.labels.return_value.inc.call_count == 2
 
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_REBUILD_SKIPPED_COUNTER")
     def test_skips_write_on_group_types_unavailable(self, mock_skipped_counter):
