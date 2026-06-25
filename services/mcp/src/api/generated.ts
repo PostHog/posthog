@@ -14218,10 +14218,17 @@ export namespace Schemas {
 
     export interface CustomerJourney {
       readonly id: string;
+      /** ID of the funnel insight this journey is based on. Must reference an insight in the same project. */
       insight: number;
-      /** @maxLength 400 */
+      /**
+         * Human-readable name of the customer journey.
+         * @maxLength 400
+         */
       name: string;
-      /** @nullable */
+      /**
+         * Optional free-text description of the customer journey.
+         * @nullable
+         */
       description?: string | null;
       readonly created_at: string;
       /** @nullable */
@@ -35415,10 +35422,17 @@ export namespace Schemas {
 
     export interface PatchedCustomerJourney {
       readonly id?: string;
+      /** ID of the funnel insight this journey is based on. Must reference an insight in the same project. */
       insight?: number;
-      /** @maxLength 400 */
+      /**
+         * Human-readable name of the customer journey.
+         * @maxLength 400
+         */
       name?: string;
-      /** @nullable */
+      /**
+         * Optional free-text description of the customer journey.
+         * @nullable
+         */
       description?: string | null;
       readonly created_at?: string;
       /** @nullable */

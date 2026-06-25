@@ -15,6 +15,12 @@ import {
     AccountsPartialUpdateBody,
     AccountsPartialUpdateParams,
     AccountsRetrieveParams,
+    CustomerJourneysCreateBody,
+    CustomerJourneysDestroyParams,
+    CustomerJourneysListQueryParams,
+    CustomerJourneysPartialUpdateBody,
+    CustomerJourneysPartialUpdateParams,
+    CustomerJourneysRetrieveParams,
     GroupsTypesMetricsCreateBody,
     GroupsTypesMetricsCreateParams,
     GroupsTypesMetricsDestroyParams,
@@ -246,6 +252,115 @@ const accountsRetrieve = (): ToolBase<typeof AccountsRetrieveSchema, Schemas.Acc
     },
 })
 
+const CustomerJourneysCreateSchema = CustomerJourneysCreateBody
+
+const customerJourneysCreate = (): ToolBase<typeof CustomerJourneysCreateSchema, Schemas.CustomerJourney> => ({
+    name: 'customer-journeys-create',
+    schema: CustomerJourneysCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomerJourneysCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.insight !== undefined) {
+            body['insight'] = params.insight
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        const result = await context.api.request<Schemas.CustomerJourney>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_journeys/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomerJourneysDestroySchema = CustomerJourneysDestroyParams.omit({ project_id: true })
+
+const customerJourneysDestroy = (): ToolBase<typeof CustomerJourneysDestroySchema, unknown> => ({
+    name: 'customer-journeys-destroy',
+    schema: CustomerJourneysDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof CustomerJourneysDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_journeys/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const CustomerJourneysListSchema = CustomerJourneysListQueryParams
+
+const customerJourneysList = (): ToolBase<
+    typeof CustomerJourneysListSchema,
+    WithPostHogUrl<Schemas.PaginatedCustomerJourneyList>
+> => ({
+    name: 'customer-journeys-list',
+    schema: CustomerJourneysListSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomerJourneysListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedCustomerJourneyList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_journeys/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const CustomerJourneysPartialUpdateSchema = CustomerJourneysPartialUpdateParams.omit({ project_id: true }).extend(
+    CustomerJourneysPartialUpdateBody.shape
+)
+
+const customerJourneysPartialUpdate = (): ToolBase<
+    typeof CustomerJourneysPartialUpdateSchema,
+    Schemas.CustomerJourney
+> => ({
+    name: 'customer-journeys-partial-update',
+    schema: CustomerJourneysPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomerJourneysPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.insight !== undefined) {
+            body['insight'] = params.insight
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        const result = await context.api.request<Schemas.CustomerJourney>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_journeys/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomerJourneysRetrieveSchema = CustomerJourneysRetrieveParams.omit({ project_id: true })
+
+const customerJourneysRetrieve = (): ToolBase<typeof CustomerJourneysRetrieveSchema, Schemas.CustomerJourney> => ({
+    name: 'customer-journeys-retrieve',
+    schema: CustomerJourneysRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomerJourneysRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomerJourney>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/customer_journeys/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const UsageMetricsCreateSchema = GroupsTypesMetricsCreateParams.omit({ project_id: true })
     .extend(GroupsTypesMetricsCreateBody.shape)
     .extend({
@@ -418,6 +533,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-notebooks-retrieve': accountsNotebooksRetrieve,
     'accounts-partial-update': accountsPartialUpdate,
     'accounts-retrieve': accountsRetrieve,
+    'customer-journeys-create': customerJourneysCreate,
+    'customer-journeys-destroy': customerJourneysDestroy,
+    'customer-journeys-list': customerJourneysList,
+    'customer-journeys-partial-update': customerJourneysPartialUpdate,
+    'customer-journeys-retrieve': customerJourneysRetrieve,
     'usage-metrics-create': usageMetricsCreate,
     'usage-metrics-destroy': usageMetricsDestroy,
     'usage-metrics-list': usageMetricsList,

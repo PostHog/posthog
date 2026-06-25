@@ -1700,6 +1700,81 @@
             "readOnlyHint": false
         }
     },
+    "customer-journeys-create": {
+        "description": "Create a Customer Analytics customer journey. A customer journey pairs a funnel insight with a name so the funnel can be tracked as a named journey on Customer Analytics surfaces. Provide `insight` (the id of an existing funnel insight in this project — see `insights-list`), `name` (required), and an optional `description`. The insight must belong to the same project.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create customer journey",
+        "title": "Create customer journey",
+        "required_scopes": ["customer_journey:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-journeys"
+    },
+    "customer-journeys-destroy": {
+        "description": "Permanently delete a Customer Analytics customer journey by id.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete customer journey",
+        "title": "Delete customer journey",
+        "required_scopes": ["customer_journey:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-journeys"
+    },
+    "customer-journeys-list": {
+        "description": "List Customer Analytics customer journeys in the project. Each result includes the journey `id`, the linked funnel `insight` id, `name`, `description`, and creation/update metadata. Use `customer-journeys-retrieve` for a single journey by id.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List customer journeys",
+        "title": "List customer journeys",
+        "required_scopes": ["customer_journey:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-journeys"
+    },
+    "customer-journeys-partial-update": {
+        "description": "Update fields on an existing Customer Analytics customer journey. Accepts a subset of fields (`insight`, `name`, `description`); unspecified fields are left unchanged. A new `insight` must reference a funnel insight that belongs to this project.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update customer journey",
+        "title": "Update customer journey",
+        "required_scopes": ["customer_journey:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-journeys"
+    },
+    "customer-journeys-retrieve": {
+        "description": "Fetch a single Customer Analytics customer journey by id. Returns the journey including the linked funnel `insight` id, `name`, and `description`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get customer journey",
+        "title": "Get customer journey",
+        "required_scopes": ["customer_journey:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-journeys"
+    },
     "dashboard-create": {
         "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.",
         "category": "Dashboards",

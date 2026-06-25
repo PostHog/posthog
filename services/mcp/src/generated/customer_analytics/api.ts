@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -237,6 +237,79 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
 
 export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomerJourneysListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomerJourneysListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const CustomerJourneysCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const customerJourneysCreateBodyNameMax = 400
+
+export const CustomerJourneysCreateBody = /* @__PURE__ */ zod.object({
+    insight: zod
+        .number()
+        .describe('ID of the funnel insight this journey is based on. Must reference an insight in the same project.'),
+    name: zod.string().max(customerJourneysCreateBodyNameMax).describe('Human-readable name of the customer journey.'),
+    description: zod.string().nullish().describe('Optional free-text description of the customer journey.'),
+})
+
+export const CustomerJourneysRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomerJourneysPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const customerJourneysPartialUpdateBodyNameMax = 400
+
+export const CustomerJourneysPartialUpdateBody = /* @__PURE__ */ zod.object({
+    insight: zod
+        .number()
+        .optional()
+        .describe('ID of the funnel insight this journey is based on. Must reference an insight in the same project.'),
+    name: zod
+        .string()
+        .max(customerJourneysPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name of the customer journey.'),
+    description: zod.string().nullish().describe('Optional free-text description of the customer journey.'),
+})
+
+export const CustomerJourneysDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

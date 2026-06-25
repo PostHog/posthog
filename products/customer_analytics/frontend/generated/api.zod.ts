@@ -282,25 +282,36 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
 export const customerJourneysCreateBodyNameMax = 400
 
 export const CustomerJourneysCreateBody = /* @__PURE__ */ zod.object({
-    insight: zod.number(),
-    name: zod.string().max(customerJourneysCreateBodyNameMax),
-    description: zod.string().nullish(),
+    insight: zod
+        .number()
+        .describe('ID of the funnel insight this journey is based on. Must reference an insight in the same project.'),
+    name: zod.string().max(customerJourneysCreateBodyNameMax).describe('Human-readable name of the customer journey.'),
+    description: zod.string().nullish().describe('Optional free-text description of the customer journey.'),
 })
 
 export const customerJourneysUpdateBodyNameMax = 400
 
 export const CustomerJourneysUpdateBody = /* @__PURE__ */ zod.object({
-    insight: zod.number(),
-    name: zod.string().max(customerJourneysUpdateBodyNameMax),
-    description: zod.string().nullish(),
+    insight: zod
+        .number()
+        .describe('ID of the funnel insight this journey is based on. Must reference an insight in the same project.'),
+    name: zod.string().max(customerJourneysUpdateBodyNameMax).describe('Human-readable name of the customer journey.'),
+    description: zod.string().nullish().describe('Optional free-text description of the customer journey.'),
 })
 
 export const customerJourneysPartialUpdateBodyNameMax = 400
 
 export const CustomerJourneysPartialUpdateBody = /* @__PURE__ */ zod.object({
-    insight: zod.number().optional(),
-    name: zod.string().max(customerJourneysPartialUpdateBodyNameMax).optional(),
-    description: zod.string().nullish(),
+    insight: zod
+        .number()
+        .optional()
+        .describe('ID of the funnel insight this journey is based on. Must reference an insight in the same project.'),
+    name: zod
+        .string()
+        .max(customerJourneysPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name of the customer journey.'),
+    description: zod.string().nullish().describe('Optional free-text description of the customer journey.'),
 })
 
 export const CustomerProfileConfigsCreateBody = /* @__PURE__ */ zod.object({
