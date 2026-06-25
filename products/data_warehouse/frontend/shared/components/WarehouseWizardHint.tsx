@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { ReactNode, useState } from 'react'
 
 import { IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -20,14 +20,23 @@ const DISMISSED_KEY = 'warehouse-wizard-hint-dismissed'
  * pushes the `npx @posthog/wizard warehouse` CLI, which auto-detects and connects a user's
  * databases/APIs straight from their codebase instead of filling in the forms by hand.
  */
-export function WarehouseWizardHint({ className }: { className?: string }): JSX.Element | null {
+export function WarehouseWizardHint({
+    className,
+    fallback,
+}: {
+    className?: string
+    /** Rendered in place of the hint when it can't show (self-hosted or already dismissed). Lets a
+     *  host surface another nudge there — e.g. the SQL editor falls back to its MCP hint — so the
+     *  two are mutually exclusive and never stack. */
+    fallback?: ReactNode
+}): JSX.Element | null {
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const [dismissed, setDismissed] = useState(() => localStorage.getItem(DISMISSED_KEY) === '1')
 
     // The wizard CLI only targets cloud (US/EU) and dev instances — self-hosted has no
     // preconfigured endpoint, so hide it rather than show a command that can't work.
     if (!isCloudOrDev || dismissed) {
-        return null
+        return fallback ? <>{fallback}</> : null
     }
 
     const region = preflight?.region || Region.US
