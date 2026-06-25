@@ -113,7 +113,7 @@ class TestPgCDCStreamReaderConnectOptions:
         connect = mock.MagicMock(return_value=mock.MagicMock())
         reader = PgCDCStreamReader(params)
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
             connect,
         ):
             reader.connect()

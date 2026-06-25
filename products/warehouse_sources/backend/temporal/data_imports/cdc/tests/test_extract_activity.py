@@ -2109,7 +2109,6 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_adapter.drop_resources.assert_not_called()
 
 
-<<<<<<< HEAD:products/warehouse_sources/backend/temporal/data_imports/cdc/tests/test_extract_activity.py
 class TestExtractionHeartbeat:
     """Every run records a per-schema last-run heartbeat in sync_type_config so a quiet (zero-event)
     source still proves extraction is alive — without an ExternalDataJob row per idle hourly run."""
@@ -2151,80 +2150,6 @@ class TestExtractionHeartbeat:
     ):
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
-=======
-class _ScriptedReader:
-    """Reader stub that serves preconfigured WAL pages to the bounded read loop.
-
-    Each page is (events, rows_consumed, commit_end_lsn). read_changes() exposes that page's
-    rows_consumed / last_commit_end_lsn exactly as the real reader does after a peek, so the
-    multi-pass loop sees a full page (rows_consumed >= cap) followed by a drained one (< cap).
-    """
-
-    def __init__(self, pages):
-        self._pages = list(pages)
-        self._idx = 0
-        self.last_rows_consumed = 0
-        self.last_commit_end_lsn = None
-        self.truncated_tables: list[str] = []
-        self.confirmed_positions: list[str] = []
-        self.on_row_calls = 0
-        self.upto_nchanges_calls: list[int | None] = []
-
-    def connect(self):
-        pass
-
-    def get_primary_key_columns(self, schema, tables):
-        return {}
-
-    def get_decoder_key_columns(self, table):
-        return []
-
-    def clear_truncated_tables(self):
-        self.truncated_tables = []
-
-    def read_changes(self, upto_nchanges=None, on_row=None):
-        self.upto_nchanges_calls.append(upto_nchanges)
-        events, rows_consumed, commit_end_lsn = self._pages[self._idx]
-        self._idx += 1
-        self.last_rows_consumed = rows_consumed
-        self.last_commit_end_lsn = commit_end_lsn
-
-        def gen():
-            for ev in events:
-                if on_row is not None:
-                    on_row()
-                    self.on_row_calls += 1
-                yield ev
-
-        return gen()
-
-    def confirm_position(self, lsn):
-        self.confirmed_positions.append(lsn)
-
-    def close(self):
-        pass
-
-
-class TestCDCBoundedReadLoop:
-    """The read loop peeks at most CDC_MAX_CHANGES_PER_READ changes per pass, advancing the slot
-    between passes so a large backlog drains over several passes (and, if needed, runs)."""
-
-    def _run_with_reader(
-        self,
-        mock_activity,
-        MockProducer,
-        MockS3Writer,
-        mock_get_adapter,
-        mock_get_schemas,
-        MockSourceModel,
-        MockJob,
-        mock_close_conns,
-        reader,
-    ):
-        source = _make_source()
-        schema = _make_schema("users", cdc_mode="streaming", source=source)
-        schema.sync_type_config["primary_key_columns"] = ["id"]
->>>>>>> afb33859088 (fix(data-warehouse): bound CDC WAL reads, cap decoder tx buffer):posthog/temporal/data_imports/cdc/tests/test_extract_activity.py
         _setup_mocks(
             mock_activity,
             MockProducer,
@@ -2236,7 +2161,6 @@ class TestCDCBoundedReadLoop:
             mock_close_conns,
             source,
             [schema],
-<<<<<<< HEAD:products/warehouse_sources/backend/temporal/data_imports/cdc/tests/test_extract_activity.py
             events,
         )
 
@@ -2361,32 +2285,12 @@ class TestFailureVisibilityJobs:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_one_failure_row_per_schema(
-=======
-            [],
-        )
-        # Replace the default MagicMock reader with the scripted multi-pass reader.
-        mock_get_adapter.return_value.create_reader.return_value = reader
-
-        cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
-        return schema
-
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
-    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
-    def test_full_page_then_drained_advances_slot_between_passes(
->>>>>>> afb33859088 (fix(data-warehouse): bound CDC WAL reads, cap decoder tx buffer):posthog/temporal/data_imports/cdc/tests/test_extract_activity.py
         self,
         mock_close_conns,
         MockJob,
         MockSourceModel,
         mock_get_schemas,
         mock_get_adapter,
-<<<<<<< HEAD:products/warehouse_sources/backend/temporal/data_imports/cdc/tests/test_extract_activity.py
         mock_activity,
     ):
         schema_a = _make_schema("users", cdc_mode="streaming")
@@ -2405,7 +2309,114 @@ class TestFailureVisibilityJobs:
         assert MockJob.objects.create.call_count == 2
         created_for = {call.kwargs["schema"] for call in MockJob.objects.create.call_args_list}
         assert created_for == {schema_a, schema_b}
-=======
+
+
+class _ScriptedReader:
+    """Reader stub that serves preconfigured WAL pages to the bounded read loop.
+
+    Each page is (events, rows_consumed, commit_end_lsn). read_changes() exposes that page's
+    rows_consumed / last_commit_end_lsn exactly as the real reader does after a peek, so the
+    multi-pass loop sees a full page (rows_consumed >= cap) followed by a drained one (< cap).
+    """
+
+    def __init__(self, pages):
+        self._pages = list(pages)
+        self._idx = 0
+        self.last_rows_consumed = 0
+        self.last_commit_end_lsn = None
+        self.truncated_tables: list[str] = []
+        self.confirmed_positions: list[str] = []
+        self.on_row_calls = 0
+        self.upto_nchanges_calls: list[int | None] = []
+
+    def connect(self):
+        pass
+
+    def get_primary_key_columns(self, schema, tables):
+        return {}
+
+    def get_decoder_key_columns(self, table):
+        return []
+
+    def clear_truncated_tables(self):
+        self.truncated_tables = []
+
+    def read_changes(self, upto_nchanges=None, on_row=None):
+        self.upto_nchanges_calls.append(upto_nchanges)
+        events, rows_consumed, commit_end_lsn = self._pages[self._idx]
+        self._idx += 1
+        self.last_rows_consumed = rows_consumed
+        self.last_commit_end_lsn = commit_end_lsn
+
+        def gen():
+            for ev in events:
+                if on_row is not None:
+                    on_row()
+                    self.on_row_calls += 1
+                yield ev
+
+        return gen()
+
+    def confirm_position(self, lsn):
+        self.confirmed_positions.append(lsn)
+
+    def close(self):
+        pass
+
+
+class TestCDCBoundedReadLoop:
+    """The read loop peeks at most CDC_MAX_CHANGES_PER_READ changes per pass, advancing the slot
+    between passes so a large backlog drains over several passes (and, if needed, runs)."""
+
+    def _run_with_reader(
+        self,
+        mock_activity,
+        MockProducer,
+        MockS3Writer,
+        mock_get_adapter,
+        mock_get_schemas,
+        MockSourceModel,
+        MockJob,
+        mock_close_conns,
+        reader,
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            [],
+        )
+        # Replace the default MagicMock reader with the scripted multi-pass reader.
+        mock_get_adapter.return_value.create_reader.return_value = reader
+
+        cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+        return schema
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_full_page_then_drained_advances_slot_between_passes(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
         MockS3Writer,
         MockProducer,
         mock_activity,
@@ -2436,14 +2447,14 @@ class TestFailureVisibilityJobs:
         # The per-row heartbeat callback was wired through read_changes and fired during the reads.
         assert reader.on_row_calls == 2
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_soft_deadline_stops_starting_new_passes(
         self,
         mock_close_conns,
@@ -2457,7 +2468,9 @@ class TestFailureVisibilityJobs:
         monkeypatch,
     ):
         # Deadline already elapsed: a full first page must not start a second pass.
-        monkeypatch.setattr("posthog.temporal.data_imports.cdc.activities.CDC_READ_SOFT_DEADLINE_SECONDS", 0)
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDC_READ_SOFT_DEADLINE_SECONDS", 0
+        )
         reader = _ScriptedReader(
             [([_make_event(op="I", table="users", position="0/100")], CDC_MAX_CHANGES_PER_READ, "0/100")]
         )
@@ -2477,14 +2490,14 @@ class TestFailureVisibilityJobs:
         assert len(reader.upto_nchanges_calls) == 1  # no second peek despite a full page
         assert schema.status == "Completed"  # the run still finalizes what it read
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_full_page_with_no_committed_progress_doubles_the_limit(
         self,
         mock_close_conns,
@@ -2519,4 +2532,3 @@ class TestFailureVisibilityJobs:
 
         assert reader.upto_nchanges_calls == [CDC_MAX_CHANGES_PER_READ, CDC_MAX_CHANGES_PER_READ * 2]
         assert reader.confirmed_positions == ["0/300"]  # nothing to advance on pass 1; pass 2 drains
->>>>>>> afb33859088 (fix(data-warehouse): bound CDC WAL reads, cap decoder tx buffer):posthog/temporal/data_imports/cdc/tests/test_extract_activity.py
