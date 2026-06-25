@@ -2362,6 +2362,12 @@ def validate_team_attrs(
 ) -> dict[str, Any]:
     if instance is not None:
         admin_fields_touched = TEAM_CONFIG_ADMIN_FIELDS_SET & attrs.keys()
+        # `app_urls` (the toolbar / web analytics authorized URLs) carries a `field_access_control`
+        # tying it to web analytics editor access. When access controls are enabled, defer to that
+        # field-level check instead of the blanket project-admin gate, so a web analytics editor can
+        # manage authorized URLs. Without access controls we keep the stricter admin-only behavior.
+        if view.user_access_control.access_controls_supported:
+            admin_fields_touched = admin_fields_touched - {"app_urls"}
         if admin_fields_touched:
             team_for_check = instance if isinstance(instance, Team) else instance.passthrough_team
             level = view.user_permissions.team(team_for_check).effective_membership_level
