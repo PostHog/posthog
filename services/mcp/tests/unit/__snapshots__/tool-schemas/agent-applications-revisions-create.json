@@ -23,10 +23,6 @@
         },
         "spec": {
             "properties": {
-                "entrypoint": {
-                    "default": "agent.md",
-                    "type": "string"
-                },
                 "framework_prompt": {
                     "properties": {
                         "omit": {
@@ -268,7 +264,7 @@
                     },
                     "type": "array"
                 },
-                "model_policy": {
+                "models": {
                     "anyOf": [
                         {
                             "properties": {
