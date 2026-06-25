@@ -3237,6 +3237,45 @@
   
   '''
 # ---
+# name: test_create_table_query[metric_events1]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_events1
+  (
+      `uuid` String CODEC(ZSTD(1)),
+      `team_id` Int32 CODEC(ZSTD(1)),
+      `timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
+      `created_at` DateTime64(6) MATERIALIZED now64(6) CODEC(DoubleDelta, ZSTD(1)),
+      `trace_id` String CODEC(ZSTD(1)),
+      `span_id` String CODEC(ZSTD(1)),
+      `trace_flags` Int32 CODEC(ZSTD(1)),
+      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
+      `metric_name` LowCardinality(String) CODEC(ZSTD(1)),
+      `kind` LowCardinality(String) CODEC(ZSTD(1)),
+      `value` Float64 CODEC(Gorilla, ZSTD(1)),
+      `unit` LowCardinality(String) CODEC(ZSTD(1)),
+      `resource_attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes) CODEC(DoubleDelta, ZSTD(1)),
+      `attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+      INDEX idx_metric_name_set metric_name TYPE set(1000) GRANULARITY 1,
+      INDEX idx_kind_set kind TYPE set(10) GRANULARITY 1,
+      INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_events1', '{replica}-{shard}')
+  PARTITION BY toDate(timestamp)
+  ORDER BY (team_id, metric_name, timestamp)
+  TTL toDateTime(timestamp) + INTERVAL 30 DAY
+  SETTINGS
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[metric_events]
+  "CREATE TABLE IF NOT EXISTS posthog_test.metric_events AS posthog_test.metric_events1 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metric_events1')"
+# ---
 # name: test_create_table_query[metrics1]
   '''
   
@@ -9204,6 +9243,42 @@
   SETTINGS
       deduplicate_merge_projection_mode = 'drop',
       index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[metric_events1]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_events1
+  (
+      `uuid` String CODEC(ZSTD(1)),
+      `team_id` Int32 CODEC(ZSTD(1)),
+      `timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
+      `created_at` DateTime64(6) MATERIALIZED now64(6) CODEC(DoubleDelta, ZSTD(1)),
+      `trace_id` String CODEC(ZSTD(1)),
+      `span_id` String CODEC(ZSTD(1)),
+      `trace_flags` Int32 CODEC(ZSTD(1)),
+      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
+      `metric_name` LowCardinality(String) CODEC(ZSTD(1)),
+      `kind` LowCardinality(String) CODEC(ZSTD(1)),
+      `value` Float64 CODEC(Gorilla, ZSTD(1)),
+      `unit` LowCardinality(String) CODEC(ZSTD(1)),
+      `resource_attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes) CODEC(DoubleDelta, ZSTD(1)),
+      `attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+      INDEX idx_metric_name_set metric_name TYPE set(1000) GRANULARITY 1,
+      INDEX idx_kind_set kind TYPE set(10) GRANULARITY 1,
+      INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_events1', '{replica}-{shard}')
+  PARTITION BY toDate(timestamp)
+  ORDER BY (team_id, metric_name, timestamp)
+  TTL toDateTime(timestamp) + INTERVAL 30 DAY
+  SETTINGS
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
   
   '''
 # ---
