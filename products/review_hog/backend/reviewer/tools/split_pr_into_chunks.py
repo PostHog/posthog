@@ -37,9 +37,10 @@ def generate_chunking_prompt(
         prompt_template = env.get_template("prompt.jinja")
     except Exception as e:
         raise RuntimeError(f"Error loading prompt template: {e}") from e
+    pr_intent = f"Title: {pr_metadata.title}\n\nDescription:\n{pr_metadata.body.strip() or '(no description provided)'}"
     return prompt_template.render(
-        PR_METADATA=pr_metadata.model_dump_json(),
-        PR_COMMENTS=[x.model_dump_json() for x in pr_comments],
+        PR_INTENT=pr_intent,
+        PR_COMMENTS=[x.model_dump_json(exclude={"id", "created_at"}) for x in pr_comments],
         PR_FILES=[x.model_dump_json() for x in pr_files],
         OUTPUT_SCHEMA=output_schema,
     )

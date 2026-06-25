@@ -50,5 +50,27 @@ class TestCombineIssues:
 
         assert [i.id for i in combined] == ["1-1-1", "1-3-1", "1-5-1"]
 
+    def test_restamps_colliding_agent_ids_to_unique_ids(self) -> None:
+        # The perspective-agnostic prompt makes every perspective self-assign "1-..." ids, so findings
+        # from different perspectives on the same chunk collide. combine must re-stamp each id from its
+        # loop position so validate_issues (which keys verdicts by issue.id) doesn't collapse them.
+        perspective_results = {
+            (1, 1): IssuesReview(issues=[_issue("1-1-1")]),
+            (2, 1): IssuesReview(issues=[_issue("1-1-1")]),
+            (3, 1): IssuesReview(issues=[_issue("1-1-1"), _issue("1-1-1")]),
+        }
+
+        combined = combine_issues(perspective_results)
+
+        ids = [i.id for i in combined]
+        assert ids == ["1-1-1", "2-1-1", "3-1-1", "3-1-2"]
+        assert len(set(ids)) == len(ids)
+        assert {i.id: i.source_perspective for i in combined} == {
+            "1-1-1": "Logic & Correctness",
+            "2-1-1": "Contracts & Security",
+            "3-1-1": "Performance & Reliability",
+            "3-1-2": "Performance & Reliability",
+        }
+
     def test_empty_input_returns_empty_list(self) -> None:
         assert combine_issues({}) == []

@@ -136,16 +136,17 @@ def _render_prompt(
     pr_chunk_comments = [comment for comment in pr_comments if comment.path in chunk_files]
     pr_chunk_files = [file for file in pr_files if file.filename in chunk_files]
     claude_code_context = prepare_code_context(chunk_files, pr_chunk_files)
+    pr_intent = f"Title: {pr_metadata.title}\n\nDescription:\n{pr_metadata.body.strip() or '(no description provided)'}"
     return main_template.render(
         CLAUDE_CODE_CONTEXT=claude_code_context,
         CURRENT_CHUNK=json.dumps(chunk.model_dump(by_alias=True), indent=2),
         CHUNK_ANALYSIS_CONTEXT=chunk_analysis_context,
-        PR_METADATA=json.dumps(pr_metadata.model_dump(mode="json"), indent=2),
-        PR_COMMENTS=json.dumps([c.model_dump(mode="json") for c in pr_chunk_comments], indent=2),
+        PR_INTENT=pr_intent,
+        PR_COMMENTS=json.dumps(
+            [c.model_dump(mode="json", exclude={"id", "created_at"}) for c in pr_chunk_comments], indent=2
+        ),
         PR_FILE_CHANGES=json.dumps([c.model_dump(mode="json") for c in pr_chunk_files], indent=2),
         OUTPUT_SCHEMA=output_schema,
-        PASS_NUMBER=perspective.pass_number,
-        PASS_NAME=perspective.perspective.value,
         PERSPECTIVE_SKILL_NAME=perspective.skill_name,
         PERSPECTIVE_SKILL_VERSION=perspective.version,
     )

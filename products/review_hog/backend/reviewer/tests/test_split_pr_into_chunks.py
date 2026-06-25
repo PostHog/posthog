@@ -20,13 +20,14 @@ HEAD_SHA = "abc123"
 
 
 class TestGenerateChunkingPrompt:
-    def test_generate_chunking_prompt_renders_schema_and_metadata(
+    def test_generate_chunking_prompt_renders_schema_and_intent(
         self,
         pr_metadata: PRMetadata,
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
     ) -> None:
-        # The rendered prompt must carry the PR metadata and the output schema the sandbox parses against.
+        # The prompt carries the PR's intent (title + description) and the output schema the sandbox
+        # parses against — not the full metadata dump, which the prompt deliberately omits.
         prompt = generate_chunking_prompt(
             pr_metadata=pr_metadata,
             pr_comments=pr_comments,
@@ -34,7 +35,8 @@ class TestGenerateChunkingPrompt:
         )
 
         assert isinstance(prompt, str)
-        assert pr_metadata.model_dump_json() in prompt
+        assert pr_metadata.title in prompt
+        assert pr_metadata.model_dump_json() not in prompt
         assert "<output_schema>" in prompt
         assert '"ChunksList"' in prompt
         assert '"Chunk"' in prompt

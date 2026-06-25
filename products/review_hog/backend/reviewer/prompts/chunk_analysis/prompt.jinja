@@ -10,15 +10,19 @@ The goal is to understand what's the purpose of this chunk and how it fits into 
 {{CURRENT_CHUNK|safe}}
 </pr_current_chunk_context>
 
-<pr_metadata>
-{{PR_METADATA|safe}}
-</pr_metadata>
+<pr_intent>
+The pull request author's stated intent. Use it to understand what this change is meant to accomplish and how this chunk fits into that goal:
+
+{{PR_INTENT|safe}}
+</pr_intent>
 
 <pr_comments_for_chunk>
 {{PR_COMMENTS|safe}}
 </pr_comments_for_chunk>
 
 <pr_file_changes_for_chunk>
+This repository is checked out at this PR's branch, so read any file in full and search the codebase directly for surrounding context — do not assume the snippets below are all you have. The changes below are the authoritative record of *what this PR changed* in this chunk (including removed lines, which are no longer in the working tree); focus your analysis on them. You only have this branch's checkout — no base branch and no history — so rely on the changes below for the change set rather than trying to `git diff` or `git log`.
+
 {{PR_FILE_CHANGES|safe}}
 </pr_file_changes_for_chunk>
 

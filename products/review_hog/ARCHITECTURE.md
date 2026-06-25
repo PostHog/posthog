@@ -192,13 +192,19 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 > each perspective is a DB-synced `LLMSkill` (`products/review_hog/skills/review-hog-perspective-*/SKILL.md`,
 > the Signals-scout canonical-skill pattern) that the sandbox agent **pulls** over MCP via `skill-get`; the
 > three couple into one ordered `PERSPECTIVES` registry. Lint + tach + the ReviewHog backend suite (138) + the
-> Signals artefact suite pass. What remains: **(11)** **prompt iteration** — make the base review prompt fully
-> perspective-agnostic and settle the context-injection strategy (how much PR diff/metadata we inject vs. let
-> the head_sha-pinned sandbox derive), pinning the reviewed commit so "reviewed == recorded"; then **(12)** the
-> **Temporal migration** — `run.py main()` → a **single-turn** `ReviewPRWorkflow` with the fan-out stages as
-> child workflows. The loop-y re-check, cross-turn finding identity, and the `task_run` / `note` work-log
-> artefacts are deferred to a follow-up after the single-turn workflow lands. See the step list and the
-> Deferred / future section below.
+> Signals artefact suite pass. **Step 11 — prompt iteration** is now built (A-lite): all three review prompts
+> (chunking, chunk-analysis, issues-review) are **perspective-agnostic** (the perspective's identity + focus live
+> entirely in the pulled skill) and inject only **what the agent can't self-derive** — the per-chunk change-set
+> plus the PR's **title + description** as intent; the full `PRMetadata` dump is gone. A lead-in tells the agent
+> the repo is checked out (read files freely) but shallow + single-branch (no base ref / history → don't
+> `git diff`). The reviewed-commit **`head_sha` pin** was deliberately deferred to the Temporal step, where it's
+> independently load-bearing. What remains: **(12)** **module consolidation** — collapse the two parallel
+> `github_meta` model modules (`reviewer/models/` vs `reviewer/tools/`) into one before Temporal; **(13)** **validator-as-skills** — make the relevance/severity gate a
+> team-customizable pulled skill (keep only what matters; drop overengineering / paranoia / never-gonna-happen);
+> then **(14)** the **Temporal migration** — `run.py main()` → a **single-turn** `ReviewPRWorkflow` with the fan-out stages as child
+> workflows. The loop-y re-check, cross-turn finding identity, and the `task_run` / `note` work-log artefacts are
+> deferred to a follow-up after the single-turn workflow lands. See the step list and the Deferred / future
+> section below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
 DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
@@ -482,25 +488,76 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
     `SKILL_CATEGORY_TABS` in `products/skills/frontend/llmSkillsLogic.ts` + the `/skills/perspectives` route in
     `products/skills/manifest.tsx`; mirrors the Signals "Scouts" tab — shows only when the team has ≥1
     perspective row). Full design in _Perspectives as LLMA skills_ under Deferred / future below.
-11. ⏭️ **(next) Iterate on the review prompt — perspective-agnostic base + context-injection strategy.** Two
-    coupled prompt changes that also de-risk Temporal: **(a)** make `issues_review/prompt.jinja` fully
-    perspective-agnostic — strip the hardcoded perspective name/number from the prose so the only
-    perspective-specific input is the `skill-get(name, version)` line, and the skill owns the perspective's
-    identity + focus entirely (forward-compat for per-team custom perspectives); **(b)** settle how much PR
-    context we inject (today: full per-chunk diff hunks + PR metadata + `@path#L` refs, all duplicating the
-    sandbox working tree) vs. let the agent derive it — gated on **pinning the sandbox checkout to the reviewed
-    `head_sha`** so the working tree, the injected context, the persisted snapshot, and finding line-anchors all
-    agree (today the sandbox checks out the moving **branch tip**, shallow + single-branch, so it can drift from
-    the snapshotted commit and can't self-`git diff` against the base). Full design + the over-engineering
-    analysis in _Prompt iteration_ under Deferred / future below.
-12. ⏭️ **(after) Make the pipeline Temporal — single-turn workflow first.** Rework `run.py main()` into a
+11. ✅ **Iterate on the review prompt — perspective-agnostic base + leaner context (A-lite).** Both coupled
+    changes shipped across **all three** review prompts (chunking, chunk-analysis, issues-review): **(a)** the
+    prompts are **perspective-agnostic** — `PASS_NAME` / `PASS_NUMBER` are gone from the prose and the renderers;
+    the only perspective-specific input is the `skill-get(name, version)` line, and the skill owns the
+    perspective's identity + focus (forward-compat for per-team custom perspectives). **(b)** the injected context
+    is trimmed to **what the agent can't self-derive**: the per-chunk change-set (the diff — the only source of
+    removed lines, which aren't in the working tree) plus the PR's **title + description** as intent
+    (`<pr_intent>`); the full `PRMetadata` dump — process state, identity (bias), timestamps, size counts, and git
+    refs/SHAs the shallow clone can't act on — is dropped. A `<pr_file_changes_for_chunk>` lead-in tells the agent
+    the repo is checked out (read files freely + grep) but **shallow + single-branch** (no base ref, no history →
+    rely on the injected change-set, don't `git diff` / `git log`). **Option B (agent self-derives the diff) was
+    ruled out**: the depth-1 single-branch checkout gives no base ref and no history, so the agent _can't_ derive a
+    diff — B would need a deeper-clone infra change strictly larger than the `head_sha` pin that was already
+    declined. **The `head_sha` pin is deferred to step 14 (Temporal)**, where pinning the reviewed commit is
+    independently load-bearing (by-reference activities + the loop both need it); until then the injected
+    change-set is the authoritative record and branch-tip drift stays the same rare edge case as today.
+    **Data-hygiene audit (done):** A-lite changed prompt _construction_ only — no persisted artefact (`commit`
+    diff snapshot, `chunk_set` / `chunk_analysis` / `perspective_result`, findings / verdicts) carries new or
+    now-excessive data; the one hygiene finding (the duplicate `github_meta` modules) became step 12. Full
+    as-built record in _Prompt iteration_ under Deferred / future below.
+12. ⏭️ **(next) Consolidate the duplicate `github_meta` modules.** `reviewer/models/github_meta.py` and
+    `reviewer/tools/github_meta.py` **both** define `PRMetadata` / `PRComment` / `PRFile` (the `tools` one also
+    holds `PRFetcher` / `PRParser` / `PRFilter`). Different stages import different copies — `issues_review` /
+    `chunk_analysis` from `models`, `split_pr_into_chunks` / `code_context` / `run` / `conftest` from `tools` — and
+    the pipeline only works because the two definitions are field-identical (duck-typed where they meet). That's a
+    real divergence hazard (edit one schema, the other silently lags) and the reason step 11's `pr_intent`
+    one-liner is inlined in three renderers rather than shared. Collapse to a **single** `github_meta` model
+    module, re-point every importer, and DRY the `pr_intent` helper — a focused, behavior-preserving refactor to
+    land **before** Temporal so the workflow rewrite threads one model set, not two. Full design in _Module
+    consolidation_ under Deferred / future below.
+13. ⏭️ **Make the validator a team-customizable skill.** Move the validation stage's keep/drop **criteria** out of
+    `prompts/issue_validation/*` into a **DB-synced LLMA skill** the validator agent **pulls** (the step-10
+    pattern), so the bar for "this issue matters" is **owned by the team, not the prompt** — different teams care
+    about different things. The prompt keeps the I/O contract (deduped issues in → per-issue verdict out) and the
+    `skill-get` line; the skill owns "what matters". The default criteria **keep** real correctness / security /
+    data-loss / contract / performance issues that plausibly affect users and **drop** overengineering, speculative
+    "what if", defensive paranoia, never-gonna-happen edge cases, and pure style (bias to drop when uncertain — a
+    noisy reviewer gets ignored). A team retunes the bar by editing its row, no code change. Full design in
+    _Validator as a team-customizable skill_ under Deferred / future below.
+14. ⏭️ **(after) Make the pipeline Temporal — single-turn workflow first.** Rework `run.py main()` into a
     single-turn **`ReviewPRWorkflow`** parent workflow with the three fan-out stages (analyze / perspective
     review / validate) as **child workflows** and the rest as **activities**, exchanging Postgres **row ids by
-    reference** (~2 MiB payload cap). Step 8's DB-driven, `head_sha`-scoped design exists precisely so this is an
-    _orchestration_ change, not a persistence one. The **loop-y re-check** (`continue-as-new` advanced by the
-    `head_sha` / `last_seen_comment_id` watermark), cross-turn finding identity (semantic, not the positional
-    `issue_key`), and the `task_run` / `note` work-log artefacts are deferred to a follow-up after the single-turn
-    workflow lands. Full design in _Everything on Temporal_ under Deferred / future below.
+    reference** (~2 MiB payload cap), and **pin the sandbox checkout to the reviewed `head_sha`** (the deferred
+    step-11 keystone) so the working tree, injected change-set, persisted snapshot, and finding line-anchors all
+    agree. Step 8's DB-driven, `head_sha`-scoped design exists precisely so this is an _orchestration_ change, not
+    a persistence one. The **loop-y re-check** (`continue-as-new` advanced by the `head_sha` /
+    `last_seen_comment_id` watermark), cross-turn finding identity (semantic, not the positional `issue_key`), and
+    the `task_run` / `note` work-log artefacts are deferred to a follow-up after the single-turn workflow lands.
+    Full design in _Everything on Temporal_ under Deferred / future below.
+
+##### Evaluating review quality — the run log (pseudo-evals)
+
+`products/review_hog/eval/RUN_LOG.md` is a committed, agent-maintained log of every end-to-end
+`run_review`, so we can tell whether a prompt/code change actually moved review quality instead of
+iterating blind. **After each e2e run, append an entry** (read `ReviewReport` + `ReviewReportArtefact`
+on team 1): the codebase-state label (what changed in the reviewer + the reviewed PR's `head_sha`),
+the pipeline shape (stages, chunk count, `perspective_result` count), the findings (perspective /
+file:line / priority / title), and the validator's kept/dropped verdict per finding. Then **diff it
+against prior entries** to judge the delta.
+
+**Reproducibility caveat:** the findings are a judgment over one specific commit, so quality is only
+comparable across runs that reviewed the **same** `head_sha`. If the PR moves between runs the
+comparison is confounded — it happened in practice (#65862 moved mid-iteration; runs #2 vs #4 reviewed
+different commits, so only the structural verdict-pairing fix was clean signal, not the finding count).
+**So point the eval at a stale PR** (a branch that hasn't moved in a while) — every run then reviews
+identical code. The standing sample is **#63625** (`posthog-code/fix-stickiness-dw-timestamp-field`,
+head `243ddf40295c` frozen since 2026-06-15). This is a deliberate stopgap while the eval is a
+temporary tool; the eventual proper
+fix is the **step-14 `head_sha` pin** (review a fixed commit, not "current head"), which makes any PR
+reproducible and is independently required for resume and the loop.
 
 ##### Cloud host, Temporal & GitHub (assumed / later)
 
@@ -566,9 +623,22 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
     `PERSPECTIVES`-vs-enum order assert, the sync buckets, and the loader test) guards the wiring (138 backend
     tests green).
 
-- **Prompt iteration — this is step 11** (lands _before_ Temporal; design detail + analysis here). Two coupled
-  prompt changes. Both also de-risk Temporal, because the consistency fix in (b) is exactly what the by-reference
-  workflow design needs.
+- **Prompt iteration — step 11 (✅ built, A-lite).** _Design detail + analysis below; what shipped is summarized
+  here._ Two coupled prompt changes, both also de-risking Temporal. **As built:** both (a) and (b) landed across
+  **all three** review prompts (chunking, chunk-analysis, issues-review), not just `issues_review`. (a) The prompts
+  are fully perspective-agnostic — `PASS_NAME` / `PASS_NUMBER` removed from prose and renderers; the only
+  perspective-specific input is the `skill-get(name, version)` line. (b) **Option A-lite** was chosen: keep
+  injecting the per-chunk change-set (load-bearing — see the git-access note below), trim `PRMetadata` to a
+  `<pr_intent>` block of **title + description** only, and add a `<pr_file_changes_for_chunk>` lead-in. **The
+  `head_sha` pin was deferred to step 14 (Temporal)** — independently load-bearing there, and A-lite is correct
+  without it (the injected change-set is the record; drift stays a rare edge case). **Option B was ruled out** by
+  the git-access reality: the sandbox checkout is `git fetch --depth 1 origin -- <branch>` — **depth-1,
+  single-branch** — so the agent has the full working tree (reads / greps any file) but **no base ref and no
+  history**; it cannot `git diff base..head` or `git log` / `blame`, and removed lines aren't in the tree. The
+  injected change-set is therefore the _only_ source of "what changed", which is why A-lite keeps it and B
+  (self-derive) would need a deeper-clone infra change larger than the declined pin. **Data-hygiene audit (done):**
+  prompt-construction-only change; no persisted artefact gained excessive data; the duplicate `github_meta`
+  modules became step 12. The original analysis follows:
 
   **(a) Make the base review prompt fully perspective-agnostic.** _Analysis — is this worth it or
   over-engineering?_ Today `issues_review/prompt.jinja` already keeps the perspective's **focus** out of the
@@ -623,7 +693,44 @@ git checkout -B <branch> FETCH_HEAD`** (`products/tasks` `get_sandbox_for_reposi
   the agent reads from the pinned tree?), and whether `PRFile`/`pr_files` carry fields no longer used. Trim
   anything stored only to feed the old injection path.
 
-- **Everything on Temporal — this is step 12** (the major step after prompt iteration; design detail here).
+- **Module consolidation — this is step 12** (lands _before_ Temporal; design detail here). The reviewer has two
+  parallel `github_meta` modules: `reviewer/models/github_meta.py` (the pydantic `PRMetadata` / `PRComment` /
+  `PRFile` / `PRFileUpdate`) and `reviewer/tools/github_meta.py` (the **same** three models **plus** the
+  `PRFetcher` / `PRParser` / `PRFilter` GitHub-IO classes). Importers are split: `issues_review.py` /
+  `chunk_analysis.py` / `test_issues_review.py` / `test_chunk_analysis.py` use the `models` copy;
+  `split_pr_into_chunks.py` / `code_context.py` / `run.py` / `conftest.py` / `test_split_pr_into_chunks.py` use the
+  `tools` copy. The pipeline only works because the two model definitions are field-identical and get duck-typed
+  where they meet (e.g. a `tools.PRMetadata` fixture flows into a `_render_prompt` typed for `models.PRMetadata`).
+  That's a latent divergence hazard and the reason step 11's `pr_intent` one-liner is inlined in three renderers
+  instead of shared. **Plan:** keep one model home (the lean `models/github_meta.py` is the natural target — the IO
+  classes can sit beside it or move to a `tools/github_fetch.py` that imports the models), delete the duplicate
+  definitions, re-point every importer, then DRY the `pr_intent` helper into that one module. Pure refactor, no
+  behavior change; land it before Temporal so the workflow rewrite threads a single model set. (The two
+  `split_pr_into_chunks` modules are **not** a duplicate — `models/` is the `Chunk` / `ChunksList` schema, `tools/`
+  is the logic; that's a legitimate split, leave it.)
+
+- **Validator as a team-customizable skill — this is step 13** (lands _before_ Temporal; design detail here).
+  Today the validation stage (`tools/issue_validation.py` + `prompts/issue_validation/*`) sends each chunk's
+  deduped, in-scope issues to a sandbox agent that returns a per-issue keep/drop verdict — but the **criteria for
+  "keep"** are baked into the prompt. Different teams care about different things: one wants only
+  shipping-blockers, another wants style and docs too; the bar for "overengineering / too paranoid / will never
+  happen" is a judgment call that should be **owned by the team, not the prompt**. So move the validation criteria
+  into a **DB-synced LLMA skill** the validator agent **pulls** — the exact step-10 pattern (canonical `SKILL.md`
+  → per-team `LLMSkill` via `lazy_seed.sync_*`, `category="review_validation"`, pull-delivered via `skill-get`,
+  surfaced under its own Skills-UI tab). The validator prompt becomes **criteria-agnostic** (it owns the I/O
+  contract — list of deduped issues in / per-issue verdict out — and the `skill-get` line; the skill owns "what
+  matters"). The default canonical skill encodes the house bar: **keep** real correctness / security / data-loss /
+  contract / performance issues that plausibly affect users; **drop** overengineering, speculative "what if",
+  defensive-coding paranoia, never-gonna-happen edge cases, and pure style — biased toward dropping when uncertain
+  (precision over recall, since a noisy reviewer gets ignored). A team edits its row to retune the bar without
+  touching code. **"Any relevant cases" audit:** the validator is the primary judgment gate; scope-cleaning is
+  deterministic (positional, no LLM — leave it), dedup criteria are mechanical "same issue?" (skill-ify only if a
+  team asks), and report-building is formatting. So this step is **one** validation-criteria skill + the
+  criteria-agnostic prompt; per-perspective validation skills are a later refinement if needed. Reuses step 10's
+  `lazy_seed` / sync-command / pull machinery, so it's cheap once that exists — and landing it before Temporal
+  means the workflow threads the final skill set, not a half-migrated one.
+
+- **Everything on Temporal — this is step 14** (the major step after the validator-skill work; design detail here).
   Rework `run.py main()` into a **single-turn `ReviewPRWorkflow`** parent workflow (one run = one review turn);
   the **loop** is a deferred follow-up (below). Topology, all on a new `products/review_hog/backend/temporal/`
   package:
@@ -631,6 +738,10 @@ git checkout -B <branch> FETCH_HEAD`** (`products/tasks` `get_sandbox_for_reposi
     → activities → three child workflows → activities. Stages exchange only `report_id` + `head_sha` (+ small
     unit-key lists); every consumer reloads its inputs from artefact rows (`persistence.load_*`), so no
     diff / `pr_files` / perspective-results ever cross the workflow boundary (respects the ~2 MiB cap).
+  - **Pin the checkout to `head_sha` (the deferred step-11 keystone):** thread the reviewed commit SHA into the
+    sandbox-turn activities and have `products/tasks` check it out instead of the moving branch tip
+    (`get_sandbox_for_repository.py`), so the working tree == the injected change-set == the persisted snapshot ==
+    the finding line-anchors. This is what makes the by-reference design and the loop safe ("reviewed == recorded").
   - **Per-step split:** parse = inline workflow-code; fetch + diff snapshot = one **activity** (writes the diff
     - a **new `pr_files` artefact** internally, returns a small `ReviewMeta`); validate-integration, schema-gen,
       split-into-chunks, combine+scope-clean, dedup+persist-findings, build-body+finalize, and publish = **activities**;
