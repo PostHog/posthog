@@ -20,6 +20,7 @@ from posthog.schema import (
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import GroupTypeMapping, Organization, PropertyDefinition, Team
+from posthog.persons_db import persons_db_connection
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -49,6 +50,10 @@ class TestSnapshotLoader(BaseTest):
         TEAM_TAXONOMY_QUERY_DATA_SOURCE.clear()
         EVENT_TAXONOMY_QUERY_DATA_SOURCE.clear()
         ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE.clear()
+        # _load_group_type_mappings writes through the off-ORM persons connection, which commits
+        # outside the test transaction; clear rows leaked from prior tests so counts stay deterministic.
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+            cursor.execute("DELETE FROM posthog_grouptypemapping")
 
     def tearDown(self):
         TEAM_TAXONOMY_QUERY_DATA_SOURCE.clear()
