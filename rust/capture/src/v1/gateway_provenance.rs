@@ -28,15 +28,12 @@ type HmacSha256 = Hmac<Sha256>;
 const GATEWAY_PREFIX: &str = "$ai_gateway";
 const VERIFIED_PROPERTY: &str = "$ai_gateway_verified";
 
-/// Property holding the signature-bound request_id. Stamped from the signed
-/// header value (not the client property) so downstream billing can dedup
-/// exemptions by it: a captured signature replayed onto extra events all carry
-/// the same request_id, so they collapse to a single exemption.
+/// Stamped from the signed header (not the client value) so billing can dedup
+/// exemptions by it.
 const REQUEST_ID_PROPERTY: &str = "$ai_gateway_request_id";
 
-/// Counter for every provenance decision that mutates an event, labelled by
-/// `reason` (`verified`, `stale`, `forged`, …). Lets us alert on forgery
-/// attempts (`forged`) and gateway/capture clock skew (`stale`).
+/// Counter on every event-mutating provenance decision, labelled by `reason`
+/// (`verified`/`stale`/`forged`) so forgery and clock skew are alertable.
 pub const PROVENANCE_METRIC: &str = "capture_v1_gateway_provenance";
 
 /// The JSON-key form of `GATEWAY_PREFIX` (a leading quote, no escapes). Used by
@@ -100,8 +97,7 @@ pub enum Provenance {
     Invalid,
 }
 
-/// Verifies the HMAC against the gateway's canonical tuple, then checks freshness.
-/// A bad HMAC is `Invalid`; a good HMAC outside the window is `Stale`.
+/// Verifies the HMAC over the gateway's canonical tuple, then checks freshness.
 pub fn verify(
     secret: &[u8],
     token: &str,
@@ -278,10 +274,9 @@ fn parse_hex4(b: &[u8]) -> Option<u32> {
 }
 
 /// Strips the `$ai_gateway*` namespace from raw properties. Returns `None` when
-/// nothing changed, so the caller keeps the original bytes and avoids a needless
-/// reserialize. Non-object properties (e.g. an array) also return `None`: they
-/// can't carry a marker any downstream `JSONExtract(properties, key)` can read,
-/// so leaving them untouched is safe.
+/// nothing changed, so the caller skips a needless reserialize. A non-object
+/// (e.g. an array) also returns `None`: it can't carry a marker any downstream
+/// `JSONExtract(properties, key)` can read, so it's safe to leave.
 pub fn strip_gateway_raw(properties: &RawValue) -> Option<Box<RawValue>> {
     let mut map: Map<String, Value> = serde_json::from_str(properties.get()).ok()?;
     let before = map.len();

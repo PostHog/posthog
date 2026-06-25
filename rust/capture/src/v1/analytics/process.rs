@@ -162,8 +162,7 @@ fn apply_gateway_provenance(state: &router::State, context: &Context, events: &m
             _ => gp::Provenance::Invalid,
         };
 
-        // Trust needs a non-empty request_id: billing dedups exemptions by it, so
-        // an undedup-able empty nonce isn't trusted.
+        // Trust needs a non-empty request_id — billing dedups exemptions by it.
         let request_id = sig.map(|s| s.request_id.as_str()).unwrap_or_default();
         let trusted = outcome == gp::Provenance::Verified && !request_id.is_empty();
 
