@@ -5307,6 +5307,21 @@ export interface LLMTraceEvent {
     event: AIEventType | string // Allow both specific AI events and other event types
     properties: Record<string, any>
     createdAt: string
+    sentiment?: LLMSentimentResult
+}
+
+export interface LLMSentimentMessage {
+    label: string
+    score: number
+    scores?: Record<string, number>
+}
+
+export interface LLMSentimentResult {
+    label: string
+    score: number
+    scores?: Record<string, number>
+    messages?: Record<string, LLMSentimentMessage>
+    message_count?: number
 }
 
 // Snake-case here for the DataTable component.
@@ -5338,6 +5353,7 @@ export interface LLMTrace {
     events: LLMTraceEvent[]
     isSupportTrace?: boolean
     tools?: string[]
+    sentiment?: LLMSentimentResult
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -5362,6 +5378,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
+    /** Include stored sentiment evaluation results for returned traces and direct generation events. */
+    includeSentiment?: boolean
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean
 }
@@ -5378,6 +5396,8 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     kind: NodeKind.TraceQuery
     traceId: string
     dateRange?: DateRange
+    /** Include stored sentiment evaluation results for the trace and its generations. */
+    includeSentiment?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
 }
@@ -6951,6 +6971,8 @@ export const externalDataSources = [
     'Leexi',
     'RB2B',
     'Superwall',
+    'Liana',
+    'TawkTo',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

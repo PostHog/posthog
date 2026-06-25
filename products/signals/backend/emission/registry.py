@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.types import ExternalDataSourceType
+    from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class InternalSourceType(str, enum.Enum):
@@ -114,7 +114,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
     from products.signals.backend.emission.pganalyze_issues import PGANALYZE_ISSUES_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
-    from products.warehouse_sources.backend.types import ExternalDataSourceType
+    from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
     register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
     register_signal_source(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)

@@ -3,6 +3,9 @@ import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { parseJSON } from '~/common/utils/json-parse'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { drop, ok, redirect } from '~/ingestion/framework/results'
@@ -11,9 +14,6 @@ import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessio
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { parseJSON } from '~/utils/json-parse'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 import { createSessionReplayPipeline, runSessionReplayPipeline } from './session-replay-pipeline'
 

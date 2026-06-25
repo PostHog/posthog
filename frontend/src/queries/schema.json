@@ -21484,7 +21484,9 @@
                 "Knock",
                 "Leexi",
                 "RB2B",
-                "Superwall"
+                "Superwall",
+                "Liana",
+                "TawkTo"
             ],
             "type": "string"
         },
@@ -25197,6 +25199,53 @@
             "required": ["type"],
             "type": "object"
         },
+        "LLMSentimentMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "number"
+                },
+                "scores": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["label", "score"],
+            "type": "object"
+        },
+        "LLMSentimentResult": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "message_count": {
+                    "type": "number"
+                },
+                "messages": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/LLMSentimentMessage"
+                    },
+                    "type": "object"
+                },
+                "score": {
+                    "type": "number"
+                },
+                "scores": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["label", "score"],
+            "type": "object"
+        },
         "LLMTrace": {
             "additionalProperties": false,
             "properties": {
@@ -25244,6 +25293,9 @@
                 "requestCost": {
                     "type": "number"
                 },
+                "sentiment": {
+                    "$ref": "#/definitions/LLMSentimentResult"
+                },
                 "tools": {
                     "items": {
                         "type": "string"
@@ -25287,6 +25339,9 @@
                 },
                 "properties": {
                     "type": "object"
+                },
+                "sentiment": {
+                    "$ref": "#/definitions/LLMSentimentResult"
                 }
             },
             "required": ["id", "event", "properties", "createdAt"],
@@ -43205,6 +43260,10 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "includeSentiment": {
+                    "description": "Include stored sentiment evaluation results for the trace and its generations.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "TraceQuery",
                     "type": "string"
@@ -43879,6 +43938,10 @@
                 },
                 "groupTypeIndex": {
                     "$ref": "#/definitions/integer"
+                },
+                "includeSentiment": {
+                    "description": "Include stored sentiment evaluation results for returned traces and direct generation events.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "TracesQuery",
