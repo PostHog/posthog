@@ -63,8 +63,24 @@ export const sessionReplayWidgetSavedFiltersLogic = kea<sessionReplayWidgetSaved
                 Object.fromEntries(collectionOptions.map((option) => [option.value, option.label])),
         ],
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadSavedFilters()
         actions.loadCollections()
+        // The "Create a collection / saved filter" shortcuts open session replay in a new tab. Reload both
+        // lists when the user returns so a just-created collection/filter is selectable without a page refresh.
+        cache.disposables.add(
+            () => {
+                const handler = (): void => {
+                    if (document.visibilityState === 'visible') {
+                        actions.loadSavedFilters()
+                        actions.loadCollections()
+                    }
+                }
+                document.addEventListener('visibilitychange', handler)
+                return () => document.removeEventListener('visibilitychange', handler)
+            },
+            'reloadOnTabFocus',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])

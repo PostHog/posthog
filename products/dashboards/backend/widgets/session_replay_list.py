@@ -15,7 +15,7 @@ from posthog.session_recordings.playlist_filters import convert_playlist_to_reco
 from posthog.session_recordings.session_recording_api import run_recordings_list_query
 from posthog.session_recordings.utils import filter_from_params_to_query, recordings_query_has_event_filters
 
-from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
+from products.dashboards.backend.constants import MAX_COLLECTION_SESSION_IDS, MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import SESSION_REPLAY_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.dashboards.backend.widgets.config import resolve_filter_test_accounts
@@ -82,12 +82,13 @@ def _build_collection_session_ids(team: Team, collection_id: str, user: User | N
         return None
 
     # Legacy items can have a null recording FK (they used the deprecated session_id field instead); skip
-    # them so no None leaks into session_ids and corrupts the ClickHouse IN clause.
+    # them so no None leaks into session_ids and corrupts the ClickHouse IN clause. Cap the count so a huge
+    # collection can't blow up the materialized list or the ClickHouse IN clause (the widget shows far fewer).
     return list(
         SessionRecordingPlaylistItem.objects.filter(playlist=playlist, recording__isnull=False)
         .exclude(deleted=True)
         .order_by("-created_at")
-        .values_list("recording_id", flat=True)
+        .values_list("recording_id", flat=True)[:MAX_COLLECTION_SESSION_IDS]
     )
 
 
