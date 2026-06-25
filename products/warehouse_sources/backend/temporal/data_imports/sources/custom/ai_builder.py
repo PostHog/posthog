@@ -29,6 +29,7 @@ from openai import OpenAI
 
 from posthog.llm.gateway_client import Product, get_llm_client
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
     CustomSource,
@@ -131,13 +132,12 @@ def fetch_docs_text(url: str) -> str:
     """Fetch an API docs page and return its text. HTML is reduced to visible text; other content
     types are returned as-is. Relies on Smokescreen for SSRF protection — do NOT bypass the proxy.
     """
+    # Tracked session (HTTP logging/metrics), as the data-imports transport rule requires. Egress is
+    # filtered by Smokescreen, so we don't re-validate the host here; capture=False keeps this one-off
+    # request out of sync-sample capture.
+    session = make_tracked_session(headers={"User-Agent": DOCS_FETCH_USER_AGENT}, capture=False)
     try:
-        with requests.get(
-            url,
-            timeout=DOCS_FETCH_TIMEOUT,
-            stream=True,
-            headers={"User-Agent": DOCS_FETCH_USER_AGENT},
-        ) as response:
+        with session.get(url, timeout=DOCS_FETCH_TIMEOUT, stream=True) as response:
             response.raise_for_status()
             content_type = response.headers.get("content-type", "")
             raw = b""
