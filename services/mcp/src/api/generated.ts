@@ -39661,8 +39661,8 @@ export namespace Schemas {
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       emit?: boolean;
       /**
-         * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
-         * @minimum 10
+         * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+         * @minimum 30
          * @maximum 43200
          */
       run_interval_minutes?: number;
@@ -46903,8 +46903,8 @@ export namespace Schemas {
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       emit?: boolean;
       /**
-         * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
-         * @minimum 10
+         * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+         * @minimum 30
          * @maximum 43200
          */
       run_interval_minutes?: number;
@@ -46933,8 +46933,8 @@ export namespace Schemas {
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
       emit?: boolean;
       /**
-         * Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).
-         * @minimum 10
+         * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+         * @minimum 30
          * @maximum 43200
          */
       run_interval_minutes?: number;

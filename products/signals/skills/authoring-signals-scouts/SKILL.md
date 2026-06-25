@@ -130,7 +130,7 @@ config on the default every-24-hours schedule on its next tick (up to ~30 min). 
 **existing scout**, tune with `posthog:signals-scout-config-update` (find the `id` via
 `-config-list`):
 
-- `run_interval_minutes` — 10 to 43200. Default 1440 (every 24 hours). Slow a chatty or
+- `run_interval_minutes` — 30 to 43200. Default 1440 (every 24 hours). Slow a chatty or
   expensive scout by raising this.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
 - `emit` — defaults to **`true`**: the scout writes its findings straight to the inbox. The
