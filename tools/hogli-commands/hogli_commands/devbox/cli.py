@@ -1426,7 +1426,7 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
     ws = _get_workspace_or_fail(source_name, workspaces)
 
     owner = get_username()
-    if str(ws.get("owner_name", "")).lower() not in ("", owner):
+    if str(ws.get("owner_name") or "").lower() not in ("", owner):
         _fail("You can only clone your own devbox.")
 
     template = ws.get("template_name") or DEFAULT_TEMPLATE
