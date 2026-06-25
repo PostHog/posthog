@@ -172,8 +172,7 @@ def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.Data
 
 def list_jobs_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataJob]:
     qs = (
-        _ExternalDataJob.objects.select_related("schema")
-        .prefetch_related("pipeline")
+        _ExternalDataJob.objects.select_related("schema", "pipeline")
         .filter(team_id=team_id, pipeline_id=source_id)
         .order_by("-created_at")
     )

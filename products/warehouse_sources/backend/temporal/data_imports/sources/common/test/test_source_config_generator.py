@@ -18,7 +18,6 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.management.commands.generate_source_configs import SourceConfigGenerator
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 

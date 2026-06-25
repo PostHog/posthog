@@ -68,7 +68,10 @@ def fake_redis():
     client.scan.side_effect = _scan
     client._store = store
 
-    with patch("products.warehouse_sources.backend.management.commands.warehouse_sources_capture_grpc_samples.get_client", return_value=client):
+    with patch(
+        "products.warehouse_sources.backend.management.commands.warehouse_sources_capture_grpc_samples.get_client",
+        return_value=client,
+    ):
         yield client
 
 
