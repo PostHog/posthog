@@ -1130,7 +1130,10 @@ class CDCExtractActivity:
         # is visible — but only once retries are exhausted or the error is non-retryable, otherwise
         # every transient retry would leave a stray failed row.
         if not self.created_jobs and (activity.info().attempt >= CDC_MAX_EXTRACTION_ATTEMPTS or not info.retryable):
-            self._create_failure_visibility_jobs(friendly)
+            try:
+                self._create_failure_visibility_jobs(friendly)
+            except Exception:
+                self.log.warning("cdc_failure_visibility_jobs_failed", exc_info=True)
         self._emit_run_duration("failed")
         return info
 
