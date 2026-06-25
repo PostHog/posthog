@@ -3,11 +3,11 @@ import { merge as mergeDeep } from 'lodash'
 import { Settings } from 'luxon'
 
 import { getTransformationFunctions } from '~/cdp/hog-transformations/transformation-functions'
+import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { formatLiquidInput } from '~/cdp/services/hog-inputs.service'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { isNativeHogFunction } from '~/cdp/utils'
 import { defaultConfig } from '~/config/config'
-import { CyclotronInputType } from '~/schema/cyclotron'
 import { GeoIPService, GeoIp } from '~/utils/geoip'
 
 import { PluginsServerConfig } from '../../../types'
