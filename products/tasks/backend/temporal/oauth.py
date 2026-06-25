@@ -16,10 +16,11 @@ __all__ = [
     "ARRAY_APP_CLIENT_ID_US",
     "create_oauth_access_token",
     "create_oauth_access_token_for_user",
+    "oauth_application_for_task",
 ]
 
 
-def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
+def oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
     if task.origin_product == Task.OriginProduct.POSTHOG_AI:
         return "posthog_ai"
     return "array"
@@ -41,7 +42,7 @@ def create_oauth_access_token(task: Task, *, scopes: PosthogMcpScopes = "read_on
         task.created_by,
         task.team_id,
         scopes=scopes,
-        application=_oauth_application_for_task(task),
+        application=oauth_application_for_task(task),
     )
 
 

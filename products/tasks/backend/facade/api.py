@@ -149,6 +149,7 @@ __all__ = [
     "read_task_run_logs",
     "read_task_run_session_log_content",
     "redeem_code_invite",
+    "refresh_sandbox_mcp_for_user",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
     "reset_code_workflow_bindings",
@@ -3624,3 +3625,30 @@ def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):
 
     run = TaskRun.objects.select_related("task").get(id=run_id)
     return _send_cancel(run, auth_token=auth_token)
+
+
+def refresh_sandbox_mcp_for_user(
+    run_id: str | UUID,
+    user_id: int,
+    *,
+    scopes: str = "full",
+    auth_token: str | None = None,
+    force: bool = False,
+):
+    """Mint an MCP OAuth token scoped to ``user_id`` and push fresh MCP server
+    configs into a run's live sandbox so subsequent agent actions act under
+    that user's identity.
+
+    Used by Slack follow-ups when a teammate other than the original task
+    creator takes over the conversation, so PostHog MCP writes are attributed
+    to the live actor rather than the long-gone task creator.
+    """
+    from posthog.models import User  # noqa: PLC0415 — keep ORM off the api import path
+
+    from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        refresh_sandbox_mcp_for_user as _refresh,
+    )
+
+    run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
+    user = User.objects.get(id=user_id)
+    return _refresh(run, user, scopes=scopes, auth_token=auth_token, force=force)

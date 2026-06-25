@@ -556,12 +556,14 @@ def forward_posthog_code_followup_activity(
     slack = SlackIntegration(integration)
 
     followup_user_text_prefix: str | None = None
+    actor_user = mapping.task.created_by
     if slack_user_id != mapping.mentioning_slack_user_id:
-        # The follow-up is from a different Slack user than the one who started the
-        # thread. Try to resolve them to a PostHog user with access to the same team
-        # — if so, let them participate; the message is still relayed in the original
-        # author's name (their sandbox token, their identity to the agent), with the
-        # actual sender's name prefixed onto the text so the agent sees who spoke.
+        # Follow-up from someone other than the original mentioner. Resolve them to a
+        # PostHog user with access to the same team; if they qualify, they participate
+        # under their own identity — the sandbox JWT and the PostHog MCP OAuth token
+        # are both rebound to them via send_refresh_session below, so their actions
+        # (insights, dashboards, etc.) attribute to them rather than the task creator.
+        # The actor's name is still prefixed onto the text so the agent sees who spoke.
         resolved = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
         if not resolved:
             logger.info(
@@ -577,6 +579,7 @@ def forward_posthog_code_followup_activity(
         # into the LLM-forwarded prefix when both name and slack_email are absent.
         actor_name = resolved.user.get_full_name() or resolved.slack_email or resolved.user.email
         followup_user_text_prefix = f"{actor_name}: "
+        actor_user = resolved.user
         logger.info(
             "posthog_code_followup_cross_user_authorized",
             channel=channel,
@@ -676,12 +679,35 @@ def forward_posthog_code_followup_activity(
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
     auth_token = None
-    created_by = mapping.task.created_by
-    if created_by and created_by.id:
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
+    if actor_user and actor_user.id:
+        distinct_id = actor_user.distinct_id or f"user_{actor_user.id}"
         auth_token = tasks_facade.create_sandbox_connection_token(
-            task_run.id, user_id=created_by.id, distinct_id=distinct_id
+            task_run.id, user_id=actor_user.id, distinct_id=distinct_id
         )
+
+    # On cross-user follow-ups, swap the agent's PostHog MCP credentials to the live
+    # actor *before* sending the message — so the next ACP query mints insights /
+    # dashboards under their identity, not the original creator's. ``force=True``
+    # bypasses the per-(run, user) rate limit so an identity transition is never
+    # silently skipped. -32002 (mid-turn) is best-effort: we log and proceed —
+    # ``send_user_message`` will queue under the *old* identity, which is a known
+    # downside we accept rather than dropping the user's message.
+    if actor_user and actor_user.id and mapping.task.created_by_id and actor_user.id != mapping.task.created_by_id:
+        try:
+            tasks_facade.refresh_sandbox_mcp_for_user(
+                task_run.id,
+                actor_user.id,
+                scopes="full",
+                auth_token=auth_token,
+                force=True,
+            )
+        except Exception:
+            logger.exception(
+                "posthog_code_followup_mcp_reauth_failed",
+                channel=channel,
+                thread_ts=thread_ts,
+                actor_user_id=actor_user.id,
+            )
 
     result = tasks_facade.send_user_message(task_run.id, user_text, auth_token=auth_token, timeout=90)
     if not result.success and result.retryable and result.status_code != 504:

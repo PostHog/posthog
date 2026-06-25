@@ -21,7 +21,7 @@ from products.tasks.backend.logic.services.staged_artifacts import get_task_run_
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_dedicated_stream
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_user, oauth_application_for_task
 from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,
     get_user_mcp_server_configs,
@@ -117,25 +117,60 @@ def _refresh_sandbox_mcp(
     scopes: PosthogMcpScopes,
     auth_token: str | None,
 ) -> None:
-    """Mint a fresh OAuth token and push updated MCP configs to the sandbox.
+    """Best-effort MCP refresh for the web-layer follow-up flow.
 
-    Best-effort: retries once on failure, then logs and returns. Never raises
-    — a failed refresh should not block an otherwise-valid follow-up.
+    Scopes the OAuth token to the task creator; the web-layer follow-up signal
+    has no per-turn actor concept. The Slack follow-up path calls
+    :func:`refresh_sandbox_mcp_for_user` directly so the live mentioner's
+    identity is used.
+    """
+    created_by = task_run.task.created_by
+    if not created_by:
+        logger.info("refresh_mcp_skipped_no_user", run_id=str(task_run.id))
+        return
+    refresh_sandbox_mcp_for_user(task_run, created_by, scopes=scopes, auth_token=auth_token)
 
-    Skipped entirely if a token was issued for this run within the last
-    MCP_TOKEN_REFRESH_INTERVAL_SECONDS — the in-sandbox token is still fresh.
+
+def refresh_sandbox_mcp_for_user(
+    task_run: TaskRun,
+    user: Any,
+    *,
+    scopes: PosthogMcpScopes,
+    auth_token: str | None,
+    force: bool = False,
+) -> CommandResult | None:
+    """Mint a fresh OAuth token scoped to ``user`` and push updated MCP configs
+    to the sandbox via ``send_refresh_session``.
+
+    Retries once on failure, then logs and returns. Never raises — a failed
+    refresh should not block an otherwise-valid follow-up.
+
+    Rate-limited per ``(run_id, user_id)``: skipped if the same user already
+    had a token issued within the ``MCP_TOKEN_REFRESH_INTERVAL_SECONDS`` window,
+    unless ``force=True``. Cross-user transitions (Slack follow-ups by a
+    teammate other than the task creator) pass ``force=True`` so the identity
+    swap isn't blocked by a recent same-run refresh.
+
+    Returns the last ``CommandResult`` from ``send_refresh_session``, or
+    ``None`` when skipped (rate limit, no configs, mint failure).
     """
     run_id = str(task_run.id)
-    if not should_refresh_mcp_token(run_id):
-        logger.info("refresh_mcp_skipped_within_interval", run_id=run_id)
-        return
+    rate_limit_key = f"{run_id}:{user.id}"
+    if not force and not should_refresh_mcp_token(rate_limit_key):
+        logger.info("refresh_mcp_skipped_within_interval", run_id=run_id, user_id=user.id)
+        return None
 
     task = task_run.task
     try:
-        access_token = create_oauth_access_token(task, scopes=scopes)
+        access_token = create_oauth_access_token_for_user(
+            user,
+            task_run.team_id,
+            scopes=scopes,
+            application=oauth_application_for_task(task),
+        )
     except Exception as e:
-        logger.warning("refresh_mcp_token_mint_failed", run_id=run_id, error=str(e))
-        return
+        logger.warning("refresh_mcp_token_mint_failed", run_id=run_id, user_id=user.id, error=str(e))
+        return None
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
@@ -144,19 +179,18 @@ def _refresh_sandbox_mcp(
         interaction_origin=(task_run.state or {}).get("interaction_origin"),
         task_id=str(task_run.task_id),
     )
-    if task.created_by_id:
-        user_mcp_configs = get_user_mcp_server_configs(
-            token=access_token,
-            team_id=task_run.team_id,
-            user_id=task.created_by_id,
-            interaction_origin=(task_run.state or {}).get("interaction_origin"),
-        )
-        if user_mcp_configs:
-            mcp_configs = mcp_configs + user_mcp_configs
+    user_mcp_configs = get_user_mcp_server_configs(
+        token=access_token,
+        team_id=task_run.team_id,
+        user_id=user.id,
+        interaction_origin=(task_run.state or {}).get("interaction_origin"),
+    )
+    if user_mcp_configs:
+        mcp_configs = mcp_configs + user_mcp_configs
 
     if not mcp_configs:
-        logger.info("refresh_mcp_skipped_no_configs", run_id=run_id)
-        return
+        logger.info("refresh_mcp_skipped_no_configs", run_id=run_id, user_id=user.id)
+        return None
 
     mcp_servers = [config.to_dict() for config in mcp_configs]
 
@@ -167,13 +201,14 @@ def _refresh_sandbox_mcp(
         timeout=REFRESH_TIMEOUT_SECONDS,
     )
     if result.success:
-        mark_mcp_token_issued(run_id)
-        logger.info("refresh_mcp_delivered", run_id=run_id, attempts=1)
-        return
+        mark_mcp_token_issued(rate_limit_key)
+        logger.info("refresh_mcp_delivered", run_id=run_id, user_id=user.id, attempts=1)
+        return result
 
     logger.info(
         "refresh_mcp_retrying",
         run_id=run_id,
+        user_id=user.id,
         error=result.error,
         status_code=result.status_code,
     )
@@ -185,16 +220,18 @@ def _refresh_sandbox_mcp(
         timeout=REFRESH_TIMEOUT_SECONDS,
     )
     if retry.success:
-        mark_mcp_token_issued(run_id)
-        logger.info("refresh_mcp_delivered", run_id=run_id, attempts=2)
-        return
+        mark_mcp_token_issued(rate_limit_key)
+        logger.info("refresh_mcp_delivered", run_id=run_id, user_id=user.id, attempts=2)
+        return retry
 
     logger.warning(
         "refresh_mcp_failed",
         run_id=run_id,
+        user_id=user.id,
         error=retry.error,
         status_code=retry.status_code,
     )
+    return retry
 
 
 def _get_stop_reason(result_data: dict[str, Any] | None) -> str:
