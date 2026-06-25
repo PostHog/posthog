@@ -95,6 +95,7 @@ from posthog.clickhouse.client.limit import (
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
+from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
@@ -2239,6 +2240,16 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
+
+        # Don't include restricted resources/objects in cache_payload if the ACCESS_CONTROL
+        # feature is unavailable and a user is provided (i.e. not a userless query or a project token)
+        user = cast("Optional[User | SyntheticUser]", self.user)
+        if (
+            user is not None
+            and not isinstance(user, SyntheticUser)
+            and not self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+        ):
+            return payload
 
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
