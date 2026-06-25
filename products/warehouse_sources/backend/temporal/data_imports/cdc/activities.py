@@ -977,6 +977,7 @@ class CDCExtractActivity:
         their WAL is intentionally dropped. Re-reading instead would re-add already-flushed
         events and duplicate SCD2 history rows.
         """
+        assert self.batcher is not None
         if self.batcher.event_count > 0:
             tables = self.batcher.flush()
             self.all_table_names.update(tables.keys())
