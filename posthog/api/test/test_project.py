@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
@@ -671,13 +673,17 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Regression: get_product_intents used to call calculate_product_activation.delay()
         # on every retrieve, which 500s the whole endpoint when the broker is down. It now
         # goes through the debounced helper, which fails open on broker errors.
+        # Clear the cache so the debounce key is unset and the enqueue path actually runs —
+        # otherwise the patched .delay() is never reached and this test passes vacuously.
+        cache.clear()
         with patch(
             "posthog.models.product_intent.product_intent.calculate_product_activation.delay",
             side_effect=Exception("broker is unavailable"),
-        ):
+        ) as mock_delay:
             response = self.client.get(f"/api/projects/{self.project.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIn("product_intents", response.json())
+        mock_delay.assert_called_once()
 
     def test_new_passthrough_field_writes_through_to_team(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
