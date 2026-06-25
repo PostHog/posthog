@@ -358,5 +358,49 @@ describe('fallbackStreamFn', () => {
             // b leads, but its policy index (1) is what analytics records.
             expect(onAttempt).toHaveBeenCalledWith(1, expect.objectContaining({ id: 'b' }))
         })
+
+        it('cost: pins the PRIMARY when it serves first, and still will not fall over if it later fails', async () => {
+            // The common case: the primary is healthy on turn 0, so cost pins it
+            // and never even considers the fallback — including on a later failure.
+            const tried: string[][] = []
+            const turn = { n: 0 }
+            const base = turnRoutedBase(tried, turn, (t, id) =>
+                t === 1 && id === 'a' ? preCommitError('503') : success(id)
+            )
+            const fn = fallbackStreamFn(base, models(['a', 'b'])) // cost default
+            await drive2(fn) // turn 0: primary a serves → pin = a (b never tried)
+            turn.n = 1
+            const { result } = await drive2(fn) // turn 1: a fails; cost must NOT try b
+            expect(tried[0]).toEqual(['a'])
+            expect(tried[1]).toEqual(['a'])
+            expect(result.stopReason).toBe('error')
+        })
+
+        it('availability: a stuck MIDDLE model leads, then the rest follow in ORIGINAL priority order', async () => {
+            // 3 models a,b,c with served=b. Order must be [b, a, c]: sticky lead
+            // first, then the remaining models in priority order (a before c) —
+            // exercises the reorder beyond the trivial 2-model case. b and a fail
+            // so the whole fall-through order is observable.
+            const tried: string[][] = []
+            const turn = { n: 0 }
+            const base = turnRoutedBase(tried, turn, (_t, id) => (id === 'c' ? success(id) : preCommitError('503')))
+            const fn = fallbackStreamFn(base, models(['a', 'b', 'c']), undefined, {
+                optimizeFor: 'availability',
+                initialServedId: 'b',
+            })
+            const { result } = await drive2(fn)
+            expect(tried[0]).toEqual(['b', 'a', 'c'])
+            expect(result.content).toEqual([{ type: 'text', text: 'c' }])
+        })
+
+        it('ignores a stale initialServedId no longer in the list and walks from the primary', async () => {
+            // e.g. the pinned model was dropped from the policy between runs.
+            const tried: string[][] = []
+            const turn = { n: 0 }
+            const base = turnRoutedBase(tried, turn, (_t, id) => success(id))
+            const fn = fallbackStreamFn(base, models(['a', 'b']), undefined, { initialServedId: 'ghost' })
+            await drive2(fn)
+            expect(tried[0]).toEqual(['a'])
+        })
     })
 })
