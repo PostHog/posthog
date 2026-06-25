@@ -41,6 +41,22 @@ export function isDistinctIdFilter(property: AnyPropertyFilter): boolean {
     return property.type === PropertyFilterType.Person && property.key === 'distinct_id'
 }
 
+// Flag-dependency filters store the numeric flag ID in `key`. Backfill the human-readable flag
+// key onto `label` (which every display surface prefers) so the UI never shows a bare ID once
+// `getFlagKey` has resolved it. Leaves filters untouched when the key can't be resolved yet.
+export function withResolvedFlagLabels(
+    properties: AnyPropertyFilter[] | undefined,
+    getFlagKey: (flagId: string) => string
+): AnyPropertyFilter[] {
+    return (properties ?? []).map((property) => {
+        if (property.type !== PropertyFilterType.Flag || !property.key || property.label) {
+            return property
+        }
+        const resolved = getFlagKey(property.key)
+        return resolved && resolved !== property.key ? { ...property, label: resolved } : property
+    })
+}
+
 // Server caps batch_by_distinct_ids per request; chunk client-side so every id resolves.
 const DISTINCT_ID_BATCH_SIZE = 200
 

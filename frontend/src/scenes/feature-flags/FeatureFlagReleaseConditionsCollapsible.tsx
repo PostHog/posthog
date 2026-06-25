@@ -84,6 +84,7 @@ import {
     FeatureFlagGroupTypeWithSortKey,
     featureFlagReleaseConditionsLogic,
     isDistinctIdFilter,
+    withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
@@ -115,7 +116,8 @@ type MatchByOption = {
 function summarizeProperties(
     properties: AnyPropertyFilter[],
     aggregationTargetName: string,
-    getDistinctIdName: (distinctId: string) => string
+    getDistinctIdName: (distinctId: string) => string,
+    getFlagKey: (flagId: string) => string
 ): string {
     if (!properties || properties.length === 0) {
         // Capitalize first letter of aggregation target name
@@ -128,7 +130,7 @@ function summarizeProperties(
         if (property.type === PropertyFilterType.Cohort) {
             key = 'Cohort'
         } else if (property.type === PropertyFilterType.Flag) {
-            key = property.label || property.key || 'flag'
+            key = property.label || (property.key ? getFlagKey(property.key) : '') || 'flag'
         } else {
             key = property.key || 'property'
         }
@@ -177,6 +179,7 @@ interface ConditionHeaderProps {
     affectedCount: number | undefined
     aggregationTargetName: string
     getDistinctIdName: (distinctId: string) => string
+    getFlagKey: (flagId: string) => string
     onDuplicate: () => void
     onRemove: () => void
 }
@@ -188,12 +191,14 @@ function ConditionHeader({
     affectedCount,
     aggregationTargetName,
     getDistinctIdName,
+    getFlagKey,
     onDuplicate,
     onRemove,
 }: ConditionHeaderProps): JSX.Element {
     // Use description if available, otherwise summarize the filters
     const summary =
-        group.description || summarizeProperties(group.properties || [], aggregationTargetName, getDistinctIdName)
+        group.description ||
+        summarizeProperties(group.properties || [], aggregationTargetName, getDistinctIdName, getFlagKey)
     const rollout = group.rollout_percentage ?? 100
 
     const actualCount =
@@ -331,6 +336,7 @@ interface ConditionProps {
     totalCounts: Record<string, number | undefined>
     aggregationTargetName: (conditionGroupTypeIndex?: number | null) => string
     getDistinctIdName: (distinctId: string) => string
+    getFlagKey: (flagId: string) => string
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     groupTypes: Map<GroupTypeIndex, GroupType>
     setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
@@ -400,6 +406,7 @@ const ConditionContent = ({
     totalCounts,
     aggregationTargetName,
     getDistinctIdName,
+    getFlagKey,
     taxonomicGroupTypesForCondition,
     groupTypes,
     setConditionAggregation,
@@ -529,6 +536,7 @@ const ConditionContent = ({
                                 affectedCount={group.sort_key ? affectedCounts[group.sort_key] : undefined}
                                 aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
                                 getDistinctIdName={getDistinctIdName}
+                                getFlagKey={getFlagKey}
                                 onDuplicate={onDuplicate}
                                 onRemove={onRemove}
                             />
@@ -604,7 +612,7 @@ const ConditionContent = ({
                                         <PropertyFilters
                                             orFiltering={true}
                                             pageKey={`feature-flag-workflow-${id}-${group.sort_key!}`}
-                                            propertyFilters={group?.properties}
+                                            propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
                                             logicalRowDivider
                                             addText="Add filter"
                                             onChange={(properties) => {
@@ -831,6 +839,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         totalCounts,
         aggregationTargetName,
         getDistinctIdName,
+        getFlagKey,
         taxonomicGroupTypesForCondition,
         filters: releaseFilters,
         groupTypes,
@@ -929,7 +938,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                         summarizeProperties(
                             group.properties || [],
                             aggregationTargetName(group.aggregation_group_type_index),
-                            getDistinctIdName
+                            getDistinctIdName,
+                            getFlagKey
                         )
                     const rollout = group.rollout_percentage ?? 100
                     return (
@@ -1227,6 +1237,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 totalCounts={totalCounts}
                                                 aggregationTargetName={aggregationTargetName}
                                                 getDistinctIdName={getDistinctIdName}
+                                                getFlagKey={getFlagKey}
                                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                                 groupTypes={groupTypes}
                                                 setConditionAggregation={setConditionAggregation}
@@ -1269,7 +1280,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 aggregationTargetName(
                                                                     draggedGroup.aggregation_group_type_index
                                                                 ),
-                                                                getDistinctIdName
+                                                                getDistinctIdName,
+                                                                getFlagKey
                                                             )}
                                                     </span>
                                                 </div>
@@ -1302,6 +1314,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         totalCounts={totalCounts}
                                         aggregationTargetName={aggregationTargetName}
                                         getDistinctIdName={getDistinctIdName}
+                                        getFlagKey={getFlagKey}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
@@ -1352,6 +1365,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         totalCounts={totalCounts}
                                         aggregationTargetName={aggregationTargetName}
                                         getDistinctIdName={getDistinctIdName}
+                                        getFlagKey={getFlagKey}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
@@ -1384,6 +1398,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 totalCounts={totalCounts}
                                 aggregationTargetName={aggregationTargetName}
                                 getDistinctIdName={getDistinctIdName}
+                                getFlagKey={getFlagKey}
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                 groupTypes={groupTypes}
                                 setConditionAggregation={setConditionAggregation}
