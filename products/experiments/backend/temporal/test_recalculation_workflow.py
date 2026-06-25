@@ -166,6 +166,10 @@ class TestExperimentMetricsRecalculationWorkflow:
         # counted as failed (the final attempt persists the failure inside the real activity).
         metrics = [_metric("m1")]
         attempts: dict[str, int] = {}
+        # is_final_attempt is the only signal that tells the real activity to persist the failure. Track it
+        # per call so we can assert the workflow flips it to True exactly on the last attempt; otherwise a
+        # run would be counted failed here while the metric row stayed in its loading state forever.
+        is_final_attempt_log: list[bool] = []
 
         @activity.defn(name="discover_experiment_metrics")
         async def mock_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
@@ -185,12 +189,15 @@ class TestExperimentMetricsRecalculationWorkflow:
             is_final_attempt: bool = True,
         ) -> MetricRecalculationResult:
             attempts[metric_uuid] = attempts.get(metric_uuid, 0) + 1
+            is_final_attempt_log.append(is_final_attempt)
             raise RuntimeError("always fails")
 
         result = await _run_workflow([mock_discover, mock_update_progress, mock_calculate])
 
         assert result == {"total": 1, "succeeded": 0, "failed": 1}
         assert attempts["m1"] == MAX_METRIC_ATTEMPTS
+        # Only the final attempt is flagged final; earlier attempts must not be, or they'd persist early.
+        assert is_final_attempt_log == [False] * (MAX_METRIC_ATTEMPTS - 1) + [True]
 
     @parameterized.expand(
         [
