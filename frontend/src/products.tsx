@@ -244,6 +244,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
     '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
+    '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
     '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
         'EngineeringAnalyticsPullRequest',
         'engineeringAnalyticsPullRequest',
@@ -1068,6 +1069,7 @@ export const productUrls = {
     },
     engineeringAnalytics: (): string => '/engineering-analytics',
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
+    engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
         `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull/${number}`,
     engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>

@@ -1813,6 +1813,8 @@ class ExternalDataSourceType(StrEnum):
     RB2_B = "RB2B"
     SUPERWALL = "Superwall"
     LIANA = "Liana"
+    TAWK_TO = "TawkTo"
+    HIGHTOUCH = "Hightouch"
 
 
 class ExternalQueryErrorCode(StrEnum):

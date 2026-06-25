@@ -839,7 +839,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @tracer.start_as_current_span("team_serializer.managed_viewsets")
     def get_managed_viewsets(self, obj):
         from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
+        from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
         enabled_set = set(enabled_viewsets)
@@ -1640,7 +1640,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if "events" in validated_data:
             from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-            from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
+            from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=instance,
@@ -2413,6 +2413,12 @@ def validate_team_attrs(
 ) -> dict[str, Any]:
     if instance is not None:
         admin_fields_touched = TEAM_CONFIG_ADMIN_FIELDS_SET & attrs.keys()
+        # `app_urls` (the toolbar / web analytics authorized URLs) carries a `field_access_control`
+        # tying it to web analytics editor access. When access controls are enabled, defer to that
+        # field-level check instead of the blanket project-admin gate, so a web analytics editor can
+        # manage authorized URLs. Without access controls we keep the stricter admin-only behavior.
+        if view.user_access_control.access_controls_supported:
+            admin_fields_touched = admin_fields_touched - {"app_urls"}
         if admin_fields_touched:
             team_for_check = instance if isinstance(instance, Team) else instance.passthrough_team
             level = view.user_permissions.team(team_for_check).effective_membership_level

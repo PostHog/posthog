@@ -442,6 +442,7 @@ doesn't conflict with concurrent PRs.
 - helpscout
 - hibob
 - high_level
+- hightouch
 - hoorayhr
 - hubplanner
 - hugging_face
@@ -656,6 +657,7 @@ doesn't conflict with concurrent PRs.
 - svix
 - systeme
 - tavus
+- tawk_to
 - teamtailor
 - tempo
 - testrail

@@ -21,7 +21,7 @@ read layer maps them into these types. Reviewers, deploys, and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 from pydantic.dataclasses import dataclass
@@ -79,6 +79,32 @@ class PRLifecycleEventKind(StrEnum):
     CI_FINISHED = "ci_finished"
     MERGED = "merged"
     CLOSED = "closed"
+
+
+class QuarantineMode(StrEnum):
+    # "run": the test still executes but cannot fail the suite. "skip": not run at all.
+    RUN = "run"
+    SKIP = "skip"
+
+
+class QuarantineLifecycle(StrEnum):
+    """Where an entry sits relative to its expiry: ``active`` (more than 7 days
+    left), ``expiring_soon`` (7 days or fewer left), ``in_grace`` (expired up to
+    7 days ago — inert, but its removal is not yet mandatory), ``overdue``
+    (expired beyond the 7-day grace period).
+    """
+
+    ACTIVE = "active"
+    EXPIRING_SOON = "expiring_soon"
+    IN_GRACE = "in_grace"
+    OVERDUE = "overdue"
+
+
+class QuarantineSelectorKind(StrEnum):
+    PRODUCT = "product"
+    FILE = "file"
+    DIRECTORY = "directory"
+    TEST = "test"
 
 
 @dataclass(frozen=True)
@@ -368,6 +394,44 @@ class WorkflowHealthBucket:
     completed: int
     successes: int
     failures: int
+
+
+@dataclass(frozen=True)
+class QuarantineEntry:
+    """One selector from a repo's checked-in ``.test_quarantine.json``, enriched
+    with read-side expiry classification."""
+
+    id: str
+    runner: str
+    reason: str
+    owner: str
+    issue: str
+    added: date
+    expires: date
+    mode: QuarantineMode
+    lifecycle: QuarantineLifecycle
+    # Negative once past expiry.
+    days_until_expiry: int
+    selector_kind: QuarantineSelectorKind
+
+
+@dataclass(frozen=True)
+class QuarantineFile:
+    """A repo's parsed quarantine file. ``available`` is False when no file
+    exists — that is not an error. Parsing is fail-open to match the enforcement
+    readers: malformed entries land in ``parse_errors`` while well-formed ones
+    are kept, and unknown entry fields only warn.
+    """
+
+    available: bool
+    # Most urgent first (overdue, in_grace, expiring_soon, active), then by expiry.
+    entries: list[QuarantineEntry]
+    parse_errors: list[str]
+    parse_warnings: list[str]
+    # None in local-dev mode, where the server's own checkout is read.
+    repo: RepoRef | None
+    source_url: str
+    generated_at: datetime
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,7 @@ contract. These same endpoints back both the MCP tools and the UI:
 - ``pull_requests`` — PR list with head-SHA CI rollup.
 - ``workflow_health`` — per-workflow CI health over a window.
 - ``pr_lifecycle`` — a single PR's header plus its ordered CI timeline.
+- ``quarantine`` — the repo's checked-in flaky-test quarantine file.
 """
 
 from drf_spectacular.types import OpenApiTypes
@@ -27,6 +28,7 @@ from products.engineering_analytics.backend.presentation.serializers import (
     PRCostSummarySerializer,
     PRLifecycleSerializer,
     PullRequestListSerializer,
+    QuarantineFileSerializer,
     WorkflowHealthItemSerializer,
     WorkflowJobSerializer,
     WorkflowRunDetailSerializer,
@@ -126,6 +128,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "pull_requests",
         "workflow_health",
         "pr_lifecycle",
+        "quarantine",
         "pr_runs",
         "pr_cost",
         "workflow_run",
@@ -567,3 +570,41 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid source_id")
         return Response(WorkflowJobSerializer(instance=jobs, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_quarantine",
+        summary="Flaky-test quarantine file",
+        parameters=[
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional 'owner/name' repository to read the quarantine file from. Defaults to the "
+                "connected GitHub source's most active repo over the last 30 days.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: QuarantineFileSerializer,
+            400: OpenApiResponse(description="Invalid repo or source_id."),
+        },
+        description=(
+            "The repository's checked-in .test_quarantine.json: flaky tests temporarily quarantined with a hard "
+            "expiry, classified by urgency (overdue, in grace, expiring soon, active). `available` is false when "
+            "the repo has no quarantine file — that is not an error. Parsing is fail-open: malformed entries are "
+            "reported in parse_errors while well-formed ones are kept."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def quarantine(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_quarantine(
+                team=self.team,
+                repo=request.query_params.get("repo") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(QuarantineFileSerializer(instance=result).data)

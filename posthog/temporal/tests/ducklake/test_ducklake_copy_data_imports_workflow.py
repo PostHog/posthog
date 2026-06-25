@@ -27,10 +27,12 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     verify_data_imports_ducklake_copy_activity,
 )
 
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 
 class _FakeColumn:

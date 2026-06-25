@@ -4258,8 +4258,10 @@ export namespace Schemas {
       orderBy?: SessionReplayListWidgetConfigOrderBy;
       /** Sort direction for orderBy. */
       orderDirection?: SessionReplayListWidgetConfigOrderDirection;
-      /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. */
+      /** short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection. */
       savedFilterId?: string | null;
+      /** short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply. */
+      collectionId?: string | null;
     }
 
     export interface SessionReplayListWidgetAddRequestOpenApi {
@@ -4389,14 +4391,95 @@ export namespace Schemas {
       config: ExperimentResultsWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi;
+    export type LogsListWidgetAddRequestOpenApiWidgetType = typeof LogsListWidgetAddRequestOpenApiWidgetType[keyof typeof LogsListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const LogsListWidgetAddRequestOpenApiWidgetType = {
+      LogsList: 'logs_list',
+    } as const;
+
+    /**
+     * Sort by newest (latest) or oldest (earliest) first.
+     */
+    export type LogsListWidgetConfigOrderBy = typeof LogsListWidgetConfigOrderBy[keyof typeof LogsListWidgetConfigOrderBy];
+
+
+    export const LogsListWidgetConfigOrderBy = {
+      Latest: 'latest',
+      Earliest: 'earliest',
+    } as const;
+
+    export type LogsListWidgetConfigSeverityLevelsItem = typeof LogsListWidgetConfigSeverityLevelsItem[keyof typeof LogsListWidgetConfigSeverityLevelsItem];
+
+
+    export const LogsListWidgetConfigSeverityLevelsItem = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
+
+    /**
+     * Render log timestamps in UTC or in each viewer's local timezone.
+     */
+    export type LogsListWidgetConfigTimezone = typeof LogsListWidgetConfigTimezone[keyof typeof LogsListWidgetConfigTimezone];
+
+
+    export const LogsListWidgetConfigTimezone = {
+      Utc: 'UTC',
+      Local: 'local',
+    } as const;
+
+    export interface LogsListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      /**
+         * Maximum number of log lines to return.
+         * @minimum 1
+         * @maximum 100
+         */
+      limit?: number;
+      /** Sort by newest (latest) or oldest (earliest) first. */
+      orderBy?: LogsListWidgetConfigOrderBy;
+      /** Only show logs at these severity levels. Empty shows all levels. */
+      severityLevels?: LogsListWidgetConfigSeverityLevelsItem[];
+      /** Only show logs from these services. Empty shows all services. */
+      serviceNames?: string[];
+      /** Wrap long log lines instead of truncating them to a single row. */
+      wrapLines?: boolean;
+      /** Render log timestamps in UTC or in each viewer's local timezone. */
+      timezone?: LogsListWidgetConfigTimezone;
+      /** short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply. */
+      savedViewId?: string | null;
+    }
+
+    export interface LogsListWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: LogsListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the recent logs widget. */
+      config: LogsListWidgetConfig;
+    }
+
+    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -5243,6 +5326,26 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
+    export type LLMSentimentMessageScores = {[key: string]: number} | null;
+
+    export interface LLMSentimentMessage {
+      label: string;
+      score: number;
+      scores?: LLMSentimentMessageScores;
+    }
+
+    export type LLMSentimentResultMessages = {[key: string]: LLMSentimentMessage} | null;
+
+    export type LLMSentimentResultScores = {[key: string]: number} | null;
+
+    export interface LLMSentimentResult {
+      label: string;
+      message_count?: number | null;
+      messages?: LLMSentimentResultMessages;
+      score: number;
+      scores?: LLMSentimentResultScores;
+    }
+
     export type LLMTraceEventProperties = { [key: string]: unknown };
 
     export interface LLMTraceEvent {
@@ -5250,6 +5353,7 @@ export namespace Schemas {
       event: AIEventType | string;
       id: string;
       properties: LLMTraceEventProperties;
+      sentiment?: LLMSentimentResult | null;
     }
 
     export type LLMTracePersonProperties = { [key: string]: unknown };
@@ -5277,6 +5381,7 @@ export namespace Schemas {
       outputTokens?: number | null;
       person?: LLMTracePerson | null;
       requestCost?: number | null;
+      sentiment?: LLMSentimentResult | null;
       tools?: string[] | null;
       totalCost?: number | null;
       totalLatency?: number | null;
@@ -6756,6 +6861,8 @@ export namespace Schemas {
       filterTestAccounts?: boolean | null;
       groupKey?: string | null;
       groupTypeIndex?: number | null;
+      /** Include stored sentiment evaluation results for returned traces and direct generation events. */
+      includeSentiment?: boolean | null;
       kind?: 'TracesQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -6800,6 +6907,8 @@ export namespace Schemas {
 
     export interface TraceQuery {
       dateRange?: DateRange | null;
+      /** Include stored sentiment evaluation results for the trace and its generations. */
+      includeSentiment?: boolean | null;
       kind?: 'TraceQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -7372,7 +7481,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig;
+    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | LogsListWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -8234,7 +8343,7 @@ export namespace Schemas {
       kind: 'custom_template';
       from_template: string;
       alias: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
     } | {
       kind: 'client';
@@ -8289,8 +8398,9 @@ export namespace Schemas {
       description?: string;
       from_template?: string;
       alias?: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
+      source_version_id?: string;
     };
 
     export type AgentRevisionSpecIdentityProvidersItem = {
@@ -8442,6 +8552,29 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * One reference to a versioned skill in the llma-skill store, pinned into
+     * this agent's bundle at freeze.
+     */
+    export interface SkillRef {
+      /**
+         * Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.
+         * @maxLength 64
+         */
+      from_template: string;
+      /**
+         * Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.
+         * @maxLength 64
+         * @pattern ^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
+         */
+      alias: string;
+      /**
+         * Specific published version to pin. Omit to pin the store's latest version at freeze time.
+         * @minimum 1
+         */
+      version?: number;
+    }
+
     export interface AgentRevision {
       readonly id: string;
       readonly application: string;
@@ -8453,6 +8586,8 @@ export namespace Schemas {
       /** @nullable */
       readonly bundle_sha256: string | null;
       spec?: AgentRevisionSpec;
+      /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
+      readonly skill_refs: readonly SkillRef[];
       /** @nullable */
       readonly created_by_id: number | null;
       /**
@@ -9183,6 +9318,20 @@ export namespace Schemas {
       /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
       breakdown_results?: BreakdownSimulationResult[];
     }
+
+    /**
+     * * `trace` - trace
+     * * `generation` - generation
+     * * `evaluation` - evaluation
+     */
+    export type AnalysisLevelEnum = typeof AnalysisLevelEnum[keyof typeof AnalysisLevelEnum];
+
+
+    export const AnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+      Evaluation: 'evaluation',
+    } as const;
 
     /**
      * * `USR` - user
@@ -12613,25 +12762,27 @@ export namespace Schemas {
       truncated: boolean;
     }
 
-    /**
-     * * `trace` - trace
-     * * `generation` - generation
-     * * `evaluation` - evaluation
-     */
-    export type ClusteringJobAnalysisLevelEnum = typeof ClusteringJobAnalysisLevelEnum[keyof typeof ClusteringJobAnalysisLevelEnum];
+    export type ClusteringConfigEventFiltersItem = { [key: string]: unknown };
 
+    export interface ClusteringConfig {
+      /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
+      event_filters: ClusteringConfigEventFiltersItem[];
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
 
-    export const ClusteringJobAnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-      Evaluation: 'evaluation',
-    } as const;
+    export type ClusteringConfigSetEventFiltersEventFiltersItem = { [key: string]: unknown };
+
+    export interface ClusteringConfigSetEventFilters {
+      /** PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters. */
+      event_filters: ClusteringConfigSetEventFiltersEventFiltersItem[];
+    }
 
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
-      analysis_level: ClusteringJobAnalysisLevelEnum;
+      analysis_level: AnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at: string;
@@ -14506,6 +14657,7 @@ export namespace Schemas {
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
+     * * `logs_list` - logs_list
      * * `session_replay_list` - session_replay_list
      */
     export type DashboardPatchWidgetOpenApiWidgetTypeEnum = typeof DashboardPatchWidgetOpenApiWidgetTypeEnum[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnum];
@@ -14516,6 +14668,7 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
+      LogsList: 'logs_list',
       SessionReplayList: 'session_replay_list',
     } as const;
 
@@ -14528,6 +14681,7 @@ export namespace Schemas {
        * * `error_tracking_list` - error_tracking_list
        * * `experiment_results` - experiment_results
        * * `experiments_list` - experiments_list
+       * * `logs_list` - logs_list
        * * `session_replay_list` - session_replay_list */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
       /** Widget-specific configuration. Shape depends on the tile's widget_type. */
@@ -15958,6 +16112,8 @@ export namespace Schemas {
      * * `RB2B` - RB2B
      * * `Superwall` - Superwall
      * * `Liana` - Liana
+     * * `TawkTo` - TawkTo
+     * * `Hightouch` - Hightouch
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16604,6 +16760,8 @@ export namespace Schemas {
       Rb2b: 'RB2B',
       Superwall: 'Superwall',
       Liana: 'Liana',
+      TawkTo: 'TawkTo',
+      Hightouch: 'Hightouch',
     } as const;
 
     /**
@@ -17263,7 +17421,9 @@ export namespace Schemas {
        * * `Leexi` - Leexi
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
-       * * `Liana` - Liana */
+       * * `Liana` - Liana
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22477,7 +22637,9 @@ export namespace Schemas {
        * * `Leexi` - Leexi
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
-       * * `Liana` - Liana */
+       * * `Liana` - Liana
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -27661,6 +27823,22 @@ export namespace Schemas {
       created_at: string;
     }
 
+    /**
+     * * `active` - ACTIVE
+     * * `expiring_soon` - EXPIRING_SOON
+     * * `in_grace` - IN_GRACE
+     * * `overdue` - OVERDUE
+     */
+    export type LifecycleEnum = typeof LifecycleEnum[keyof typeof LifecycleEnum];
+
+
+    export const LifecycleEnum = {
+      Active: 'active',
+      ExpiringSoon: 'expiring_soon',
+      InGrace: 'in_grace',
+      Overdue: 'overdue',
+    } as const;
+
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -28041,6 +28219,58 @@ export namespace Schemas {
       threshold_count: number;
       /** Threshold operator used for evaluation. */
       threshold_operator: string;
+    }
+
+    export type LogsListWidgetCatalogEntryOpenApiWidgetType = typeof LogsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof LogsListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const LogsListWidgetCatalogEntryOpenApiWidgetType = {
+      LogsList: 'logs_list',
+    } as const;
+
+    export interface LogsListWidgetCatalogEntryOpenApi {
+      widget_type: LogsListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: LogsListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `logs_list` - logs_list
+     */
+    export type LogsListWidgetTypeEnum = typeof LogsListWidgetTypeEnum[keyof typeof LogsListWidgetTypeEnum];
+
+
+    export const LogsListWidgetTypeEnum = {
+      LogsList: 'logs_list',
+    } as const;
+
+    export type LogsListWidgetUpdateRequestOpenApiWidgetType = typeof LogsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof LogsListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const LogsListWidgetUpdateRequestOpenApiWidgetType = {
+      LogsList: 'logs_list',
+    } as const;
+
+    export interface LogsListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: LogsListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the recent logs widget. Omit to leave unchanged. */
+      config?: LogsListWidgetConfig;
     }
 
     export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
@@ -28747,14 +28977,6 @@ export namespace Schemas {
       updated_at: string;
       /** Map of category ID to preference status. */
       preferences: unknown;
-    }
-
-    export type MessageSentimentScores = {[key: string]: number};
-
-    export interface MessageSentiment {
-      label: string;
-      score: number;
-      scores: MessageSentimentScores;
     }
 
     /**
@@ -34868,7 +35090,7 @@ export namespace Schemas {
       kind: 'custom_template';
       from_template: string;
       alias: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
     } | {
       kind: 'client';
@@ -34923,8 +35145,9 @@ export namespace Schemas {
       description?: string;
       from_template?: string;
       alias?: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
+      source_version_id?: string;
     };
 
     export type PatchedAgentRevisionSpecIdentityProvidersItem = {
@@ -35071,6 +35294,8 @@ export namespace Schemas {
       /** @nullable */
       readonly bundle_sha256?: string | null;
       spec?: PatchedAgentRevisionSpec;
+      /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
+      readonly skill_refs?: readonly SkillRef[];
       /** @nullable */
       readonly created_by_id?: number | null;
       /**
@@ -35316,7 +35541,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
-      analysis_level?: ClusteringJobAnalysisLevelEnum;
+      analysis_level?: AnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at?: string;
@@ -40791,6 +41016,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
+      model?: string;
+      /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -41153,7 +41393,7 @@ export namespace Schemas {
       config?: SessionReplayListWidgetConfig;
     }
 
-    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi;
+    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -43499,6 +43739,89 @@ export namespace Schemas {
       Android: 'android',
       Web: 'web',
     } as const;
+
+    /**
+     * * `run` - RUN
+     * * `skip` - SKIP
+     */
+    export type QuarantineModeEnum = typeof QuarantineModeEnum[keyof typeof QuarantineModeEnum];
+
+
+    export const QuarantineModeEnum = {
+      Run: 'run',
+      Skip: 'skip',
+    } as const;
+
+    /**
+     * * `product` - PRODUCT
+     * * `file` - FILE
+     * * `directory` - DIRECTORY
+     * * `test` - TEST
+     */
+    export type SelectorKindEnum = typeof SelectorKindEnum[keyof typeof SelectorKindEnum];
+
+
+    export const SelectorKindEnum = {
+      Product: 'product',
+      File: 'file',
+      Directory: 'directory',
+      Test: 'test',
+    } as const;
+
+    export interface QuarantineEntry {
+      /** Test selector: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
+      id: string;
+      /** Test runner the selector targets, e.g. 'pytest' or 'jest'. */
+      runner: string;
+      /** Why the test was quarantined. */
+      reason: string;
+      /** GitHub team or user handle responsible for the fix. */
+      owner: string;
+      /** Tracking issue URL, or empty when none was filed. */
+      issue: string;
+      /** ISO date the entry was added. */
+      added: string;
+      /** ISO date the quarantine expires; past it the test blocks CI normally again. */
+      expires: string;
+      /** 'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all).
+       *
+       * * `run` - RUN
+       * * `skip` - SKIP */
+      mode: QuarantineModeEnum;
+      /** Expiry classification: 'active' (>7 days left), 'expiring_soon' (0-7 days left), 'in_grace' (expired up to 7 days ago), 'overdue' (expired beyond the grace period).
+       *
+       * * `active` - ACTIVE
+       * * `expiring_soon` - EXPIRING_SOON
+       * * `in_grace` - IN_GRACE
+       * * `overdue` - OVERDUE */
+      lifecycle: LifecycleEnum;
+      /** Days until the entry expires; negative once past expiry. */
+      days_until_expiry: number;
+      /** What the selector covers: 'test' (contains '::'), 'file', 'directory', or 'product'.
+       *
+       * * `product` - PRODUCT
+       * * `file` - FILE
+       * * `directory` - DIRECTORY
+       * * `test` - TEST */
+      selector_kind: SelectorKindEnum;
+    }
+
+    export interface QuarantineFile {
+      /** Quarantined selectors, most urgent first (overdue, in_grace, expiring_soon, active), then by soonest expiry. */
+      entries: QuarantineEntry[];
+      /** Repository the file was read from. Null in local-dev mode, where the server's own checkout is read. */
+      repo: RepoRef | null;
+      /** False when the repository has no quarantine file (not an error) or it could not be fetched. */
+      available: boolean;
+      /** Contract violations (malformed JSON, bad entries) or fetch failures. Malformed entries are dropped; well-formed ones are kept. */
+      parse_errors: string[];
+      /** Forward-compatibility notices, e.g. unknown entry fields. */
+      parse_warnings: string[];
+      /** GitHub blob URL of the quarantine file, or empty when read locally or unavailable. */
+      source_url: string;
+      /** When this snapshot was computed (UTC); expiry math uses this clock. */
+      generated_at: string;
+    }
 
     export interface QuarantineInput {
       /**
@@ -46604,77 +46927,6 @@ export namespace Schemas {
       send_async?: boolean;
     }
 
-    export type SentimentResultScores = {[key: string]: number};
-
-    export type SentimentResultMessages = {[key: string]: MessageSentiment};
-
-    export interface SentimentResult {
-      label: string;
-      score: number;
-      scores: SentimentResultScores;
-      messages: SentimentResultMessages;
-      message_count: number;
-    }
-
-    export type SentimentBatchResponseResults = {[key: string]: SentimentResult};
-
-    export interface SentimentBatchResponse {
-      results: SentimentBatchResponseResults;
-    }
-
-    /**
-     * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
-     *
-     * `filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
-     * path used (dateRange, filterTestAccounts, properties), so the migration is
-     * behaviour-preserving for callers that pass a request unchanged.
-     */
-    export interface SentimentGenerationsRequest {
-      filters?: unknown;
-    }
-
-    export interface SentimentGenerationsResponse {
-      results: unknown[][];
-    }
-
-    /**
-     * * `trace` - trace
-     * * `generation` - generation
-     */
-    export type SentimentRequestAnalysisLevelEnum = typeof SentimentRequestAnalysisLevelEnum[keyof typeof SentimentRequestAnalysisLevelEnum];
-
-
-    export const SentimentRequestAnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-    } as const;
-
-    export interface SentimentRequest {
-      /**
-         * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
-         * @minItems 1
-         * @maxItems 5
-         */
-      ids: string[];
-      /** Whether the IDs are 'trace' IDs or 'generation' IDs.
-       *
-       * * `trace` - trace
-       * * `generation` - generation */
-      analysis_level?: SentimentRequestAnalysisLevelEnum;
-      /** If true, bypass cache and reclassify. */
-      force_refresh?: boolean;
-      /**
-         * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
-         * @nullable
-         */
-      date_from?: string | null;
-      /**
-         * End of date range for the lookup. Defaults to now.
-         * @nullable
-         */
-      date_to?: string | null;
-    }
-
     export interface SessionGroupSummary {
       readonly id: string;
       /** Title of the group session summary */
@@ -46774,6 +47026,14 @@ export namespace Schemas {
      */
     export interface SetEnvRequest {
       env: SetEnvRequestEnv;
+    }
+
+    /**
+     * Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references.
+     */
+    export interface SetSkillRefsRequest {
+      /** The complete set of store-skill references for this draft; replaces any existing references. */
+      skill_refs: SkillRef[];
     }
 
     /**
@@ -48131,7 +48391,9 @@ export namespace Schemas {
        * * `Leexi` - Leexi
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
-       * * `Liana` - Liana */
+       * * `Liana` - Liana
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -48817,7 +49079,9 @@ export namespace Schemas {
        * * `Leexi` - Leexi
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
-       * * `Liana` - Liana */
+       * * `Liana` - Liana
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -49495,7 +49759,9 @@ export namespace Schemas {
        * * `Leexi` - Leexi
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
-       * * `Liana` - Liana */
+       * * `Liana` - Liana
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -50948,6 +51214,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
+      model?: string;
+      /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
@@ -51870,6 +52151,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run. */
+      model?: string;
+      /** Reasoning effort to warm the sandbox on for models that expose an effort control.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     /**
@@ -51954,7 +52250,7 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
-    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -52138,17 +52434,6 @@ export namespace Schemas {
       content: string;
     }
 
-    /**
-     * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
-     * at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
-     */
-    export interface WriteSkillRequest {
-      /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
-      description: string;
-      /** The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`. */
-      body: string;
-    }
-
     export type WriteSpecRequestSpec = { [key: string]: unknown };
 
     /**
@@ -52174,11 +52459,11 @@ export namespace Schemas {
 
     /**
      * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
-     * payload.
+     * payload. Skills are not authored here: they come from the llma-skill store
+     * via `skill_refs` and are materialized into the bundle at freeze.
      */
     export interface WriteTypedBundleRequest {
       agent_md: string;
-      skills?: WriteSkillRequest[];
       tools?: WriteToolRequest[];
       spec: WriteTypedBundleRequestSpec;
     }
@@ -54388,6 +54673,14 @@ export namespace Schemas {
      */
     enabled?: boolean;
     /**
+     * Filter by evaluation type
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
+     */
+    evaluation_type?: EnvironmentsEvaluationsListEvaluationType;
+    /**
      * Multiple values may be separated by commas.
      */
     id__in?: string[];
@@ -54415,6 +54708,15 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type EnvironmentsEvaluationsListEvaluationType = typeof EnvironmentsEvaluationsListEvaluationType[keyof typeof EnvironmentsEvaluationsListEvaluationType];
+
+
+    export const EnvironmentsEvaluationsListEvaluationType = {
+      Hog: 'hog',
+      LlmJudge: 'llm_judge',
+      Sentiment: 'sentiment',
+    } as const;
 
     export type EnvironmentsEventsListParams = {
     /**
@@ -56001,10 +56303,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type EnvironmentsLlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
-
     export type EnvironmentsLlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -56164,14 +56462,6 @@ export namespace Schemas {
      */
     search?: string;
     };
-
-    export type EnvironmentsLlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
 
     export type EnvironmentsLlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 
@@ -60141,6 +60431,17 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsQuarantineParams = {
+    /**
+     * Optional 'owner/name' repository to read the quarantine file from. Defaults to the connected GitHub source's most active repo over the last 30 days.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
      * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
@@ -60454,6 +60755,14 @@ export namespace Schemas {
      */
     enabled?: boolean;
     /**
+     * Filter by evaluation type
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
+     */
+    evaluation_type?: EvaluationsListEvaluationType;
+    /**
      * Multiple values may be separated by commas.
      */
     id__in?: string[];
@@ -60481,6 +60790,15 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type EvaluationsListEvaluationType = typeof EvaluationsListEvaluationType[keyof typeof EvaluationsListEvaluationType];
+
+
+    export const EvaluationsListEvaluationType = {
+      Hog: 'hog',
+      LlmJudge: 'llm_judge',
+      Sentiment: 'sentiment',
+    } as const;
 
     export type EventDefinitionsListParams = {
     /**
@@ -62512,10 +62830,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
-
     export type LlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -62686,14 +63000,6 @@ export namespace Schemas {
      */
     search?: string;
     };
-
-    export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 

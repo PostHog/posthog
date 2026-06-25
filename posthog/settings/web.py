@@ -476,6 +476,7 @@ SPECTACULAR_SETTINGS = {
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
+        "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
@@ -614,6 +615,7 @@ SPECTACULAR_SETTINGS = {
         "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
         "ExperimentsListWidgetTypeEnum": ["experiments_list"],
         "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
+        "LogsListWidgetTypeEnum": ["logs_list"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
