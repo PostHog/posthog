@@ -242,12 +242,12 @@ def observe_task_run_failed(properties: dict[str, object]) -> None:
 
 
 def observe_agent_turn_failed(task_run: "TaskRun") -> None:
-    state = task_run.state if isinstance(task_run.state, dict) else {}
+    labels = _task_run_labels(task_run)
     TASK_RUN_AGENT_FAILURE_TOTAL.labels(
-        origin_product=origin_product_label(task_run),
-        mode=_bounded_metric_label(state.get("mode"), _ALLOWED_MODES),
-        run_source=_bounded_metric_label(state.get("run_source"), _ALLOWED_RUN_SOURCES),
-        runtime_adapter=_bounded_metric_label(state.get("runtime_adapter"), _ALLOWED_RUNTIME_ADAPTERS),
+        origin_product=labels["origin_product"],
+        mode=labels["mode"],
+        run_source=labels["run_source"],
+        runtime_adapter=labels["runtime_adapter"],
     ).inc()
 
 
