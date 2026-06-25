@@ -21,8 +21,6 @@ from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOW
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
 from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_WORKFLOWS
 from posthog.temporal.session_replay.enforce_max_replay_retention import ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
-from posthog.temporal.session_replay.export_recording import EXPORT_RECORDING_WORKFLOWS
-from posthog.temporal.session_replay.import_recording import IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.summarization_sweep import SUMMARIZATION_SWEEP_WORKFLOWS
 from posthog.temporal.session_replay.surfacing_scoring_sweep import SURFACING_SCORING_SWEEP_WORKFLOWS
@@ -31,7 +29,7 @@ from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
-from products.warehouse_sources.backend.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
+from products.warehouse_sources.backend.facade.temporal import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from products.web_analytics.backend.temporal import WORKFLOWS as WA_DIGEST_WORKFLOWS
 
 
@@ -148,8 +146,6 @@ class Command(BaseCommand):
             + TEST_WORKFLOWS
             + DELETE_RECORDINGS_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
-            + EXPORT_RECORDING_WORKFLOWS
-            + IMPORT_RECORDING_WORKFLOWS
             + WEEKLY_DIGEST_WORKFLOWS
             + DATA_MODELING_WORKFLOWS
             + LLM_ANALYTICS_WORKFLOWS

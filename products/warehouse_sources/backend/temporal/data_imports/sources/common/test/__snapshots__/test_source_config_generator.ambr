@@ -347,6 +347,7 @@
           ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
           ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
           ExternalDataSourceType.LEVER: LeverSourceConfig,
+          ExternalDataSourceType.LIANA: LianaSourceConfig,
           ExternalDataSourceType.LIGHTFIELD: LightfieldSourceConfig,
           ExternalDataSourceType.LIGHTSPEEDRETAIL: LightspeedRetailSourceConfig,
           ExternalDataSourceType.LINEAR: LinearSourceConfig,

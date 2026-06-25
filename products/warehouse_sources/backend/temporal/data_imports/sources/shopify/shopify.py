@@ -287,11 +287,15 @@ def normalize_store_id(raw: str) -> str:
 @retry(
     # A transient TLS/connection drop on the token endpoint (e.g. SSL EOF, proxy/egress hiccup,
     # connect/read timeout) surfaces from `post` as requests ConnectionError/Timeout — SSLError
-    # is a ConnectionError. The adapter's own urllib3 retries back off for only ~1.5s, too short
-    # to ride out a multi-second blip. Minting a token is idempotent, so reissue with backoff
-    # rather than failing the whole import. 4xx/5xx are raised as plain Exceptions below and so
-    # are untouched here — auth failures still fail fast.
-    retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.Timeout)),
+    # is a ConnectionError. A connection dropped mid-response surfaces as ChunkedEncodingError,
+    # which is a RequestException rather than a ConnectionError, so it must be listed explicitly.
+    # The adapter's own urllib3 retries back off for only ~1.5s, too short to ride out a
+    # multi-second blip. Minting a token is idempotent, so reissue with backoff rather than failing
+    # the whole import. 4xx/5xx are raised as plain Exceptions below and so are untouched here —
+    # auth failures still fail fast.
+    retry=retry_if_exception_type(
+        (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError)
+    ),
     stop=stop_after_attempt(5),
     wait=_shopify_backoff,
     reraise=True,

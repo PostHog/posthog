@@ -2,6 +2,14 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 
+import {
+    KAFKA_INGESTION_WARNINGS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_MERGE_EVENTS,
+} from '~/common/config/kafka-topics'
+import { murmur2Partition } from '~/common/kafka/murmur2'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { ASYNC_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -10,12 +18,12 @@ import { PersonMessage } from '~/common/persons/person-message'
 import { fromInternalPerson } from '~/common/persons/person-update-batch'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues } from '~/common/persons/repositories/test-helpers'
-import {
-    KAFKA_INGESTION_WARNINGS,
-    KAFKA_PERSON,
-    KAFKA_PERSON_DISTINCT_ID,
-    KAFKA_PERSON_MERGE_EVENTS,
-} from '~/config/kafka-topics'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { defaultRetryConfig } from '~/common/utils/retries'
+import { UUIDT } from '~/common/utils/utils'
 import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
@@ -30,12 +38,9 @@ import {
 import { PersonPropertyService } from '~/ingestion/common/persons/person-property-service'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
-import { murmur2Partition } from '~/kafka/murmur2'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { parseJSON } from '~/utils/json-parse'
 
 import {
     ClickHousePerson,
@@ -46,11 +51,6 @@ import {
     PropertiesLastUpdatedAt,
     Team,
 } from '../../../src/types'
-import { DependencyUnavailableError } from '../../../src/utils/db/error'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse } from '../../../src/utils/db/postgres'
-import { defaultRetryConfig } from '../../../src/utils/retries'
-import { UUIDT } from '../../../src/utils/utils'
 import {
     createOrganization,
     createTeam,

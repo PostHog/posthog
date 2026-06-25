@@ -253,14 +253,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // much so it replies in natural language instead of forcing everything
     // through the slack-post-message tool.
     //
-    // Preview-mode isolation: when the session was created via the preview
-    // ingress path, the relay is disabled — author iteration must not post
-    // into the real Slack channel attached to the live revision. The
-    // system-prompt suppression below also drops the slack-relay guidance so
-    // the model isn't told to "just reply in natural language" while the
-    // platform is actually noop'ing the relay underneath it.
-    const slackReply =
-        !session.is_preview && isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
+    // Slack-triggered sessions relay the model's reply back into the originating
+    // thread (the system prompt below tells the model to answer in natural
+    // language instead of calling a slack tool).
+    const slackReply = isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
             id: f.ref.id,
@@ -698,7 +694,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 latency_ms: started ? Date.now() - started.t0 : 0,
                                 is_error: event.isError,
                                 error: errorText,
-                                is_preview: session.is_preview,
                             },
                         ])
                     }
@@ -828,7 +823,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 stop_reason: msg.stopReason,
                                 is_error: msg.stopReason === 'error',
                                 error: msg.stopReason === 'error' ? msg.errorMessage : undefined,
-                                is_preview: session.is_preview,
                             },
                         ])
                     }
@@ -1098,7 +1092,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                             latency_ms: Date.now() - t0,
                                             is_error: d.isError,
                                             error: d.error,
-                                            is_preview: session.is_preview,
                                         },
                                     ])
                                 } catch (obsErr) {
@@ -1194,7 +1187,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     trace_name: deps.applicationName ?? `agent:${session.application_id}`,
                     input_state: traceInput,
                     output_state: lastOutput,
-                    is_preview: session.is_preview,
                 },
             ])
         }

@@ -1,6 +1,7 @@
+import { isDevEnv } from '~/common/utils/env-utils'
+
 import { CommonConfig } from './common/config'
 import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
-import { isDevEnv } from './utils/env-utils'
 
 // =============================================================================
 // Capability Groups for Local Development

@@ -48,9 +48,10 @@ def _calculate(
     recalculation_id: str,
     query_to: str,
     metric_type: str = "primary",
+    is_final_attempt: bool = True,
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
-        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to, metric_type)
+        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -415,6 +416,29 @@ class TestCalculateActivity(BaseTest):
         # Found the saved metric (did not fail at discovery), failure was recorded before re-raise.
         recalc.refresh_from_db()
         assert "s1" in recalc.metric_errors
+
+    def test_transient_failure_is_not_persisted_until_the_final_attempt(self):
+        # A retryable (transient) failure on a non-final attempt re-raises for Temporal to retry but must NOT
+        # persist a FAILED row or a metric_errors entry, so the frontend keeps the metric loading instead of
+        # flashing an error for a failure that may still succeed. The final attempt persists it.
+        exp = self._experiment(flag_key="calc-transient", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = RuntimeError("transient blip")
+
+            # Non-final attempt: re-raises, but nothing is recorded.
+            with pytest.raises(RuntimeError, match="transient blip"):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
+            recalc.refresh_from_db()
+            assert recalc.metric_errors == {}
+            assert not ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").exists()
+
+            # Final attempt: now the failure is persisted for the UI.
+            with pytest.raises(RuntimeError, match="transient blip"):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
+            recalc.refresh_from_db()
+            assert "m1" in recalc.metric_errors
 
     def test_query_to_is_passed_as_as_of_to_runner(self):
         # The run's shared query_to MUST be threaded into the ClickHouse query bounds via the runner's

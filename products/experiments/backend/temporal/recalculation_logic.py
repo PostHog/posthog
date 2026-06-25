@@ -423,6 +423,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     recalculation_id: str,
     query_to: str,
     metric_type: str = "primary",
+    is_final_attempt: bool = True,
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -577,8 +578,9 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         except Exception as e:
             # Could be transient (ClickHouse connection blip, network glitch, or other infrastructure issue).
-            # Record the failure so the UI sees it, then re-raise so Temporal's retry policy gets a chance.
-            # If all attempts fail, the workflow's gather(return_exceptions=True) counts this metric as failed.
+            # Persist the failure ONLY on the final attempt, then re-raise; on earlier attempts we re-raise
+            # without persisting so Temporal retries while the metric stays in its loading/dim state on the
+            # frontend, rather than flashing an error for a failure that may yet succeed on the next attempt.
             # StatisticError and ZeroDivisionError are handled above as permanent and return success=False.
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             capture_exception(
@@ -589,22 +591,24 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     "recalculation_id": recalculation_id,
                 },
             )
-            _store_result(
-                experiment_id=experiment_id,
-                metric_uuid=metric_uuid,
-                recalc_fp=recalc_fp,
-                query_from=experiment.start_date,
-                query_to=query_to_dt,
-                status=ExperimentMetricResult.Status.FAILED,
-                result=None,
-                error_message=message,
-                query_id=client_query_id,
-            )
-            _record_failure(recalculation_id, metric_uuid, "calculation", message)
+            if is_final_attempt:
+                _store_result(
+                    experiment_id=experiment_id,
+                    metric_uuid=metric_uuid,
+                    recalc_fp=recalc_fp,
+                    query_from=experiment.start_date,
+                    query_to=query_to_dt,
+                    status=ExperimentMetricResult.Status.FAILED,
+                    result=None,
+                    error_message=message,
+                    query_id=client_query_id,
+                )
+                _record_failure(recalculation_id, metric_uuid, "calculation", message)
             logger.exception(
                 "Experiment metric recalculation failed",
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
+                is_final_attempt=is_final_attempt,
             )
             # No 'experiment metric error' event here: this path re-raises and Temporal retries, so
             # emitting would double-count per attempt. The final failed count is reported once at the
