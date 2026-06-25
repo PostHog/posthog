@@ -85,6 +85,45 @@ pub async fn send_issue_reopened_alert_to_producer<I: NotificationIssue>(
     .await
 }
 
+pub async fn send_issue_spiking_alert_to_producer<I: NotificationIssue>(
+    producer: &FutureProducer<KafkaContext>,
+    internal_events_topic: &str,
+    issue: &I,
+    computed_baseline: f64,
+    current_bucket_value: f64,
+) -> Result<(), UnhandledError> {
+    let mut event = InternalEventEvent::new(
+        "$error_tracking_issue_spiking",
+        issue.id(),
+        Utc::now(),
+        None,
+    );
+    event
+        .insert_prop("name", issue.name())
+        .expect("insert_prop for name should never fail");
+    event
+        .insert_prop("description", issue.description())
+        .expect("insert_prop for description should never fail");
+    event
+        .insert_prop("computed_baseline", computed_baseline)
+        .expect("insert_prop for computed_baseline should never fail");
+    event
+        .insert_prop("current_bucket_value", current_bucket_value)
+        .expect("insert_prop for current_bucket_value should never fail");
+
+    let iter = [InternalEvent {
+        team_id: issue.team_id(),
+        event,
+        person: None,
+    }];
+
+    send_iter_to_kafka(producer, internal_events_topic, &iter)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(())
+}
+
 async fn send_internal_event_with_producer<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
     internal_events_topic: &str,

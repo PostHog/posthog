@@ -10,7 +10,7 @@ use crate::modes::notifications::analytics::{capture_issue_created, capture_issu
 use crate::modes::notifications::context::NotificationsContext;
 use crate::modes::notifications::side_effects::{
     send_issue_created_alert_to_producer, send_issue_reopened_alert_to_producer,
-    send_new_fingerprint_event_to_producer,
+    send_issue_spiking_alert_to_producer, send_new_fingerprint_event_to_producer,
 };
 use crate::modes::notifications::types::IssueNotificationData;
 
@@ -98,13 +98,22 @@ async fn handle_issue_spiking(
 ) -> Result<(), UnhandledError> {
     let issue = load_issue(context, issue_spiking.team_id, issue_spiking.issue_id).await?;
 
-    persist_spike_event(context, &issue_spiking).await;
+    persist_spike_event(context, &issue_spiking).await?;
     context.signal_client.emit_issue_spiking(
         &issue,
         &issue_spiking.event_properties,
         issue_spiking.computed_baseline,
         issue_spiking.current_bucket_value,
     );
+
+    send_issue_spiking_alert_to_producer(
+        &context.cyclotron_producer,
+        &context.internal_events_topic,
+        &issue,
+        issue_spiking.computed_baseline,
+        issue_spiking.current_bucket_value,
+    )
+    .await?;
 
     Ok(())
 }
@@ -128,10 +137,13 @@ async fn load_issue(
     .ok_or_else(|| UnhandledError::Other(format!("issue {issue_id} for team {team_id} not found")))
 }
 
-async fn persist_spike_event(context: &NotificationsContext, issue_spiking: &IssueSpiking) {
+async fn persist_spike_event(
+    context: &NotificationsContext,
+    issue_spiking: &IssueSpiking,
+) -> Result<(), UnhandledError> {
     let id = Uuid::now_v7();
     let now = Utc::now();
-    if let Err(e) = sqlx::query(
+    sqlx::query(
         r#"INSERT INTO posthog_errortrackingspikeevent
            (id, team_id, issue_id, detected_at, computed_baseline, current_bucket_value)
            VALUES ($1, $2, $3, $4, $5, $6)"#,
@@ -143,10 +155,9 @@ async fn persist_spike_event(context: &NotificationsContext, issue_spiking: &Iss
     .bind(issue_spiking.computed_baseline)
     .bind(issue_spiking.current_bucket_value as i32)
     .execute(&context.posthog_pool)
-    .await
-    {
-        warn!("Failed to persist spike event: {e}");
-    }
+    .await?;
+
+    Ok(())
 }
 
 fn parse_notification_timestamp(event_timestamp: &str, event_uuid: Uuid) -> DateTime<Utc> {
