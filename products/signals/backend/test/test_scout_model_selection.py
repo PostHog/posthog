@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 from unittest.mock import patch
 
 from parameterized import parameterized
+
+from posthog.models.team.team import Team
 
 from products.signals.backend.scout_harness.model_selection import GLM_MODEL, resolve_scout_model
 
@@ -17,14 +20,12 @@ _GPT = "gpt-5.5"
 _RUN_ID = "0190a000-0000-7000-8000-000000000001"
 
 
-def _fake_team(team_id: int = _TEAM_ID, parent_team_id: int | None = None) -> SimpleNamespace:
-    # resolve_scout_model only reads id + parent_team_id.
-    return SimpleNamespace(id=team_id, parent_team_id=parent_team_id)
+def _fake_team(team_id: int = _TEAM_ID, parent_team_id: int | None = None) -> Team:
+    # resolve_scout_model only reads id + parent_team_id, so a lightweight stand-in avoids the DB.
+    return cast(Team, SimpleNamespace(id=team_id, parent_team_id=parent_team_id))
 
 
-def _resolve(
-    skill: str = _SKILL, run_id: str = _RUN_ID, *, team: SimpleNamespace | None = None, payload: object
-) -> str | None:
+def _resolve(skill: str = _SKILL, run_id: str = _RUN_ID, *, team: Team | None = None, payload: object) -> str | None:
     with patch(_PAYLOAD_PATH, return_value=payload):
         return resolve_scout_model(team or _fake_team(), skill, run_id)
 
@@ -103,8 +104,12 @@ class TestResolveScoutModel:
         assert shares[None] == max(shares.values())
 
     def test_selection_is_deterministic_per_run(self) -> None:
-        payload = _scouts({GLM_MODEL: 0.5, _GPT: 0.5})
-        assert _resolve(payload=payload) == _resolve(payload=payload)
+        # Full 50/50 split (no remainder) so every run resolves to a real model, then assert the
+        # same run_id resolves the same model twice — the determinism guarantee, not None == None.
+        payload = _scouts({_SKILL: {GLM_MODEL: 0.5, _GPT: 0.5}})
+        first = _resolve(payload=payload)
+        assert first in {GLM_MODEL, _GPT}
+        assert first == _resolve(payload=payload)
 
     @parameterized.expand(
         [
