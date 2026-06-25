@@ -5,7 +5,7 @@ import { MessageTemplate } from './MessageTemplate'
 
 const DEFAULT_FAILURE_MESSAGE = '*PostHog AI has failed to generate an answer. Please try again.*'
 
-interface AssistantFailureMessageProps {
+export interface AssistantFailureMessageProps {
     id: string
     content?: string | null
     action?: React.ReactNode
