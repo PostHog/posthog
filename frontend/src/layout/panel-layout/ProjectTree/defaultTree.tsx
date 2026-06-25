@@ -285,7 +285,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconNotification />,
         iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
-    apps: {
+    tools: {
         icon: <IconApps />,
     },
     live: {

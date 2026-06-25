@@ -356,7 +356,7 @@ jobs:
             - name: Check for changes that affect video export temporal worker
               id: check_changes_video_export_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/business_knowledge/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/business_knowledge/backend/|^products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals|^products/signals/backend/emission/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -807,7 +807,7 @@ jobs:
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^products/warehouse_sources/backend/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -837,7 +837,7 @@ jobs:
             - name: Check for changes that affect warehouse-sources-load
               id: check_changes_warehouse_sources_load
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/data_imports/pipelines/pipeline_v3/|^posthog/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_load\.py$|^posthog/warehouse/|^products/data_warehouse/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_load\.py$|^posthog/warehouse/|^products/data_warehouse/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -867,7 +867,7 @@ jobs:
             - name: Check for changes that affect warehouse-sources-duckgres-load
               id: check_changes_warehouse_sources_duckgres_load
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/data_imports/pipelines/pipeline_v3/|^posthog/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_duckgres_load\.py$|^posthog/warehouse/|^posthog/ducklake/|^products/data_warehouse/backend/|^products/warehouse_sources/backend/|^products/warehouse_sources_queue/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_duckgres_load\.py$|^posthog/warehouse/|^posthog/ducklake/|^products/data_warehouse/backend/|^products/warehouse_sources/backend/|^products/warehouse_sources_queue/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT

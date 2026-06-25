@@ -486,6 +486,42 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         mock_capture.assert_not_called()
 
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_create_group_duplicated_group_key_via_personhog(self, mock_capture):
+        """Personhog upserts on duplicate so the pre-check must catch it."""
+        from posthog.personhog_client.fake_client import fake_personhog_client
+
+        group_type_mapping = create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        group_key = "dup-key-ph"
+
+        with fake_personhog_client() as fake:
+            fake.add_group(
+                team_id=self.team.pk,
+                group_type_index=group_type_mapping.group_type_index,
+                group_key=group_key,
+                id=1,
+            )
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/groups",
+                {
+                    "group_key": group_key,
+                    "group_type_index": 0,
+                    "group_properties": {},
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "A group with this key already exists")
+        create_calls = [c for c in fake.calls if c.method == "create_group"]
+        self.assertEqual(len(create_calls), 0, "create_group should not be called for duplicates")
+        mock_capture.assert_not_called()
+
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
     def test_create_group_missing_group_key(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
