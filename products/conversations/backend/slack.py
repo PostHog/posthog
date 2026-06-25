@@ -10,6 +10,7 @@ All three converge to create_or_update_slack_ticket().
 """
 
 import re
+import json
 from types import MappingProxyType
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -75,6 +76,11 @@ def _is_ticketable_message(event: dict, *, is_bot: bool) -> bool:
 # Permissive on charset (underscores allowed) but blocks angle brackets, @, #, and spaces.
 _SLACK_USER_ID_RE = re.compile(r"^[UW][A-Z0-9_]+$")
 _SLACK_CHANNEL_ID_RE = re.compile(r"^[CGD][A-Z0-9_]+$")
+
+# Action IDs for the opt-in "open a ticket?" ephemeral prompt (slack_confirm_before_ticket).
+# The buttons are posted by post_ticket_confirmation_prompt and routed by the interactivity endpoint.
+TICKET_CONFIRM_ACTION_OPEN = "supporthog_open_ticket_confirm"
+TICKET_CONFIRM_ACTION_DISMISS = "supporthog_open_ticket_dismiss"
 
 
 def _get_team_id(team: Team) -> int:
@@ -655,6 +661,18 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     if channel not in configured_channels:
         return
 
+    # Opt-in: ask the author first instead of auto-creating. The ticket is created
+    # only when they click "Open ticket" on the ephemeral prompt (handled by the
+    # interactivity endpoint), so we stop here.
+    if settings_dict.get("slack_confirm_before_ticket"):
+        post_ticket_confirmation_prompt(
+            team=team,
+            slack_channel_id=channel,
+            message_ts=message_ts or "",
+            slack_user_id=slack_user_id,
+        )
+        return
+
     # Top-level message -> create new ticket, use message ts as thread_ts
     create_or_update_slack_ticket(
         team=team,
@@ -668,6 +686,127 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         slack_team_id=slack_team_id,
         channel_detail=ChannelDetail.SLACK_CHANNEL_MESSAGE,
     )
+
+
+def post_ticket_confirmation_prompt(
+    *,
+    team: Team,
+    slack_channel_id: str,
+    message_ts: str,
+    slack_user_id: str,
+) -> None:
+    """Ask the message author whether to open a ticket, via an ephemeral message.
+
+    Posted instead of auto-creating when ``slack_confirm_before_ticket`` is enabled.
+    Only the author sees the prompt; the ticket is created when they click "Open ticket"
+    (routed through the interactivity endpoint to ``create_ticket_from_confirmation``).
+    """
+    if not message_ts or not slack_user_id:
+        return
+
+    client = get_slack_client(team)
+    action_value = json.dumps({"channel": slack_channel_id, "message_ts": message_ts})
+    try:
+        client.chat_postEphemeral(
+            channel=slack_channel_id,
+            user=slack_user_id,
+            thread_ts=message_ts,
+            text="Open a support ticket for this message?",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": ":ticket: Open a support ticket for this message?"},
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "action_id": TICKET_CONFIRM_ACTION_OPEN,
+                            "style": "primary",
+                            "text": {"type": "plain_text", "text": "Open ticket", "emoji": True},
+                            "value": action_value,
+                        },
+                        {
+                            "type": "button",
+                            "action_id": TICKET_CONFIRM_ACTION_DISMISS,
+                            "text": {"type": "plain_text", "text": "No thanks", "emoji": True},
+                            "value": action_value,
+                        },
+                    ],
+                },
+            ],
+        )
+    except Exception:
+        logger.warning(
+            "slack_support_confirmation_prompt_failed",
+            team_id=_get_team_id(team),
+            slack_channel_id=slack_channel_id,
+        )
+
+
+def create_ticket_from_confirmation(
+    *,
+    team: Team,
+    slack_team_id: str,
+    slack_channel_id: str,
+    message_ts: str,
+) -> Ticket | None:
+    """Create a ticket from a channel message after the author confirms via the prompt.
+
+    Mirrors the emoji-reaction path: re-fetch the source message, create the ticket, then
+    backfill any replies posted while the prompt was pending. Idempotent — a duplicate
+    click is a no-op because a ticket already exists for the thread.
+    """
+    if Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=message_ts).exists():
+        logger.debug(
+            "slack_support_confirmation_ticket_exists", slack_channel_id=slack_channel_id, message_ts=message_ts
+        )
+        return None
+
+    client = get_slack_client(team)
+    try:
+        result = client.conversations_history(
+            channel=slack_channel_id,
+            latest=message_ts,
+            inclusive=True,
+            limit=1,
+        )
+        messages: list[dict] = result.get("messages", [])
+    except Exception:
+        logger.warning("slack_support_confirmation_fetch_failed", channel=slack_channel_id, message_ts=message_ts)
+        return None
+
+    if not messages:
+        return None
+
+    original_msg = messages[0]
+    original_user = original_msg.get("user", "")
+    original_text = original_msg.get("text", "")
+    original_blocks = original_msg.get("blocks")
+    original_files = original_msg.get("files")
+
+    # Require either text or files
+    if not original_user or (not original_text.strip() and not original_files):
+        return None
+
+    ticket = create_or_update_slack_ticket(
+        team=team,
+        slack_channel_id=slack_channel_id,
+        thread_ts=message_ts,
+        slack_user_id=original_user,
+        text=original_text,
+        blocks=original_blocks,
+        files=original_files,
+        is_thread_reply=False,
+        slack_team_id=slack_team_id,
+        channel_detail=ChannelDetail.SLACK_CHANNEL_MESSAGE,
+    )
+
+    if ticket:
+        _backfill_thread_replies(client, team, ticket, slack_channel_id, message_ts)
+
+    return ticket
 
 
 def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:

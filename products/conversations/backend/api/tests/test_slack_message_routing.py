@@ -8,6 +8,9 @@ from parameterized import parameterized
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail
 from products.conversations.backend.slack import (
+    TICKET_CONFIRM_ACTION_DISMISS,
+    TICKET_CONFIRM_ACTION_OPEN,
+    create_ticket_from_confirmation,
     handle_member_joined_channel,
     handle_member_left_channel,
     handle_support_mention,
@@ -388,6 +391,124 @@ class TestSlackMessageRouting(BaseTest):
             "T123",
         )
 
+        mock_create_or_update.assert_not_called()
+
+
+class TestSlackConfirmBeforeTicket(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_settings = {
+            "slack_enabled": True,
+            "slack_channel_id": "C_CONFIG",
+            "slack_confirm_before_ticket": True,
+        }
+        self.team.save()
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_top_level_message_posts_prompt_instead_of_creating(self, mock_create_or_update, mock_get_client):
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "New support request",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_not_called()
+        mock_get_client.return_value.chat_postEphemeral.assert_called_once()
+        kwargs = mock_get_client.return_value.chat_postEphemeral.call_args.kwargs
+        assert kwargs["channel"] == "C_CONFIG"
+        assert kwargs["user"] == "U123"
+        assert kwargs["thread_ts"] == "1700000000.000100"
+        action_ids = {
+            element["action_id"]
+            for block in kwargs["blocks"]
+            if block["type"] == "actions"
+            for element in block["elements"]
+        }
+        assert action_ids == {TICKET_CONFIRM_ACTION_OPEN, TICKET_CONFIRM_ACTION_DISMISS}
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_thread_reply_still_syncs_when_confirm_enabled(self, mock_create_or_update, mock_get_client):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id="C_CONFIG",
+            slack_thread_ts="1700000000.000100",
+        )
+
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_CONFIG",
+                "thread_ts": "1700000000.000100",
+                "ts": "1700000000.000200",
+                "user": "U123",
+                "text": "Reply in thread",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_get_client.return_value.chat_postEphemeral.assert_not_called()
+        mock_create_or_update.assert_called_once()
+        assert mock_create_or_update.call_args.kwargs["is_thread_reply"] is True
+
+    @patch(f"{MODULE}._backfill_thread_replies")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_create_ticket_from_confirmation_seeds_from_message(
+        self, mock_create_or_update, mock_get_client, mock_backfill
+    ):
+        mock_get_client.return_value.conversations_history.return_value = {
+            "messages": [{"user": "U_OP", "text": "Original message"}]
+        }
+        mock_create_or_update.return_value = object()
+
+        create_ticket_from_confirmation(
+            team=self.team,
+            slack_team_id="T123",
+            slack_channel_id="C_CONFIG",
+            message_ts="1700000000.000100",
+        )
+
+        mock_create_or_update.assert_called_once()
+        kwargs = mock_create_or_update.call_args.kwargs
+        assert kwargs["slack_user_id"] == "U_OP"
+        assert kwargs["text"] == "Original message"
+        assert kwargs["thread_ts"] == "1700000000.000100"
+        assert kwargs["is_thread_reply"] is False
+        assert kwargs["channel_detail"] == ChannelDetail.SLACK_CHANNEL_MESSAGE
+        mock_backfill.assert_called_once()
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_create_ticket_from_confirmation_is_idempotent(self, mock_create_or_update, mock_get_client):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id="C_CONFIG",
+            slack_thread_ts="1700000000.000100",
+        )
+
+        create_ticket_from_confirmation(
+            team=self.team,
+            slack_team_id="T123",
+            slack_channel_id="C_CONFIG",
+            message_ts="1700000000.000100",
+        )
+
+        mock_get_client.assert_not_called()
         mock_create_or_update.assert_not_called()
 
 

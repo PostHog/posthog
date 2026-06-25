@@ -1,6 +1,7 @@
 """Celery tasks for the conversations product."""
 
 import html as html_mod
+import json
 from datetime import datetime, timedelta
 from email.utils import formataddr
 from typing import Any, cast
@@ -54,6 +55,9 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
 from products.conversations.backend.slack import (
+    TICKET_CONFIRM_ACTION_DISMISS,
+    TICKET_CONFIRM_ACTION_OPEN,
+    create_ticket_from_confirmation,
     get_slack_client,
     handle_member_joined_channel,
     handle_member_left_channel,
@@ -157,6 +161,68 @@ def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id
             error=str(e),
         )
         raise cast(Any, process_supporthog_event).retry(exc=e)
+
+
+def _delete_supporthog_ephemeral(response_url: str) -> None:
+    """Remove the ephemeral "open a ticket?" prompt once the author has clicked.
+
+    Best-effort: a failure here never blocks the ticket creation that already ran.
+    """
+    if not response_url:
+        return
+    try:
+        requests.post(response_url, json={"delete_original": True}, timeout=3)
+    except Exception:
+        logger.warning("supporthog_interactivity_response_url_failed", exc_info=True)
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
+def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str) -> None:
+    """Handle a button click from the opt-in "open a ticket?" ephemeral prompt."""
+    config = (
+        TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
+        .select_related("team")
+        .first()
+    )
+    if not config:
+        logger.warning("supporthog_interactivity_no_team", slack_team_id=slack_team_id)
+        return
+
+    team = config.team
+    support_settings = team.conversations_settings or {}
+    if not support_settings.get("slack_enabled"):
+        return
+
+    if payload.get("type") != "block_actions":
+        return
+
+    response_url = payload.get("response_url", "")
+    for action in payload.get("actions") or []:
+        action_id = action.get("action_id")
+        if action_id == TICKET_CONFIRM_ACTION_DISMISS:
+            _delete_supporthog_ephemeral(response_url)
+            return
+        if action_id == TICKET_CONFIRM_ACTION_OPEN:
+            try:
+                value = json.loads(action.get("value") or "{}")
+            except (json.JSONDecodeError, TypeError):
+                value = {}
+            channel = value.get("channel", "")
+            message_ts = value.get("message_ts", "")
+            if channel and message_ts:
+                try:
+                    create_ticket_from_confirmation(
+                        team=team,
+                        slack_team_id=slack_team_id,
+                        slack_channel_id=channel,
+                        message_ts=message_ts,
+                    )
+                except Exception as e:
+                    logger.exception("supporthog_interactivity_create_failed", error=str(e))
+                    raise cast(Any, process_supporthog_interactivity).retry(exc=e)
+            _delete_supporthog_ephemeral(response_url)
+            return
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)

@@ -48,6 +48,7 @@ function SlackChannelSection(): JSX.Element {
         slackNotifyOnJoin,
         slackNotifyOnLeave,
         slackAlertChannelId,
+        slackConfirmBeforeTicket,
         currentTeamLoading,
     } = useValues(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -64,6 +65,7 @@ function SlackChannelSection(): JSX.Element {
         setSlackNotifyOnJoin,
         setSlackNotifyOnLeave,
         setSlackAlertChannel,
+        setSlackConfirmBeforeTicket,
         disconnectSlack,
     } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
@@ -124,6 +126,19 @@ function SlackChannelSection(): JSX.Element {
                                 Refresh
                             </LemonButton>
                         </div>
+                        <LemonCheckbox
+                            className="mt-2"
+                            checked={slackConfirmBeforeTicket}
+                            onChange={setSlackConfirmBeforeTicket}
+                            disabled={currentTeamLoading}
+                            label="Ask before creating a ticket"
+                            bordered
+                        />
+                        <p className="text-xs text-muted-alt mt-1">
+                            When enabled, the SupportHog bot sends the author an ephemeral message asking whether to
+                            open a ticket, instead of creating one automatically. Only affects channel messages —
+                            @mentions and emoji reactions still create tickets immediately.
+                        </p>
                     </div>
                     {memberAlertsEnabled && (
                         <>
