@@ -35,8 +35,8 @@ export class RetentionService {
         return this.getRetentionByTeamId(teamId)
     }
 
-    public async getSessionRetentionDays(teamId: TeamId, sessionId: string): Promise<number> {
-        const retentionPeriod = await this.getSessionRetention(teamId, sessionId)
+    public async getSessionRetentionDays(teamId: TeamId, _sessionId: string): Promise<number> {
+        const retentionPeriod = await this.getRetentionByTeamId(teamId)
         return RetentionPeriodToDaysMap[retentionPeriod]
     }
 }
