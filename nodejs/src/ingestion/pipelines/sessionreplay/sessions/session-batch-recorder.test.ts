@@ -182,6 +182,7 @@ jest.mock('./metrics', () => ({
         incrementEventsRateLimited: jest.fn(),
         incrementNewSessionsDetected: jest.fn(),
         incrementNewSessionsRateLimited: jest.fn(),
+        incrementSessionsDroppedDuringFlush: jest.fn(),
     },
 }))
 
@@ -1641,7 +1642,7 @@ describe('SessionBatchRecorder', () => {
     })
 
     describe('error handling', () => {
-        it('should handle errors from session streams', async () => {
+        it('should drop session and continue flush when session stream errors', async () => {
             const events = [
                 {
                     type: EventType.FullSnapshot,
@@ -1654,33 +1655,35 @@ describe('SessionBatchRecorder', () => {
                 () =>
                     ({
                         recordMessage: jest.fn().mockReturnValue(1),
+                        sessionId: 'session',
+                        teamId: 1,
                         end: () => Promise.reject(new Error('Stream read error')),
                     }) as unknown as SnappySessionRecorder
             )
 
             await recorder.record(createMessage('session', events))
 
-            const flushPromise = recorder.flush()
+            const result = await recorder.flush()
 
-            await expect(flushPromise).rejects.toThrow('Stream read error')
-
-            expect(mockWriter.finish).not.toHaveBeenCalled()
-            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
-            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
+            expect(result).toEqual([])
+            expect(SessionBatchMetrics.incrementSessionsDroppedDuringFlush).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalled()
+            expect(mockOffsetManager.commit).toHaveBeenCalled()
         })
 
-        it('should handle writer errors', async () => {
+        it('should drop session and continue flush when writer errors', async () => {
             const error = new Error('Write failed')
             mockWriter.writeSession.mockRejectedValueOnce(error)
 
             const message = createMessage('session1', [{ type: 1, timestamp: 1, data: {} }])
             await recorder.record(message)
 
-            await expect(recorder.flush()).rejects.toThrow(error)
+            const result = await recorder.flush()
 
-            expect(mockWriter.finish).not.toHaveBeenCalled()
-            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
-            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
+            expect(result).toEqual([])
+            expect(SessionBatchMetrics.incrementSessionsDroppedDuringFlush).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalled()
+            expect(mockOffsetManager.commit).toHaveBeenCalled()
         })
     })
 
