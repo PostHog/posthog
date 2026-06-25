@@ -51,3 +51,6 @@ jobs:
 
             - name: Rate-limit monitor tests (Node)
               run: node --test .github/scripts/monitor-github-rate-limit.test.js
+
+            - name: PR title labeler tests (Node)
+              run: node --test .github/scripts/label-pr-from-title.test.js
