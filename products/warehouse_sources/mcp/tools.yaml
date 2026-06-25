@@ -364,12 +364,13 @@ tools:
         title: List data warehouse sources
         description: >
             Check what external data is already connected before answering any revenue, billing, subscription, CRM,
-            support-ticket, or product-database question — call this first so you JOIN against an existing source instead
-            of telling the user the data isn't available. Lists every configured import source with its type (Postgres,
-            Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. If nothing
-            relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Per-schema column definitions
-            are omitted to keep the payload small — to look up a single table's sync status by name use
-            external-data-schemas-list with a search, and to see a table's columns use external-data-schemas-retrieve.
+            support-ticket, or product-database question — call this first so you JOIN against an existing source
+            instead of telling the user the data isn't available. Lists every configured import source with its type
+            (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync
+            timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'.
+            Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync
+            status by name use external-data-schemas-list with a search, and to see a table's columns use
+            external-data-schemas-retrieve.
         response:
             exclude:
                 - schemas.*.table.columns
@@ -404,8 +405,8 @@ tools:
         title: Discover new tables in source
         description: >
             Fetch the latest table list from the remote database and create schema entries for any new tables found.
-            This is a metadata refresh — it does NOT move or sync any data (use 'external-data-sources-reload' for that).
-            Use this after adding new tables to a source database to make them available for syncing.
+            This is a metadata refresh — it does NOT move or sync any data (use 'external-data-sources-reload' for
+            that). Use this after adding new tables to a source database to make them available for syncing.
         exclude_params:
             - client_secret
             - account_id
@@ -503,8 +504,8 @@ tools:
         description: >
             Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe,
             Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders
-            (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) — or
-            when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable
+            (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) —
+            or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable
             warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported
             source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so
             you know what a connection needs. To actually connect a source, prefer 'data-warehouse-source-setup'.
