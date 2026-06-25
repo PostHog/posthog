@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { initKeaTests } from '~/test/init'
@@ -26,6 +26,7 @@ import {
     filterPullRequests,
     workflowTrendSeries,
 } from './engineeringAnalyticsLogic'
+import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
 import { sortRunsForTriage } from './pullRequestDetailLogic'
 
 jest.mock('../generated/api', () => ({
@@ -64,6 +65,9 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         passing: 0,
         failing: 0,
         pending: 0,
+        pushes: 0,
+        rerunCycles: 0,
+        estimatedCostUsd: null,
         ...overrides,
     }
 }
@@ -81,13 +85,16 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
         merged_at: null,
         open_to_merge_seconds: null,
         labels: [],
+        pushes: 0,
+        rerun_cycles: 0,
+        estimated_cost_usd: null,
         ...overrides,
     }
 }
 
 const CARDS: CICardSummaryApi = { open_prs: 18, repos: 10, stuck: 6, failing_ci: 4 }
 const PRS: PullRequestListItemApi[] = [
-    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 } }),
+    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 }, pushes: 7, rerun_cycles: 2 }),
     apiPr({
         number: 102,
         title: 'fix: y',
@@ -103,7 +110,7 @@ const PRS: PullRequestListItemApi[] = [
 const WORKFLOWS: WorkflowHealthItemApi[] = [
     {
         repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
-        daily: [{ day: '2026-05-30', run_count: 100, completed: 95, successes: 90 }],
+        daily: [{ day: '2026-05-30', run_count: 100, completed: 95, successes: 90, failures: 4 }],
         workflow_name: 'CI',
         run_count: 100,
         success_rate: 0.95,
@@ -208,16 +215,11 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.activeCard).toBeNull()
     })
 
-    it('keeps filter state isolated per internal tab', () => {
-        const tabA = engineeringAnalyticsLogic({ tabId: 'tab-a' })
-        const tabB = engineeringAnalyticsLogic({ tabId: 'tab-b' })
-        tabA.mount()
-        tabB.mount()
-
-        tabA.actions.setStateFilter('merged')
-
-        expect(tabA.values.stateFilter).toBe('merged')
-        expect(tabB.values.stateFilter).toBe(DEFAULT_FILTERS.state)
+    it('scene logic mounts without a tabId so /engineering-analytics resolves instead of 404ing', () => {
+        // #62051 collapsed sceneLogic to single-scene state and stopped threading a tabId into
+        // scene logics. A tab-aware scene logic then throws "must have a tabId prop" on mount,
+        // sceneLogic's catch falls back to Error404, and every visit to the scene 404s.
+        expect(() => engineeringAnalyticsSceneLogic().mount()).not.toThrow()
     })
 
     it('maps the three endpoints into typed rows and defaults to the open filter', async () => {
@@ -233,15 +235,20 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.pullRequests).toHaveLength(2)
         expect(logic.values.pullRequests[0].authorHandle).toBe('alice')
         expect(ciStatusOf(logic.values.pullRequests[0])).toBe('failing')
+        expect(logic.values.pullRequests[0].pushes).toBe(7)
+        expect(logic.values.pullRequests[0].rerunCycles).toBe(2)
+        expect(logic.values.pullRequests[0].estimatedCostUsd).toBeNull()
         expect(logic.values.pullRequests[1].openToMergeSeconds).toBe(86400)
         expect(logic.values.workflowHealth).toHaveLength(1)
         expect(logic.values.workflowHealth[0].successRate).toBe(0.95)
         expect(logic.values.workflowHealth[0].daily).toEqual([
-            { day: '2026-05-30', runCount: 100, completed: 95, successes: 90 },
+            { day: '2026-05-30', runCount: 100, completed: 95, successes: 90, failures: 4 },
         ])
         // Default state filter is "open", so only the open PR survives.
         expect(logic.values.filteredPullRequests).toHaveLength(1)
-        expect(logic.values.loadFailed).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
     })
 
     it('reloads workflow health when the date range changes', async () => {
@@ -257,6 +264,43 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.setWorkflowDateRange('2026-01-01', '2026-03-01')
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
+    })
+
+    it('filters workflow health by branch server-side, only reloading on a real change', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d' })
+
+        // Typing only stages the value — no reload until applied.
+        logic.actions.setBranchFilter('main')
+        expect(logic.values.branchInput).toBe('main')
+        expect(logic.values.appliedBranch).toBe('')
+
+        // Applying promotes it and reloads with the branch param (trimmed).
+        logic.actions.setBranchFilter('  main  ')
+        logic.actions.applyBranchFilter()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
+        expect(logic.values.appliedBranch).toBe('main')
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d', branch: 'main' })
+
+        // Re-applying an unchanged value (e.g. a blur with no edit) does not reload.
+        mockWorkflowHealth.mockClear()
+        logic.actions.applyBranchFilter()
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadWorkflowHealth'])
+        expect(mockWorkflowHealth).not.toHaveBeenCalled()
+
+        // The applied branch persists across a date-range reload.
+        logic.actions.setWorkflowDateRange('-90d', null)
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', branch: 'main' })
+
+        // Clearing the box (e.g. the search × button, which only fires onChange('')) applies
+        // immediately — no Enter/blur needed — and drops the filter.
+        logic.actions.setBranchFilter('')
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(logic.values.appliedBranch).toBe('')
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 
     it('exposes source options and the multi-source flag only when more than one source exists', async () => {
@@ -325,9 +369,21 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it.each([
-        ['a bad day spikes', { completed: 25, successes: 22 }, 0.12, 'Jun 5 · 3 of 25 non-passing'],
-        ['an all-green day stays flat', { completed: 25, successes: 25 }, 0, 'Jun 5 · 0 of 25 non-passing'],
-        ['a day with nothing completed stays flat', { completed: 0, successes: 0 }, 0, 'Jun 5 · no completed runs'],
+        ['a bad day spikes', { completed: 25, successes: 22, failures: 3 }, 0.12, 'Jun 5 · 3 of 25 failed'],
+        ['an all-green day stays flat', { completed: 25, successes: 25, failures: 0 }, 0, 'Jun 5 · 0 of 25 failed'],
+        // Skipped/cancelled/action_required runs are completed but not failures — they must not spike the bar.
+        [
+            'skipped/cancelled runs are not failures',
+            { completed: 25, successes: 20, failures: 0 },
+            0,
+            'Jun 5 · 0 of 25 failed',
+        ],
+        [
+            'a day with nothing completed stays flat',
+            { completed: 0, successes: 0, failures: 0 },
+            0,
+            'Jun 5 · no completed runs',
+        ],
     ])('workflowTrendSeries: %s', (_label, counts, value, label) => {
         const series = workflowTrendSeries([{ day: '2026-06-05', runCount: 30, ...counts }])
         expect(series).toEqual({ values: [value], labels: [label] })
@@ -414,15 +470,50 @@ describe('engineeringAnalyticsLogic', () => {
         expect(sortRunsForTriage(runs).map((run) => run.conclusion)).toEqual(['failure', null, 'success', 'success'])
     })
 
-    it('flags loadFailed when no GitHub source is connected (cards endpoint 400s)', async () => {
-        mockCiCards.mockRejectedValue(new Error('Connect a GitHub data warehouse source to use engineering analytics.'))
-        mockPullRequests.mockResolvedValue({ items: [], truncated: false, limit: 0 })
-        mockWorkflowHealth.mockResolvedValue([])
-
+    it('flags notConnected when no GitHub source is connected (cards 400s)', async () => {
+        mockCiCards.mockRejectedValue(
+            new ApiError('Connect a GitHub data warehouse source to use engineering analytics.', 400)
+        )
         logic = engineeringAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadCardsFailure'])
 
-        expect(logic.values.loadFailed).toBe(true)
+        expect(logic.values.notConnected).toBe(true)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
+    })
+
+    it('flags notConnected from the workflow-health loader too (the Workflows scene renders no cards)', async () => {
+        // notConnected must react to any loader's 400, not cards alone — else the Workflows scene
+        // could miss the connect prompt.
+        mockWorkflowHealth.mockRejectedValue(new ApiError('Connect a GitHub data warehouse source.', 400))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthFailure'])
+
+        expect(logic.values.notConnected).toBe(true)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
+    })
+
+    it('a cards/PR 500 errors the PR scene only — not the Workflows scene', async () => {
+        mockCiCards.mockRejectedValue(new ApiError('Internal Server Error', 500))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCardsFailure'])
+
+        expect(logic.values.pullRequestsLoadError).toBe(true)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
+    })
+
+    it('a workflow-health 500 errors the Workflows scene only — not the PR scene', async () => {
+        mockWorkflowHealth.mockRejectedValue(new ApiError('Internal Server Error', 500))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthFailure'])
+
+        expect(logic.values.workflowHealthLoadError).toBe(true)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
     })
 })

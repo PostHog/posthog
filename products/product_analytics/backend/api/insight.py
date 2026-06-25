@@ -13,7 +13,6 @@ from django.utils.text import slugify
 from django.utils.timezone import now
 
 import structlog
-import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
@@ -99,6 +98,7 @@ from posthog.models.filters.utils import get_filter
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
     AIObservabilitySummarizationBurstThrottle,
     AIObservabilitySummarizationDailyThrottle,
@@ -209,7 +209,7 @@ def is_legacy_insight_endpoint_blocked(user: Any, team: Team) -> bool:
     if not distinct_id:
         return False
 
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG,
         str(distinct_id),
         groups={
@@ -229,7 +229,7 @@ def is_legacy_insight_filters_blocked(user: Any, team: Team) -> bool:
     if not distinct_id:
         return False
 
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG,
         str(distinct_id),
         groups={
@@ -719,7 +719,12 @@ class InsightSerializer(InsightBasicSerializer):
                 self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
-        if not updated_insight.are_alerts_supported:
+        # Delete linked alerts only when the insight can no longer carry any alert. A switch between
+        # alertable kinds (e.g. trends -> SQL) is left alone: the config type no longer matches, but
+        # the alert check cycle re-validates against the current query and auto-disables + notifies on
+        # mismatch (see validate_alert_config + disable_invalid_alert in the alerts temporal activity),
+        # so the alert and its history are preserved and the user can reconfigure rather than lose it.
+        if updated_insight.alertable_query_kind is None:
             for alert in instance.alertconfiguration_set.all():
                 alert.delete()
 
@@ -936,7 +941,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
-        if not insight.are_alerts_supported:
+        if insight.alertable_query_kind is None:
             return []
 
         # Use prefetched alerts data

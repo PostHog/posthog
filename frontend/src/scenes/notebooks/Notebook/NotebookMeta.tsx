@@ -241,7 +241,14 @@ export const NotebookTableOfContentsButton = (props: Pick<LemonButtonProps, 'siz
     )
 }
 
-export const NotebookKernelInfoButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element | null => {
+type NotebookKernelInfoButtonProps = Pick<LemonButtonProps, 'children' | 'size' | 'type'> & {
+    onBeforeShowKernelInfo?: () => void
+}
+
+export const NotebookKernelInfoButton = ({
+    onBeforeShowKernelInfo,
+    ...props
+}: NotebookKernelInfoButtonProps): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { showKernelInfo } = useValues(notebookSettingsLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
@@ -253,7 +260,14 @@ export const NotebookKernelInfoButton = (props: Pick<LemonButtonProps, 'size' | 
     return (
         <LemonButton
             {...props}
-            onClick={() => setShowKernelInfo(!showKernelInfo)}
+            onClick={() => {
+                const nextShowKernelInfo = !showKernelInfo
+                if (nextShowKernelInfo) {
+                    onBeforeShowKernelInfo?.()
+                }
+                setShowKernelInfo(nextShowKernelInfo)
+            }}
+            active={showKernelInfo}
             icon={<IconTerminal />}
             tooltip={showKernelInfo ? 'Hide kernel info' : 'Show kernel info'}
             tooltipPlacement="left"

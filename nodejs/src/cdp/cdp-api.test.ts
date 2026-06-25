@@ -7,8 +7,9 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/api/router'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { HogFlow } from '~/schema/hogflow'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'
@@ -25,7 +26,6 @@ import {
     insertIntegration,
 } from './_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
-import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'

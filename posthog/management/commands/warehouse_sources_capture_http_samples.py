@@ -33,12 +33,17 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.redis import get_client
-from posthog.temporal.data_imports.sources.common.http.sampling import (
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.sampling import (
     CAPTURE_CONFIG_REDIS_KEY,
     CAPTURE_COUNTER_KEY_PREFIX,
     MAX_CONFIG_TTL_SECONDS,
 )
-from posthog.temporal.data_imports.sources.common.sample_scrub import WILDCARD, CaptureConfig, CaptureRule
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sample_scrub import (
+    WILDCARD,
+    CaptureConfig,
+    CaptureRule,
+)
 
 _TTL_RE = re.compile(r"^(\d+)([smhd])$")
 

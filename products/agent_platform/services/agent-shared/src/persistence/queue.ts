@@ -59,10 +59,19 @@ export interface ListSessionsOpts {
     states?: AgentSession['state'][]
     /** Filter to a specific revision id within the application. */
     revisionId?: string
+    /**
+     * Filter to sessions started by one agent user. Matches the
+     * `agent_user_id` stamped on the session principal (set today only for
+     * slack-trigger sessions — other kinds don't carry it yet, so they won't
+     * match).
+     */
+    agentUserId?: string
     /** ISO datetime — only return sessions with created_at >= this. */
     createdAfter?: string
     /** ISO datetime — only return sessions with created_at <= this. */
     createdBefore?: string
+    /** Case-insensitive substring over the session id and external_key. */
+    search?: string
 }
 
 /**
@@ -116,8 +125,20 @@ export interface SessionQueue extends SessionInputsStore {
      * callers (runner claim loop, sweep) that legitimately fetch by id alone.
      */
     getForApplication(sessionId: string, applicationId: string): Promise<AgentSession | null>
-    /** Find an existing session matching (application_id, external_key). */
-    findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
+    /**
+     * Find an existing session matching `(application_id, external_key,
+     * revision_id)`. `revisionId` is part of the lookup, not a filter applied
+     * afterward, so resume never crosses a revision boundary: a request routed
+     * to one revision can only resume a session created on that same revision.
+     * This keeps draft-preview runs talking to the draft they targeted —
+     * rather than silently resuming the live session under a shared
+     * external_key — and keeps two draft revisions previewed against the same
+     * external_key isolated, so their conversation histories don't bleed
+     * together. The filter lives in SQL (not an after-the-fact JS guard) so the
+     * `ORDER BY updated_at DESC LIMIT 1` can never return a row from a
+     * different revision.
+     */
+    findByExternalKey(applicationId: string, externalKey: string, revisionId: string): Promise<AgentSession | null>
     /**
      * Find an existing session matching (application_id, idempotency_key).
      * Returns null if no row exists (including when the key was nulled by the
@@ -189,4 +210,13 @@ export interface SessionQueue extends SessionInputsStore {
      * may still be retained.
      */
     listIdleCompleted(floorMaxAgeMs: number, limit?: number): Promise<AgentSession[]>
+    /**
+     * Count sessions grouped by state across the whole fleet. Backs the
+     * janitor's queue-depth Prometheus gauge — the singleton samples this once
+     * per sweep so we get `queued` backlog + `running` in-flight + terminal
+     * counts without every runner pod hammering the same aggregate. Returns a
+     * record keyed by state; states with no rows are simply absent (the caller
+     * zero-fills the gauge for known states).
+     */
+    countByState(): Promise<Partial<Record<AgentSession['state'], number>>>
 }

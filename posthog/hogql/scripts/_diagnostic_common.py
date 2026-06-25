@@ -30,6 +30,7 @@ import os
 import re
 import sys
 import json
+import math
 import signal
 import traceback
 import subprocess
@@ -39,17 +40,52 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, NoReturn
 
-from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.parser import HogQLParserShadowMismatch, parse_expr, parse_program, parse_select
+from hogql_parser import parse_string_literal_text as _cpp_parse_string_literal_text
+from hogql_parser_rs import parse_string_literal_text as _rust_parse_string_literal_text
+
+from posthog.hogql.errors import BaseHogQLError, ParsingError
+from posthog.hogql.parser import (
+    HogQLParserShadowMismatch,
+    parse_expr,
+    parse_program,
+    parse_select,
+    parse_string_template,
+)
 from posthog.hogql.visitor import clear_locations
+
+
+def _parse_full_template_string(query: str, backend: Any = None) -> Any:
+    """Entry point for the `full_template_string` rule. The `fullTemplateString`
+    grammar strategy emits the `F'…` form (`QUOTE_SINGLE_TEMPLATE_FULL` then the
+    body, no closing quote), but `parse_string_template` takes only the body and
+    re-adds the `F'` itself — so strip the leading `F'`. Mirrors the pytest PBT
+    (`test_parser_grammar_pbt.py`)."""
+    body = query[2:] if query.startswith("F'") else query
+    return parse_string_template(body, backend=backend)
+
+
+def _parse_string_literal_text(query: str, backend: Any = None) -> str:
+    """Dispatch the unquoter by backend family (`cpp*`/`rust*`) for parity fuzzing; raises like both wheels."""
+    use_cpp = backend is None or str(backend).startswith("cpp")
+    # cpp wheel aborts the process on "" (uncaught C++ ParsingError); raise the class it declares so the grind survives.
+    if use_cpp and query == "":
+        raise ParsingError("Encountered an unexpected empty string input")
+    fn = _cpp_parse_string_literal_text if use_cpp else _rust_parse_string_literal_text
+    return fn(query)
+
 
 # Maps a diagnostic `--rule` value to its parser entry point. `program`
 # covers the Hog imperative-statement layer (let / if / while / for /
-# fn / try-catch / return / throw / blocks).
+# fn / try-catch / return / throw / blocks); `full_template_string` is the
+# standalone `F'…` template parser (`parse_string_template`), a separate
+# EOF-terminated grammar entry that inline `f'…` columnExpr templates don't
+# exercise.
 _PARSER_FOR_RULE: dict[str, Callable[..., Any]] = {
     "expr": parse_expr,
     "select": parse_select,
     "program": parse_program,
+    "full_template_string": _parse_full_template_string,
+    "string_literal": _parse_string_literal_text,
 }
 
 # ---------------------------------------------------------------------------
@@ -70,6 +106,41 @@ def _node_fields(node: Any) -> list[tuple[str, Any]]:
     if not dataclasses.is_dataclass(node):
         return []
     return [(f.name, getattr(node, f.name, None)) for f in dataclasses.fields(node)]
+
+
+def _nan_tolerant_equal(a: Any, b: Any, depth: int = 0) -> bool:
+    """Deep structural equality that treats two NaNs as equal (`float("nan") !=
+    float("nan")`) and otherwise defers to `==`, which already treats a str-enum
+    member as equal to its value (`CompareOperationOp.Eq == '=='`). Needed because
+    cpp-json leaves enum-shaped fields (`op`) as raw strings while rust-py emits
+    the enum, so an AST carrying BOTH a NaN constant AND such a field satisfies
+    neither dataclass `==` (NaN) nor `repr` equality (str vs enum) even though the
+    two parses are identical. Only ever upgrades a mismatch to agreement — a real
+    structural / positional / value difference still surfaces."""
+    if depth > 80:
+        return repr(a) == repr(b)
+    if isinstance(a, float) and isinstance(b, float):
+        return a == b or (math.isnan(a) and math.isnan(b))
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_nan_tolerant_equal(x, y, depth + 1) for x, y in zip(a, b))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return set(a) == set(b) and all(_nan_tolerant_equal(a[k], b[k], depth + 1) for k in a)
+    if dataclasses.is_dataclass(a) and dataclasses.is_dataclass(b):
+        return type(a) is type(b) and all(
+            _nan_tolerant_equal(getattr(a, f.name, None), getattr(b, f.name, None), depth + 1)
+            for f in dataclasses.fields(a)
+        )
+    return bool(a == b)
+
+
+def asts_agree(oracle: Any, candidate: Any) -> bool:
+    """True when two parsed ASTs are equivalent. Mirrors the production shadow
+    comparison in `posthog/hogql/parser.py` (dataclass `==`), then falls back to
+    a NaN-tolerant deep walk so a NaN-bearing AST doesn't read as a spurious
+    mismatch (`float("nan") != float("nan")`) — including when an enum-vs-str
+    field rules out the simpler `repr()` equality. Only ever upgrades a mismatch
+    to agreement, so it can't mask a real structural / positional divergence."""
+    return oracle == candidate or _nan_tolerant_equal(oracle, candidate)
 
 
 def _diff_path(oracle: Any, candidate: Any, path: list | None = None, depth: int = 0) -> list:
@@ -385,7 +456,7 @@ def _shape_for(
         return DivergenceShape(kind="candidate_reject", reject_signature=c_detail)
     if c_status == "crash":
         return None
-    if o_ast == c_ast:
+    if asts_agree(o_ast, c_ast):
         return None
     return _ast_mismatch_shape((_node_type(o_ast), _node_type(c_ast)), _diff_path(o_ast, c_ast))
 
@@ -833,7 +904,7 @@ def run_corpus_parity(
                 crash_buckets[crash_signature(c_detail or "")] += 1
                 failures.append(Failure("candidate_crash", query, c_detail or "<no traceback>", n_occ))
                 continue
-            if o_ast == c_ast:
+            if asts_agree(o_ast, c_ast):
                 counts["pass"] += 1
                 continue
             counts["ast_mismatch"] += 1

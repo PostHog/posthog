@@ -460,14 +460,20 @@ impl PersonLookup for PostgresStorage {
             &[("operation".to_string(), "delete_persons".to_string())],
             chunks.len() as f64,
         );
-        let results: Vec<i64> = stream::iter(chunks.into_iter().map(|chunk| {
-            let pool = pool.clone();
-            let client = client.clone();
-            async move { delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client).await }
-        }))
-        .buffer_unordered(self.bulk_max_concurrent_chunks)
-        .try_collect()
-        .await?;
+        let results: Vec<i64> =
+            stream::iter(
+                chunks.into_iter().map(|chunk| {
+                    let pool = pool.clone();
+                    let client = client.clone();
+                    // Per-person delete: also clear cohort memberships (no DB cascade).
+                    async move {
+                        delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client, true).await
+                    }
+                }),
+            )
+            .buffer_unordered(self.bulk_max_concurrent_chunks)
+            .try_collect()
+            .await?;
 
         Ok(results.iter().sum())
     }
@@ -580,14 +586,20 @@ impl PersonLookup for PostgresStorage {
             )],
             chunks.len() as f64,
         );
-        let results: Vec<i64> = stream::iter(chunks.into_iter().map(|chunk| {
-            let pool = pool.clone();
-            let client = client.clone();
-            async move { delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client).await }
-        }))
-        .buffer_unordered(self.bulk_max_concurrent_chunks)
-        .try_collect()
-        .await?;
+        let results: Vec<i64> =
+            stream::iter(
+                chunks.into_iter().map(|chunk| {
+                    let pool = pool.clone();
+                    let client = client.clone();
+                    // Team teardown clears cohortpeople separately, by cohort, before this runs.
+                    async move {
+                        delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client, false).await
+                    }
+                }),
+            )
+            .buffer_unordered(self.bulk_max_concurrent_chunks)
+            .try_collect()
+            .await?;
 
         Ok(results.iter().sum())
     }
@@ -913,6 +925,102 @@ impl PersonLookup for PostgresStorage {
 
         Ok(results)
     }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        team_id: i64,
+        distinct_id: &str,
+        min_version: i64,
+    ) -> StorageResult<Option<Person>> {
+        let client = current_client_name();
+        let method = current_method_name();
+        let labels = [
+            (
+                "operation".to_string(),
+                "set_person_distinct_id_version_floor".to_string(),
+            ),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+
+        // Resolve the distinct_id's person and guardedly bump its version in one
+        // round-trip. The `target` CTE returns the person whenever the distinct_id
+        // exists, while the `UPDATE` only fires when the stored version is below
+        // min_version — so an already-higher version is left intact but the person is
+        // still returned. No matching distinct_id yields no person.
+        let row = sqlx::query_as!(
+            Person,
+            r#"
+            WITH target AS (
+                SELECT person_id FROM posthog_persondistinctid
+                WHERE team_id = $1 AND distinct_id = $2
+            ),
+            updated AS (
+                UPDATE posthog_persondistinctid
+                SET version = $3
+                WHERE team_id = $1 AND distinct_id = $2 AND version < $3
+                RETURNING person_id
+            )
+            SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties?",
+                   p.properties_last_updated_at::text as "properties_last_updated_at?",
+                   p.properties_last_operation::text as "properties_last_operation?",
+                   p.created_at, p.version, p.is_identified,
+                   CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
+                   p.last_seen_at
+            FROM posthog_person p
+            INNER JOIN target t ON p.id = t.person_id AND p.team_id = $1
+            "#,
+            team_id as i32,
+            distinct_id,
+            min_version
+        )
+        .fetch_optional(&mut *conn)
+        .await?;
+
+        Ok(row)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        min_version: i64,
+    ) -> StorageResult<bool> {
+        let client = current_client_name();
+        let method = current_method_name();
+        let labels = [
+            (
+                "operation".to_string(),
+                "set_person_version_floor".to_string(),
+            ),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+
+        // Guarded bump: never lowers an existing version.
+        let result = sqlx::query!(
+            r#"
+            UPDATE posthog_person
+            SET version = $3
+            WHERE team_id = $1 AND id = $2 AND version < $3
+            "#,
+            team_id as i32,
+            person_id,
+            min_version
+        )
+        .execute(&mut *conn)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
 }
 
 /// Delete a chunk of persons by integer ID in a single transaction:
@@ -923,6 +1031,7 @@ async fn delete_persons_by_ids_chunk(
     team_id: i64,
     person_ids: &[i64],
     client: &str,
+    delete_cohortpeople: bool,
 ) -> StorageResult<i64> {
     if person_ids.is_empty() {
         return Ok(0);
@@ -966,6 +1075,37 @@ async fn delete_persons_by_ids_chunk(
         ],
         did_result.rows_affected() as f64,
     );
+
+    // Cohort memberships have no FK to posthog_person (the constraint was dropped
+    // during person-table partitioning), so they don't cascade — delete them
+    // explicitly for these persons. Gated because the team-teardown path already
+    // clears cohortpeople up front by cohort; only the per-person DeletePersons
+    // path needs this here.
+    if delete_cohortpeople {
+        let cohort_result = sqlx::query!(
+            r#"
+            DELETE FROM posthog_cohortpeople
+            WHERE person_id = ANY($1)
+            "#,
+            person_ids
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                (
+                    "operation".to_string(),
+                    "delete_cohortpeople_for_persons".to_string(),
+                ),
+                ("pool".to_string(), "bulk_primary".to_string()),
+                ("client".to_string(), client.to_string()),
+                ("method".to_string(), current_method_name().to_string()),
+            ],
+            cohort_result.rows_affected() as f64,
+        );
+    }
 
     // Delete person rows (hash key overrides cascade at DB level).
     let result = sqlx::query!(

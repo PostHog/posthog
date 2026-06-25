@@ -3,13 +3,9 @@ import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructi
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { Tool, ZodObjectAny } from '@/tools/types'
 
-import { EXPERIMENTAL_API_ENV } from './experimental'
-
 const AGENT_HELP_HEADER = `# PostHog API guide for agents
 
 \`posthog-cli api\` is the agent-first interface to the PostHog API. It exposes the same tool surface as the PostHog MCP server's \`exec\` tool, so the reference below is the canonical guide for interacting with PostHog. Treat it as instructions to follow, not just documentation.
-
-The command group is experimental: pass \`--experimental\` right after \`api\`, or set \`${EXPERIMENTAL_API_ENV}=1\` in the environment.
 
 On top of the reference below, the CLI adds:
 

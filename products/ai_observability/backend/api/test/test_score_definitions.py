@@ -12,13 +12,12 @@ from products.ai_observability.backend.models.score_definitions import (
 
 
 class TestScoreDefinitionsApi(APIBaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.feature_flag_patcher = patch(
-            "products.ai_observability.backend.api.score_definitions.posthoganalytics.feature_enabled",
-            return_value=True,
+            "products.ai_observability.backend.api.score_definitions.feature_enabled_or_false", return_value=True
         )
-        self.mock_feature_enabled = self.feature_flag_patcher.start()
+        self.feature_flag_patcher.start()
         self.addCleanup(self.feature_flag_patcher.stop)
 
     def _endpoint(self) -> str:
@@ -28,13 +27,6 @@ class TestScoreDefinitionsApi(APIBaseTest):
         current_version = definition.current_version
         assert current_version is not None
         return current_version
-
-    def test_returns_403_when_feature_flag_disabled(self):
-        self.mock_feature_enabled.return_value = False
-
-        response = self.client.get(self._endpoint())
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand(
         [

@@ -38,9 +38,12 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersResponse, ListCohortMemberIdsRequest, ListCohortMemberIdsResponse,
     ListGroupsRequest, ListGroupsResponse, PersonDistinctIds, PersonWithDistinctIds,
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, SplitPersonRequest, SplitPersonResponse, SplitResult as ProtoSplitResult,
-    TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
+    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
+    SplitResult as ProtoSplitResult, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -1303,5 +1306,37 @@ impl PersonHogReplica for PersonHogReplicaService {
                 })
                 .collect(),
         }))
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        request: Request<SetPersonDistinctIdVersionFloorRequest>,
+    ) -> Result<Response<SetPersonDistinctIdVersionFloorResponse>, Status> {
+        let req = request.into_inner();
+
+        let person = self
+            .storage
+            .set_person_distinct_id_version_floor(req.team_id, &req.distinct_id, req.min_version)
+            .await
+            .map_err(|e| log_and_convert_error(e, "set_person_distinct_id_version_floor"))?;
+
+        Ok(Response::new(SetPersonDistinctIdVersionFloorResponse {
+            person: person.map(Into::into),
+        }))
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        request: Request<SetPersonVersionFloorRequest>,
+    ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
+        let req = request.into_inner();
+
+        let updated = self
+            .storage
+            .set_person_version_floor(req.team_id, req.person_id, req.min_version)
+            .await
+            .map_err(|e| log_and_convert_error(e, "set_person_version_floor"))?;
+
+        Ok(Response::new(SetPersonVersionFloorResponse { updated }))
     }
 }

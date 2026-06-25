@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -17,7 +16,6 @@ from parameterized import parameterized
 from posthog.models.team import Team
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
     GitHubSource,
@@ -47,6 +45,7 @@ from products.engineering_analytics.backend.tests.test_views import (
     link_schema,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Every query module runs HogQL through this method; patch it to test row mapping without a
 # warehouse. Patching the unbound method means the mock is called without `self`, so a plain
@@ -162,6 +161,29 @@ class TestPRLifecycleMapping(BaseTest):
         ]
         assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
 
+    def test_skips_events_with_null_timestamps(self) -> None:
+        # parseDateTimeBestEffort yields NULL on a malformed/missing timestamp, so an event's `at`
+        # can come back None. A single bad run timestamp must drop just that event, not raise and
+        # take down the whole PR's lifecycle (the contract's `at` is non-nullable, and the event
+        # sort can't order a None key).
+        header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
+        runs = [
+            # null start -> CI_STARTED dropped, but the completed finish still lands
+            (2001, "CI", "completed", "success", None, _dt("2026-01-11T12:00:00")),
+            # both timestamps null -> both events dropped
+            (2002, "Deploy", "completed", "success", None, None),
+        ]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+
+        assert lifecycle is not None
+        assert [e.kind for e in lifecycle.events] == [
+            PRLifecycleEventKind.OPENED,
+            PRLifecycleEventKind.CI_FINISHED,
+            PRLifecycleEventKind.MERGED,
+        ]
+        assert [e.run_id for e in lifecycle.events] == [None, 2001, None]
+
     def test_returns_none_when_not_found(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([])):
             assert api.get_pr_lifecycle(team=self.team, pr_number=999, repo=None) is None
@@ -183,21 +205,6 @@ class TestPRLifecycleMapping(BaseTest):
         assert lifecycle.pull_request.state == PRState.CLOSED
         assert lifecycle.pull_request.author.is_bot is True
         assert [e.kind for e in lifecycle.events] == [PRLifecycleEventKind.OPENED, PRLifecycleEventKind.CLOSED]
-
-    @parameterized.expand(
-        [
-            ("open", PRState.OPEN),
-            ("closed", PRState.CLOSED),
-            ("merged", PRState.MERGED),
-        ]
-    )
-    def test_state_passthrough(self, state: str, expected: PRState) -> None:
-        merged_at = _dt("2026-01-12T15:00:00") if state == "merged" else None
-        with mock.patch(_RUN_QUERY, return_value=_resp([_header(state, merged_at=merged_at, head_sha="")])):
-            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo=None)
-
-        assert lifecycle is not None
-        assert lifecycle.pull_request.state == expected
 
 
 class TestEndpointMapping(BaseTest):
@@ -233,6 +240,8 @@ class TestEndpointMapping(BaseTest):
             2,
             1,
             0,
+            5,
+            2,
         )
         with mock.patch(_RUN_QUERY, return_value=_resp([row])):
             result = api.list_pull_requests(team=self.team, date_from="-30d")
@@ -247,6 +256,8 @@ class TestEndpointMapping(BaseTest):
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
         assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
+        assert (item.pushes, item.rerun_cycles) == (5, 2)
+        assert item.estimated_cost_usd is None
 
     def test_pull_request_list_flags_truncation(self) -> None:
         # Cap patched low; return more rows than the cap to exercise the N+1 overflow
@@ -269,6 +280,8 @@ class TestEndpointMapping(BaseTest):
             0,
             0,
             0,
+            0,
+            0,
         )
         with mock.patch(f"{_PR_LIST}._LIMIT", 2), mock.patch(_RUN_QUERY, return_value=_resp([row, row, row])):
             result = api.list_pull_requests(team=self.team, date_from="-30d")
@@ -283,8 +296,9 @@ class TestEndpointMapping(BaseTest):
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None.
             ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None),
         ]
-        # Must be inside the -30d window, which is relative to now.
-        daily_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC).date() - timedelta(days=1), 10, 8, 7)]
+        # Must be inside the -30d window, which is relative to now. Columns:
+        # owner, name, workflow, day, run_count, completed, successes, failures.
+        daily_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC).date() - timedelta(days=1), 10, 8, 7, 1)]
         with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(daily_rows)]):
             items = api.list_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
@@ -293,7 +307,7 @@ class TestEndpointMapping(BaseTest):
         # The daily series spans the whole window, zero-filled except the day with runs.
         assert len(items[0].daily) >= 30
         seeded_day = next(entry for entry in items[0].daily if entry.run_count > 0)
-        assert (seeded_day.completed, seeded_day.successes) == (8, 7)
+        assert (seeded_day.completed, seeded_day.successes, seeded_day.failures) == (8, 7, 1)
         assert all(entry.run_count == 0 for entry in items[1].daily)
         assert items[0].p50_seconds == 120.0 and items[0].p95_seconds == 600.0
         assert items[1].success_rate is None
@@ -469,42 +483,6 @@ class TestListGitHubSources(BaseTest):
         assert list_github_sources(team=self.team) == []
 
 
-class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):
-    """End-to-end through the curated builders over real warehouse tables.
-    Skips when object storage is unreachable."""
-
-    @freeze_time("2026-02-01")
-    def test_pr_lifecycle_end_to_end(self) -> None:
-        self._create_table(
-            "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
-            [
-                _pr_row(
-                    10, "alice", "closed", 0, "2026-01-10 09:00:00", merged_at="2026-01-12 15:00:00", head_sha="sha10"
-                )
-            ],
-        )
-        self._create_table(
-            "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
-            [_run_row(2001, "CI", "sha10", "completed", "success", "2026-01-11 09:00:00", "2026-01-11 12:00:00")],
-        )
-
-        lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
-
-        assert lifecycle is not None
-        assert lifecycle.pull_request.state == PRState.MERGED
-        assert lifecycle.pull_request.author.handle == "alice"
-        assert lifecycle.pull_request.repo.name == "posthog"
-        assert [e.kind for e in lifecycle.events] == [
-            PRLifecycleEventKind.OPENED,
-            PRLifecycleEventKind.CI_STARTED,
-            PRLifecycleEventKind.CI_FINISHED,
-            PRLifecycleEventKind.MERGED,
-        ]
-        assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
-
-
 class TestWorkflowHealthWindowCap(BaseTest):
     @parameterized.expand(["2000-01-01", "-500d"])
     def test_rejects_windows_beyond_a_year(self, date_from: str) -> None:
@@ -545,8 +523,13 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1)),
-                _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2)),
+                _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1), pr_number=10),
+                _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2), pr_number=11),
+                # A second push on PR 10 (new head SHA) that was re-run -> pushes=2, rerun_cycles=1.
+                # A non-CI workflow so the CI workflow-health assertions stay at 2 runs.
+                _run_row(
+                    2003, "Deploy", "sha10b", "completed", "success", _ago(1), _ago(1), pr_number=10, run_attempt=2
+                ),
             ],
         )
 
@@ -568,6 +551,11 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert by_number[11].ci.passing == 1
         assert by_number[13].author.is_bot is True  # '[bot]' suffix branch
         assert by_number[16].author.is_bot is True  # KNOWN_BOT_HANDLES allowlist branch
+        # pushes = distinct head SHAs across runs attributed to the PR; rerun_cycles = 2nd+ attempts.
+        assert (by_number[10].pushes, by_number[10].rerun_cycles) == (2, 1)
+        assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
+        assert by_number[12].pushes == 0  # no runs attributed to this PR
+        assert by_number[10].estimated_cost_usd is None  # cost scaffold: populated once jobs land
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()
@@ -576,3 +564,128 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.run_count == 2
         assert ci.success_rate == 0.5  # 1 success of 2 completed
         assert ci.last_failure_at is not None
+
+    def test_workflow_health_daily_failures_exclude_non_failures(self) -> None:
+        # The daily failure count is decisive failures only — skipped / cancelled / action_required
+        # runs are completed but neither successes nor failures, so they must not inflate the trend.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(30, "alice", "open", 0, _ago(1), head_sha="sha30")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(6001, "CI", "sha-a", "completed", "success", _ago(1), _ago(1)),
+                _run_row(6002, "CI", "sha-b", "completed", "failure", _ago(1), _ago(1)),
+                _run_row(6003, "CI", "sha-c", "completed", "timed_out", _ago(1), _ago(1)),
+                _run_row(6004, "CI", "sha-d", "completed", "skipped", _ago(1), _ago(1)),
+                _run_row(6005, "CI", "sha-e", "completed", "cancelled", _ago(1), _ago(1)),
+                _run_row(6006, "CI", "sha-f", "completed", "action_required", _ago(1), _ago(1)),
+            ],
+        )
+        ci = next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI")
+        day = next(entry for entry in ci.daily if entry.run_count > 0)
+        # 6 completed, 1 success, 2 failures (failure + timed_out) — skipped/cancelled/action_required are neither.
+        assert (day.completed, day.successes, day.failures) == (6, 1, 2)
+
+    def test_workflow_health_last_failure_includes_timed_out(self) -> None:
+        # last_failure_at must agree with the failure definition used by the trend: a workflow whose
+        # only decisive failure is a timeout still has a "last failure".
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(31, "alice", "open", 0, _ago(1), head_sha="sha31")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(6101, "CI", "sha-g", "completed", "success", _ago(2), _ago(2)),
+                _run_row(6102, "CI", "sha-h", "completed", "timed_out", _ago(1), _ago(1)),
+            ],
+        )
+        ci = next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI")
+        assert ci.last_failure_at is not None
+
+    def test_workflow_health_branch_filter(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(20, "alice", "open", 0, _ago(1), head_sha="sha20")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(5001, "CI", "sha-m1", "completed", "success", _ago(2), _ago(2), head_branch="main"),
+                _run_row(5002, "CI", "sha-m2", "completed", "failure", _ago(1), _ago(1), head_branch="main"),
+                _run_row(5003, "CI", "sha-f1", "completed", "success", _ago(1), _ago(1), head_branch="feature/x"),
+            ],
+        )
+        # Unfiltered: every branch's runs aggregate together.
+        assert next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI").run_count == 3
+
+        # Scoped to a branch: only that branch's runs count, and rates recompute over them.
+        main_only = next(i for i in api.list_workflow_health(team=self.team, branch="main") if i.workflow_name == "CI")
+        assert main_only.run_count == 2
+        assert main_only.success_rate == 0.5
+
+        # A blank branch is treated as "no filter", not a literal match on ''.
+        assert (
+            next(i for i in api.list_workflow_health(team=self.team, branch="  ") if i.workflow_name == "CI").run_count
+            == 3
+        )
+
+        # A branch with no runs yields no rows.
+        assert api.list_workflow_health(team=self.team, branch="nope") == []
+
+    def test_pull_request_list_rollup_is_repo_qualified(self) -> None:
+        # PR numbers restart per repo. Two repos share PR #10; the per-PR push / re-run rollup must
+        # attribute each repo's runs to its own PR, not merge them on number alone. (The head-SHA CI
+        # rollup is already repo-safe; this proves the runs_by_pr join is too.) A resolved source is
+        # one repo today, so this is the defensive guarantee, exercised by seeding both into one.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(10, "alice", "open", 0, _ago(1), head_sha="sha10", full_name="PostHog/posthog"),
+                _pr_row(10, "bob", "open", 0, _ago(1), head_sha="shaB10", full_name="PostHog/posthog.com"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(3001, "CI", "sha10", "completed", "success", _ago(1), _ago(1), pr_number=10),
+                _run_row(
+                    3002,
+                    "CI",
+                    "shaB10",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=10,
+                    full_name="PostHog/posthog.com",
+                ),
+                # A second push + re-run on the other repo's PR #10 — must not leak onto posthog's #10.
+                _run_row(
+                    3003,
+                    "CI",
+                    "shaB10b",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=10,
+                    run_attempt=2,
+                    full_name="PostHog/posthog.com",
+                ),
+            ],
+        )
+        result = api.list_pull_requests(team=self.team)
+        by_repo = {(item.repo.owner, item.repo.name): item for item in result.items}
+        assert (by_repo[("PostHog", "posthog")].pushes, by_repo[("PostHog", "posthog")].rerun_cycles) == (1, 0)
+        assert (by_repo[("PostHog", "posthog.com")].pushes, by_repo[("PostHog", "posthog.com")].rerun_cycles) == (2, 1)

@@ -32,6 +32,7 @@ import {
     SessionQueue,
 } from '@posthog/agent-shared'
 
+import { enqueueTotal } from '../metrics'
 import { ElevationTrigger, principalDisplay, recordElevationRequest, requireAclAccess } from './acl'
 
 export interface EnqueueDeps {
@@ -100,6 +101,22 @@ export type EnqueueOutcome =
       }
 
 export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): Promise<EnqueueOutcome> {
+    // Single intake choke point — count every enqueue by trigger + outcome.
+    // A throw (DB down, unexpected error) is counted as `error` so the demand
+    // total stays complete. The shared HTTP histogram covers latency/status;
+    // this is the only place the created-vs-resumed-vs-deduped split exists.
+    const trigger = input.trigger ?? 'chat'
+    try {
+        const outcome = await enqueueOrResumeInner(deps, input)
+        enqueueTotal.labels({ trigger, outcome: outcome.kind }).inc()
+        return outcome
+    } catch (err) {
+        enqueueTotal.labels({ trigger, outcome: 'error' }).inc()
+        throw err
+    }
+}
+
+async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Promise<EnqueueOutcome> {
     // Idempotency check first — independent of externalKey. A duplicate
     // request returns the original session id unchanged; the principal +
     // seed of the duplicate are deliberately discarded. Stripe-shaped
@@ -112,7 +129,12 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         }
     }
     if (input.externalKey) {
-        const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey)
+        // Scope the lookup to the resolved revision so a request routed to one
+        // revision can't resume a session created on another. A draft-preview
+        // request resumes only the draft it targeted (never the live session
+        // under a shared external_key), and two draft revisions previewed under
+        // the same external_key stay isolated.
+        const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey, input.revision.id)
         if (existing && existing.state !== 'closed' && existing.state !== 'failed') {
             const incoming = input.principal ?? null
             const check = input.bypassOwnerAcl ? ({ kind: 'allowed' } as const) : requireAclAccess(existing, incoming)

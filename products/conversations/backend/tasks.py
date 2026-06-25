@@ -10,6 +10,7 @@ from uuid import UUID
 from django.core import mail
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
+from django.db.models import F
 from django.db.models.fields.json import JSONField
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -46,8 +47,9 @@ from products.conversations.backend.models import (
     TeamConversationsTeamsChannelSync,
     TeamConversationsTeamsConfig,
 )
-from products.conversations.backend.models.constants import ChannelDetail, Status
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
 from products.conversations.backend.slack import (
     get_slack_client,
     handle_member_joined_channel,
@@ -70,13 +72,18 @@ from products.conversations.backend.teams import (
     _is_bot_mention,
     create_or_update_teams_ticket,
     graph_message_to_activity,
+    graph_reply_to_activity,
     handle_teams_mention,
     handle_teams_message,
+    is_shared_membership_type,
+    parse_teams_root_message_id,
     post_help_card,
+    post_teams_channel_message_via_graph,
 )
+from products.conversations.backend.teams_attachments import extract_teams_graph_images
 from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
-from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
+from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES
 
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
@@ -419,7 +426,7 @@ def _read_image_bytes_for_slack_upload(team_id: int, image_url: str) -> bytes | 
         )
         return None
 
-    if len(payload) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
+    if len(payload) > CONVERSATIONS_MAX_IMAGE_BYTES:
         logger.warning(
             "🖼️ slack_reply_image_too_large",
             team_id=team_id,
@@ -828,12 +835,60 @@ def post_reply_to_teams(
         raise cast(Any, post_reply_to_teams).retry(exc=e)
 
 
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
+def post_reply_to_teams_via_graph(
+    ticket_id: str,
+    team_id: int,
+    teams_team_id: str,
+    channel_id: str,
+    root_message_id: str,
+    content: str,
+    rich_content: dict | None,
+    author_name: str,
+) -> None:
+    """Post a support agent's reply into a shared Teams channel thread via Graph.
+
+    Shared channels can't be written to over the bot connector, so replies go through
+    Graph with the delegated admin token (same path the poller reads with).
+    """
+    team = Team.objects.filter(id=team_id).first()
+    if not team:
+        logger.warning("teams_graph_reply_team_not_found", team_id=team_id)
+        return
+
+    reply_html = rich_content_to_teams_html(rich_content, content)
+    if author_name:
+        reply_html = f"<p><b>{html_mod.escape(author_name)}</b></p>{reply_html}"
+
+    status, _message_id = post_teams_channel_message_via_graph(
+        team=team,
+        teams_team_id=teams_team_id,
+        channel_id=channel_id,
+        html=reply_html,
+        reply_to_message_id=root_message_id,
+        log_context={"ticket_id": ticket_id},
+    )
+    if status in (200, 201):
+        logger.info("teams_graph_reply_posted", ticket_id=ticket_id, channel_id=channel_id)
+        return
+
+    # Retry only transient failures (network/no-token=0, throttling, 5xx). Permanent
+    # ones — 401/403 (token/consent), 404 (thread gone), 400 — won't self-heal and
+    # would just burn the retry budget, so log and drop.
+    if status == 0 or status == 429 or status >= 500:
+        raise cast(Any, post_reply_to_teams_via_graph).retry(
+            exc=Exception(f"Teams Graph reply transient failure (status {status})")
+        )
+    logger.warning("teams_graph_reply_permanent_failure", ticket_id=ticket_id, status=status)
+
+
 def _shared_channel_entries(support_settings: dict) -> list[dict]:
-    """Configured channels flagged as shared (the only ones the poller pulls)."""
+    """Configured channels the poller pulls (shared/unknownFutureValue, not standard/private)."""
     entries = support_settings.get("teams_channels")
     if not isinstance(entries, list):
         return []
-    return [e for e in entries if isinstance(e, dict) and e.get("membership_type") == "shared"]
+    return [e for e in entries if isinstance(e, dict) and is_shared_membership_type(e.get("membership_type"))]
 
 
 def _parse_graph_datetime(value: str | None) -> datetime | None:
@@ -850,6 +905,261 @@ def _parse_graph_datetime(value: str | None) -> datetime | None:
 # in a single run. Remaining pages resume on subsequent every-minute runs.
 TEAMS_DELTA_MAX_PAGES_PER_RUN = 20
 TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS = 30
+TEAMS_REPLIES_MAX_PAGES_PER_TICKET = 5
+# Graph list-replies caps $top at 50; larger values return 400 Bad Request.
+TEAMS_REPLIES_PAGE_SIZE = 50
+# Cap the number of tickets whose threads we poll per channel per run.
+# Oldest-synced tickets are polled first so the sweep round-robins through
+# the backlog across successive every-minute runs.
+TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL = 20
+# Only poll threads on tickets created within this window.
+TEAMS_REPLIES_TICKET_AGE_DAYS = 30
+# Re-scan a small window behind the watermark so replies aren't silently dropped when
+# Graph's createdDateTime and our stored watermark disagree by a few seconds (clock skew
+# between the polling worker and Graph). Dedup downstream makes the overlap harmless.
+TEAMS_REPLIES_WATERMARK_LOOKBACK = timedelta(minutes=5)
+# Safety cap on delta-triggered reply fetches per run. Delta only surfaces threads with
+# fresh activity (so this is naturally traffic-bounded), but a pathological burst across
+# many threads shouldn't fan out into unbounded Graph /replies calls in a single run.
+TEAMS_REPLIES_MAX_DELTA_TRIGGERED_PER_CHANNEL = 50
+
+
+def _sync_one_ticket_thread_replies(
+    *,
+    team: Team,
+    tenant_id: str,
+    token: str,
+    teams_team_id: str,
+    channel_id: str,
+    service_url: str,
+    ticket: Ticket,
+) -> None:
+    """Ingest new thread replies for one shared-channel ticket via Graph."""
+    root_message_id = parse_teams_root_message_id(ticket.teams_conversation_id)
+    if not root_message_id:
+        logger.debug(
+            "poll_teams_shared_channel_replies_no_root",
+            team_id=team.id,
+            channel_id=channel_id,
+            ticket_id=str(ticket.id),
+        )
+        return
+
+    raw_watermark = ticket.teams_thread_replies_synced_at or ticket.created_at
+    watermark = raw_watermark - TEAMS_REPLIES_WATERMARK_LOOKBACK
+    latest_synced_at = ticket.teams_thread_replies_synced_at
+
+    url: str | None = (
+        f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages/{root_message_id}/replies"
+        f"?$top={TEAMS_REPLIES_PAGE_SIZE}"
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+    pages = 0
+    replies_fetched = 0
+    # "matched" = reply resolved to this ticket (covers both new comments and dedup
+    # hits); create_or_update_teams_ticket doesn't distinguish, so we don't claim to.
+    replies_matched = 0
+
+    while url and pages < TEAMS_REPLIES_MAX_PAGES_PER_TICKET:
+        pages += 1
+        resp = requests.get(url, headers=headers, timeout=TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS)
+
+        if resp.status_code in (401, 402, 403, 404, 429):
+            logger.warning(
+                "poll_teams_shared_channel_replies_denied",
+                team_id=team.id,
+                channel_id=channel_id,
+                ticket_id=str(ticket.id),
+                status=resp.status_code,
+            )
+            return
+        if resp.status_code != 200:
+            logger.warning(
+                "poll_teams_shared_channel_replies_error",
+                team_id=team.id,
+                channel_id=channel_id,
+                ticket_id=str(ticket.id),
+                root_message_id=root_message_id,
+                status=resp.status_code,
+                body=resp.text[:500],
+            )
+            return
+
+        data = resp.json()
+        replies = data.get("value") or []
+        replies_fetched += len(replies)
+
+        page_had_failure = False
+        for reply in replies:
+            msg_created = _parse_graph_datetime(reply.get("createdDateTime"))
+            if msg_created and msg_created < watermark:
+                continue
+
+            activity = graph_reply_to_activity(reply, channel_id, root_message_id, service_url)
+            if activity is None:
+                continue
+
+            reply_images = extract_teams_graph_images(reply, team, teams_team_id, channel_id, token)
+            try:
+                result = create_or_update_teams_ticket(
+                    team=team,
+                    activity=activity,
+                    tenant_id=tenant_id,
+                    is_thread_reply=True,
+                    images=reply_images,
+                )
+            except Exception:
+                logger.exception(
+                    "poll_teams_shared_channel_reply_ingest_failed",
+                    team_id=team.id,
+                    channel_id=channel_id,
+                    ticket_id=str(ticket.id),
+                )
+                page_had_failure = True
+                continue
+
+            if result:
+                replies_matched += 1
+            if result and msg_created and (latest_synced_at is None or msg_created > latest_synced_at):
+                latest_synced_at = msg_created
+
+        if page_had_failure:
+            break
+
+        url = data.get("@odata.nextLink")
+
+    if replies_fetched:
+        logger.info(
+            "poll_teams_shared_channel_replies_synced",
+            team_id=team.id,
+            channel_id=channel_id,
+            ticket_id=str(ticket.id),
+            root_message_id=root_message_id,
+            replies_fetched=replies_fetched,
+            replies_matched=replies_matched,
+            watermark=raw_watermark.isoformat(),
+        )
+
+    new_watermark = latest_synced_at or timezone.now()
+    if new_watermark != ticket.teams_thread_replies_synced_at:
+        Ticket.objects.filter(id=ticket.id, team=team).update(teams_thread_replies_synced_at=new_watermark)
+
+
+def _sync_ticket_thread_replies_safe(
+    *,
+    team: Team,
+    tenant_id: str,
+    token: str,
+    teams_team_id: str,
+    channel_id: str,
+    service_url: str,
+    ticket: Ticket,
+) -> None:
+    """Run ``_sync_one_ticket_thread_replies`` with the standard error handling."""
+    try:
+        _sync_one_ticket_thread_replies(
+            team=team,
+            tenant_id=tenant_id,
+            token=token,
+            teams_team_id=teams_team_id,
+            channel_id=channel_id,
+            service_url=service_url,
+            ticket=ticket,
+        )
+    except requests.RequestException:
+        logger.warning(
+            "poll_teams_shared_channel_replies_network_error",
+            team_id=team.id,
+            channel_id=channel_id,
+            ticket_id=str(ticket.id),
+        )
+    except Exception:
+        logger.exception(
+            "poll_teams_shared_channel_replies_unexpected",
+            team_id=team.id,
+            channel_id=channel_id,
+            ticket_id=str(ticket.id),
+        )
+
+
+def _sync_shared_channel_thread_replies(
+    *,
+    team: Team,
+    tenant_id: str,
+    token: str,
+    teams_team_id: str,
+    channel_id: str,
+    service_url: str,
+    surfaced_conversation_ids: set[str] | None = None,
+) -> None:
+    """Pull new thread replies for every Teams ticket in a shared channel.
+
+    ``surfaced_conversation_ids`` are threads delta saw activity on this run; their
+    tickets are always synced (on top of the round-robin selection) so a fresh reply
+    is pulled the same minute even when the ticket isn't in the oldest-synced window.
+    """
+    sync = TeamConversationsTeamsChannelSync.objects.for_team(team.id).filter(channel_id=channel_id).first()
+    if not sync or not sync.primed:
+        logger.debug(
+            "poll_teams_shared_channel_replies_not_primed",
+            team_id=team.id,
+            channel_id=channel_id,
+            has_sync=bool(sync),
+        )
+        return
+
+    age_cutoff = timezone.now() - timedelta(days=TEAMS_REPLIES_TICKET_AGE_DAYS)
+    tickets = list(
+        Ticket.objects.filter(
+            team=team,
+            channel_source=Channel.TEAMS,
+            teams_channel_id=channel_id,
+            created_at__gte=age_cutoff,
+        )
+        .exclude(teams_conversation_id__isnull=True)
+        .exclude(teams_conversation_id="")
+        .exclude(status=Status.RESOLVED)
+        .order_by(F("teams_thread_replies_synced_at").asc(nulls_first=True))[:TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL]
+    )
+
+    selected_ids = {ticket.id for ticket in tickets}
+    delta_triggered = 0
+    if surfaced_conversation_ids:
+        surfaced_tickets = (
+            Ticket.objects.filter(
+                team=team,
+                channel_source=Channel.TEAMS,
+                teams_channel_id=channel_id,
+                teams_conversation_id__in=surfaced_conversation_ids,
+            )
+            .exclude(status=Status.RESOLVED)
+            .exclude(id__in=selected_ids)
+            .order_by(F("teams_thread_replies_synced_at").asc(nulls_first=True))[
+                :TEAMS_REPLIES_MAX_DELTA_TRIGGERED_PER_CHANNEL
+            ]
+        )
+        for ticket in surfaced_tickets:
+            tickets.append(ticket)
+            delta_triggered += 1
+
+    logger.debug(
+        "poll_teams_shared_channel_replies_tickets_selected",
+        team_id=team.id,
+        channel_id=channel_id,
+        tickets_selected=len(tickets),
+        delta_triggered=delta_triggered,
+    )
+
+    for ticket in tickets:
+        _sync_ticket_thread_replies_safe(
+            team=team,
+            tenant_id=tenant_id,
+            token=token,
+            teams_team_id=teams_team_id,
+            channel_id=channel_id,
+            service_url=service_url,
+            ticket=ticket,
+        )
 
 
 def _poll_one_shared_channel(
@@ -860,13 +1170,16 @@ def _poll_one_shared_channel(
     teams_team_id: str,
     channel_id: str,
     service_url: str,
-) -> None:
+) -> set[str]:
     """Pull new top-level messages for one shared channel via Graph messages/delta.
 
     First run for a channel primes the delta cursor without ingesting (no history
     dump); subsequent runs map each new root message onto the existing ticket path.
     Idempotency is handled by ``create_or_update_teams_ticket`` (dedup on
     channel + normalized conversation id), so re-delivering a message is a no-op.
+
+    Returns the set of conversation ids whose root message delta re-surfaced this run,
+    so the caller can prioritize their thread-reply sync.
     """
     sync, created = TeamConversationsTeamsChannelSync.objects.for_team(team.id).get_or_create(
         channel_id=channel_id,
@@ -876,13 +1189,15 @@ def _poll_one_shared_channel(
     # On first encounter, verify via Graph that the channel is actually shared.
     # conversations_settings is client-mutable, so we don't trust its
     # membership_type — we confirm from the authoritative source before polling.
+    # Graph returns "unknownFutureValue" for shared channels in some tenants, so we
+    # reject only explicit standard/private channels rather than requiring "shared".
     if created:
         ch_resp = requests.get(
             f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS,
         )
-        if ch_resp.status_code != 200 or ch_resp.json().get("membershipType") != "shared":
+        if ch_resp.status_code != 200 or not is_shared_membership_type(ch_resp.json().get("membershipType")):
             logger.warning(
                 "poll_teams_shared_channel_not_shared",
                 team_id=team.id,
@@ -890,7 +1205,7 @@ def _poll_one_shared_channel(
                 status=ch_resp.status_code,
             )
             sync.delete()
-            return
+            return set()
 
     url: str | None = sync.delta_link or (
         f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages/delta"
@@ -900,6 +1215,10 @@ def _poll_one_shared_channel(
     new_delta_link: str | None = None
     latest_message_at: datetime | None = None
     pages = 0
+    # Root messages delta re-surfaced this run (Graph bumps a root's lastModifiedDateTime
+    # when a thread reply lands). Their tickets get a targeted reply sync below so the
+    # reply is pulled the same minute, independent of the round-robin reply sweep.
+    surfaced_conversation_ids: set[str] = set()
 
     while url and pages < TEAMS_DELTA_MAX_PAGES_PER_RUN:
         pages += 1
@@ -912,10 +1231,10 @@ def _poll_one_shared_channel(
             sync.last_polled_at = timezone.now()
             sync.save(update_fields=["delta_link", "primed", "last_polled_at", "updated_at"])
             logger.info("poll_teams_shared_channel_resync", team_id=team.id, channel_id=channel_id)
-            return
+            return set()
         if resp.status_code == 429:
             logger.warning("poll_teams_shared_channel_throttled", team_id=team.id, channel_id=channel_id)
-            return
+            return set()
         if resp.status_code in (401, 402, 403):
             # 401: token rejected (next run refreshes if stale). 402: metered/payment
             # gate. 403: lost channel membership / missing scope. Skip, don't crash.
@@ -925,7 +1244,7 @@ def _poll_one_shared_channel(
                 channel_id=channel_id,
                 status=resp.status_code,
             )
-            return
+            return set()
         if resp.status_code != 200:
             logger.warning(
                 "poll_teams_shared_channel_error",
@@ -933,7 +1252,7 @@ def _poll_one_shared_channel(
                 channel_id=channel_id,
                 status=resp.status_code,
             )
-            return
+            return set()
 
         data = resp.json()
         messages = data.get("value") or []
@@ -946,6 +1265,10 @@ def _poll_one_shared_channel(
                 activity = graph_message_to_activity(msg, channel_id, service_url)
                 if activity is None:
                     continue
+                conversation_id = (activity.get("conversation") or {}).get("id")
+                if conversation_id:
+                    surfaced_conversation_ids.add(conversation_id)
+                images = extract_teams_graph_images(msg, team, teams_team_id, channel_id, token)
                 try:
                     create_or_update_teams_ticket(
                         team=team,
@@ -953,6 +1276,10 @@ def _poll_one_shared_channel(
                         tenant_id=tenant_id,
                         is_thread_reply=False,
                         channel_detail=ChannelDetail.TEAMS_CHANNEL_MESSAGE,
+                        # Shared channel: confirm via Graph (bot connector can't post here),
+                        # reusing the token we already hold for the delta read.
+                        graph_post_context={"teams_team_id": teams_team_id, "token": token},
+                        images=images,
                     )
                 except Exception:
                     logger.exception(
@@ -988,6 +1315,11 @@ def _poll_one_shared_channel(
         update_fields.append("last_message_at")
 
     sync.save(update_fields=update_fields)
+
+    # Delta only surfaces roots, never the replies themselves. A re-surfaced root signals
+    # thread activity, so the caller passes these ids to the reply sweep to pull their
+    # replies the same minute regardless of the round-robin selection.
+    return surfaced_conversation_ids
 
 
 @shared_task(ignore_result=True)
@@ -1029,13 +1361,22 @@ def poll_team_shared_channels(team_id: int) -> None:
         if not channel_id or not teams_team_id:
             continue
         try:
-            _poll_one_shared_channel(
+            surfaced_conversation_ids = _poll_one_shared_channel(
                 team=team,
                 tenant_id=tenant_id,
                 token=token,
                 teams_team_id=teams_team_id,
                 channel_id=channel_id,
                 service_url=service_url,
+            )
+            _sync_shared_channel_thread_replies(
+                team=team,
+                tenant_id=tenant_id,
+                token=token,
+                teams_team_id=teams_team_id,
+                channel_id=channel_id,
+                service_url=service_url,
+                surfaced_conversation_ids=surfaced_conversation_ids,
             )
         except requests.RequestException:
             logger.warning("poll_teams_shared_channel_network_error", team_id=team_id, channel_id=channel_id)

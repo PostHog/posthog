@@ -435,6 +435,8 @@ class ClickHousePrinter(BasePrinter):
             return value
         else:
             # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
+            if node.is_sensitive:
+                return self.context.add_sensitive_value(node.value)
             return self.context.add_value(node.value)
 
     def visit_interpolate_expr(self, node: ast.InterpolateExpr):
@@ -817,8 +819,42 @@ class ClickHousePrinter(BasePrinter):
         ):
             return team_id_guard_for_table(node_type, self.context)
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ):
+        """Add access control guard for system tables"""
+        from posthog.hogql.database.postgres_table import PostgresTable
+        from posthog.hogql.printer.access_control import build_access_control_guard
+
+        if node_type is None:
+            return None
+        if not isinstance(table_type.table, PostgresTable):
+            return None
+        if not self.context.database or not self.context.database.user_access_control:
+            return None
+
+        # Only apply access control to tables registered under the system namespace
+        system_node = self.context.database.tables.children.get("system")
+        if not system_node or table_type.table.name not in system_node.children:
+            return None
+
+        if not table_type.table.primary_key:
+            return None
+
+        return build_access_control_guard(table_type.table, node_type, self.context)
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         sql = table_type.table.to_printed_clickhouse(self.context)
+        table = table_type.table
+
+        # The v3 Parquet reader crashes (NOT_FOUND_COLUMN_IN_BLOCK) when the analyzer moves a
+        # computed predicate into the object-storage scan's PREWHERE. Wrap the read in a subquery
+        # that disables PREWHERE locally, so the surrounding query (incl. MergeTree joins) keeps it.
+        # See ClickHouse issue 80443.
+        if isinstance(table, S3Table) and table.format in ("Parquet", "Delta", "DeltaS3Wrapper"):
+            return f"(SELECT * FROM {sql} SETTINGS optimize_move_to_prewhere = 0)"
 
         # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
         if isinstance(table_type.table, S3Table) and (

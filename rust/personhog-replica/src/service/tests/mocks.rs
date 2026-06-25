@@ -119,6 +119,24 @@ impl storage::PersonLookup for FailingStorage {
     ) -> storage::StorageResult<Vec<storage::SplitResult>> {
         Err(self.error.clone())
     }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Err(self.error.clone())
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -481,6 +499,24 @@ impl storage::PersonLookup for SuccessStorage {
         _distinct_ids_to_split: &[String],
     ) -> storage::StorageResult<Vec<storage::SplitResult>> {
         Ok(vec![])
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Ok(None)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
     }
 }
 
@@ -904,6 +940,24 @@ impl storage::PersonLookup for PopulatedStorage {
     ) -> storage::StorageResult<Vec<storage::SplitResult>> {
         Ok(vec![])
     }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Ok(None)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
+    }
 }
 
 #[async_trait]
@@ -1301,6 +1355,24 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         _distinct_ids_to_split: &[String],
     ) -> storage::StorageResult<Vec<storage::SplitResult>> {
         Ok(vec![])
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Ok(None)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
     }
 }
 

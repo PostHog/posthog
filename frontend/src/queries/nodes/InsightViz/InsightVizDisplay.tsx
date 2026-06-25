@@ -32,6 +32,8 @@ import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
+import { FunnelTimeToConvertTable } from 'scenes/insights/views/Funnels/FunnelTimeToConvertTable'
+import { FunnelTrendsTable } from 'scenes/insights/views/Funnels/FunnelTrendsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { Paths } from 'scenes/paths/Paths'
@@ -79,6 +81,7 @@ function DashboardInsightRefreshHintOrLoading({
                 key={queryId}
                 insightProps={insightProps}
                 renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
             />
         )
     }
@@ -137,6 +140,7 @@ export function InsightVizDisplay({
         isPaths,
         hasDetailedResultsTable,
         showLegend,
+        usesInChartLegend,
         hasFormula,
         supportsDisplay,
         samplingFactor,
@@ -170,6 +174,7 @@ export function InsightVizDisplay({
                     key={queryId}
                     insightProps={insightProps}
                     renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                    suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
                 />
             )
         }
@@ -279,8 +284,11 @@ export function InsightVizDisplay({
         return null
     })()
 
-    // The slope graph draws its own legend inside the chart, so it opts out of the side-legend column.
-    const showSideLegend = supportsDisplay && showLegend && display !== ChartDisplayType.SlopeGraph
+    // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
+    // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts do
+    // when the quill in-chart legend is on (`usesInChartLegend`).
+    const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
+    const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
@@ -342,18 +350,28 @@ export function InsightVizDisplay({
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
-            (funnelsFilter?.funnelVizType === FunnelVizType.Steps ||
-                funnelsFilter?.funnelVizType === FunnelVizType.Flow) &&
             !disableTable
         ) {
-            return (
-                <SceneSection
-                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
-                    className="mt-4"
-                >
+            const funnelVizType = funnelsFilter?.funnelVizType
+            const funnelTable =
+                funnelVizType === FunnelVizType.TimeToConvert ? (
+                    <FunnelTimeToConvertTable />
+                ) : funnelVizType === FunnelVizType.Trends ? (
+                    <FunnelTrendsTable />
+                ) : funnelVizType === FunnelVizType.Steps || funnelVizType === FunnelVizType.Flow ? (
                     <FunnelStepsTable />
-                </SceneSection>
-            )
+                ) : null
+
+            if (funnelTable) {
+                return (
+                    <SceneSection
+                        title={<span className="font-semibold text-lg m-0">Detailed results</span>}
+                        className="mt-4"
+                    >
+                        {funnelTable}
+                    </SceneSection>
+                )
+            }
         }
 
         if (display === ChartDisplayType.BoxPlot && !disableTable) {

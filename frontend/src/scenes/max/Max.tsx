@@ -38,7 +38,7 @@ import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
-import { Thread } from './Thread'
+import { SandboxComposerSurfaces, Thread } from './Thread'
 
 export const scene: SceneExport = {
     component: Max,
@@ -147,6 +147,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             </div>
                         )}
                         <Thread className={cn('p-3', sidePanel && 'p-1')} />
+                        <SandboxComposerSurfaces />
                         {!conversation?.has_unsupported_content && (
                             <SidebarQuestionInput isSticky sidePanel={sidePanel} />
                         )}

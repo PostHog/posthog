@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
 
 from posthog.schema_enums import (
+    AccessControlLevel as AccessControlLevel,
     Action as Action,
     Action1 as Action1,
     AgentMode as AgentMode,
@@ -104,6 +105,7 @@ from posthog.schema_enums import (
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
+    FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
     FunnelCorrelationResultsType as FunnelCorrelationResultsType,
     FunnelLayout as FunnelLayout,
@@ -123,6 +125,7 @@ from posthog.schema_enums import (
     HedgehogActorSkinOption as HedgehogActorSkinOption,
     HideViewedRecordings as HideViewedRecordings,
     HogLanguage as HogLanguage,
+    HogQLAlertEvaluation as HogQLAlertEvaluation,
     HrefMatching as HrefMatching,
     InCohortVia as InCohortVia,
     InfinityValue as InfinityValue,
@@ -137,6 +140,7 @@ from posthog.schema_enums import (
     Key10 as Key10,
     Kind as Kind,
     Kind1 as Kind1,
+    LegendPosition as LegendPosition,
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
     LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
@@ -170,6 +174,7 @@ from posthog.schema_enums import (
     MetaAdsTableKeywords as MetaAdsTableKeywords,
     Method as Method,
     Metric as Metric,
+    MetricSummary as MetricSummary,
     MrrOrGross as MrrOrGross,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
@@ -1630,14 +1635,6 @@ class LogAttributeResult(BaseModel):
     propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
 
 
-class LogValueResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: str
-    name: str
-
-
 class LogsAlertStateChangeSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2305,7 +2302,24 @@ class ReplayVisionScannerFindingSignalExtra(BaseModel):
         ...,
         description=("The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`."),
     )
+    distinct_id: str | None = None
+    end_time: float = Field(
+        ...,
+        description=("When the issue ends in the recording, in seconds (the footer's REC_T value)."),
+    )
+    exported_asset_id: float = Field(..., description="The rasterized MP4 asset the scanner analysed.")
     observation_id: str
+    problem_type: str = Field(
+        ...,
+        description=(
+            "Issue category: 'bug' / 'crash' / 'design_flaw' / 'ux_friction'. Kept open"
+            " so new categories don't fail validation."
+        ),
+    )
+    recording_active_seconds: float | None = None
+    recording_duration: float | None = None
+    recording_end_time: str | None = Field(default=None, description="ISO 8601 recording end.")
+    recording_start_time: str | None = Field(default=None, description="ISO 8601 recording start (the REC_T=0 anchor).")
     scanner_id: str
     scanner_name: str
     scanner_type: str = Field(
@@ -2317,6 +2331,13 @@ class ReplayVisionScannerFindingSignalExtra(BaseModel):
         ),
     )
     session_id: str
+    start_time: float = Field(
+        ...,
+        description=(
+            "When the issue starts in the recording, in seconds from recording start (the footer's REC_T value)."
+        ),
+    )
+    url: str = Field(..., description="The page the issue happened on (the footer's URL value).")
 
 
 class ResolvedDateRangeResponse(BaseModel):
@@ -2678,6 +2699,14 @@ class SignalsScoutSignalExtra(BaseModel):
             "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the"
             " finding. Each scout maintains and evolves its own vocabulary over time;"
             " the harness normalizes and caps these at emit."
+        ),
+    )
+    task_id: str | None = Field(
+        default=None,
+        description=(
+            "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the"
+            " inbox card to the run in the Tasks UI. Absent on emissions made before"
+            " this linkage was captured."
         ),
     )
     task_run_id: str = Field(
@@ -3101,6 +3130,8 @@ class AggregatedSpanRow(BaseModel):
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
+    p999_duration_nano: float
+    p99_duration_nano: float
     service_name: str
     total_duration_nano: float
 
@@ -4215,8 +4246,11 @@ class AssistantTrendsFilter(BaseModel):
             " chart; good for cumulative metrics. `BoldNumber` - total value single"
             " large number. Use when user explicitly asks for a single output number."
             " You CANNOT use this with breakdown or if the insight has more than one"
-            " series. `ActionsBarValue` - total value (NOT time-series) bar chart; good"
-            " for categorical data. `ActionsPie` - total value pie chart; good for"
+            " series. `Metric` - single large number with a period-over-period change"
+            " pill and a sparkline. Like `BoldNumber` but trend-aware; configure it"
+            " with the `metric*` fields below. Single series, no breakdown."
+            " `ActionsBarValue` - total value (NOT time-series) bar chart; good for"
+            " categorical data. `ActionsPie` - total value pie chart; good for"
             " visualizing proportions. `ActionsTable` - total value table; good when"
             " using breakdown to list users or other entities. `WorldMap` - total value"
             " world map; use when breaking down by country name using property"
@@ -4239,6 +4273,69 @@ class AssistantTrendsFilter(BaseModel):
             " to find and use events or actions similar to `$identify` and `onboarding"
             " complete`, so the formula will be `A / B`, where `A` is `onboarding"
             " complete` (unique users) and `B` is `$identify` (unique users)."
+        ),
+    )
+    metricChangeDecreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for"
+            " the change pill when the metric went DOWN. Defaults to red (`#db3707`)."
+            ' For a "lower is better" metric (latency, error rate, cost), set this to a'
+            " green (e.g. `#388600`) so a decrease reads as good."
+        ),
+    )
+    metricChangeIncreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for"
+            " the change pill when the metric went UP. Defaults to green (`#388600`)."
+            ' For a "lower is better" metric (latency, error rate, cost), set this to a'
+            " red (e.g. `#db3707`) so an increase reads as bad."
+        ),
+    )
+    metricColorByDirection: bool | None = Field(
+        default=False,
+        description=(
+            "Only applies when `display` is `Metric`. Color the sparkline under the big"
+            " number by whether the metric increased or decreased over the period"
+            " (using the increase/decrease line colors)."
+        ),
+    )
+    metricLineDecreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric` and `metricColorByDirection` is"
+            " `true`. Hex color for the sparkline when the metric went DOWN. Defaults"
+            ' to red (`#db3707`). Flip to a green for a "lower is better" metric.'
+        ),
+    )
+    metricLineIncreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric` and `metricColorByDirection` is"
+            " `true`. Hex color for the sparkline when the metric went UP. Defaults to"
+            ' green (`#388600`). Flip to a red for a "lower is better" metric.'
+        ),
+    )
+    metricShowChange: bool | None = Field(
+        default=True,
+        description=(
+            "Only applies when `display` is `Metric`. Show the change pill next to the"
+            " big number. What it compares follows `metricSummary`: `total`/`average`"
+            ' compare against the previous period when "compare to previous" is on'
+            " (otherwise first→last of the series), and `latest` is always first→last"
+            " of the series."
+        ),
+    )
+    metricSummary: MetricSummary | None = Field(
+        default=MetricSummary.TOTAL,
+        description=(
+            "Only applies when `display` is `Metric`. Which summary the resting big"
+            " number shows: `total` (sum over the period), `average` (mean of the"
+            " points), or `latest` (last point). Hovering the sparkline always shows"
+            " the hovered point's value regardless of this setting. Also drives the"
+            " change pill: `total`/`average` compare against the previous period when"
+            ' "compare to previous" is on; `latest` compares first→last of the series.'
         ),
     )
     showAlertThresholdLines: bool | None = Field(
@@ -4971,6 +5068,13 @@ class ExperimentParameters(BaseModel):
             " are excluded from analysis. Default: 100."
         ),
     )
+    variant_notes: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Free-text notes per variant, keyed by variant key. Use to document what"
+            " each variant does or its reroute URL."
+        ),
+    )
 
 
 class ExperimentStatsBase(BaseModel):
@@ -5168,6 +5272,18 @@ class FunnelExclusionSteps(BaseModel):
     funnelToStep: int
 
 
+class FunnelsAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnel_step: int | None = Field(
+        default=None,
+        description=("Zero-based step index to evaluate. Null = the last step (overall conversion)."),
+    )
+    metric: FunnelConversionMetric
+    type: Literal["FunnelsAlertConfig"] = "FunnelsAlertConfig"
+
+
 class FunnelsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5243,6 +5359,34 @@ class HeatmapSettings(BaseModel):
     xAxisLabel: str | None = None
     yAxisColumn: str | None = None
     yAxisLabel: str | None = None
+
+
+class HogQLAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str | None = Field(
+        default=None,
+        description=(
+            "Name of the result column to evaluate. When unset, the single numeric"
+            " column is used (an error if the result has more than one numeric column)."
+        ),
+    )
+    evaluation: HogQLAlertEvaluation = Field(
+        ...,
+        description=("How to read the result rows — an explicit choice, no implicit default."),
+    )
+    label_column: str | None = Field(
+        default=None,
+        description=(
+            "Column whose value labels the evaluated row(s) in breach messages: every"
+            " row in `any_row` mode, or the single evaluated row in"
+            " `last_row`/`first_row`. When unset, the first non-evaluated column is"
+            " used, falling back to the row number (any_row) or the value column name"
+            " (last_row/first_row)."
+        ),
+    )
+    type: Literal["HogQLAlertConfig"] = "HogQLAlertConfig"
 
 
 class HogQLAutocompleteResponse(BaseModel):
@@ -5408,6 +5552,10 @@ class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     showLegend: bool | None = False
     showPercentagesOnSeries: bool | None = Field(
         default=None,
@@ -5512,6 +5660,21 @@ class LogPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class LogValueResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int | None = Field(
+        default=None,
+        description=(
+            "Number of log records with this attribute value, over the current date"
+            " range, service, and resource filters."
+        ),
+    )
+    id: str
+    name: str
+
+
 class LogsAlertStateChangeSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5523,6 +5686,20 @@ class LogsAlertStateChangeSignalInput(BaseModel):
     source_product: Literal["logs"] = "logs"
     source_type: Literal["alert_state_change"] = "alert_state_change"
     weight: float
+
+
+class MCPHarnessBreakdownItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error_rate_pct: float
+    errors: int
+    harness: str = Field(
+        ...,
+        description=('Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other".'),
+    )
+    sessions: int
+    total_calls: int
 
 
 class MarketingAnalyticsItem(BaseModel):
@@ -6856,6 +7033,8 @@ class SpanTreeNode(BaseModel):
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
+    p999_duration_nano: float
+    p99_duration_nano: float
     parent_name: str
     parent_service: str
     service_name: str
@@ -6877,6 +7056,10 @@ class StickinessFilter(BaseModel):
     computedAs: StickinessComputationMode | None = None
     display: ChartDisplayType | None = None
     hiddenLegendIndexes: list[int] | None = None
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     resultCustomizationBy: ResultCustomizationBy | None = Field(
         default=ResultCustomizationBy.VALUE,
         description=("Whether result datasets are associated by their values or by their order."),
@@ -7675,6 +7858,10 @@ class TrendsFilter(BaseModel):
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     metricChangeDecreaseColor: str | None = Field(
         default=None,
         description=("Metric display: change pill color when the metric decreased. Defaults to red."),
@@ -7698,6 +7885,16 @@ class TrendsFilter(BaseModel):
     metricShowChange: bool | None = Field(
         default=True,
         description="Show the period-over-period change pill on the Metric display.",
+    )
+    metricSummary: MetricSummary | None = Field(
+        default=MetricSummary.TOTAL,
+        description=(
+            "Metric display: which summary the resting headline shows — the period"
+            " total, the average, or the latest point. Hovering the sparkline always"
+            " shows the hovered point's value. Also drives the change pill:"
+            ' total/average compare against the previous period when "compare to'
+            ' previous" is on; latest compares first→last of the series.'
+        ),
     )
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None
@@ -10561,6 +10758,58 @@ class CachedLogsQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: Any
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class CachedMCPHarnessBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPHarnessBreakdownItem]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -16011,6 +16260,47 @@ class MADDetectorConfig(BaseModel):
     )
 
 
+class MCPHarnessBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPHarnessBreakdownItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
 class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19775,6 +20065,47 @@ class QueryResponseAlternative96(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
+    results: list[MCPHarnessBreakdownItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class QueryResponseAlternative97(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[PropertyValueItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -21115,6 +21446,57 @@ class AssistantBasePropertyFilter(
     )
 
 
+class AssistantFunnelsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelStep: int | None = Field(
+        default=None,
+        description=(
+            'Step mode only (source `funnelVizType: "steps"`). The 1-based index of the'
+            " step to drill into.\n**Positive** lists actors who converted through that"
+            " step; **negative** lists actors who dropped off at it. E.g. `2` ="
+            " converted through step 2, `-2` = dropped off at step 2. The smallest"
+            " negative value is `-2` (no one can drop off at the entry step)."
+        ),
+    )
+    funnelStepBreakdown: list[str] | None = Field(
+        default=None,
+        description=(
+            "Step mode only. Scope the actors to a single breakdown series. Pass the"
+            " breakdown value(s) from the matching `query-funnel` result row verbatim"
+            ' (an array, e.g. `["Chrome"]`). Omit for the baseline (non-breakdown)'
+            " series."
+        ),
+    )
+    funnelTrendsDropOff: bool | None = Field(
+        default=None,
+        description=(
+            'Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`,'
+            " list the actors who dropped off; when `false`, list those who converted."
+            " Use together with `funnelTrendsEntrancePeriodStart`."
+        ),
+    )
+    funnelTrendsEntrancePeriodStart: str | None = Field(
+        default=None,
+        description=(
+            "Trends-dropoff mode only. The entrance period to drill into, as a"
+            " `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from"
+            " the funnel-trends point the user is asking about. Use together with"
+            " `funnelTrendsDropOff`."
+        ),
+    )
+    includeRecordings: bool | None = Field(
+        default=True,
+        description="Whether to include matched session recordings for each actor.",
+    )
+    kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
+    source: AssistantFunnelsQuery = Field(
+        ...,
+        description=("The source funnel insight query whose step (or trends point) we are drilling into."),
+    )
+
+
 class AssistantLifecycleQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21197,6 +21579,34 @@ class AssistantRetentionActorsQuery(BaseModel):
     source: AssistantRetentionQuery = Field(
         ...,
         description=("The source retention insight query whose cohort we are drilling into."),
+    )
+
+
+class AssistantStickinessActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Compare | None = Field(
+        default=None,
+        description=("Whether to pull from the previous period when `compareFilter` is enabled in the source."),
+    )
+    day: int = Field(
+        ...,
+        description=(
+            "The number of active intervals to drill into — the X-axis value of the"
+            " stickiness bar. Despite the name, this is an interval **count**, not a"
+            " date: for a daily insight, `day: 13` lists the users who were active on"
+            " exactly 13 days within the source's date range."
+        ),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    series: int | None = Field(
+        default=None,
+        description=("0-based index of the series to drill into when the source has multiple series. Defaults to 0."),
+    )
+    source: AssistantStickinessQuery = Field(
+        ...,
+        description=("The source stickiness insight query whose bar we are drilling into."),
     )
 
 
@@ -21823,6 +22233,10 @@ class ExperimentHoldoutType(BaseModel):
     id: int
     name: str
     updated_at: str | None = None
+    user_access_level: AccessControlLevel | None = Field(
+        default=None,
+        description=("Read-only, server-computed effective access level; absent on a not-yet-created holdout."),
+    )
 
 
 class FunnelsFilter(BaseModel):
@@ -21865,6 +22279,10 @@ class FunnelsFilter(BaseModel):
         ),
     )
     layout: FunnelLayout | None = FunnelLayout.VERTICAL
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
         description="Customizations for the appearance of result datasets.",
@@ -21980,6 +22398,44 @@ class InsightFilter(
         | CalendarHeatmapFilter
         | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     )
+
+
+class MCPHarnessBreakdownQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
+    kind: Literal["MCPHarnessBreakdownQuery"] = "MCPHarnessBreakdownQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | SpanPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
+        ]
+        | None
+    ) = None
+    response: MCPHarnessBreakdownQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class MarketingAnalyticsAggregatedQuery(BaseModel):
@@ -24374,6 +24830,14 @@ class FunnelsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    compare: Compare | None = Field(
+        default=None,
+        description=(
+            "When the source funnel has compare-to-previous enabled, scopes the actors"
+            " to a single period. The runner resolves `'previous'` to the shifted date"
+            " range; `'current'` (or unset) uses the source's own date range."
+        ),
+    )
     funnelStep: int | None = Field(
         default=None,
         description=(
@@ -24613,6 +25077,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative94
         | QueryResponseAlternative95
         | QueryResponseAlternative96
+        | QueryResponseAlternative97
     ]
 ):
     root: (
@@ -24708,6 +25173,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative94
         | QueryResponseAlternative95
         | QueryResponseAlternative96
+        | QueryResponseAlternative97
     )
 
 
@@ -25752,6 +26218,7 @@ class HogQLAutocomplete(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | MCPHarnessBreakdownQuery
         | None
     ) = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -25841,6 +26308,7 @@ class HogQLMetadata(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | MCPHarnessBreakdownQuery
         | None
     ) = Field(
         default=None,
@@ -25965,6 +26433,7 @@ class MaxInsightContext(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | MCPHarnessBreakdownQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
     type: Literal["insight"] = "insight"
@@ -26086,6 +26555,7 @@ class QueryRequest(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | MCPHarnessBreakdownQuery
         | PropertyValuesQuery
     ) = Field(
         ...,
@@ -26199,6 +26669,7 @@ class QuerySchemaRoot(
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | MCPHarnessBreakdownQuery
         | PropertyValuesQuery
     ]
 ):
@@ -26282,6 +26753,7 @@ class QuerySchemaRoot(
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | MCPHarnessBreakdownQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
@@ -26370,6 +26842,7 @@ class QueryUpgradeRequest(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | MCPHarnessBreakdownQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
@@ -26458,6 +26931,7 @@ class QueryUpgradeResponse(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | MCPHarnessBreakdownQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
@@ -26723,6 +27197,7 @@ class VisualizationArtifactContent(BaseModel):
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
+        | MCPHarnessBreakdownQuery
         | PropertyValuesQuery
     )
 

@@ -31,9 +31,11 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::metadata::MetadataMap;
 use tonic::Status;
@@ -637,6 +639,36 @@ impl PersonHogRouter {
         request: SplitPersonRequest,
     ) -> Result<SplitPersonResponse, Status> {
         call_backend!(self, "SplitPerson", split_person, request)
+    }
+
+    /// Set a person_distinct_id's version (undelete repair).
+    ///
+    /// WARNING: Same routing caveat as split_person above.
+    pub async fn set_person_distinct_id_version_floor(
+        &self,
+        request: SetPersonDistinctIdVersionFloorRequest,
+    ) -> Result<SetPersonDistinctIdVersionFloorResponse, Status> {
+        call_backend!(
+            self,
+            "SetPersonDistinctIdVersionFloor",
+            set_person_distinct_id_version_floor,
+            request
+        )
+    }
+
+    /// Bump a person's version (undelete repair).
+    ///
+    /// WARNING: Same routing caveat as split_person above.
+    pub async fn set_person_version_floor(
+        &self,
+        request: SetPersonVersionFloorRequest,
+    ) -> Result<SetPersonVersionFloorResponse, Status> {
+        call_backend!(
+            self,
+            "SetPersonVersionFloor",
+            set_person_version_floor,
+            request
+        )
     }
 
     // ============================================================
