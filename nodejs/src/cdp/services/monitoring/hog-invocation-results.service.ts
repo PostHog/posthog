@@ -335,15 +335,28 @@ export class HogInvocationResultsService {
               ? (invocation.state?.rerunAttempts ?? 0)
               : 0
 
-        // `firstScheduledAt` is set by the rerun paginator on rehydration so
-        // retries inherit the original's value; for fresh invocations it's
-        // unset and we fall back to the current `scheduled_at`.
-        const firstScheduledAtRaw = isHogFunctionInvocation(invocation)
+        // `firstScheduledAt` records the original cyclotron-scheduled time. The
+        // rerun paginator sets it on rehydration; here we also stamp it onto the
+        // state the first time we emit a 'running' row, so it survives cyclotron
+        // fetch retries (which overwrite `queueScheduledAt`). The 'running' row
+        // fires once at invocation creation, before the invocation is enqueued,
+        // so the value carries forward in the serialized state. Without this the
+        // terminal row — written after a retry — would record the retry time and
+        // win the ReplacingMergeTree argMax, mislabeling the run's start time.
+        let firstScheduledAt = isHogFunctionInvocation(invocation)
             ? invocation.state?.firstScheduledAt
             : isHogFlowInvocation(invocation)
               ? invocation.state?.firstScheduledAt
               : undefined
         const scheduledAtIso = isoMicroseconds(invocation.queueScheduledAt?.toJSDate() ?? now)
+        if (status === 'running' && firstScheduledAt === undefined) {
+            firstScheduledAt = scheduledAtIso
+            if (isHogFunctionInvocation(invocation)) {
+                invocation.state.firstScheduledAt = scheduledAtIso
+            } else if (isHogFlowInvocation(invocation) && invocation.state) {
+                invocation.state.firstScheduledAt = scheduledAtIso
+            }
+        }
 
         const row: HogInvocationResultRow = {
             team_id: invocation.teamId,
@@ -355,7 +368,7 @@ export class HogInvocationResultsService {
             attempts: rerunAttempts,
             is_retry: rerunAttempts > 0 ? 1 : 0,
             scheduled_at: scheduledAtIso,
-            first_scheduled_at: firstScheduledAtRaw ?? scheduledAtIso,
+            first_scheduled_at: firstScheduledAt ?? scheduledAtIso,
             started_at: startedAt ? isoMicroseconds(startedAt) : null,
             finished_at: finishedAt ? isoMicroseconds(finishedAt) : null,
             duration_ms: durationMs,

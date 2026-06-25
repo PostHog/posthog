@@ -91,6 +91,7 @@ from posthog.hogql.database.schema.experiment_metric_events_preaggregated import
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
+from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -370,6 +371,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
                     "session_replay_features": TableNode(
                         name="session_replay_features", table=SessionReplayFeaturesTable()
+                    ),
+                    "hog_invocation_results": TableNode(
+                        name="hog_invocation_results", table=HogInvocationResultsTable()
                     ),
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
                     "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
