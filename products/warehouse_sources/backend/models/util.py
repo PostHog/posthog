@@ -476,7 +476,6 @@ def mysql_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[s
 
 def snowflake_column_to_dwh_column(_column_name: str, snowflake_type: str, nullable: bool) -> dict[str, Any]:
     normalized_type = snowflake_type.lower()
-    clickhouse_type: str | None = None
 
     if normalized_type.startswith("number"):
         clickhouse_type = "Decimal"
@@ -488,13 +487,8 @@ def snowflake_column_to_dwh_column(_column_name: str, snowflake_type: str, nulla
         clickhouse_type = "Date"
     elif normalized_type.startswith("timestamp"):
         clickhouse_type = "DateTime64"
-    elif (
-        normalized_type.startswith("variant")
-        or normalized_type.startswith("object")
-        or normalized_type.startswith("array")
-    ):
-        clickhouse_type = "String"
     else:
+        # variant/object/array (and anything unrecognized) map to String.
         clickhouse_type = "String"
 
     if nullable:

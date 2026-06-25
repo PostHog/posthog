@@ -1,11 +1,6 @@
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.errors import QueryError
-
-
-def escape_snowflake_identifier(identifier: str) -> str:
-    if "%" in identifier:
-        raise QueryError(f'The Snowflake identifier "{identifier}" is not permitted as it contains the "%" character')
-    return '"' + identifier.replace('"', '""') + '"'
+from posthog.hogql.escape_sql import escape_snowflake_identifier
 
 
 class DirectSnowflakeTable(DirectSQLTable):

@@ -99,13 +99,10 @@ def get_snowflake_source_location_for_schema_model(
             default_schema=default_schema,
         )
 
-    table_source_catalog = (
-        table_options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION) if isinstance(table_options, dict) else None
-    )
-    table_source_schema = table_options.get(DIRECT_SNOWFLAKE_SCHEMA_OPTION) if isinstance(table_options, dict) else None
-    table_source_table_name = (
-        table_options.get(DIRECT_SNOWFLAKE_TABLE_OPTION) if isinstance(table_options, dict) else None
-    )
+    opts = table_options if isinstance(table_options, dict) else {}
+    table_source_catalog = opts.get(DIRECT_SNOWFLAKE_CATALOG_OPTION)
+    table_source_schema = opts.get(DIRECT_SNOWFLAKE_SCHEMA_OPTION)
+    table_source_table_name = opts.get(DIRECT_SNOWFLAKE_TABLE_OPTION)
 
     if isinstance(table_source_schema, str) and isinstance(table_source_table_name, str):
         return (
@@ -152,23 +149,7 @@ def reconcile_snowflake_schemas(
         schema_models_by_location.setdefault(location, schema_model)
 
     for source_schema in source_schemas:
-        matched: ExternalDataSchema | None = schema_models.get(source_schema.name)
-        if matched is None:
-            location = get_snowflake_source_location(
-                schema_name=source_schema.name,
-                schema_metadata={
-                    "source_catalog": source_schema.source_catalog,
-                    "source_schema": source_schema.source_schema,
-                    "source_table_name": source_schema.source_table_name,
-                },
-                default_catalog=default_catalog,
-                default_schema=default_schema,
-            )
-            matched = schema_models_by_location.get(location)
-        if matched is None:
-            continue
-
-        resolved_catalog, resolved_schema, resolved_table = get_snowflake_source_location(
+        resolved = get_snowflake_source_location(
             schema_name=source_schema.name,
             schema_metadata={
                 "source_catalog": source_schema.source_catalog,
@@ -178,6 +159,13 @@ def reconcile_snowflake_schemas(
             default_catalog=default_catalog,
             default_schema=default_schema,
         )
+        matched: ExternalDataSchema | None = schema_models.get(source_schema.name)
+        if matched is None:
+            matched = schema_models_by_location.get(resolved)
+        if matched is None:
+            continue
+
+        resolved_catalog, resolved_schema, resolved_table = resolved
 
         # Metadata holds the full column list (column-picker UI); projection lives on `enabled_columns`.
         schema_metadata = sql_schema_metadata(

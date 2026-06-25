@@ -42,11 +42,7 @@ class SnowflakePrinter(PostgresPrinter):
     DIALECT_LABEL: ClassVar[str] = "Snowflake"
 
     def _print_table_sql(self, table) -> str:
-        if isinstance(table, DirectSnowflakeTable):
-            return table.to_printed_snowflake(self.context)
-        if hasattr(table, "to_printed_snowflake"):
-            return table.to_printed_snowflake(self.context)
-        return super()._print_table_sql(table)
+        return self._print_table(table)
 
     def _print_table(self, table) -> str:
         if isinstance(table, DirectSnowflakeTable):
