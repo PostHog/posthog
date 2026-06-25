@@ -40,11 +40,13 @@ export function WorkflowsHealthHeader({ summary, className }: WorkflowsHealthHea
                 <span className="mt-1.5 text-xs text-secondary">
                     {summary.workflowCount === 0
                         ? 'No workflow runs in this window'
-                        : summary.failingNow > 0
-                          ? `${summary.failingNow} of ${summary.workflowCount} workflows failing right now`
-                          : summary.flakyNow > 0
-                            ? `${summary.flakyNow} flaky · below 90% pass rate`
-                            : `All ${summary.workflowCount} workflows healthy`}
+                        : summary.settledWorkflows === 0
+                          ? `${summary.workflowCount} workflows · none settled yet`
+                          : summary.failingNow > 0
+                            ? `${summary.failingNow} of ${summary.workflowCount} workflows failing right now`
+                            : summary.flakyNow > 0
+                              ? `${summary.flakyNow} flaky · below 90% pass rate`
+                              : `All ${summary.workflowCount} workflows healthy`}
                 </span>
             </div>
 

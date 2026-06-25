@@ -58,6 +58,7 @@ describe('runHealth', () => {
 
     it.each([
         ['no workflows → unknown', [], 'unknown'],
+        ['workflows present but none settled → unknown', [fleetRow(null), fleetRow(null)], 'unknown'],
         ['every settled workflow failing → failing', [fleetRow(true), fleetRow(true)], 'failing'],
         ['some failing, some green → degraded', [fleetRow(true), fleetRow(false)], 'degraded'],
         ['green but flaky → degraded', [fleetRow(false, 0.7)], 'degraded'],

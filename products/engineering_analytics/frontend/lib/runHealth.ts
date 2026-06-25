@@ -68,7 +68,7 @@ export interface FleetSummary {
 }
 
 /** Nearest-rank percentile over an ascending-sorted sample. */
-function percentileSorted(sortedAsc: number[], q: number): number | null {
+export function percentileSorted(sortedAsc: number[], q: number): number | null {
     if (sortedAsc.length === 0) {
         return null
     }
@@ -145,12 +145,17 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
     ).length
     const totalRuns = rows.reduce((sum, row) => sum + row.runCount, 0)
 
-    const hasCost = rows.some((row) => row.billableMinutes != null || row.estimatedCostUsd != null)
-    const billableMinutes = hasCost ? rows.reduce((sum, row) => sum + (row.billableMinutes ?? 0), 0) : null
-    const estimatedCostUsd = hasCost ? rows.reduce((sum, row) => sum + (row.estimatedCostUsd ?? 0), 0) : null
+    // Gate each cost field on whether any row carries a real value — free runners report null, and a
+    // bare sum would turn "no cost data" into a misleading $0.00 / 0 min.
+    const hasBillable = rows.some((row) => row.billableMinutes != null)
+    const hasEstimatedCost = rows.some((row) => row.estimatedCostUsd != null)
+    const billableMinutes = hasBillable ? rows.reduce((sum, row) => sum + (row.billableMinutes ?? 0), 0) : null
+    const estimatedCostUsd = hasEstimatedCost ? rows.reduce((sum, row) => sum + (row.estimatedCostUsd ?? 0), 0) : null
 
     let state: WorkflowState
-    if (workflowCount === 0) {
+    if (workflowCount === 0 || settledWorkflows === 0) {
+        // Workflows exist but none has a completed run yet — no evidence either way, same as the
+        // single-workflow "unknown".
         state = 'unknown'
     } else if (failingNow > 0 && failingNow === settledWorkflows) {
         state = 'failing'

@@ -5,6 +5,7 @@ import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { isDecisiveFailure } from '../lib/lifecycle'
+import { percentileSorted } from '../lib/runHealth'
 import { verdictTag } from '../lib/runStatus'
 
 // A run reduced to what the chart needs. Both WorkflowRunRow and PrRunRow satisfy this, so either page
@@ -135,8 +136,9 @@ export function RunActivityChart({
     const niceMaxMin = Math.max(step, Math.ceil(maxMin / step) * step)
     const yPx = (min: number): number => SCATTER_HEIGHT * (1 - min / niceMaxMin)
 
+    // Same median as the health summary's medianSeconds (one implementation), so chart and KPIs agree.
     const sortedMin = [...durationsMin].sort((a, b) => a - b)
-    const medianMin = sortedMin[Math.floor(sortedMin.length / 2)]
+    const medianMin = percentileSorted(sortedMin, 0.5) ?? 0
 
     // Collected here so the legend reuses the per-run verdict instead of re-deriving it for every type.
     const presentTypeSet = new Set<string>()

@@ -167,9 +167,17 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                 if (runnerCosts.length === 0) {
                     return null
                 }
+                // Free (GitHub-hosted) runners report null cost; gate each field so an all-free workflow
+                // shows no cost rather than a misleading $0.00 / 0 min from summing nulls as zero.
+                const hasBillable = runnerCosts.some((cost) => cost.billable_minutes != null)
+                const hasEstimatedCost = runnerCosts.some((cost) => cost.estimated_cost_usd != null)
                 return {
-                    billableMinutes: runnerCosts.reduce((sum, cost) => sum + (cost.billable_minutes ?? 0), 0),
-                    estimatedCostUsd: runnerCosts.reduce((sum, cost) => sum + (cost.estimated_cost_usd ?? 0), 0),
+                    billableMinutes: hasBillable
+                        ? runnerCosts.reduce((sum, cost) => sum + (cost.billable_minutes ?? 0), 0)
+                        : null,
+                    estimatedCostUsd: hasEstimatedCost
+                        ? runnerCosts.reduce((sum, cost) => sum + (cost.estimated_cost_usd ?? 0), 0)
+                        : null,
                 }
             },
         ],
