@@ -145,7 +145,7 @@ class TestValidateArtefactContent(SimpleTestCase):
 
     def test_rejects_unknown_type_and_malformed_json(self):
         with self.assertRaises(ArtefactContentValidationError):
-            parse_artefact_content("pushed_branch", {"repository": "a/b", "branch": "c"})
+            parse_artefact_content("not_a_real_type", {"repository": "a/b", "branch": "c"})
         with self.assertRaises(ArtefactContentValidationError):
             parse_artefact_content("note", "{not json")
 

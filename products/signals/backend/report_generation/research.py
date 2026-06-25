@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # persisted as artefacts); re-exported here because this module is where research callers and
 # prompts historically import them from.
 from products.signals.backend.artefact_schemas import (
+    SIGNALS_BRANCH_PREFIX,
     ActionabilityAssessment,
     ActionabilityChoice,
     Priority,
@@ -301,7 +302,7 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
     lines.append(f"- **Timestamp:** {signal.timestamp}")
     lines.append(f"- **Description:** {signal.content}")
     if signal.remediation:
-        lines.append("- **Remediation (authoritative guidance — follow it, then verify):**")
+        lines.append("- **Remediation (authoritative guidance — follow it, then confirm in code):**")
         if agent := signal.remediation.get("agent"):
             lines.append(f"    - **Guidance:** {agent}")
         if priority := signal.remediation.get("priority"):
@@ -312,8 +313,9 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
     return "\n".join(lines)
 
 
-_RESEARCH_PREAMBLE = """You are a research agent investigating a signal report for the PostHog codebase.
-Your findings will be passed downstream to a coding agent that will act on this report — thorough, evidence-based research here directly improves the quality of the coding agent's work.
+_RESEARCH_PREAMBLE = f"""You are a research agent investigating a signal report for the PostHog codebase.
+When the root cause is clear, implement the fix and push it to a `{SIGNALS_BRANCH_PREFIX}` branch.
+Thorough, evidence-based research here directly improves the quality of your output.
 
 <writing_guide>
 We use American English.
@@ -327,11 +329,16 @@ You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
 2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
 
-The report's history lives in its artefacts (prior findings, judgments, notes, task runs). You can list them with the `inbox-report-artefacts-list` MCP tool when prior context would help. Do not create or modify artefacts yourself — at the end of the session you will be asked for your findings and assessments as structured responses, and the pipeline persists them. Where an existing artefact of a given type is still correct, you will be able to confirm it instead of producing a new one.
+The report's history lives in its artefacts (prior findings, judgments, notes, task runs, pushed commits). List them with `inbox-report-artefacts-list` when prior context would help.
+
+MCP write: only to record commits — after each `git_signed_commit`, call `inbox-report-artefacts-create` with `commit` and `{{repository, branch, commit_sha, message}}`. No other artefact writes; findings and assessments come from structured responses at end of session.
 
 When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence.
 
-When a signal includes a **`remediation`** field, treat its guidance as authoritative — it tells you exactly how to fix the issue (which MCP tools to call and, where the fix lives in the user's codebase, how to apply it). Do not re-derive the fix from scratch: follow the guidance, then still do the work a good report needs — locate the relevant code, identify the causative commits, confirm the problem via the PostHog MCP, and verify the fix (e.g. query whether the expected events now arrive)."""
+When a signal includes a **`remediation`** field, treat its guidance as authoritative — it tells you exactly how to fix the issue (which MCP tools to call and, where the fix lives in the user's codebase, how to apply it).
+Do not re-derive the fix from scratch: follow the guidance, then still do the work a good report needs — locate the relevant code, identify the causative commits, confirm the problem via the PostHog MCP and other tools (production data as it exists today), implement the fix, push it to a remote branch, record the commit artefact, and verify pre-merge only (e.g. run relevant tests, trace the corrected code path, confirm capture/instrumentation sites in code).
+
+Push with `git_signed_commit` (not `git commit`/`git push`) to a `{SIGNALS_BRANCH_PREFIX}` branch (create one if the report has none). No PR — downstream handles that."""
 
 _RESEARCH_PROTOCOL = """## Research protocol
 

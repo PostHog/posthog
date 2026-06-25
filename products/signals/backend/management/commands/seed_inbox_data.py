@@ -26,6 +26,7 @@ from django.db import transaction
 from posthog.models import OrganizationMembership, Team
 
 from products.signals.backend.artefact_schemas import (
+    SIGNALS_BRANCH_PREFIX,
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_IMPLEMENTATION,
     Commit,
@@ -223,7 +224,7 @@ class Command(BaseCommand):
             report_id=report_id,
             content=Commit(
                 repository=repository,
-                branch=f"signals/seed-fix-{index + 1}",
+                branch=f"{SIGNALS_BRANCH_PREFIX}seed-fix-{index + 1}",
                 commit_sha=f"{(index + 1) * 1111111:07x}",
                 message="fix: address the issue surfaced by this report",
                 note="Synthetic commit from the inbox seed script.",
@@ -284,7 +285,7 @@ class Command(BaseCommand):
             return
 
         task_id, run_id = str(created.task_id), str(run.id)
-        branch = f"signals/seed-fix-{index + 1}"
+        branch = f"{SIGNALS_BRANCH_PREFIX}seed-fix-{index + 1}"
         pr_url = f"https://github.com/{repository}/pull/{1000 + index}"
 
         tasks_facade.append_task_run_log(

@@ -330,6 +330,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
         branch: str | None = None,
+        pr_base_branch: str | None = None,
+        infer_pr_base_from_branch: bool = True,
         signal_report_id: str | None = None,
         ai_stage: str | None = None,
         sandbox_environment_id: str | None = None,
@@ -439,7 +441,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
 
-        if branch:
+        if pr_base_branch is not None:
+            extra_state["pr_base_branch"] = pr_base_branch
+        elif branch and infer_pr_base_from_branch:
             extra_state["pr_base_branch"] = branch
 
         if model:
@@ -534,6 +538,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         start_workflow: bool = True,
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
+        pr_base_branch: str | None = None,
+        infer_pr_base_from_branch: bool = True,
         signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
@@ -558,6 +564,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             branch=branch,
+            pr_base_branch=pr_base_branch,
+            infer_pr_base_from_branch=infer_pr_base_from_branch,
             signal_report_id=signal_report_id,
             sandbox_environment_id=sandbox_environment_id,
             internal=internal,

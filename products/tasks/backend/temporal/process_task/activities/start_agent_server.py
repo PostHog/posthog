@@ -24,6 +24,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,
     get_user_mcp_server_configs,
     mark_mcp_token_issued,
+    parse_run_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -102,8 +103,16 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
     posthog-code/* branch the agent is meant to update — the agent must commit *to* that branch, so the
     protected base is the PR's own base instead. Without this the signed-commit guard refuses the very
     branch the run needs to update. Best-effort: any failure falls back to the working branch.
+
+    When the sandbox checked out a feature branch (e.g. research handoff) while `pr_base_branch` in run
+    state names the merge target, protect the merge target so commits land on the checked-out branch and
+    PRs open with the correct `--base`.
     """
     branch = ctx.branch
+    pr_base_from_state = parse_run_state(ctx.state).pr_base_branch
+    if branch and pr_base_from_state and pr_base_from_state != branch:
+        return pr_base_from_state
+
     if not branch or not ctx.repository or not ctx.has_github_credentials:
         return branch
 

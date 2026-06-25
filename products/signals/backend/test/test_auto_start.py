@@ -10,9 +10,12 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
+from products.signals.backend.artefact_schemas import Commit
 from products.signals.backend.auto_start import (
     ReviewerContent,
+    _build_autostart_task_description,
     _create_implementation_task_if_absent,
+    _latest_commit_for_repository,
     _resolve_autostart_assignee,
 )
 from products.signals.backend.models import (
@@ -109,7 +112,8 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         "description": "d",
         "user_id": user.id,
         "repository": "owner/repo",
-        "base_branch": None,
+        "branch": None,
+        "pr_base_branch": None,
     }
     with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create:
         first = _create_implementation_task_if_absent(**kwargs)
@@ -129,3 +133,123 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).count() == 1
     )
     assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == [str(created_tasks[0].id)]
+
+
+def test_build_autostart_task_description_uses_research_branch_when_present():
+    commit = Commit(
+        repository="owner/repo",
+        branch="posthog-self-driving/fix-foo",
+        commit_sha="abc123f",
+        message="fix: foo",
+    )
+    description = _build_autostart_task_description(
+        report_id="report-1",
+        summary="Something broke",
+        repository="owner/repo",
+        priority=None,
+        research_commit=commit,
+    )
+    assert "posthog-self-driving/fix-foo" in description
+    assert "abc123f" in description
+    assert "open a draft PR if good" in description
+    assert "Babysit CI" in description
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_latest_commit_for_repository_returns_newest_matching_repo(team):
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    older = Commit(repository="owner/repo", branch="posthog-self-driving/old", commit_sha="111", message="old")
+    newer = Commit(repository="owner/repo", branch="posthog-self-driving/new", commit_sha="222", message="new")
+    SignalReportArtefact.objects.create(
+        report=report,
+        team=team,
+        type=SignalReportArtefact.ArtefactType.COMMIT,
+        content=older.model_dump_json(),
+    )
+    SignalReportArtefact.objects.create(
+        report=report,
+        team=team,
+        type=SignalReportArtefact.ArtefactType.COMMIT,
+        content=newer.model_dump_json(),
+    )
+
+    result = await _latest_commit_for_repository(str(report.id), "Owner/Repo")
+
+    assert result is not None
+    assert result.branch == "posthog-self-driving/new"
+
+
+@pytest.mark.django_db
+def test_create_implementation_task_passes_research_branch_and_pr_base(team, organization):
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    task = Task.objects.create(
+        team=team,
+        title="t",
+        description="d",
+        created_by=user,
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+    )
+    run = TaskRun.objects.create(task=task, team=team)
+
+    with patch.object(tasks_facade, "create_and_run_task") as mock_create:
+        mock_create.return_value = SimpleNamespace(
+            task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id)
+        )
+        _create_implementation_task_if_absent(
+            team_id=team.id,
+            report_id=str(report.id),
+            title="t",
+            description="d",
+            user_id=user.id,
+            repository="owner/repo",
+            branch="posthog-self-driving/fix-foo",
+            pr_base_branch="main",
+        )
+
+    call_kwargs = mock_create.call_args.kwargs
+    assert call_kwargs["branch"] == "posthog-self-driving/fix-foo"
+    assert call_kwargs["pr_base_branch"] == "main"
+
+
+@pytest.mark.django_db
+def test_create_implementation_task_skips_pr_base_inference_on_research_handoff(team, organization):
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    task = Task.objects.create(
+        team=team,
+        title="t",
+        description="d",
+        created_by=user,
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+    )
+    run = TaskRun.objects.create(task=task, team=team)
+
+    with patch.object(tasks_facade, "create_and_run_task") as mock_create:
+        mock_create.return_value = SimpleNamespace(
+            task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id)
+        )
+        _create_implementation_task_if_absent(
+            team_id=team.id,
+            report_id=str(report.id),
+            title="t",
+            description="d",
+            user_id=user.id,
+            repository="owner/repo",
+            branch="posthog-self-driving/fix-foo",
+            pr_base_branch=None,
+            infer_pr_base_from_branch=False,
+        )
+
+    assert mock_create.call_args.kwargs["infer_pr_base_from_branch"] is False

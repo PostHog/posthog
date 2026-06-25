@@ -11,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.artefact_schemas import ArtefactContentValidationError, Commit, parse_artefact_content
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -58,21 +59,35 @@ def _priority_rank(priority: Priority) -> int:
 
 
 def _build_autostart_task_description(
-    *, report_id: str, summary: str, repository: str, priority: PriorityAssessment | None
+    *,
+    report_id: str,
+    summary: str,
+    repository: str,
+    priority: PriorityAssessment | None,
+    research_commit: Commit | None = None,
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
     report_deep_link = f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report_id}"
+    if research_commit:
+        implementation_intro = (
+            f"Checked out on `{research_commit.branch}` ({research_commit.commit_sha}). "
+            "Review, open a draft PR if good, else fix on the same branch. Babysit CI.\n\n"
+        )
+    else:
+        implementation_intro = (
+            "Address the symptom described above — not merely an adjacent issue you notice nearby. "
+            "Investigate the root cause, implement the fix, and open a PR if appropriate. "
+            "If your change fixes something related but does not change what the user actually observed, "
+            "say so explicitly and stop rather than opening a PR for the wrong problem. "
+            "For visual or UX symptoms (loading states, layout, flashes), reproduce the state or review a "
+            "session recording of the affected flow to confirm your fix changes it — unit tests alone do not "
+            "verify a visual symptom.\n\n"
+        )
     return (
         f"{summary}\n\n"
         f"{priority_line}"
         f"Repository: {repository}\n\n"
-        "Address the symptom described above — not merely an adjacent issue you notice nearby. "
-        "Investigate the root cause, implement the fix, and open a PR if appropriate. "
-        "If your change fixes something related but does not change what the user actually observed, "
-        "say so explicitly and stop rather than opening a PR for the wrong problem. "
-        "For visual or UX symptoms (loading states, layout, flashes), reproduce the state or review a "
-        "session recording of the affected flow to confirm your fix changes it — unit tests alone do not "
-        "verify a visual symptom.\n\n"
+        f"{implementation_intro}"
         "You are acting fully autonomously on the user's behalf — there is no human approval step unless you "
         "explicitly request one. So before opening a PR against a repository the user does not own (any external "
         "/ third-party repo, not under the user's own org), check for the project's contribution and "
@@ -100,7 +115,9 @@ def _create_implementation_task_if_absent(
     description: str,
     user_id: int,
     repository: str,
-    base_branch: str | None,
+    branch: str | None,
+    pr_base_branch: str | None,
+    infer_pr_base_from_branch: bool = True,
 ) -> bool:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -134,7 +151,9 @@ def _create_implementation_task_if_absent(
             origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
             user_id=user_id,
             repository=repository,
-            branch=base_branch,
+            branch=branch,
+            pr_base_branch=pr_base_branch,
+            infer_pr_base_from_branch=infer_pr_base_from_branch,
             signal_report_id=report_id,
             # Full scopes so the implementation agent can log its work on the report (notes,
             # code references) via the task:write artefact tools.
@@ -281,25 +300,53 @@ async def maybe_autostart_implementation_task(
         )
         return
 
-    base_branch = None
+    pr_base_branch = None
     if repository and team_config:
-        base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
+        pr_base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
+
+    research_commit = await _latest_commit_for_repository(report_id, repository)
+    checkout_branch = research_commit.branch if research_commit else pr_base_branch
 
     created = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
         team_id=team_id,
         report_id=report_id,
         title=title,
         description=_build_autostart_task_description(
-            report_id=report_id, summary=summary, repository=repository, priority=priority
+            report_id=report_id,
+            summary=summary,
+            repository=repository,
+            priority=priority,
+            research_commit=research_commit,
         ),
         user_id=task_user.id,
         repository=repository,
-        base_branch=base_branch,
+        branch=checkout_branch,
+        pr_base_branch=pr_base_branch,
+        infer_pr_base_from_branch=research_commit is None,
     )
     if not created:
         # Another evaluation won the race and already created the implementation task.
         logger.info("signals auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
         return
+
+
+async def _latest_commit_for_repository(report_id: str, repository: str) -> Commit | None:
+    """Latest pushed commit artefact for ``repository`` on this report (newest first)."""
+    repo_key = repository.lower()
+    commit_type = SignalReportArtefact.ArtefactType.COMMIT
+    async for content in (
+        SignalReportArtefact.objects.filter(report_id=report_id, type=commit_type)
+        .order_by("-created_at")
+        .values_list("content", flat=True)
+        .aiterator()
+    ):
+        try:
+            parsed = parse_artefact_content(commit_type, content)
+        except ArtefactContentValidationError:
+            continue
+        if isinstance(parsed, Commit) and parsed.repository.lower() == repo_key:
+            return parsed
+    return None
 
 
 async def _latest_artefact_as(report_id: str, artefact_type: str, model_cls: type[_M]) -> _M | None:

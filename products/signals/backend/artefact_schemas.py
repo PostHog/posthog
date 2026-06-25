@@ -350,6 +350,8 @@ class TaskRunArtefact(BaseModel):
 # `SignalReport` model can share them without an import cycle (`task_run_artefacts` re-exports
 # them for existing importers).
 SIGNALS_PRODUCT = "signals"
+# Branch prefix for research/implementation pushes on signal reports (not generic posthog-code/ tasks).
+SIGNALS_BRANCH_PREFIX = "posthog-self-driving/"
 
 TASK_RUN_TYPE_REPO_SELECTION = "repo_selection"
 TASK_RUN_TYPE_RESEARCH = "research"

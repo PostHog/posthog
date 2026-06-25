@@ -1117,7 +1117,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
 
 _COMMIT_CONTENT = {
     "repository": "PostHog/posthog",
-    "branch": "posthog-code/fix-foo",
+    "branch": "posthog-self-driving/fix-foo",
     "commit_sha": "abc123f",
     "message": "fix: foo",
 }

@@ -14,6 +14,7 @@ def _context(
     github_integration_id: int | None = None,
     repository: str | None = None,
     branch: str | None = None,
+    state: dict | None = None,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -26,6 +27,7 @@ def _context(
         distinct_id="distinct-id",
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         _branch=branch,
+        state=state,
     )
 
 
@@ -59,6 +61,17 @@ def test_resolve_protected_base_branch(mocker, pr_base, branch, expected) -> Non
     _mock_github_integration(mocker, pr_base=pr_base)
     context = _context(github_integration_id=42, repository="PostHog/posthog", branch=branch)
     assert _resolve_protected_base_branch(context) == expected
+
+
+def test_resolve_protected_base_uses_pr_base_when_checkout_is_feature_branch(mocker) -> None:
+    _mock_github_integration(mocker, pr_base=None)
+    context = _context(
+        github_integration_id=42,
+        repository="PostHog/posthog",
+        branch="posthog-self-driving/fix-foo",
+        state={"pr_base_branch": "main"},
+    )
+    assert _resolve_protected_base_branch(context) == "main"
 
 
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
