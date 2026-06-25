@@ -13,10 +13,10 @@ from posthog.hogql.escape_sql import escape_postgres_identifier
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
-    from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
-    from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
 DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
@@ -197,10 +197,9 @@ class PostgresAdapter:
     def validate_source_config(
         self, source: "ExternalDataSource", team: "Team"
     ) -> tuple["PostgresSource", "PostgresSourceConfig"]:
-        from posthog.temporal.data_imports.sources import SourceRegistry
-        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
-
-        from products.data_warehouse.backend.types import ExternalDataSourceType
+        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+        from products.warehouse_sources.backend.types import ExternalDataSourceType
 
         if not source.is_direct_postgres:
             raise ExposedHogQLError("Invalid direct Postgres connection.")
@@ -224,14 +223,19 @@ class PostgresAdapter:
         return ensure_single_direct_statement(sql)
 
     def fetch_connection_metadata(self, source: "ExternalDataSource", team: "Team") -> dict[str, object] | None:
-        from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+            source_requires_ssl,
+        )
 
         postgres_source, config = self.validate_source_config(source, team)
         require_ssl = source_requires_ssl(source, config)
         return postgres_source.get_connection_metadata(config, team.pk, require_ssl=require_ssl)
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
-        from posthog.temporal.data_imports.sources.postgres.postgres import _get_sslmode, source_requires_ssl
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+            _get_sslmode,
+            source_requires_ssl,
+        )
 
         source = request.source
         postgres_source, source_config = self.validate_source_config(source, request.team)

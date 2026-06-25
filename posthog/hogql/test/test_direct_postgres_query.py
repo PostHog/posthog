@@ -27,11 +27,10 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.query import HogQLQueryExecutor
 
-from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
-
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
 
 
 class TestDirectPostgresQuery(APIBaseTest):
@@ -1834,8 +1833,13 @@ class TestDirectConnectionMetadataHydration(APIBaseTest):
         source.refresh_from_db()
         self.assertEqual(source.connection_metadata, {})
 
-    @patch("posthog.temporal.data_imports.sources.postgres.source.PostgresSource.get_connection_metadata")
-    @patch("posthog.temporal.data_imports.sources.postgres.postgres.source_requires_ssl", return_value=True)
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_connection_metadata"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.source_requires_ssl",
+        return_value=True,
+    )
     def test_postgres_adapter_fetch_forwards_require_ssl(
         self, _mock_requires_ssl: MagicMock, mock_get_metadata: MagicMock
     ):

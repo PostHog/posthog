@@ -14,11 +14,11 @@ from posthog.hogql.errors import ExposedHogQLError
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
-    from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
-    from posthog.temporal.data_imports.sources.mysql.mysql import MySQLImplementation
-    from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import MySQLImplementation
+    from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 
 DIRECT_MYSQL_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 RAW_MYSQL_READ_ONLY_ERROR = "Raw MySQL queries must be read-only SELECT statements."
@@ -118,10 +118,9 @@ class MySQLAdapter:
     dialect: HogQLDialect | None = "mysql"
 
     def _resolve_source(self, source: "ExternalDataSource", team: "Team") -> tuple["MySQLSource", "MySQLSourceConfig"]:
-        from posthog.temporal.data_imports.sources import SourceRegistry
-        from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
-
-        from products.data_warehouse.backend.types import ExternalDataSourceType
+        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+        from products.warehouse_sources.backend.types import ExternalDataSourceType
 
         if not source.is_direct_mysql:
             raise ExposedHogQLError("Invalid direct MySQL connection.")

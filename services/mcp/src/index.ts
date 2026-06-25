@@ -1,3 +1,4 @@
+import { resolveEffectiveClientName } from '@/lib/client-detection'
 import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
@@ -269,7 +270,7 @@ const handleRequest = async (
         projectId,
         clientUserAgent,
         mcpConsumer,
-        mcpClientName: clientInfo.clientName,
+        mcpClientName: resolveEffectiveClientName(clientInfo.clientName, mcpVendorClient),
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
         mcpVendorClient,

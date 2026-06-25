@@ -17,7 +17,7 @@ from products.tasks.backend.constants import (
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
-from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
+from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -406,8 +406,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             "task__github_integration",
             "task__github_user_integration",
         ).get(id=run_id)
-    except ObjectDoesNotExist as e:
-        raise TaskNotFoundError(f"TaskRun {run_id} not found", {"run_id": run_id}, cause=e)
+    except ObjectDoesNotExist:
+        # The row may simply not be visible yet (creating transaction not committed) or
+        # be mid-cancel/delete. Retry rather than fail fatally so the transient window recovers.
+        raise TaskRunNotReadyError(f"TaskRun {run_id} not found", {"run_id": run_id})
 
     emit_agent_log(run_id, "debug", "Fetching task details")
 

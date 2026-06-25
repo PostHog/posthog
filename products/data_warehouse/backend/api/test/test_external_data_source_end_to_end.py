@@ -14,20 +14,22 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
-from posthog.temporal.data_imports.settings import ACTIVITIES
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
-)
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DeltaTableHelper,
+)
+from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+)
+from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
 
 BUCKET_NAME = "test-pipeline"
 
@@ -39,7 +41,7 @@ def api_client(user):
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
             return_value=(True, None),
         ),
         mock.patch(
@@ -91,11 +93,13 @@ def run_data_import_workflow(mock_stripe_client):
 
         with (
             mock.patch.object(DeltaTableHelper, "compact_table"),
-            mock.patch("posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
+            ),
             mock.patch("posthoganalytics.capture_exception", return_value=None),
             mock.patch.object(DataWarehouseSavedQuery, "schedule_materialization"),
             mock.patch(
-                "posthog.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
+                "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                 return_value=False,
             ),
             mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
