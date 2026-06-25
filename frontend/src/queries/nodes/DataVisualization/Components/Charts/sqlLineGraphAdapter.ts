@@ -286,6 +286,7 @@ export function buildSqlTooltipConfig(
     return {
         enabled: true,
         pinnable: true,
+        placement: 'cursor',
         valueFormatter: (value: number, entry: TooltipContext['seriesData'][number]) =>
             formatSqlSeriesValue(value, (entry.series.meta as SqlLineSeriesMeta | undefined)?.settings),
         showTotal: chartSettings.showTotalRow !== false,
@@ -432,7 +433,7 @@ export function buildBarChartConfig({
         barLayout,
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
-        tooltip: { enabled: true, pinnable: true },
+        tooltip: { enabled: true, pinnable: true, placement: 'cursor' },
     }
 }
 
