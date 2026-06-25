@@ -63,6 +63,7 @@ export function ScheduleConfig({
                     onChange={(d) => onStartsAtChange(d ? d.toISOString() : null)}
                     granularity="minute"
                     showTimeToggle={false}
+                    maxDate={dayjs().add(5, 'year')}
                 />
                 <p className="text-xs text-muted mt-1">
                     Anchor datetime used when expanding the RRULE. Used as the first occurrence for plain frequencies.
