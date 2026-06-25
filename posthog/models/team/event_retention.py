@@ -12,7 +12,7 @@ from posthog.models.team.team import Team
 # Grandfather default: existing teams keep 7 years (84 months) until billing assigns a shorter window.
 DEFAULT_EVENT_RETENTION_MONTHS = 84
 
-# Cohort feature flag — enables enforcement for a project so the rollout can target a specific cohort.
+# Cohort feature flag — gates enforcement so the rollout can target a specific cohort.
 EVENTS_DATA_RETENTION_FLAG = "events-data-retention"
 
 # Billing entitlement key the sync job reconciles Team.event_retention_months against.
@@ -23,8 +23,8 @@ def should_enforce_events_retention(team_id: int) -> bool:
     """Whether events-data-retention is enforced for this team — the cohort gate.
 
     Keyed on team_id so it stays DB-free on the HogQL hot path: the settings override wins (ops kill switch /
-    local + test toggle), otherwise a per-project cohort flag on cloud, evaluated locally against the project-group
-    key (target the rollout cohort by project group). Self-hosted never enforces — those users own their data.
+    local + test toggle), otherwise a cohort flag on cloud, evaluated locally against the team's distinct id.
+    Self-hosted never enforces — those users own their data.
     """
     if settings.EVENTS_DATA_RETENTION_ENFORCED is not None:
         return settings.EVENTS_DATA_RETENTION_ENFORCED
@@ -36,7 +36,6 @@ def should_enforce_events_retention(team_id: int) -> bool:
         posthoganalytics.feature_enabled(
             EVENTS_DATA_RETENTION_FLAG,
             str(team_id),
-            groups={"project": str(team_id)},
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
