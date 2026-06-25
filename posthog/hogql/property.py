@@ -61,7 +61,7 @@ from products.actions.backend.models.action import Action, ActionStepJSON
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
-from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:

@@ -25,13 +25,13 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.facade.sources import NamingConvention
-from products.warehouse_sources.backend.models.util import (
+from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     remove_named_tuples,
 )
+from products.warehouse_sources.backend.facade.sources import NamingConvention
 
 logger = structlog.get_logger(__name__)
 
