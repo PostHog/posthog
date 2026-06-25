@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
-import { HogFlow } from '~/schema/hogflow'
 import { parseJSON } from '~/utils/json-parse'
 import { captureException } from '~/utils/posthog'
 

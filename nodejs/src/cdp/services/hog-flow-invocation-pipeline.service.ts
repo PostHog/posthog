@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { HogFlow } from '~/schema/hogflow'
 
 import { RedisV2 } from '../../common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '../../common/services/keyed-rate-limiter.service'

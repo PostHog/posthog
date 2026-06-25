@@ -1,6 +1,6 @@
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { UUIDT } from '~/utils/utils'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
