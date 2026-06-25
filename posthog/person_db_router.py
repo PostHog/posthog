@@ -1,6 +1,7 @@
 # posthog/person_db_router.py
 
 import threading
+import contextlib
 
 from django.conf import settings
 
@@ -34,6 +35,23 @@ def unblock_persons_orm() -> None:
 
 def persons_orm_blocked() -> bool:
     return getattr(_orm_block, "enabled", False)
+
+
+@contextlib.contextmanager
+def allow_persons_orm():
+    """Temporarily allow direct persons-DB ORM access while the block is active.
+
+    For maintenance paths that legitimately read/write the persons DB even when a
+    test's personhog fake is active — management commands and the demo-data
+    generator, which the router is designed to let "route to the persons DB as
+    before". Saves and restores the previous block state so nesting is safe.
+    """
+    previously_blocked = persons_orm_blocked()
+    _orm_block.enabled = False
+    try:
+        yield
+    finally:
+        _orm_block.enabled = previously_blocked
 
 
 # Set of models (lowercase) that should live in the persons_db

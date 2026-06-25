@@ -7,11 +7,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models.group_type_mapping import (
-    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
-    GroupTypeMapping,
-    GroupTypesUnavailable,
-)
+from posthog.models.group_type_mapping import GROUP_TYPES_STALE_CACHE_KEY_PREFIX, GroupTypesUnavailable
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
@@ -1615,7 +1611,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         assert len(cohorts_diff) == 1
 
     def test_verify_returns_mismatch_when_group_type_mapping_changed(self):
-        create_group_type_mapping(
+        mapping = create_group_type_mapping(
             team=self.team,
             project_id=self.team.project_id,
             group_type="company",
@@ -1634,9 +1630,7 @@ class TestVerifyFlagDefinitions(BaseTest):
 
         update_flag_definitions_cache(self.team)
 
-        mapping = GroupTypeMapping.objects.get(team=self.team, group_type_index=0)
         mapping.group_type = "organization"
-        mapping.save()
         _seed_group_type_mapping_into_fake(mapping)
 
         result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)

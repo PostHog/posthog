@@ -408,12 +408,21 @@ def _seed_persons_from_bulk_mapping(person_mapping: dict[str, Person]) -> None:
 
 
 def create_group(*, team: Team | None = None, group_type_index: int, group_key: str, **kwargs: Any) -> Group:
-    """Create a group in the personhog fake (no persons DB write)."""
+    """Create a group for tests.
+
+    Fake active: seed the personhog fake only (no persons DB write).  Fake off
+    (excluded layer/seed tests): write a real persons-DB row so code that reads
+    the persons DB directly sees it.
+    """
     if team is None and "team_id" not in kwargs:
         raise TypeError("create_group() requires 'team' or 'team_id'")
     create_kwargs: dict[str, Any] = {"group_type_index": group_type_index, "group_key": group_key, **kwargs}
     if team is not None:
         create_kwargs["team"] = team
+
+    if not persons_orm_blocked():
+        return Group.objects.create(**create_kwargs)
+
     group = Group(**create_kwargs)
     group.id = _next_synthetic_pk()
     group.created_at = group.created_at or now()

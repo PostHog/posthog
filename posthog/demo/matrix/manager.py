@@ -18,6 +18,7 @@ from posthog.demo.matrix.persons_db_sync import (
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.utils import UUIDT, generate_random_token_project
+from posthog.person_db_router import allow_persons_orm
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -109,6 +110,7 @@ class MatrixManager:
                 existing_user.save()
             return (existing_user.organization, existing_user.team, existing_user)
 
+    @allow_persons_orm()
     def reset_master(self):
         if self.matrix.is_complete is None:
             if self.print_steps:
@@ -128,6 +130,7 @@ class MatrixManager:
         )
         return team
 
+    @allow_persons_orm()
     def run_on_team(self, team: Team, user: User):
         does_clickhouse_data_need_saving = True
         if self.use_pre_save:
