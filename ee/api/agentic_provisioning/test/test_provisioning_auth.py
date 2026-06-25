@@ -11,10 +11,13 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache as real_cache
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.api.oauth.cimd import _cache_key
 from posthog.models.oauth import OAuthApplication
 
+from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
 from ee.api.agentic_provisioning.signature import compute_signature
 
 HMAC_SECRET = "test_hmac_secret"
@@ -576,6 +579,47 @@ class TestProvisioningAuthentication(APIBaseTest):
         assert res.status_code == 401
 
         cimd_app.delete()
+
+    @parameterized.expand(
+        [
+            ("stale_cache_fires_refresh", False, 1),
+            ("fresh_cache_skips_refresh", True, 0),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+    def test_cimd_provisioning_partner_refreshes_metadata_only_when_stale(
+        self, _name, cache_is_fresh, expected_delay_calls, mock_refresh
+    ):
+        cimd_url = "https://example.com/api/oauth/wizard/refresh-on-auth"
+        cimd_app = OAuthApplication.objects.create(
+            name="CIMD Wizard Refresh",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost:8239/callback",
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=cimd_url,
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="wizard",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+        )
+        self.addCleanup(cimd_app.delete)
+        self.addCleanup(real_cache.delete, _cache_key(cimd_url))
+
+        if cache_is_fresh:
+            real_cache.set(_cache_key(cimd_url), True, timeout=300)
+        else:
+            real_cache.delete(_cache_key(cimd_url))
+
+        partner = ProvisioningAuthentication()._identify_pkce_partner(cimd_url)
+
+        assert partner == cimd_app
+        assert mock_refresh.delay.call_count == expected_delay_calls
+        if expected_delay_calls:
+            mock_refresh.delay.assert_called_once_with(cimd_url)
 
     # --- PKCE code_challenge_method validation ---
 
