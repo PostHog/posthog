@@ -8283,6 +8283,8 @@ export namespace Schemas {
       /** @minLength 1 */
       id: string;
       url: string;
+      /** @minLength 1 */
+      connection?: string;
       auth?: AgentRevisionSpecMcpsItemAuth;
       secrets?: string[];
       headers?: AgentRevisionSpecMcpsItemHeaders;
@@ -34823,6 +34825,8 @@ export namespace Schemas {
       /** @minLength 1 */
       id: string;
       url: string;
+      /** @minLength 1 */
+      connection?: string;
       auth?: PatchedAgentRevisionSpecMcpsItemAuth;
       secrets?: string[];
       headers?: PatchedAgentRevisionSpecMcpsItemHeaders;

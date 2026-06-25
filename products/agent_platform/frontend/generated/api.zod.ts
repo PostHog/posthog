@@ -155,6 +155,7 @@ export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax =
 
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourInteractiveDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsDefault = []
+
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemSecretsDefault = []
 
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoRequiresApprovalDefault = false
@@ -531,6 +532,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                     zod.object({
                         id: zod.string().min(1),
                         url: zod.url(),
+                        connection: zod.string().min(1).optional(),
                         auth: zod
                             .object({
                                 provider: zod.string().optional(),
@@ -773,6 +775,7 @@ export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsMax =
 
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourInteractiveDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecToolsDefault = []
+
 export const agentApplicationsRevisionsUpdateBodySpecMcpsItemSecretsDefault = []
 
 export const agentApplicationsRevisionsUpdateBodySpecMcpsItemToolsItemTwoRequiresApprovalDefault = false
@@ -1149,6 +1152,7 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                     zod.object({
                         id: zod.string().min(1),
                         url: zod.url(),
+                        connection: zod.string().min(1).optional(),
                         auth: zod
                             .object({
                                 provider: zod.string().optional(),
@@ -1414,6 +1418,7 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeout
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourInteractiveDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsDefault = []
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemSecretsDefault = []
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoRequiresApprovalDefault = false
@@ -1806,6 +1811,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                     zod.object({
                         id: zod.string().min(1),
                         url: zod.url(),
+                        connection: zod.string().min(1).optional(),
                         auth: zod
                             .object({
                                 provider: zod.string().optional(),

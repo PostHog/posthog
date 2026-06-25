@@ -440,6 +440,8 @@ export type AgentRevisionApiSpecMcpsItem = {
     /** @minLength 1 */
     id: string
     url: string
+    /** @minLength 1 */
+    connection?: string
     auth?: AgentRevisionApiSpecMcpsItemAuth
     secrets?: string[]
     headers?: AgentRevisionApiSpecMcpsItemHeaders
@@ -821,6 +823,8 @@ export type PatchedAgentRevisionApiSpecMcpsItem = {
     /** @minLength 1 */
     id: string
     url: string
+    /** @minLength 1 */
+    connection?: string
     auth?: PatchedAgentRevisionApiSpecMcpsItemAuth
     secrets?: string[]
     headers?: PatchedAgentRevisionApiSpecMcpsItemHeaders
