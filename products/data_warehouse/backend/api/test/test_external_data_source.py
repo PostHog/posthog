@@ -426,6 +426,60 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.direct_query_enabled is expected
 
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_reports_analytics_event(self, _mock_validate, mock_capture):
+        # report_user_action runs for real (not mocked) and the request carries the MCP marker, so the
+        # test fails if the request stops being forwarded or `source` stops landing — the mcp/ui/api
+        # attribution this PR exists to deliver.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "mcp",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == 201, response.json()
+        events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "data warehouse source created"]
+        assert len(events) == 1
+        properties = events[0].kwargs["properties"]
+        assert properties["source"] == "mcp"  # request-derived transport
+        assert properties["created_via"] == "mcp"  # caller's explicit intent
+        assert properties["source_type"] == "Stripe"
+        assert properties["source_id"] == str(response.json()["id"])
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_patch_external_data_source_reports_analytics_event(self, mock_capture):
+        # Source originally created via the UI, then edited over MCP: the event must carry both the
+        # edit's transport (source=mcp) and the unchanged original origin (created_via=web).
+        source = self._create_external_data_source(created_via=ExternalDataSource.CreatedVia.WEB)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"description": "edited"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == 200, response.json()
+        events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "data warehouse source updated"]
+        assert len(events) == 1
+        properties = events[0].kwargs["properties"]
+        assert properties["source"] == "mcp"  # who performed the edit
+        assert properties["created_via"] == ExternalDataSource.CreatedVia.WEB  # original origin, preserved
+        assert properties["source_type"] == "Stripe"
+        assert properties["source_id"] == str(source.pk)
+
     def test_patch_external_data_source_toggles_direct_query_enabled(self):
         source = self._create_external_data_source()
         assert source.direct_query_enabled is True
