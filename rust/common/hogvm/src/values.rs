@@ -155,12 +155,17 @@ impl HogValue {
         self.equals(rhs, heap)?.not()
     }
 
-    // Backs the `in`/`notIn` opcodes and the `has` STL. Both reference VMs define these as
-    // array/tuple membership *only* — a non-array haystack (string, object, null, …) is never a
-    // member, so it yields `false` rather than doing substring/key containment. Tuples are arrays
-    // in this VM, so the single Array arm covers them too.
+    // Backs the `in`/`notIn` opcodes (`x in y`). The reference IN opcode is `haystack.includes(needle)`
+    // (TS) / `needle in haystack` (Python): substring for a string haystack, element membership for an
+    // array, key membership for an object. (The `has` STL is different — array-only — so it has its own
+    // check and does NOT route through here.)
     pub fn contains(&self, other: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
-        match self.deref(heap)? {
+        let (haystack, needle) = (self.deref(heap)?, other.deref(heap)?);
+        match haystack {
+            HogLiteral::String(s) => {
+                let needle: &str = needle.try_as()?;
+                Ok(s.contains(needle).into())
+            }
             HogLiteral::Array(vals) => {
                 for val in vals.iter() {
                     if *val.equals(other, heap)?.try_as::<bool>()? {
@@ -169,7 +174,14 @@ impl HogValue {
                 }
                 Ok(false.into())
             }
-            _ => Ok(false.into()),
+            HogLiteral::Object(map) => {
+                let key: &str = needle.try_as()?;
+                Ok(map.contains_key(key).into())
+            }
+            _ => Err(VmError::CannotCoerce(
+                self.type_name().to_string(),
+                other.type_name().to_string(),
+            )),
         }
     }
 
@@ -738,7 +750,9 @@ impl Num {
                 NumOp::Add => Ok((a.saturating_add(b)).into()),
                 NumOp::Sub => Ok((a.saturating_sub(b)).into()),
                 NumOp::Mul => Ok((a.saturating_mul(b)).into()),
-                NumOp::Div => Ok((a.saturating_div(b)).into()),
+                // `/` is float division in the reference VMs (JS `/`, Python true division), even
+                // for two integers: 3 / 2 is 1.5, not 1. Use `intDiv` for integer division.
+                NumOp::Div => Ok(((a as f64) / (b as f64)).into()),
                 NumOp::Mod => Ok((a % b).into()),
                 NumOp::Gt => Ok((a > b).into()),
                 NumOp::Lt => Ok((a < b).into()),

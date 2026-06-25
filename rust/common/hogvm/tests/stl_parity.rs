@@ -50,7 +50,10 @@ fn run_bytecode(bytecode: Vec<Value>) -> Result<String, String> {
         sink.borrow_mut().push_str(&line);
         Ok(HogLiteral::Null.into())
     });
-    let ctx = ExecutionContext::with_defaults(program).with_ext_fn("print".to_string(), print_fn);
+    // Match reference semantics: the reference VMs always coerce comparison operands.
+    let ctx = ExecutionContext::with_defaults(program)
+        .with_coercing_comparisons()
+        .with_ext_fn("print".to_string(), print_fn);
     match sync_execute(&ctx, false) {
         Ok(_) => Ok(captured.borrow().trim_end_matches('\n').to_string()),
         Err(f) => Err(format!("{}", f.error)),

@@ -260,10 +260,21 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
         (
             "has",
             native_func(|vm, args| {
+                // Unlike the `in` opcode, the reference `has` STL is array-only: a non-array
+                // haystack (string, object, null, …) is never a member, yielding false.
                 assert_argc(&args, 2, "has")?;
-                let haystack = &args[0];
                 let needle = &args[1];
-                haystack.contains(needle, &vm.heap).map(|res| res.into())
+                match args[0].deref(&vm.heap)? {
+                    HogLiteral::Array(vals) => {
+                        for val in vals.iter() {
+                            if *needle.equals(val, &vm.heap)?.try_as()? {
+                                return Ok(HogLiteral::Boolean(true).into());
+                            }
+                        }
+                        Ok(HogLiteral::Boolean(false).into())
+                    }
+                    _ => Ok(HogLiteral::Boolean(false).into()),
+                }
             }),
         ),
         (
