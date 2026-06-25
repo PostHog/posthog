@@ -3,17 +3,20 @@ from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
 
-from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill
 
 JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
+# Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
+AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
 REPORT_TOOLS = ["emit_report", "edit_report", "search_scout_reports"]
 
 
@@ -166,3 +169,67 @@ class TestScoutReportAPI(APIBaseTest):
         assert len(rows) == 1
         assert rows[0]["title"] == "Checkout latency"
         assert rows[0]["report_status"] == SignalReport.Status.READY
+
+    def _latest_artefact(self, report_id: str, artefact_type: str) -> SignalReportArtefact | None:
+        return (
+            SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type).order_by("-created_at").first()
+        )
+
+    def test_emit_report_writes_autostart_artefacts(self) -> None:
+        # The autostart inputs the scout supplies become the same artefacts a pipeline report carries,
+        # which is what `maybe_autostart_from_report_artefacts` reads to open a draft PR. Repo is normalized.
+        run = _make_run(self.team)
+        payload = self._payload(
+            repository="PostHog/PostHog",
+            priority="P1",
+            priority_explanation="429 users hit this in 2h",
+            suggested_reviewers=["octocat", "hubot"],
+        )
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report_id = response.json()["report_id"]
+        repo = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        assert repo is not None and '"posthog/posthog"' in repo.content
+        assert self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT) is not None
+        reviewers = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+        assert reviewers is not None and "octocat" in reviewers.content
+
+    def test_emit_report_fires_autostart_when_surfaced(self) -> None:
+        run = _make_run(self.team)
+        payload = self._payload(repository="PostHog/PostHog", priority="P1", priority_explanation="big blast radius")
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        autostart.assert_awaited_once()
+        assert autostart.await_args is not None
+        assert autostart.await_args.kwargs["report_id"] == response.json()["report_id"]
+
+    def test_emit_report_skips_autostart_and_artefacts_when_suppressed(self) -> None:
+        # An unsafe report is suppressed — it must not write autostart inputs or try to open a PR.
+        run = _make_run(self.team)
+        payload = self._payload(repository="PostHog/PostHog", priority="P1", priority_explanation="x")
+        with (
+            _safe_judge(choice=False, explanation="unsafe"),
+            patch(EMBED_PATH),
+            patch(AUTOSTART_PATH, new=AsyncMock()) as autostart,
+        ):
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+        assert response.json()["emitted"] is False
+        autostart.assert_not_awaited()
+        assert (
+            self._latest_artefact(response.json()["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
+            is None
+        )
+
+    @parameterized.expand(
+        [
+            ("invalid_priority", {"priority": "P9", "priority_explanation": "x"}),
+            ("priority_without_explanation", {"priority": "P1"}),
+        ]
+    )
+    def test_emit_report_rejects_bad_priority(self, _name: str, overrides: dict) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(self._emit_url(str(run.id)), data=self._payload(**overrides), format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

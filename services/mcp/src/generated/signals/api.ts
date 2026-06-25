@@ -643,6 +643,33 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .boolean()
             .default(signalsScoutEmitReportBodyAlreadyAddressedDefault)
             .describe('Whether the issue already appears fixed in recent changes (tracked separately).'),
+        repository: zod
+            .string()
+            .nullish()
+            .describe(
+                "Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it."
+            ),
+        priority: zod
+            .union([
+                zod
+                    .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+                    .describe('* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.\n\n* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4'
+            ),
+        priority_explanation: zod
+            .string()
+            .nullish()
+            .describe('2-3 sentence justification for `priority`. Required when `priority` is set.'),
+        suggested_reviewers: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                'Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if at least one clears their autonomy threshold; omit to skip the PR path.'
+            ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')
 

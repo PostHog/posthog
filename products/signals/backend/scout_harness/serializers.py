@@ -14,7 +14,7 @@ from rest_framework import serializers
 
 from posthog.schema import Severity
 
-from products.signals.backend.artefact_schemas import ActionabilityChoice
+from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
@@ -510,6 +510,35 @@ class EmitReportRequestSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Whether the issue already appears fixed in recent changes (tracked separately).",
+    )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the "
+            "`NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form "
+            "selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` "
+            "when you know it."
+        ),
+    )
+    priority = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=[(p.value, p.value) for p in Priority],
+        help_text="Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.",
+    )
+    priority_explanation = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="2-3 sentence justification for `priority`. Required when `priority` is set.",
+    )
+    suggested_reviewers = serializers.ListField(
+        required=False,
+        child=serializers.CharField(),
+        help_text=(
+            "Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if "
+            "at least one clears their autonomy threshold; omit to skip the PR path."
+        ),
     )
 
 

@@ -59,6 +59,25 @@ when it actually surfaced — `READY` / `PENDING_INPUT`), `safety_explanation`, 
 `skipped_reason` (set only when a preflight gate stopped the call before any report was
 created — the same AI-data-processing / source-enabled gates that govern `emit-signal`).
 
+### Opening a draft PR (autostart)
+
+A surfaced, immediately-actionable report can open a draft PR automatically — the same autostart
+path the pipeline uses. It's opt-in per report via three more `emit_report` fields; supply them only
+when the report is a concrete, fixable issue you'd want a PR for:
+
+| Field                  | Type        | Notes                                                                                                                                                                                                                                                    |
+| ---------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repository`           | string      | `"owner/repo"` targets that repo; the `NO_REPO` sentinel opts out; **omitting it** falls back to free-form selection across the team's repos — the slow path on a many-repo team (it spawns a selection sandbox), so pass `owner/repo` when you know it. |
+| `priority`             | `P0`-`P4`   | Required for a PR. Pair with `priority_explanation`.                                                                                                                                                                                                     |
+| `priority_explanation` | string      | Required when `priority` is set.                                                                                                                                                                                                                         |
+| `suggested_reviewers`  | list of str | GitHub logins to consider. A PR opens only if at least one clears their autonomy threshold.                                                                                                                                                              |
+
+Repo selection only runs when you signal PR intent — an explicit `repository`, or both `priority`
+and `suggested_reviewers`. A report that supplies none of these just surfaces in the inbox (no repo
+sandbox, no PR). Autostart itself still no-ops unless the report is `immediately_actionable`, has a
+repo + priority, and a reviewer qualifies — so these fields are safe to omit for an informational
+report.
+
 ## `edit_report` — update an existing report
 
 Rewrite `title`/`summary` and/or append a note to a report that already exists. Pass

@@ -234,6 +234,11 @@ higher bar, not a shortcut.
   MCP remediation, `requires_human_input` for credential-gated ones (e.g.
   `external_data_failure`), `not_actionable` to file for the record. Put the issue ids and
   blast-radius numbers in `evidence` exactly as you would for a signal.
+- **Opening a draft PR (optional):** for an `immediately_actionable` issue that's fixable in a
+  known repo, also pass `repository` (`owner/repo`), `priority` (`P0`-`P4`) + `priority_explanation`,
+  and `suggested_reviewers` (GitHub logins) — autostart opens a draft PR when a reviewer clears their
+  autonomy threshold. Omit them (or pass `NO_REPO`) to just surface the report; don't trigger
+  free-form repo selection by omitting `repository` on a fixable issue — name the repo.
 
 When a finding is a routine single issue or a low-confidence pattern, stay on `-emit-signal` —
 the report channel is for the bundled, researched, human-framed findings this scout exists to

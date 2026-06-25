@@ -618,6 +618,18 @@ const signalsScoutEmitReport = (): ToolBase<typeof SignalsScoutEmitReportSchema,
         if (params.already_addressed !== undefined) {
             body['already_addressed'] = params.already_addressed
         }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.priority !== undefined) {
+            body['priority'] = params.priority
+        }
+        if (params.priority_explanation !== undefined) {
+            body['priority_explanation'] = params.priority_explanation
+        }
+        if (params.suggested_reviewers !== undefined) {
+            body['suggested_reviewers'] = params.suggested_reviewers
+        }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-report/`,

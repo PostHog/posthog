@@ -25,8 +25,16 @@ from asgiref.sync import async_to_sync
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice
+from products.signals.backend.artefact_schemas import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
+    Priority,
+    PriorityAssessment,
+    SuggestedReviewerEntry,
+    SuggestedReviewers,
+)
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.tools.emit import (
     SCOUT_SIGNAL_WEIGHT,
     # Shared harness gates/attribution — the report channel applies the same preflight as emit.
@@ -49,6 +57,12 @@ logger = logging.getLogger(__name__)
 MAX_REPORT_TITLE_LENGTH = 300
 DEFAULT_REPORT_SEARCH_LIMIT = 20
 MAX_REPORT_SEARCH_LIMIT = 100
+MAX_SUGGESTED_REVIEWERS = 10
+
+# Repository modes for `emit_report`, mirroring `custom_agent`'s three-mode contract:
+#   "owner/repo" -> that repo; NO_REPO -> explicitly no repo (lands without a draft PR);
+#   omitted (None) -> free-form selection across the team's repos (`select_repository_for_team`).
+NO_REPO = "NO_REPO"
 
 
 @dataclass(frozen=True)
@@ -145,6 +159,122 @@ def _attribution_for(task_id: str | None) -> ArtefactAttribution:
     return ArtefactAttribution.from_task(task_id) if task_id is not None else ArtefactAttribution.system()
 
 
+def _build_priority(priority: str | None, explanation: str | None) -> PriorityAssessment | None:
+    """Build the `priority_judgment` artefact content from scout-supplied inputs, or None to omit it.
+
+    Autostart needs a priority, so omitting it (or actionability != immediately_actionable) just means
+    the report lands without a draft PR. When a priority is given, an explanation is required."""
+    if priority is None:
+        return None
+    try:
+        priority_level = Priority(priority)
+    except ValueError:
+        valid = ", ".join(p.value for p in Priority)
+        raise InvalidScoutReportError(f"priority must be one of [{valid}], got {priority!r}")
+    if not explanation or not explanation.strip():
+        raise InvalidScoutReportError("priority_explanation is required when priority is set")
+    return PriorityAssessment(priority=priority_level, explanation=explanation)
+
+
+def _build_suggested_reviewers(github_logins: list[str] | None) -> SuggestedReviewers | None:
+    """Build the `suggested_reviewers` artefact from scout-supplied github logins, or None to omit it.
+
+    These are who autostart considers (each must clear their autonomy threshold). The scout supplies
+    the logins — exactly how a custom agent supplies assignees — rather than us resolving them from
+    repo history. Empty/blank logins are dropped; an all-empty list yields None."""
+    if not github_logins:
+        return None
+    cleaned = [login.strip() for login in github_logins if login and login.strip()]
+    if not cleaned:
+        return None
+    if len(cleaned) > MAX_SUGGESTED_REVIEWERS:
+        raise InvalidScoutReportError(f"at most {MAX_SUGGESTED_REVIEWERS} suggested reviewers, got {len(cleaned)}")
+    return SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login) for login in cleaned])
+
+
+def _wants_repo_selection(
+    repository: str | None, priority: PriorityAssessment | None, reviewers: SuggestedReviewers | None
+) -> bool:
+    """Whether to run repo selection at all. Resolve a repo only when the scout signalled PR intent —
+    either an explicit `repository`, or the priority + reviewers an autostart needs. An informational
+    report that supplies none of these skips selection entirely, so it never pays for the (free-form)
+    selection sandbox just to surface in the inbox."""
+    return repository is not None or (priority is not None and reviewers is not None)
+
+
+def _repo_request_section(title: str, summary: str, evidence: list[ReportEvidence]) -> str:
+    """Render the report into the free-text request the repo selector reasons over."""
+    lines = [title, "", summary]
+    if evidence:
+        lines += ["", "Evidence:"]
+        lines += [f"- {e.description}" for e in evidence]
+    return "\n".join(lines)
+
+
+async def _resolve_report_repository(
+    *, team_id: int, repository: str | None, title: str, summary: str, evidence: list[ReportEvidence]
+) -> RepoSelectionResult | None:
+    """Resolve the scout's `repository` input into a `repo_selection` artefact (or None to write none).
+
+    Three modes mirror `custom_agent`: ``NO_REPO`` -> explicitly no repo; ``"owner/repo"`` -> that
+    repo (validated, lowercased); omitted (None) -> free-form selection across the team's repos. The
+    free-form path is the slow one — for a team with many repos it spawns a selection sandbox — so a
+    scout that knows its repo should pass it explicitly (see the report contract)."""
+    if repository == NO_REPO:
+        return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
+    if repository is not None:
+        normalized = repository.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise InvalidScoutReportError("repository must be in 'owner/repo' format (or the NO_REPO sentinel)")
+        return RepoSelectionResult(repository=normalized, reason="Repository provided by the scout.")
+
+    # Free-form: let the shared selector pick across the team's repos. Imports are deferred to keep the
+    # temporal/agentic + sandbox stack off this harness-tool module's import path (it loads at worker boot).
+    from products.signals.backend.report_generation.select_repo import (
+        select_repository_for_team,  # noqa: PLC0415 — break worker-boot import cycle
+    )
+    from products.signals.backend.temporal.agentic import (  # noqa: PLC0415 — break worker-boot import cycle
+        SIGNALS_REPO_DISCOVERY_ENV_NAME,
+        get_or_create_signals_sandbox_env,
+        resolve_user_id_for_team,
+    )
+    from products.signals.backend.temporal.agentic.select_repository import (
+        GITHUB_ONLY_DOMAINS,  # noqa: PLC0415 — break worker-boot import cycle
+    )
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — break worker-boot import cycle
+
+    user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(team_id)
+    sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
+        team_id,
+        SIGNALS_REPO_DISCOVERY_ENV_NAME,
+        tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+        allowed_domains=GITHUB_ONLY_DOMAINS,
+    )
+    return await select_repository_for_team(
+        team_id=team_id,
+        user_id=user_id,
+        request_section=_repo_request_section(title, summary, evidence),
+        step_name="scout_repo_selection",
+        sandbox_environment_id=sandbox_env_id,
+    )
+
+
+async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
+    """Best-effort autostart hand-off after a report surfaced. Reconstructs the autostart inputs from
+    the report's artefacts (the same shared entry point the reviewer-edit hook uses) and swallows
+    failures so a draft-PR hiccup never fails the emit. No-ops unless the report is immediately
+    actionable, has a repo + priority, and a suggested reviewer clears their autonomy threshold."""
+    from products.signals.backend.auto_start import (
+        maybe_autostart_from_report_artefacts,  # noqa: PLC0415 — break worker-boot import cycle
+    )
+
+    try:
+        await maybe_autostart_from_report_artefacts(team_id=team_id, report_id=report_id)
+    except Exception:
+        logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
+
+
 async def emit_report(
     *,
     team: Team,
@@ -155,15 +285,25 @@ async def emit_report(
     actionability_explanation: str,
     actionability: str,
     already_addressed: bool = False,
+    repository: str | None = None,
+    priority: str | None = None,
+    priority_explanation: str | None = None,
+    suggested_reviewers: list[str] | None = None,
 ) -> EmitReportResult:
     """Author a full report: judge for safety, then persist at the judged status. Async entry (used by
-    the in-Temporal runner); routes the sync DB work through `database_sync_to_async`."""
+    the in-Temporal runner); routes the sync DB work through `database_sync_to_async`.
+
+    `repository` / `priority` / `priority_explanation` / `suggested_reviewers` are the optional
+    autostart inputs (custom_agent parity): with them a surfaced, immediately-actionable report can
+    open a draft PR. They're only resolved/written when the report actually surfaces."""
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, evidence)
     signals = _build_signals(evidence)
     actionability_assessment = _build_actionability(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
     )
+    priority_assessment = _build_priority(priority, priority_explanation)
+    reviewers = _build_suggested_reviewers(suggested_reviewers)
 
     preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team, run)
     if preflight is not None:
@@ -172,6 +312,14 @@ async def emit_report(
     task_id = await database_sync_to_async(_resolve_task_id, thread_sensitive=False)(run)
     attribution = _attribution_for(task_id)
     judgement = await judge_scout_report(team_id=team.id, signals=signals, actionability=actionability_assessment)
+    surfaced = _surfaced(judgement.status)
+    repo_selection = (
+        await _resolve_report_repository(
+            team_id=team.id, repository=repository, title=title, summary=summary, evidence=evidence
+        )
+        if surfaced and _wants_repo_selection(repository, priority_assessment, reviewers)
+        else None
+    )
     persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
         team_id=team.id,
         title=title,
@@ -181,8 +329,13 @@ async def emit_report(
         status=judgement.status,
         safety=judgement.safety,
         actionability=judgement.actionability,
+        repo_selection=repo_selection,
+        priority=priority_assessment if surfaced else None,
+        suggested_reviewers=reviewers if surfaced else None,
         run=run,
     )
+    if surfaced:
+        await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
     return _emit_result(persisted.report_id, judgement)
 
 
@@ -196,17 +349,24 @@ def emit_report_sync(
     actionability_explanation: str,
     actionability: str,
     already_addressed: bool = False,
+    repository: str | None = None,
+    priority: str | None = None,
+    priority_explanation: str | None = None,
+    suggested_reviewers: list[str] | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
-    calling thread/connection (gates, persist) — only the safety-judge LLM call is bridged via
-    `async_to_sync`. Wrapping the whole async function instead would run every DB op on a separate
-    connection, which a request's transaction can't see."""
+    calling thread/connection (gates, persist) — only the safety-judge LLM call, the free-form repo
+    selection, and the autostart hand-off are bridged via `async_to_sync` (each runs before/after the
+    report transaction, so they don't share its connection). Wrapping the whole async function instead
+    would run every DB op on a separate connection, which a request's transaction can't see."""
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, evidence)
     signals = _build_signals(evidence)
     actionability_assessment = _build_actionability(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
     )
+    priority_assessment = _build_priority(priority, priority_explanation)
+    reviewers = _build_suggested_reviewers(suggested_reviewers)
 
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
@@ -217,6 +377,14 @@ def emit_report_sync(
     judgement = async_to_sync(judge_scout_report)(
         team_id=team.id, signals=signals, actionability=actionability_assessment
     )
+    surfaced = _surfaced(judgement.status)
+    repo_selection = (
+        async_to_sync(_resolve_report_repository)(
+            team_id=team.id, repository=repository, title=title, summary=summary, evidence=evidence
+        )
+        if surfaced and _wants_repo_selection(repository, priority_assessment, reviewers)
+        else None
+    )
     persisted = create_scout_report(
         team_id=team.id,
         title=title,
@@ -226,8 +394,13 @@ def emit_report_sync(
         status=judgement.status,
         safety=judgement.safety,
         actionability=judgement.actionability,
+        repo_selection=repo_selection,
+        priority=priority_assessment if surfaced else None,
+        suggested_reviewers=reviewers if surfaced else None,
         run=run,
     )
+    if surfaced:
+        async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
     return _emit_result(persisted.report_id, judgement)
 
 

@@ -1342,6 +1342,26 @@ export interface EmitReportRequestApi {
     actionability: ActionabilityEnumApi
     /** Whether the issue already appears fixed in recent changes (tracked separately). */
     already_addressed?: boolean
+    /**
+     * Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it.
+     * @nullable
+     */
+    repository?: string | null
+    /** Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority?: AutonomyPriorityEnumApi | null
+    /**
+     * 2-3 sentence justification for `priority`. Required when `priority` is set.
+     * @nullable
+     */
+    priority_explanation?: string | null
+    /** Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if at least one clears their autonomy threshold; omit to skip the PR path. */
+    suggested_reviewers?: string[]
 }
 
 export interface EmitReportResponseApi {

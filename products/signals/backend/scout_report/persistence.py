@@ -36,8 +36,15 @@ from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
 
-from products.signals.backend.artefact_schemas import ActionabilityAssessment, NoteArtefact, SafetyJudgment
+from products.signals.backend.artefact_schemas import (
+    ActionabilityAssessment,
+    NoteArtefact,
+    PriorityAssessment,
+    SafetyJudgment,
+    SuggestedReviewers,
+)
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 
 logger = logging.getLogger(__name__)
@@ -98,6 +105,9 @@ def create_scout_report(
     status: SignalReport.Status = SignalReport.Status.READY,
     safety: SafetyJudgment | None = None,
     actionability: ActionabilityAssessment | None = None,
+    repo_selection: RepoSelectionResult | None = None,
+    priority: PriorityAssessment | None = None,
+    suggested_reviewers: SuggestedReviewers | None = None,
     run: SignalScoutRun | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
@@ -113,6 +123,13 @@ def create_scout_report(
     and passes the resolved status here. `safety` / `actionability`, when provided, are written as the
     report's status artefacts (the same `safety_judgment` / `actionability_judgment` types the pipeline
     writes) so the verdict that set the status is auditable on the report, not just implicit in it.
+
+    `repo_selection` / `priority` / `suggested_reviewers`, when provided, are written as the same
+    status artefacts a pipeline report carries (`repo_selection` / `priority_judgment` /
+    `suggested_reviewers`). They are what `auto_start.maybe_autostart_from_report_artefacts` reads to
+    open a draft PR — the autostart hook itself is fired by the caller *after* this returns (never
+    in-txn, since it spawns a Task), so the `suggested_reviewers` append opts out of the model's
+    autostart re-evaluation hook, mirroring `create_custom_agent_ready_report`.
     """
     _validate_create_inputs(title, summary, signals)
 
@@ -150,6 +167,25 @@ def create_scout_report(
         if actionability is not None:
             SignalReportArtefact.append_status(
                 team_id=team_id, report_id=report_id, content=actionability, attribution=attribution
+            )
+        # Autostart inputs (mirroring `create_custom_agent_ready_report`): the repo the fix lands in,
+        # the priority, and the suggested reviewers. The reviewers append opts out of the autostart
+        # re-eval hook — autostart is fired explicitly by the caller after commit, never in-txn.
+        if repo_selection is not None:
+            SignalReportArtefact.append_status(
+                team_id=team_id, report_id=report_id, content=repo_selection, attribution=attribution
+            )
+        if priority is not None:
+            SignalReportArtefact.append_status(
+                team_id=team_id, report_id=report_id, content=priority, attribution=attribution
+            )
+        if suggested_reviewers is not None and len(suggested_reviewers.root) > 0:
+            SignalReportArtefact.append_status(
+                team_id=team_id,
+                report_id=report_id,
+                content=suggested_reviewers,
+                attribution=attribution,
+                reevaluate_autostart=False,
             )
 
     # Committed: now emit the backing signals. Sequential (not on_commit) so the call is observable

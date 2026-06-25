@@ -577,6 +577,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 actionability_explanation=data["actionability_explanation"],
                 actionability=data["actionability"],
                 already_addressed=data.get("already_addressed", False),
+                repository=data.get("repository"),
+                priority=data.get("priority"),
+                priority_explanation=data.get("priority_explanation"),
+                suggested_reviewers=data.get("suggested_reviewers"),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
