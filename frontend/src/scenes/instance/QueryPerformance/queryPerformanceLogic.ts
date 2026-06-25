@@ -34,8 +34,12 @@ export interface SlowestQuery {
     experiment_metric_events_path: string
     experiment_query_surface: string
     experiment_precompute_table: string
+    experiment_query_group_id: string
     experiment_metric_type: string
+    experiment_funnel_order_type: string | null
     experiment_id: number | null
+    total_duration_ms: number
+    sub_queries: SlowestQuery[]
 }
 
 export const queryPerformanceLogic = kea<queryPerformanceLogicType>([

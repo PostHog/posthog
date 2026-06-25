@@ -29,7 +29,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.github_callback.personal_finish import github_link_complete
+from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
@@ -60,7 +60,9 @@ from products.slack_app.backend.api import (
     posthog_code_interactivity_handler,
     slack_workspace_claims_view,
 )
+from products.slack_app.backend.views import slack_user_link_authorize, slack_user_link_callback
 from products.surveys.backend.api.survey import public_survey_page
+from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
@@ -367,6 +369,11 @@ urlpatterns = [
         "api/public_source_configs",
         PublicSourceConfigViewSet.as_view({"get": "list"}),
     ),
+    # Internal agent-proxy side-effect callback (auth: sandbox event ingest JWT)
+    path(
+        "internal/tasks/runs/<str:run_id>/agent-proxy-callback/",
+        csrf_exempt(agent_proxy_callback),
+    ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
@@ -444,7 +451,14 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     # GitHub account linking (identity-only, separate from the login pipeline).
     # Must precede `social_django.urls` so the latter's `complete/<str:backend>/` doesn't swallow it.
-    path("complete/github-link/", github_link_complete, name="github_link_complete"),
+    path("complete/github-link/", github_oauth_callback, name="github_link_complete"),
+    opt_slash_path(
+        "integrations/github/callback", github_setup_callback, name="github_team_integration_setup_callback"
+    ),
+    # Slack user-identity linking — mirrors the GitHub per-user pattern above,
+    # and likewise must precede `social_django.urls` for the same reason.
+    path("complete/slack-link/start/", slack_user_link_authorize, name="slack_link_start"),
+    path("complete/slack-link/", slack_user_link_callback, name="slack_link_complete"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),

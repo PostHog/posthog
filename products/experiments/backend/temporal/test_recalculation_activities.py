@@ -454,6 +454,19 @@ class TestCalculateActivity(BaseTest):
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
         assert row.query_from == exp.start_date
 
+    def test_query_id_is_persisted_on_result_row(self):
+        # The deterministic client_query_id is stamped into ClickHouse's query_id and stored on the row so a
+        # metric's executions are greppable in system.query_log by the `{team}_{client_query_id}_` prefix.
+        exp = self._experiment(flag_key="calc-query-id", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+        assert row.query_id == f"experiment_metric_recalc_{recalc.id}_m1"
+
     def test_multiple_failures_accumulate_in_metric_errors(self):
         # Two metrics fail in sequence (not in parallel — that would need threads + a real Postgres). Pins the
         # merge-into-dict behavior: each failure writes its own entry keyed by metric_uuid, no overwriting.

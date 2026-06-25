@@ -51,7 +51,6 @@ from posthog.schema import (
     MatchingEventsResponse,
     ProductIntentContext,
     ProductKey,
-    PropertyFilterType,
     PropertyOperator,
     QueryTiming,
     RecordingPropertyFilter,
@@ -109,6 +108,7 @@ from posthog.session_recordings.utils import (
     filter_from_params_to_query,
     gate_surfacing_score_order,
     query_as_params_to_dict,
+    recordings_query_has_event_filters,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.temporal.common.client import async_connect
@@ -950,11 +950,7 @@ class SessionRecordingViewSet(
                 "Must specify exactly one session_id",
             )
 
-        has_event_properties = any(
-            getattr(p, "type", None) == PropertyFilterType.EVENT for p in (query.properties or [])
-        )
-
-        if not query.events and not query.actions and not has_event_properties:
+        if not recordings_query_has_event_filters(query):
             raise exceptions.ValidationError(
                 "Must specify at least one event or action filter, or event properties filter",
             )

@@ -708,6 +708,9 @@ tools:
     users-integrations-github-destroy:
         operation: users_integrations_github_destroy
         enabled: false
+    users-integrations-github-prepare-callback-create:
+        operation: users_integrations_github_prepare_callback_create
+        enabled: false
     users-integrations-github-repos-refresh-create:
         operation: users_integrations_github_repos_refresh_create
         enabled: false
@@ -720,8 +723,26 @@ tools:
     users-integrations-list:
         operation: users_integrations_list
         enabled: false
+    users-integrations-slack-destroy:
+        operation: users_integrations_slack_destroy
+        enabled: false
+    users-integrations-slack-linkable-workspaces-retrieve:
+        operation: users_integrations_slack_linkable_workspaces_retrieve
+        enabled: false
+    users-integrations-slack-start-create:
+        operation: users_integrations_slack_start_create
+        enabled: false
     users-list:
         operation: users_list
+        enabled: false
+    users-login-sessions-destroy:
+        operation: users_login_sessions_destroy
+        enabled: false
+    users-login-sessions-list:
+        operation: users_login_sessions_list
+        enabled: false
+    users-login-sessions-revoke-others-create:
+        operation: users_login_sessions_revoke_others_create
         enabled: false
     users-onboarding-skip-create:
         operation: users_onboarding_skip_create

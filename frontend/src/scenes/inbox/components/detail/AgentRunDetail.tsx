@@ -18,10 +18,9 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SANDBOX_BIND_TASK_PARAM } from 'scenes/max/maxLogic'
-import { SandboxRunViewer } from 'scenes/max/sandbox/components/SandboxRunViewer'
-import { isTerminalRunStatus } from 'scenes/max/sandboxStreamLogic'
 import { urls } from 'scenes/urls'
 
+import { isTerminalRunStatus, SandboxRunViewer } from 'products/posthog_ai/frontend/sandbox'
 import { Task, TaskRunStatus } from 'products/tasks/frontend/types'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
@@ -219,13 +218,13 @@ function TaskLogBody({
  * open a new tab, carrying the bind via the `bind_task` URL param. Gated to a terminal run — the live
  * Task log already covers an in-progress run, and taking over a running automation run is out of scope.
  */
-function OpenTaskButton({ taskId, runStatus }: { taskId: string; runStatus?: TaskRunStatus }): JSX.Element {
+export function OpenTaskButton({ taskId, runStatus }: { taskId: string; runStatus?: TaskRunStatus }): JSX.Element {
     const { openSidePanelMaxWithTaskBind } = useActions(maxGlobalLogic)
     const isTerminal = isTerminalRunStatus(runStatus)
 
     return (
         <LemonButton
-            size="xsmall"
+            size="small"
             type="secondary"
             to={combineUrl(urls.ai(), { [SANDBOX_BIND_TASK_PARAM]: taskId }).url}
             onClick={(e) => {

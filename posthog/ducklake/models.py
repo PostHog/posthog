@@ -152,6 +152,13 @@ class DuckLakeBackfill(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         help_text="Suffix for this team's warehouse tables in the duckling (events_<suffix>, persons_<suffix>). "
         "User-supplied; falls back to the shared tables when unset.",
     )
+    earliest_event_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Cached earliest event date (clamped to the backfill floor) used to size the historical "
+        "backfill range. Populated lazily by the full-backfill sensor so it never re-queries ClickHouse; "
+        "leave unset to have the sensor resolve and store it on its next tick.",
+    )
 
     class Meta:
         db_table = "posthog_ducklakebackfill"

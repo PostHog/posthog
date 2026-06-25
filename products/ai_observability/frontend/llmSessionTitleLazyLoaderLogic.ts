@@ -52,17 +52,17 @@ function eventsTableQuery(sessionIds: string, dateFrom: string, dateTo: string |
             SELECT
                 properties.$ai_session_id AS session_id,
                 argMinIf(
-                    substring(toString(properties.$ai_input_state), 1, ${FIELD_TRUNCATE_CHARS}),
+                    substringUTF8(toString(properties.$ai_input_state), 1, ${FIELD_TRUNCATE_CHARS}),
                     timestamp,
                     event = '$ai_trace' AND length(toString(properties.$ai_input_state)) > 0
                 ) AS first_input_state,
                 argMinIf(
-                    substring(toString(properties.$ai_input), 1, ${FIELD_TRUNCATE_CHARS}),
+                    substringUTF8(toString(properties.$ai_input), 1, ${FIELD_TRUNCATE_CHARS}),
                     timestamp,
                     event = '$ai_generation' AND length(toString(properties.$ai_input)) > 0
                 ) AS first_gen_input,
                 argMinIf(
-                    substring(toString(properties.$ai_span_name), 1, ${TRACE_NAME_TRUNCATE_CHARS}),
+                    substringUTF8(toString(properties.$ai_span_name), 1, ${TRACE_NAME_TRUNCATE_CHARS}),
                     timestamp,
                     event = '$ai_trace' AND length(toString(properties.$ai_span_name)) > 0
                 ) AS first_trace_name
@@ -91,17 +91,17 @@ function aiEventsTableQuery(sessionIds: string): HogQLQuery {
             SELECT
                 session_id,
                 argMinIf(
-                    substring(input_state, 1, ${FIELD_TRUNCATE_CHARS}),
+                    substringUTF8(input_state, 1, ${FIELD_TRUNCATE_CHARS}),
                     timestamp,
                     event = '$ai_trace' AND length(input_state) > 0
                 ) AS first_input_state,
                 argMinIf(
-                    substring(input, 1, ${FIELD_TRUNCATE_CHARS}),
+                    substringUTF8(input, 1, ${FIELD_TRUNCATE_CHARS}),
                     timestamp,
                     event = '$ai_generation' AND length(input) > 0
                 ) AS first_gen_input,
                 argMinIf(
-                    substring(span_name, 1, ${TRACE_NAME_TRUNCATE_CHARS}),
+                    substringUTF8(span_name, 1, ${TRACE_NAME_TRUNCATE_CHARS}),
                     timestamp,
                     event = '$ai_trace' AND length(span_name) > 0
                 ) AS first_trace_name

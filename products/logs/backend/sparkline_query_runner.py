@@ -1,10 +1,12 @@
 from posthog.schema import LogsSparklineBreakdownBy
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.models.filters.mixins.utils import cached_property
 
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunner
 
@@ -16,8 +18,22 @@ BREAKDOWN_DB_FIELD: dict[LogsSparklineBreakdownBy, str] = {
 
 DEFAULT_BREAKDOWN = LogsSparklineBreakdownBy.SEVERITY
 
+# The volume preview must return quickly or fail clearly. Its bytes breakdown sums
+# `_bytes_uncompressed`, which the minute-aggregate projection doesn't cover, so a
+# high-volume service can fall back to a full table scan. Cap execution well below the
+# 60s default so a slow preview surfaces an error promptly instead of appearing to hang.
+SPARKLINE_PREVIEW_MAX_EXECUTION_SECONDS = 30
+
 
 class SparklineQueryRunner(LogsQueryRunner):
+    @cached_property
+    def settings(self) -> HogQLGlobalSettings:
+        # Inherit LogsQueryRunner's distributed-logs settings — including the
+        # allow_experimental_object_type / allow_experimental_join_condition / transform_null_in
+        # bug-workaround flags it sets to False — and only tighten the execution timeout. Building
+        # a fresh HogQLGlobalSettings here would silently re-enable those buggy defaults.
+        return super().settings.model_copy(update={"max_execution_time": SPARKLINE_PREVIEW_MAX_EXECUTION_SECONDS})
+
     def _calculate(self) -> LogsQueryResponse:
         response = execute_hogql_query(
             query_type="LogsQuery",
