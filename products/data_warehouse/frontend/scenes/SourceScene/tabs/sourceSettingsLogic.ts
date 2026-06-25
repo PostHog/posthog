@@ -67,9 +67,10 @@ function nextJobsPollDelay(softFailureCount: number): number {
     return exponential * (0.5 + Math.random() * 0.5)
 }
 
-// Fields the schema-update endpoint accepts. The backend treats any field present in the
-// request as an intentional write, so we only ever send the ones the user actually changed —
-// sending an unchanged field (e.g. enabled_columns: null) clobbers the persisted value.
+// The schema fields the bulk-update endpoint accepts. The backend treats any field present in the
+// request as an intentional write, so we only send the ones the user actually changed — sending an
+// unchanged field (e.g. enabled_columns: null) clobbers the persisted value. This allowlist is the
+// single source of truth for which fields are sendable; everything else on the schema is read-only.
 const SCHEMA_PAYLOAD_FIELDS = [
     'should_sync',
     'sync_type',

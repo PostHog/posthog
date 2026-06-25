@@ -5871,23 +5871,9 @@ const api = {
         },
         async bulkUpdateSchemas(
             sourceId: ExternalDataSource['id'],
-            // Only `id` is required; every other field is optional so callers can send a minimal
-            // diff. The backend writes only the fields present, leaving omitted ones untouched.
-            schemas: (Pick<ExternalDataSourceSchema, 'id'> &
-                Partial<
-                    Pick<
-                        ExternalDataSourceSchema,
-                        | 'should_sync'
-                        | 'sync_type'
-                        | 'incremental_field'
-                        | 'incremental_field_type'
-                        | 'incremental_field_lookback_seconds'
-                        | 'sync_frequency'
-                        | 'sync_time_of_day'
-                        | 'cdc_table_mode'
-                        | 'enabled_columns'
-                    >
-                >)[]
+            // Callers send a minimal diff — only `id` is required; the backend writes just the fields
+            // present and leaves the rest untouched. (Matches `externalDataSchemas.update`'s shape.)
+            schemas: (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'>)[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
                 data: { schemas },
