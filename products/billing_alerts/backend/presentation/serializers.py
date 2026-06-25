@@ -11,12 +11,10 @@ from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.integration import Integration
 from posthog.models.user import User
 
-from products.billing_alerts.backend.alert_destinations import DESTINATION_TYPE_BY_TEMPLATE_ID
-from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.billing_alerts.backend.facade import api as billing_alerts_api
+from products.billing_alerts.backend.facade.api import BillingAlertConfiguration, BillingAlertEvent
 
 _DESTINATION_TYPES_CACHE_KEY = "_billing_alert_destination_types_by_alert_id"
 
@@ -212,40 +210,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
 
     def _load_destination_type_cache(self, obj: BillingAlertConfiguration) -> dict[str, list[str]]:
         alerts = self._destination_type_cache_alerts(obj)
-        alert_ids = {str(alert.id) for alert in alerts}
-        team_ids = {alert.execution_team_id for alert in alerts}
-        destination_types_by_alert_id: dict[str, set[str]] = {alert_id: set() for alert_id in alert_ids}
-
-        if not alert_ids or not team_ids:
-            return {}
-
-        hog_functions = HogFunction.objects.filter(
-            team_id__in=team_ids,
-            deleted=False,
-            template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
-        ).values_list("template_id", "filters")
-
-        for template_id, filters in hog_functions:
-            if template_id is None:
-                continue
-            destination_type = DESTINATION_TYPE_BY_TEMPLATE_ID.get(template_id)
-            if destination_type is None or not isinstance(filters, dict):
-                continue
-
-            properties = filters.get("properties") or []
-            if not isinstance(properties, list):
-                continue
-
-            for property_filter in properties:
-                if not isinstance(property_filter, dict) or property_filter.get("key") != "alert_id":
-                    continue
-                alert_id = str(property_filter.get("value"))
-                if alert_id in destination_types_by_alert_id:
-                    destination_types_by_alert_id[alert_id].add(destination_type)
-
-        return {
-            alert_id: sorted(destination_types) for alert_id, destination_types in destination_types_by_alert_id.items()
-        }
+        return billing_alerts_api.destination_types_for_alerts(alerts)
 
     def _destination_type_cache_alerts(self, obj: BillingAlertConfiguration) -> list[BillingAlertConfiguration]:
         parent_instance = getattr(getattr(self, "parent", None), "instance", None)
@@ -350,13 +315,9 @@ class BillingAlertCreateDestinationSerializer(serializers.Serializer):
             if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
                 raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
             alert = self.context.get("alert")
-            if (
-                alert is not None
-                and not Integration.objects.filter(
-                    id=attrs["slack_workspace_id"],
-                    team_id=alert.execution_team_id,
-                    kind=Integration.IntegrationKind.SLACK,
-                ).exists()
+            if alert is not None and not billing_alerts_api.slack_integration_belongs_to_team(
+                integration_id=attrs["slack_workspace_id"],
+                team_id=alert.execution_team_id,
             ):
                 raise ValidationError(
                     {"slack_workspace_id": "Slack integration does not belong to this billing alert execution team."}
@@ -386,7 +347,3 @@ class BillingAlertDestinationResponseSerializer(serializers.Serializer):
 class BillingAlertCheckNowResponseSerializer(serializers.Serializer):
     event = BillingAlertEventSerializer(help_text="Evaluation event recorded by the manual check.")
     dispatched_destinations = serializers.IntegerField(help_text="Number of destination HogFunctions queued.")
-
-
-def visible_billing_alert_events(queryset: QuerySet) -> QuerySet:
-    return queryset.order_by("-created_at")

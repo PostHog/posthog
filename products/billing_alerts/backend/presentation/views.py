@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import cast
 
-from django.db import transaction
 from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema
@@ -17,15 +16,8 @@ from posthog.event_usage import report_user_action
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.billing_alerts.backend.alert_destinations import (
-    EVENT_KINDS,
-    TEMPLATE_ID_BY_DESTINATION_TYPE,
-    EventKind,
-    build_destination_config,
-)
-from products.billing_alerts.backend.logic.notifications import dispatch_billing_alert_event
-from products.billing_alerts.backend.logic.state_machine import evaluate_and_record_billing_alert, event_should_dispatch
-from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
+from products.billing_alerts.backend.facade import api as billing_alerts_api
+from products.billing_alerts.backend.facade.api import BillingAlertConfiguration
 from products.billing_alerts.backend.presentation.permissions import IsOrganizationAdminOrOwner
 from products.billing_alerts.backend.presentation.serializers import (
     BillingAlertCheckNowResponseSerializer,
@@ -34,16 +26,13 @@ from products.billing_alerts.backend.presentation.serializers import (
     BillingAlertDeleteDestinationSerializer,
     BillingAlertDestinationResponseSerializer,
     BillingAlertEventSerializer,
-    visible_billing_alert_events,
 )
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
 @extend_schema(tags=["billing"], extensions={"x-product": "core"})
 class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
-    queryset = BillingAlertConfiguration.objects.unscoped().all()
+    queryset = billing_alerts_api.billing_alert_configuration_queryset()
     serializer_class = BillingAlertConfigurationSerializer
     lookup_field = "id"
     permission_classes = [IsOrganizationAdminOrOwner]
@@ -53,9 +42,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _execution_team(self) -> Team:
         user = cast(User, self.request.user)
-        if user.team and user.team.organization_id == self.organization.id:
-            return user.team
-        team = Team.objects.filter(organization_id=self.organization.id).order_by("id").first()
+        team = billing_alerts_api.execution_team_for_organization(self.organization.id, user.team)
         if team is None:
             raise ValidationError("This organization does not have an execution team.")
         return team
@@ -77,14 +64,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         report_user_action(user, "billing alert updated", request=self.request)
 
     def perform_destroy(self, instance: BillingAlertConfiguration) -> None:
-        with transaction.atomic():
-            HogFunction.objects.filter(
-                team_id=instance.execution_team_id,
-                deleted=False,
-                template_id__in=list(TEMPLATE_ID_BY_DESTINATION_TYPE.values()),
-                filters__properties__contains=[{"key": "alert_id", "value": str(instance.id)}],
-            ).update(deleted=True, enabled=False)
-            instance.delete()
+        billing_alerts_api.delete_alert_and_destinations(instance)
 
     @extend_schema(
         request=None,
@@ -94,7 +74,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["GET"], url_path="events", required_scopes=["billing:read"])
     def events(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
-        queryset = visible_billing_alert_events(BillingAlertEvent.objects.unscoped().filter(alert=alert))
+        queryset = billing_alerts_api.visible_events_for_alert(alert)
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = BillingAlertEventSerializer(page, many=True)
@@ -114,10 +94,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["POST"], url_path="check_now", required_scopes=["billing:write"])
     def check_now(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
-        event = evaluate_and_record_billing_alert(alert)
-        # Mirrors logs alerting: a manual check runs the same state machine as scheduled checks,
-        # then dispatches if the resulting event is notification-worthy.
-        dispatched = dispatch_billing_alert_event(event) if event_should_dispatch(event) else 0
+        event, dispatched = billing_alerts_api.evaluate_and_dispatch_alert(alert)
         response = BillingAlertCheckNowResponseSerializer({"event": event, "dispatched_destinations": dispatched})
         report_user_action(request.user, "billing alert checked now", {"alert_id": str(alert.id)}, request=request)
         return Response(response.data)
@@ -134,17 +111,15 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        with transaction.atomic():
-            team = Team.objects.get(id=alert.execution_team_id)
-            hog_functions = [self._build_and_create_hog_function(alert, team, data, kind) for kind in EVENT_KINDS]
+        hog_function_ids = billing_alerts_api.create_destination(alert, request=self.request, data=data)
 
         report_user_action(
             request.user,
             "billing alert destination created",
-            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(EVENT_KINDS)},
+            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(billing_alerts_api.EVENT_KINDS)},
             request=request,
         )
-        response = BillingAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
+        response = BillingAlertDestinationResponseSerializer({"hog_function_ids": hog_function_ids})
         return Response(response.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -159,14 +134,10 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
-        with transaction.atomic():
-            updated = HogFunction.objects.filter(
-                team_id=alert.execution_team_id,
-                id__in=hog_function_ids,
-                filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
-            ).update(deleted=True, enabled=False)
-            if updated != len(hog_function_ids):
-                raise ValidationError("One or more HogFunctions do not belong to this alert.")
+        try:
+            billing_alerts_api.delete_destination(alert, hog_function_ids)
+        except billing_alerts_api.BillingAlertDestinationOwnershipError:
+            raise ValidationError("One or more HogFunctions do not belong to this alert.")
 
         report_user_action(
             request.user,
@@ -175,19 +146,3 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request=request,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    def _build_and_create_hog_function(
-        self,
-        alert: BillingAlertConfiguration,
-        team: Team,
-        data: dict,
-        kind: EventKind,
-    ) -> HogFunction:
-        config = build_destination_config(alert, team, kind, data)
-        team = config.pop("team")
-        serializer = HogFunctionSerializer(
-            data=config,
-            context={"request": self.request, "get_team": lambda: team, "is_create": True},
-        )
-        serializer.is_valid(raise_exception=True)
-        return serializer.save(team=team)
