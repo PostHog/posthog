@@ -800,11 +800,17 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                 _run_row(8001, "CI", "sha-a", "completed", "success", _ago(3), _ago(3)),
                 _run_row(8002, "CI", "sha-b", "completed", "failure", _ago(1), _ago(1)),
                 _run_row(8003, "Deploy", "sha-c", "completed", "success", _ago(2), _ago(2)),
+                # Older than the default -30d window — excluded unless the caller widens the window.
+                _run_row(8004, "CI", "sha-d", "completed", "success", _ago(60), _ago(60)),
             ],
         )
         ci_runs = api.list_workflow_runs(team=self.team, repo="PostHog/posthog", workflow_name="CI")
-        assert [r.id for r in ci_runs] == [8002, 8001]  # only CI runs, newest first
+        assert [r.id for r in ci_runs] == [8002, 8001]  # only CI runs in the default window, newest first
         assert all(r.workflow_name == "CI" for r in ci_runs)
+
+        # Widening the window pulls in the older run.
+        wide = api.list_workflow_runs(team=self.team, repo="PostHog/posthog", workflow_name="CI", date_from="-90d")
+        assert [r.id for r in wide] == [8002, 8001, 8004]
 
         # A repo with no such workflow yields an empty list (not an error).
         assert api.list_workflow_runs(team=self.team, repo="PostHog/posthog", workflow_name="Nope") == []

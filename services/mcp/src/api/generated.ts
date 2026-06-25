@@ -58774,6 +58774,14 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
     /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
      * 'owner/name' repository the workflow belongs to.
      */
     repo: string;
@@ -58788,6 +58796,14 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
     /**
      * 'owner/name' repository the workflow belongs to.
      */

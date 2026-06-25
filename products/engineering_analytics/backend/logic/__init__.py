@@ -85,21 +85,49 @@ def build_workflow_jobs(
 
 
 def build_workflow_run_list(
-    *, curated: CuratedGitHubSource, repo: str | None, workflow_name: str
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> list[WorkflowRunDetail]:
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    return query_workflow_run_list(curated=curated, repo_owner=owner, repo_name=name, workflow_name=workflow_name)
+    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
+    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    return query_workflow_run_list(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+    )
 
 
 def build_workflow_runner_costs(
-    *, curated: CuratedGitHubSource, repo: str | None, workflow_name: str
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> list[WorkflowRunnerCost]:
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    return query_workflow_runner_costs(curated=curated, repo_owner=owner, repo_name=name, workflow_name=workflow_name)
+    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
+    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    return query_workflow_runner_costs(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+    )
 
 
 def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:

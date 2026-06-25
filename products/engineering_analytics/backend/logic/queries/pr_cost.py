@@ -188,7 +188,8 @@ def query_workflow_window_costs(
     return {workflow: aggregate_pr_cost(jobs) for workflow, jobs in by_workflow.items()}
 
 
-# Per-runner-tier cost for one workflow (single-workflow page "where the spend goes" breakdown).
+# Per-runner-tier cost for one workflow (single-workflow page "where the spend goes" breakdown), scoped
+# to the page's run window so the figure always answers "spend over [window]", never an unbounded all-time.
 _RUNNER_COST_SELECT = """
     SELECT
         j.labels,
@@ -198,6 +199,7 @@ _RUNNER_COST_SELECT = """
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
     WHERE r.repo_owner = {repo_owner} AND r.repo_name = {repo_name} AND r.workflow_name = {workflow_name}
+        AND r.run_started_at >= {date_from} __DATE_TO__
     GROUP BY j.labels
     LIMIT 1000000
 """
@@ -209,21 +211,34 @@ def query_workflow_runner_costs(
     repo_owner: str,
     repo_name: str,
     workflow_name: str,
+    date_from: datetime,
+    date_to: datetime | None,
 ) -> list[WorkflowRunnerCost]:
-    """A workflow's CI cost broken down by runner tier, highest spend first. Empty when the jobs source
-    isn't synced. Raw runner-label combos are folded into their display tier (via runner_descriptor)."""
+    """A workflow's CI cost broken down by runner tier over [date_from, date_to], highest spend first.
+    Empty when the jobs source isn't synced. Raw runner-label combos are folded into their display tier
+    (via runner_descriptor)."""
     jobs_source = curated.jobs_source()
     if jobs_source is None:
         return []
-    sql = _RUNNER_COST_SELECT.replace("__JOBS_SOURCE__", jobs_source).replace("__RUNS_SOURCE__", curated.run_source())
+    placeholders: dict[str, ast.Expr] = {
+        "repo_owner": ast.Constant(value=repo_owner),
+        "repo_name": ast.Constant(value=repo_name),
+        "workflow_name": ast.Constant(value=workflow_name),
+        "date_from": ast.Constant(value=date_from),
+    }
+    date_to_clause = ""
+    if date_to is not None:
+        date_to_clause = "AND r.run_started_at <= {date_to}"
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = (
+        _RUNNER_COST_SELECT.replace("__JOBS_SOURCE__", jobs_source)
+        .replace("__RUNS_SOURCE__", curated.run_source())
+        .replace("__DATE_TO__", date_to_clause)
+    )
     response = curated.run(
         sql,
         query_type="engineering_analytics.workflow_runner_costs",
-        placeholders={
-            "repo_owner": ast.Constant(value=repo_owner),
-            "repo_name": ast.Constant(value=repo_name),
-            "workflow_name": ast.Constant(value=workflow_name),
-        },
+        placeholders=placeholders,
     )
     by_tier: dict[tuple[str, str], list[tuple[list[str], float | None]]] = defaultdict(list)
     for labels_raw, finished, elapsed, unfinished in response.results or []:

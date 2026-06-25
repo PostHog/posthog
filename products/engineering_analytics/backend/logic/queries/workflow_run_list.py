@@ -6,6 +6,8 @@ warehouse yet. Re-runs share a run id; each attempt is its own row here (the det
 the latest attempt), so the list mirrors what GitHub Actions shows.
 """
 
+from datetime import datetime
+
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowRunDetail
@@ -20,6 +22,7 @@ _SELECT = f"""
         {RUN_DETAIL_COLUMNS}
     FROM __RUNS_SOURCE__ AS r
     WHERE repo_owner = {{repo_owner}} AND repo_name = {{repo_name}} AND workflow_name = {{workflow_name}}
+        AND run_started_at >= {{date_from}} __DATE_TO__
     ORDER BY run_started_at DESC, run_attempt DESC
     LIMIT {_LIMIT}
 """
@@ -31,14 +34,22 @@ def query_workflow_run_list(
     repo_owner: str,
     repo_name: str,
     workflow_name: str,
+    date_from: datetime,
+    date_to: datetime | None,
 ) -> list[WorkflowRunDetail]:
+    placeholders: dict[str, ast.Expr] = {
+        "repo_owner": ast.Constant(value=repo_owner),
+        "repo_name": ast.Constant(value=repo_name),
+        "workflow_name": ast.Constant(value=workflow_name),
+        "date_from": ast.Constant(value=date_from),
+    }
+    date_to_clause = ""
+    if date_to is not None:
+        date_to_clause = "AND run_started_at <= {date_to}"
+        placeholders["date_to"] = ast.Constant(value=date_to)
     response = curated.run(
-        _SELECT.replace("__RUNS_SOURCE__", curated.run_source()),
+        _SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace("__DATE_TO__", date_to_clause),
         query_type="engineering_analytics.workflow_run_list",
-        placeholders={
-            "repo_owner": ast.Constant(value=repo_owner),
-            "repo_name": ast.Constant(value=repo_name),
-            "workflow_name": ast.Constant(value=workflow_name),
-        },
+        placeholders=placeholders,
     )
     return [to_run_detail(row) for row in (response.results or [])]

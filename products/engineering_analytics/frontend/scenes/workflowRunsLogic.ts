@@ -57,6 +57,8 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             runId,
             runAttempt,
         }),
+        // One window scopes both the runs list and the runner-cost breakdown — cost is never all-time.
+        setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
     }),
 
     loaders(({ props, values }) => ({
@@ -67,11 +69,13 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     await engineeringAnalyticsWorkflowRuns(projectId(), {
                         workflow_name: props.workflowName,
                         repo: `${props.repoOwner}/${props.repoName}`,
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
             },
         ],
-        // Cost split by runner tier — "where this workflow's spend goes"; [] when jobs aren't synced.
+        // Cost split by runner tier over the window — "where this workflow's spend goes"; [] when jobs aren't synced.
         runnerCosts: [
             [] as WorkflowRunnerCostApi[],
             {
@@ -79,6 +83,8 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     await engineeringAnalyticsWorkflowRunnerCosts(projectId(), {
                         workflow_name: props.workflowName,
                         repo: `${props.repoOwner}/${props.repoName}`,
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
             },
@@ -107,6 +113,9 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
     })),
 
     reducers({
+        // Default to the last 30 days — a useful spend window, and the same default the endpoint applies.
+        dateFrom: ['-30d' as string | null, { setDateRange: (_, { dateFrom }) => dateFrom }],
+        dateTo: [null as string | null, { setDateRange: (_, { dateTo }) => dateTo }],
         loadFailed: [
             false,
             {
@@ -182,6 +191,11 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             if (expanded && runId != null && !(jobCacheKey(runId, runAttempt) in values.runJobs)) {
                 actions.loadJobs({ runId, runAttempt })
             }
+        },
+        // The window scopes both lists — reload them together.
+        setDateRange: () => {
+            actions.loadRuns()
+            actions.loadRunnerCosts()
         },
     })),
 

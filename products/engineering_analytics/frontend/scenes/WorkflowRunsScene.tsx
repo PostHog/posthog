@@ -4,6 +4,8 @@ import { combineUrl } from 'kea-router'
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { dateMapping } from 'lib/utils/dateFilters'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -58,6 +60,20 @@ function RunnerCostTable({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Ele
     )
 }
 
+// The window floors finished runs (the endpoint requires a date_from), so "all time" is out; relative
+// windows + Custom only. Covers a CI-health "right now" (24h) through a monthly-ish spend window.
+const WORKFLOW_DATE_OPTIONS = dateMapping.filter(({ key }) =>
+    [
+        'Custom',
+        'Last 24 hours',
+        'Last 7 days',
+        'Last 14 days',
+        'Last 30 days',
+        'Last 90 days',
+        'Last 180 days',
+    ].includes(key)
+)
+
 export const scene: SceneExport<WorkflowRunsLogicProps> = {
     component: WorkflowRunsScene,
     logic: workflowRunsLogic,
@@ -77,13 +93,14 @@ export function WorkflowRunsScene(): JSX.Element {
         runJobs,
         runJobsLoading,
         expandedRunKeys,
+        dateFrom,
         loadFailed,
         sourceId,
         repoOwner,
         repoName,
         workflowName,
     } = useValues(workflowRunsLogic)
-    const { loadRuns, setRunExpanded } = useActions(workflowRunsLogic)
+    const { loadRuns, setRunExpanded, setDateRange } = useActions(workflowRunsLogic)
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
 
@@ -171,6 +188,16 @@ export function WorkflowRunsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
+            {/* One window scopes both the cost breakdown and the runs list below. */}
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold tracking-wide text-secondary uppercase">Window</span>
+                <DateFilter
+                    dateFrom={dateFrom}
+                    onChange={(from, to) => setDateRange(from ?? '-30d', to ?? null)}
+                    dateOptions={WORKFLOW_DATE_OPTIONS}
+                    size="small"
+                />
+            </div>
             {runnerCosts.length > 0 && <RunnerCostTable costs={runnerCosts} />}
             <div className="flex flex-col gap-2">
                 <h3 className="mb-0">Runs</h3>
