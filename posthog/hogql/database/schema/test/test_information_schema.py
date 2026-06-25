@@ -202,6 +202,27 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         assert "system.cohorts" in names
         assert "system.feature_flags" not in names
 
+    @parameterized.expand(
+        [
+            ("person_id", "String"),
+            ("event_issue_id", "UUID"),
+            ("issue_first_seen", "DateTime"),
+            ("$virt_is_bot", "Boolean"),
+        ]
+    )
+    def test_expression_columns_resolve_to_their_value_type(self, column_name: str, expected_type: str):
+        # Expression columns must report the type they evaluate to (like hogql autocomplete), not the
+        # generic "Expression" — otherwise the catalog is useless for picking a cast/comparison.
+        response = execute_hogql_query(
+            f"SELECT data_type, field_kind FROM system.information_schema.columns "
+            f"WHERE table_name = 'events' AND column_name = '{column_name}'",
+            team=self.team,
+        )
+        results = response.results or []
+        assert len(results) == 1
+        assert results[0][1] == "expression"
+        assert results[0][0] == expected_type
+
     def test_columns_lists_event_columns_with_types(self):
         response = execute_hogql_query(
             """
