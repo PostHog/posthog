@@ -232,6 +232,13 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # egress / SSH-tunnel host) — retrying connects from the same host fails identically.
             # Match the stable tail phrase, not the volatile host in the message prefix.
             "is not allowed to connect to this MySQL server": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
+            # MySQL/MariaDB error 1142 (ER_TABLEACCESS_DENIED_ERROR): the connecting user authenticated
+            # fine but lacks the SELECT privilege on a table the sync reads — distinct from the 1045
+            # login failure already handled above. Only a DB admin can GRANT it, and the streaming query
+            # reissues the same statement every attempt, so it fails identically forever. Match the
+            # locale-independent error code (the user, host, and table are volatile and the message text
+            # is translated on non-English servers), consistent with the other code-prefixed entries.
+            "(1142,": "PostHog's database user doesn't have SELECT permission on a table this sync reads (MySQL error 1142). Ask your database admin to grant SELECT on it, or remove that table from the sync, then resync.",
         }
 
     def reconcile_schema_metadata(

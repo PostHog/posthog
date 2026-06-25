@@ -7,8 +7,7 @@ import { router } from 'kea-router'
  *
  * Use `phDebugQueryParams()` with API helpers that take a params object
  * (`api.tasks.get`, `api.tasks.runs.get`, …) — they pipe it through
- * `withQueryString`. Use `phDebugQuerySuffix()` when building a request URL by
- * hand (e.g. the `/logs/` proxy endpoint that `loadLogs` consumes).
+ * `withQueryString`.
  */
 function isPhDebugSet(): boolean {
     const value = router.values.searchParams?.ph_debug
@@ -17,8 +16,4 @@ function isPhDebugSet(): boolean {
 
 export function phDebugQueryParams(): { ph_debug?: 'true' } {
     return isPhDebugSet() ? { ph_debug: 'true' } : {}
-}
-
-export function phDebugQuerySuffix(): '' | '?ph_debug=true' {
-    return isPhDebugSet() ? '?ph_debug=true' : ''
 }

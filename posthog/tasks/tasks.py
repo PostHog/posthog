@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 from uuid import UUID
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import ProgrammingError, connection, transaction
 from django.utils import timezone
 
 import requests
@@ -649,6 +649,11 @@ def capture_task_run_state_metrics() -> None:
                     run_environment=row.environment,
                 ).set(row.value)
 
+    except ProgrammingError as err:
+        # The tasks-product table isn't present in every environment/database. When the migration
+        # hasn't been applied the COUNT query raises UndefinedTable — a benign, expected condition,
+        # not an error worth reporting every minute.
+        logger.debug("capture_task_run_state_metrics_missing_table", exception=err)
     except Exception as err:
         logger.exception("capture_task_run_state_metrics", exception=err)
         capture_exception(err)

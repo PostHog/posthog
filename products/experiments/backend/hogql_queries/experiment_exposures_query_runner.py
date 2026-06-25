@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -292,6 +293,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             product=Product.EXPERIMENTS,
             experiment_query_surface="exposures_timeseries",
             experiment_metric_events_path="not_applicable",
+            # Set before _get_exposure_query() runs the exposures precompute build, so that build
+            # sub-query inherits this id via the tag context and can be grouped under this read.
+            experiment_query_group_id=uuid.uuid4(),
         )
 
         # Set limit to avoid being cut-off by the default 100 rows limit

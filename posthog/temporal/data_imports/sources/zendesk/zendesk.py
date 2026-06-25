@@ -1,5 +1,6 @@
 import re
 import base64
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -10,6 +11,16 @@ from posthog.temporal.data_imports.sources.common.rest_source.paginators import 
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
+
+
+def to_zendesk_start_time(value: Any) -> int:
+    """Convert an incremental cursor value to the Unix epoch seconds Zendesk's incremental
+    export `start_time` expects. Applied to both the persisted last value (a `datetime` for
+    DateTime incremental fields) and the `initial_value` (0) on the first run / full refresh."""
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
+        return int(dt.timestamp())
+    return int(value)
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
@@ -46,10 +57,17 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "columns": get_dlt_mapping_for_external_table("zendesk_organizations"),
             "endpoint": {
                 "data_selector": "organizations",
-                "path": "/api/v2/organizations",
-                "paginator": JSONLinkPaginator(next_url_path="links.next"),
+                # Time-based incremental export (no cursor variant exists for organizations).
+                "path": "/api/v2/incremental/organizations",
+                "paginator": ZendeskIncrementalEndpointPaginator(),
                 "params": {
-                    "page[size]": 100,
+                    "per_page": 1000,
+                    "start_time": {
+                        "type": "incremental",
+                        "cursor_path": "updated_at",
+                        "initial_value": 0,
+                        "convert": to_zendesk_start_time,
+                    },
                 },
             },
             "table_format": "delta",
@@ -105,15 +123,17 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "columns": get_dlt_mapping_for_external_table("zendesk_users"),
             "endpoint": {
                 "data_selector": "users",
-                "path": "/api/v2/users",
-                "paginator": JSONLinkPaginator(next_url_path="links.next"),
+                # Cursor-based incremental export (recommended over the time-based variant).
+                "path": "/api/v2/incremental/users/cursor",
+                "paginator": ZendeskCursorIncrementalPaginator(),
                 "params": {
-                    # the parameters below can optionally be configured
-                    # "role": "OPTIONAL_CONFIG",
-                    # "role[]": "OPTIONAL_CONFIG",
-                    # "permission_set": "OPTIONAL_CONFIG",
-                    # "external_id": "OPTIONAL_CONFIG",
-                    "page[size]": 100,
+                    "per_page": 1000,
+                    "start_time": {
+                        "type": "incremental",
+                        "cursor_path": "updated_at",
+                        "initial_value": 0,
+                        "convert": to_zendesk_start_time,
+                    },
                 },
             },
             "table_format": "delta",
@@ -153,18 +173,16 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "columns": get_dlt_mapping_for_external_table("zendesk_ticket_events"),
             "endpoint": {
                 "data_selector": "ticket_events",
-                "path": "/api/v2/incremental/ticket_events?start_time=0",
+                "path": "/api/v2/incremental/ticket_events",
                 "paginator": ZendeskIncrementalEndpointPaginator(),
                 "params": {
                     "per_page": 1000,
-                    # Having to use `start_time` in the initial path until incrementality works
-                    # "start_time": 0,
-                    # Incrementality is disabled as we can't access end_time on the root object
-                    # "start_time": {
-                    #     "type": "incremental",
-                    #     "cursor_path": "end_time",
-                    #     "initial_value": 0,
-                    # },
+                    "start_time": {
+                        "type": "incremental",
+                        "cursor_path": "created_at",
+                        "initial_value": 0,
+                        "convert": to_zendesk_start_time,
+                    },
                 },
             },
             "table_format": "delta",
@@ -187,7 +205,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                 # that timestamp, so pagination loops forever re-fetching the
                 # same boundary page. Cursor pagination is immune to this.
                 "path": "/api/v2/incremental/tickets/cursor",
-                "paginator": ZendeskTicketsCursorIncrementalPaginator(),
+                "paginator": ZendeskCursorIncrementalPaginator(),
                 "params": {
                     "per_page": 1000,
                     "start_time": {
@@ -211,18 +229,16 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "columns": get_dlt_mapping_for_external_table("zendesk_ticket_metric_events"),
             "endpoint": {
                 "data_selector": "ticket_metric_events",
-                "path": "/api/v2/incremental/ticket_metric_events?start_time=0",
+                "path": "/api/v2/incremental/ticket_metric_events",
                 "paginator": ZendeskIncrementalEndpointPaginator(),
                 "params": {
                     "per_page": 1000,
-                    # Having to use `start_time` in the initial path until incrementality works
-                    # "start_time": 0,
-                    # Incrementality is disabled as we can't access end_time on the root object
-                    # "start_time": {
-                    #     "type": "incremental",
-                    #     "cursor_path": "end_time",
-                    #     "initial_value": 0,
-                    # },
+                    "start_time": {
+                        "type": "incremental",
+                        "cursor_path": "time",
+                        "initial_value": 0,
+                        "convert": to_zendesk_start_time,
+                    },
                 },
             },
             "table_format": "delta",
@@ -232,14 +248,15 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     return resources[name]
 
 
-class ZendeskTicketsCursorIncrementalPaginator(BasePaginator):
-    """Cursor-based pagination for Zendesk's incremental tickets export.
+class ZendeskCursorIncrementalPaginator(BasePaginator):
+    """Cursor-based pagination for Zendesk's cursor incremental exports (tickets, users).
 
     The first request is seeded with `start_time` (resolved from the incremental
     cursor); every subsequent request follows the opaque `after_cursor` token.
     Unlike the time-based export, the cursor encodes the stream position rather
-    than a timestamp, so it can't get pinned when many tickets share a
-    `generated_timestamp`.
+    than a timestamp, so it can't get pinned when many records share a timestamp.
+    Only the top-level `after_cursor`/`end_of_stream` fields are read, so this works
+    for any cursor incremental export regardless of the resource's data key.
     """
 
     def __init__(self) -> None:
@@ -291,12 +308,22 @@ class ZendeskIncrementalEndpointPaginator(BasePaginator):
             self._has_next_page = False
             return
 
-        if not res["end_of_stream"]:
-            self._has_next_page = True
+        if "end_of_stream" not in res:
+            raise ValueError("Zendesk incremental export response is missing 'end_of_stream'")
 
-            self._next_page = res["next_page"]
-        else:
+        if res["end_of_stream"]:
             self._has_next_page = False
+            return
+
+        # `end_of_stream` is False, so the stream continues and `next_page` must be
+        # present. A missing `next_page` is an invalid/partial response — raise so the
+        # activity retries instead of committing truncated data as a successful sync.
+        next_page = res.get("next_page")
+        if not next_page:
+            raise ValueError("Zendesk incremental export returned end_of_stream=False without a next_page")
+
+        self._next_page = next_page
+        self._has_next_page = True
 
     def update_request(self, request: Request) -> None:
         request.url = self._next_page

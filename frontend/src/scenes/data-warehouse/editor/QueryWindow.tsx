@@ -7,8 +7,8 @@ import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } fr
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -409,7 +409,7 @@ function RunButton({
     )
 
     return (
-        <AppShortcut
+        <Shortcut
             name="SQLEditorRun"
             keybind={[keyBinds.run]}
             intent={isRunning && !onRunQuery ? 'Cancel query' : 'Run query'}
@@ -439,7 +439,7 @@ function RunButton({
             >
                 {isRunning && !onRunQuery ? 'Cancel' : 'Run'}
             </LemonButton>
-        </AppShortcut>
+        </Shortcut>
     )
 }
 
