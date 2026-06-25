@@ -18,8 +18,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
-from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
-
 from .constants import (
     BASE_COLUMN_MAPPING,
     DEFAULT_LIMIT,
@@ -44,8 +42,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
-        # Initialize configuration with team-specific settings
-        self.config = MarketingAnalyticsConfig.from_team(self.team)
+        # self.config is built from team in the base runner's __init__.
 
     # Implementation of abstract methods from base class
 
@@ -72,6 +69,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            context=self._shared_hogql_context,
         )
 
         results = response.results or []
@@ -106,27 +104,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             offset=self.query.offset or 0,
             error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
         )
-
-    def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
-        """Extract and filter select columns based on self.query.select"""
-        if self.query.select:
-            # Create a mapping of column names to their AST expressions
-            column_mapping: dict[str, ast.Expr] = {}
-            for col in query.select:
-                if isinstance(col, ast.Alias):
-                    column_mapping[col.alias] = col
-                else:
-                    column_mapping[str(col)] = col
-
-            # Filter to only include requested columns
-            filtered_select: list[ast.Expr] = []
-            for requested_col in self.query.select:
-                if requested_col in column_mapping:
-                    filtered_select.append(column_mapping[requested_col])
-            return filtered_select
-        else:
-            # If no specific columns requested, use all columns
-            return query.select if query.select else []
 
     def _get_column_names_for_order_by(self, select_columns: list[ast.Expr]) -> list[str]:
         """Extract column names from AST expressions for order by"""
@@ -258,6 +235,9 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
+        # Share the prebuilt HogQL database across both periods so the compare query pays the ~1s
+        # Database.create_for once, not twice. Pre-populates the previous runner's cached_property.
+        previous_runner.__dict__["_shared_hogql_database"] = self._shared_hogql_database
 
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()

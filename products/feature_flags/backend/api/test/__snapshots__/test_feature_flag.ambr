@@ -253,6 +253,16 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts
   '''
+  SELECT person_id
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
@@ -287,7 +297,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
@@ -299,7 +309,7 @@
      HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
   '''
   
   SELECT count(DISTINCT person_id)
@@ -309,7 +319,7 @@
     AND version = 0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
@@ -1363,6 +1373,17 @@
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.27
+  '''
+  /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
+  SELECT person_id
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000000']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.28
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id

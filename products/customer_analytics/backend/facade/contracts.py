@@ -239,6 +239,26 @@ class CustomerProfileConfigView:
 
 
 @stdlib_dataclass(frozen=True)
+class CustomPropertyDefinitionView:
+    """A team-scoped custom account-property definition as returned by the
+    custom-property-definitions endpoints.
+
+    Defaults exist so the wrapping serializer can parse partial request bodies (see
+    :class:`AccountView`). ``created_by`` is the creator's user id (or ``None``), matching
+    the old model serializer's ``PrimaryKeyRelatedField`` output.
+    """
+
+    id: UUID | None = None
+    name: str = ""
+    description: str | None = None
+    display_type: str = "text"
+    is_big_number: bool = False
+    created_at: datetime | None = None
+    created_by: int | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class AccountNotebookView:
     """An account notebook as returned by the nested account-notebooks endpoints.
 
@@ -307,3 +327,15 @@ class CreateAccountNotebookInput:
     content: Any
     text_content: str | None
     synthesized_content: Any = None
+
+
+@dataclass(frozen=True)
+class CustomPropertyValue:
+    """An account's value for a custom property."""
+
+    id: UUID
+    account_id: UUID
+    definition_id: UUID
+    value: float | bool | str | datetime | None
+    created_at: datetime
+    created_by_id: int | None

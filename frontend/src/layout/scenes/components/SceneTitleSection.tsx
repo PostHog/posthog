@@ -15,9 +15,9 @@ import {
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
+import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
@@ -574,7 +574,7 @@ export function SceneName({
                     buttonPrimitiveVariants({ size: 'base', inert: true, className: `${textClasses} min-w-0 truncate` })
                 )}
             >
-                <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
+                <span className="truncate min-w-0">{name || <span className="text-tertiary">Unnamed</span>}</span>
             </h1>
         )
 
@@ -590,7 +590,7 @@ export function SceneName({
         <div
             data-attr="scene-name"
             className={cn(
-                'scene-name flex items-center flex-1 max-w-full',
+                'scene-name flex items-center flex-1 min-w-0 max-w-full',
                 !isEditing && onChange && canEdit && 'truncate'
             )}
         >

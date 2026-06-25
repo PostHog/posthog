@@ -378,14 +378,26 @@ export class PgSessionQueue implements SessionQueue {
         return r.rowCount ?? 0
     }
 
-    async findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null> {
+    async findByExternalKey(
+        applicationId: string,
+        externalKey: string,
+        revisionId: string
+    ): Promise<AgentSession | null> {
+        // The revision scope lives in SQL, not in JS post-filtering — the
+        // `ORDER BY updated_at DESC LIMIT 1` would otherwise return the most
+        // recent row regardless of revision, and a JS-side reject would strand
+        // any older same-revision row. Filtering in the WHERE clause guarantees
+        // the lookup never reaches a session on a different revision. See the
+        // interface docs.
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
              FROM agent_session
-             WHERE application_id = $1 AND external_key = $2
+             WHERE application_id = $1
+               AND external_key = $2
+               AND revision_id = $3
              ORDER BY updated_at DESC
              LIMIT 1`,
-            [applicationId, externalKey]
+            [applicationId, externalKey, revisionId]
         )
         if (r.rowCount === 0) {
             return null
@@ -589,6 +601,15 @@ function buildSessionFilter(
     if (opts.createdBefore) {
         params.push(opts.createdBefore)
         where.push(`created_at <= $${params.length}`)
+    }
+    if (opts.search?.trim()) {
+        // id + external_key only — transcript search would scan/detoast every
+        // session's JSONB; it lands on a persisted, indexed column instead.
+        // LIKE wildcards escaped so the term matches literally.
+        const term = `%${opts.search.trim().replace(/[\\%_]/g, '\\$&')}%`
+        params.push(term)
+        const idx = params.length
+        where.push(`(id::text ILIKE $${idx} OR external_key ILIKE $${idx})`)
     }
     return { where, params }
 }

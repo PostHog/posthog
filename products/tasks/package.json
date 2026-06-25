@@ -10,7 +10,8 @@
         "torph": "^0.0.9"
     },
     "devDependencies": {
-        "kea-test-utils": "catalog:"
+        "kea-test-utils": "catalog:",
+        "msw": "*"
     },
     "peerDependencies": {
         "@dnd-kit/core": "*",

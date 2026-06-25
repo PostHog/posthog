@@ -1058,7 +1058,11 @@ class TestQueryTransformation(APIBaseTest):
         assert "{variables" not in transformed_query
         assert transformed_query.count("AS profile_id") == 1
 
-    def test_transform_variable_alias_collision_with_different_expression(self):
+    def test_alias_collision_with_different_expression_rejected_preflight(self):
+        # A variable code_name colliding with a SELECT alias for a *different* expression
+        # can't be materialized (the table would need two columns named profile_id).
+        # Pre-flight must reject it so enabling is never attempted — otherwise the transform
+        # fails at enable time with a generic server error.
         query = {
             "kind": "HogQLQuery",
             "query": (
@@ -1072,9 +1076,38 @@ class TestQueryTransformation(APIBaseTest):
             },
         }
 
-        _, _, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
 
-        with pytest.raises(ValueError, match="conflicts with an existing SELECT alias"):
+        assert can_materialize is False
+        assert "conflicts with an existing SELECT alias" in reason
+        assert var_infos == []
+
+    def test_transform_alias_collision_raises_not_supported(self):
+        # Backstop: if the transform is reached directly (bypassing pre-flight) on a colliding
+        # query, it raises MaterializationNotSupportedError (a 400), not a bare ValueError (a 500).
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT properties.card_id AS profile_id, count() AS tap_count "
+                "FROM events "
+                "WHERE properties.profile_id = {variables.profile_id} "
+                "GROUP BY profile_id"
+            ),
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "profile_id", "value": ""},
+            },
+        }
+
+        var_infos = [
+            MaterializableVariable(
+                variable_id="var-1",
+                code_name="profile_id",
+                column_chain=["properties", "profile_id"],
+                column_expression="properties.profile_id",
+            )
+        ]
+
+        with pytest.raises(MaterializationNotSupportedError, match="conflicts with an existing SELECT alias"):
             transform_query_for_materialization(query, var_infos, self.team)
 
     def test_transform_preserves_order_by(self):

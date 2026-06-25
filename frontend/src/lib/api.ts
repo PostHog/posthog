@@ -70,7 +70,6 @@ import {
     MatchingEventsResponse,
     Node,
     NodeKind,
-    PersistedFolder,
     QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
@@ -177,6 +176,7 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     ObjectMediaPreview,
+    OrganizationFeatureFlagKeysResponse,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
@@ -265,7 +265,7 @@ import type {
 
 import { AgentMode } from '../queries/schema'
 import type { AttachedContext, MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
+import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -485,6 +485,10 @@ export class ApiRequest {
             .addPathComponent('copy_flags')
     }
 
+    public organizationFeatureFlagKeys(orgId: OrganizationType['id']): ApiRequest {
+        return this.organizations().addPathComponent(orgId).addPathComponent('feature_flags').addPathComponent('keys')
+    }
+
     // # Projects
     public projects(): ApiRequest {
         return this.addPathComponent('projects')
@@ -609,15 +613,6 @@ export class ApiRequest {
 
     public fileSystemShortcutReorder(teamId?: TeamType['id']): ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent('reorder')
-    }
-
-    // # Persisted folder
-    public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('persisted_folder')
-    }
-
-    public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
-        return this.persistedFolder(projectId).addPathComponent(id)
     }
 
     // # User product list
@@ -2590,27 +2585,12 @@ const api = {
         },
     },
 
-    persistedFolder: {
-        async list(): Promise<CountedPaginatedResponse<PersistedFolder>> {
-            return await new ApiRequest().persistedFolder().get()
-        },
-        async create(data: { protocol: string; path: string; type?: string }): Promise<PersistedFolder> {
-            return await new ApiRequest().persistedFolder().create({ data })
-        },
-        async delete(id: PersistedFolder['id']): Promise<void> {
-            return await new ApiRequest().persistedFolderDetail(id).delete()
-        },
-    },
-
     userProductList: {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
         async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().withAction('seed').create()
-        },
-        async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
-            return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
         async bulkUpdate(
             items: { product_path: string; enabled: boolean }[]
@@ -2631,6 +2611,15 @@ const api = {
             data: OrganizationFeatureFlagsCopyBody
         ): Promise<{ success: FeatureFlagType[]; failed: any }> {
             return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
+        },
+        async keys(
+            orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
+            params: { team_ids: number[]; search?: string; limit?: number; offset?: number }
+        ): Promise<OrganizationFeatureFlagKeysResponse> {
+            return await new ApiRequest()
+                .organizationFeatureFlagKeys(orgId)
+                .withQueryString(toParams(params, true))
+                .get()
         },
     },
 
@@ -2717,6 +2706,7 @@ const api = {
                     ActivityScope.TICKET,
                     ActivityScope.COHORT,
                     ActivityScope.OAUTH_APPLICATION,
+                    ActivityScope.EXTERNAL_DATA_SCHEMA,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -4146,12 +4136,17 @@ const api = {
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(params?: { limit?: number; offset?: number }): Promise<PaginatedResponse<RawAnnotationType>> {
+        async list(params?: {
+            limit?: number
+            offset?: number
+            hidden_in_user_interface?: boolean
+        }): Promise<PaginatedResponse<RawAnnotationType>> {
             return await new ApiRequest()
                 .annotations()
                 .withQueryString({
                     limit: params?.limit,
                     offset: params?.offset,
+                    hidden_in_user_interface: params?.hidden_in_user_interface,
                 })
                 .get()
         },
@@ -5339,13 +5334,38 @@ const api = {
             async openStream(
                 taskId: Task['id'],
                 runId: TaskRun['id'],
-                options: { signal: AbortSignal; lastEventId?: string; startLatest?: boolean }
+                options: {
+                    signal: AbortSignal
+                    lastEventId?: string
+                    startLatest?: boolean
+                    /**
+                     * When set, read the stream from the standalone agent-proxy instead of the Django
+                     * endpoint. `baseUrl` is the proxy origin the server resolved via `stream_token`,
+                     * and the run-scoped `token` is sent as a Bearer header. Absent ⇒ the same-origin
+                     * Django stream (session auth) — the pre-proxy behavior.
+                     */
+                    proxyTarget?: { baseUrl: string; token: string }
+                }
             ): Promise<Response> {
                 const headers: Record<string, string> = {}
-                let request = new ApiRequest().taskRun(taskId, runId).withAction('stream')
                 if (options.lastEventId) {
                     headers['Last-Event-ID'] = options.lastEventId
-                } else if (options.startLatest) {
+                }
+                if (options.proxyTarget) {
+                    // Absolute proxy URL with a run-scoped Bearer token — `ApiRequest` only builds
+                    // Django-relative paths, so assemble the proxy URL directly. `start=latest` applies
+                    // only on a first connect (no resume cursor); the Last-Event-ID header, when
+                    // present, takes precedence and an exact resume ignores `start`.
+                    const base = options.proxyTarget.baseUrl.replace(/\/+$/, '')
+                    const url =
+                        !options.lastEventId && options.startLatest
+                            ? `${base}/v1/runs/${runId}/stream?start=latest`
+                            : `${base}/v1/runs/${runId}/stream`
+                    headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
+                    return api.getResponse(url, { signal: options.signal, headers })
+                }
+                let request = new ApiRequest().taskRun(taskId, runId).withAction('stream')
+                if (!options.lastEventId && options.startLatest) {
                     request = request.withQueryString({ start: 'latest' })
                 }
                 return request.getResponse({ signal: options.signal, headers })
@@ -5827,18 +5847,9 @@ const api = {
         },
         async bulkUpdateSchemas(
             sourceId: ExternalDataSource['id'],
-            schemas: Pick<
-                ExternalDataSourceSchema,
-                | 'id'
-                | 'should_sync'
-                | 'sync_type'
-                | 'incremental_field'
-                | 'incremental_field_type'
-                | 'sync_frequency'
-                | 'sync_time_of_day'
-                | 'cdc_table_mode'
-                | 'enabled_columns'
-            >[]
+            // Callers send a minimal diff — only `id` is required; the backend writes just the fields
+            // present and leaves the rest untouched. (Matches `externalDataSchemas.update`'s shape.)
+            schemas: (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'>)[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
                 data: { schemas },
@@ -6406,6 +6417,7 @@ const api = {
             detector_config: Record<string, any>
             series_index?: number
             date_from?: string
+            config?: AlertConfig | null
         }): Promise<AlertSimulationResult> {
             return await new ApiRequest().alerts().withAction('simulate').create({ data })
         },
@@ -7319,6 +7331,7 @@ const api = {
             data_url?: string | null
             width?: number
             type?: HeatmapType
+            block_consent_modals?: boolean
         }): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotsSaved().create({ data })
         },
@@ -7334,6 +7347,7 @@ const api = {
                 data_url: string | null
                 width: number
                 type: HeatmapType
+                block_consent_modals: boolean
             }>
         ): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })

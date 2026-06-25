@@ -142,14 +142,39 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if team is None:
             return redirect(reverse("admin:posthog_duckgresserver_provision"))
 
-        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.provision(
             team.organization_id, database_name, team.id, table_name, require_enabled=False
         )
-        self._report(request, resp, f"Provisioned managed warehouse for org {team.organization_id}")
         if 200 <= resp.status_code < 300:
-            return redirect(reverse("admin:posthog_duckgresserver_changelist"))
+            # The control plane returns the root password exactly once, in this
+            # response; afterwards it's stored only encrypted and can't be read
+            # back. Show it once here. Deliberately NOT routed through the message
+            # framework (which persists to the session/cookie store) or the audit
+            # log — only the action + actor are logged, never the credential.
+            user = cast(User, request.user)
+            logger.info(
+                "admin_managed_warehouse_action",
+                action=f"Provisioned managed warehouse for org {team.organization_id}",
+                triggered_by=user.email,
+            )
+            body = resp.data if isinstance(resp.data, dict) else {}
+            return render(
+                request,
+                "admin/posthog/duckgres_server/provision_result.html",
+                {
+                    **self.admin_site.each_context(request),
+                    "title": "Managed warehouse provisioned",
+                    "organization_id": str(team.organization_id),
+                    "team_id": team.id,
+                    "connection": managed_warehouse._present_connection(
+                        {"database": database_name, "username": body.get("username", "root")}
+                    ),
+                    "password": body.get("password", ""),
+                },
+            )
+        self._report(request, resp, f"Provisioned managed warehouse for org {team.organization_id}")
         return redirect(reverse("admin:posthog_duckgresserver_provision"))
 
     def enable_backfill_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
@@ -179,7 +204,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if team is None:
             return redirect(reverse("admin:posthog_duckgresserver_enable_backfill", args=[object_id]))
 
-        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.enable_backfill(server.organization_id, team.id, table_name, require_enabled=False)
         self._report(request, resp, f"Enabled warehouse backfill for team {team.id}")
@@ -207,7 +232,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
                 },
             )
 
-        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.deprovision(server.organization_id, require_enabled=False)
         self._report(request, resp, f"Deprovisioned managed warehouse for org {server.organization_id}")

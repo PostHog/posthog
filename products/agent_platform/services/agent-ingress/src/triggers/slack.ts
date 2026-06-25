@@ -164,7 +164,10 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             res.json({ ok: true, dropped: 'mention_only' })
             return
         }
-        const existing = await deps.queue.findByExternalKey(resolved.application.id, externalKey)
+        // Mention-only continuity is revision-scoped: a mention into a thread
+        // whose only owned session is on another revision must not
+        // short-circuit. Same scope as `enqueueOrResume`.
+        const existing = await deps.queue.findByExternalKey(resolved.application.id, externalKey, resolved.revision.id)
         if (!existing) {
             log.info(
                 { slug: resolved.application.slug, channel: event.channel, thread_ts: event.thread_ts },

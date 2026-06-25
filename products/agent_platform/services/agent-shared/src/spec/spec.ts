@@ -7,7 +7,10 @@
 
 import { z } from 'zod'
 
-export const ModelIdSchema = z.string().min(1)
+export const ModelIdSchema = z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$/, 'must be "<provider>/<model-id>", e.g. "anthropic/claude-haiku-4-5"')
 
 /**
  * Auth modes. Auth is a property of the TRIGGER, not the spec — declarative
@@ -599,7 +602,10 @@ export const SkillRefSchema = z.object({
      */
     from_template: z.string().optional(),
     alias: z.string().optional(),
-    version: z.number().int().nonnegative().optional(),
+    version: z.number().int().min(1).optional(),
+    // Immutable per-version row id of the resolved store skill — the exact
+    // provenance anchor, stamped at freeze. Optional so older frozen specs parse.
+    source_version_id: z.string().optional(),
 })
 
 /**

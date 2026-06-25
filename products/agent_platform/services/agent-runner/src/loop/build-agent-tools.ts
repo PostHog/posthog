@@ -31,6 +31,7 @@ import type { TSchema } from '@earendil-works/pi-ai'
 import {
     AgentRevision,
     AgentSession,
+    type ApprovalType,
     BundleStore,
     CredentialBroker,
     getSecretAllowedHosts,
@@ -40,8 +41,9 @@ import {
     TabularStore,
     Sandbox,
     ToolContext,
+    WebSearchProvider,
 } from '@posthog/agent-shared'
-import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
+import { getNativeTool, hasNativeTool, WEB_SEARCH_TOOL_ID } from '@posthog/agent-tools'
 
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 import { buildToolNameMap } from './provider-safe-names'
@@ -70,6 +72,15 @@ export interface ToolResultDetails {
     requestId?: string
     /** True when the queue deduped onto an existing row (no new request). */
     deduped?: boolean
+    /**
+     * Approval policy on the queued row, when `queued`. Surfaced so the live
+     * `tool_result` SSE event carries the same `approval` shape the persisted
+     * synthetic result does — the inline card needs `allow_edit` (edit
+     * affordance) and `approver_scope.type` (decidable inline vs console-only),
+     * and neither is derivable from the tool_call alone.
+     */
+    allowEdit?: boolean
+    approverType?: ApprovalType
 }
 
 /**
@@ -112,6 +123,12 @@ export interface AgentToolDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /**
+     * Web-search provider chain for `@posthog/web-search`. Forwarded onto the
+     * `ToolContext`; an empty/absent chain also gates the tool out of the
+     * session surface below (so the model never sees a tool that throws).
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
     /**
      * Dispatcher for `kind: "client"` tools. The driver wires this up
      * over the session event bus: `execute` publishes a
@@ -202,6 +219,12 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             // Unknown native id (stale spec): skip. It stays in `seen`, so a
             // duplicate stale entry short-circuits on the next pass.
             if (!hasNativeTool(t.id)) {
+                continue
+            }
+            // `@posthog/web-search` is config-gated: with no provider keyed at
+            // boot the chain is empty, so drop it rather than surface a tool
+            // that only ever throws `web_search_not_configured`.
+            if (t.id === WEB_SEARCH_TOOL_ID && !deps.webSearchProviders?.length) {
                 continue
             }
             tools.push(makeNativeTool(t.id, deps))
@@ -473,7 +496,8 @@ function makeMcpTool(
         description: remote.description,
         parameters: remote.inputSchema as TSchema,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
-            const result = await client.callTool(remote.name, (args ?? {}) as Record<string, unknown>)
+            const callArgs = (args ?? {}) as Record<string, unknown>
+            const result = await client.callTool(remote.name, callArgs)
             if (result.isError) {
                 // Surface the first text content as the error message — same
                 // shape as `resultText()` in the driver. Keeps the model's
@@ -521,6 +545,7 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         },
         memoryStore: deps.memoryStore,
         tabularStore: deps.tabularStore,
+        webSearchProviders: deps.webSearchProviders,
         credentials: credentialBroker
             ? {
                   resolve: (target) => credentialBroker.resolve(sessionId, target),
