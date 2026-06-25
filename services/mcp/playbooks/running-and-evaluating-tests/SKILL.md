@@ -126,7 +126,7 @@ For each case:
 - **One assertion failed** — read the conversation, identify
   whether it's a spec/prompt issue (likely) or a test-spec issue
   (the assertion was too strict).
-- **The case errored** — same flow as `skills/debugging-sessions`
+- **The case errored** — same flow as the `debugging-sessions` playbook
   but against a test session.
 
 For the assistant_text_matches failure pattern: do NOT just
@@ -167,7 +167,7 @@ Be honest about what you can and can't judge:
 ## When the user wants to skip tests
 
 Common: "just promote it, the change is small". See
-`skills/editing-agents-safely` — pure-cosmetic edits can skip,
+the `editing-agents-safely` playbook — pure-cosmetic edits can skip,
 anything semantic should run at least one test case.
 
 If the user insists on skipping for a semantic edit, **note it

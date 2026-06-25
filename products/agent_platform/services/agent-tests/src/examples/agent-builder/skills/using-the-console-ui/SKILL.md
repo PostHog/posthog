@@ -26,7 +26,7 @@ the tool-call card and the runner parks the session while the user
 fills it in. Your call returns a synthetic `{queued:true, interactive:true, call_id}`
 envelope immediately; end the turn cleanly and the real outcome
 arrives as a wake message on a fresh turn (see
-`skills/secrets-and-integrations` Path A for the full loop). Tools
+the `secrets-and-integrations` playbook Path A for the full loop). Tools
 that need user input belong here; tools the host can fulfill
 silently (navigation, toasts, context reads) stay synchronous.
 

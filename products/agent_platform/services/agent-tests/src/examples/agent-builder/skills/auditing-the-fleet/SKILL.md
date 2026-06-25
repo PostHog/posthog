@@ -89,7 +89,7 @@ behind it is a guess, and guesses are how this report loses trust.
 
 For the population view — failure-rate, cost, and p95 latency rolled
 up per agent, or "which sessions tripped up this week" in one query —
-load `skills/querying-ai-observability` and HogQL the `$ai_*` events
+load the `querying-ai-observability` playbook and HogQL the `$ai_*` events
 the runner captured into this team's project. It's cheaper than
 retrieving every session and surfaces systemic patterns (one root
 cause across many sessions) the per-session view misses; use it to

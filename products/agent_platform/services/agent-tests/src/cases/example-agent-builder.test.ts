@@ -43,16 +43,28 @@ describe('example: agent-builder bundle', () => {
         expect(() => AgentSpecSchema.parse(spec)).not.toThrow()
     })
 
-    it('every skill path in spec.skills[] exists as a bundle file, incl. the identity skill', async () => {
+    it('bundles ONLY the kernel skills — builder playbooks live in the MCP, not the bundle', async () => {
         const { spec, files } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
+        // Kernel skills = the concierge's own runtime behaviour, coupled to this
+        // runtime (focus_* client tools, memory, safety persona). Code-bundled so
+        // they can't drift into the per-team store or the MCP playbook set.
+        const KERNEL = [
+            'auditing-the-fleet',
+            'safety-and-boundaries',
+            'using-the-console-ui',
+            'working-outside-the-console',
+        ]
+        expect(parsed.skills.map((s) => s.id).sort()).toEqual(KERNEL)
         for (const skill of parsed.skills) {
             expect(files[skill.path]).not.toBeUndefined()
             expect((skill.description ?? '').length).toBeGreaterThan(30)
         }
-        // The identity skill is the one we added for the MCP/identity swap — it's
-        // how the builder learns to wire `identity_providers` into agents it builds.
-        expect(parsed.skills.some((s) => s.id === 'authenticating-as-the-user')).toBe(true)
+        // Builder playbooks (how to author/edit/wire-identity an agent) are served
+        // by the MCP `agent-resolve-resource`, fetched on demand — NOT bundled.
+        for (const playbook of ['authenticating-as-the-user', 'editing-agents-safely', 'platform-mental-model']) {
+            expect(parsed.skills.some((s) => s.id === playbook)).toBe(false)
+        }
     })
 
     it('agent.md is present and non-trivial', async () => {

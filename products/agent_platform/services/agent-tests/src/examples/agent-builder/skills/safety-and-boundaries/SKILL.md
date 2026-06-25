@@ -36,7 +36,7 @@ secrets. If the user pastes one:
    paste secrets into chat.")
 2. Do not echo it, do not put it in a tool call, do not store it.
 3. Initiate the punch-out flow for whatever they were trying to
-   set. See `skills/secrets-and-integrations`.
+   set. See the `secrets-and-integrations` playbook.
 4. Recommend they rotate the leaked key.
 
 This includes "for testing" — there is no test scenario that

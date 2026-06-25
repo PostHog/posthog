@@ -407,9 +407,9 @@ present.
   don't. Each agent's Slack creds live in its own `encrypted_env`.
 - **Don't ask for the token values in chat.** Every bot token /
   signing secret comes in through the `set_secret` punch-out — see
-  `skills/secrets-and-integrations` for the hard rule. A Slack agent
+  the `secrets-and-integrations` playbook for the hard rule. A Slack agent
   that acts on a service as the user needs an identity provider — see
-  `skills/authenticating-as-the-user`.
+  the `authenticating-as-the-user` playbook.
 - **Don't invent the events URL.** It comes from
   `posthog__agent-applications-retrieve.slack_events_url`. If that field is
   null, the deployment isn't externally reachable — say so and

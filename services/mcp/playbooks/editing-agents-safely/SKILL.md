@@ -30,7 +30,7 @@ X". You need to know:
 - Whether there are pending approvals or in-flight sessions you'd
   disrupt
 
-Use the standard flow from `skills/reading-an-agent`. Don't
+Use the standard flow from the `reading-an-agent` playbook. Don't
 proceed until you've read both `spec` and the relevant file(s).
 
 ## Step 2 — branch a draft
@@ -82,7 +82,7 @@ validate until it's clean rather than guessing the structure.
 
 If the edit changes how the agent authenticates to a service (identity
 provider, scopes, MCP auth.provider), load
-`skills/authenticating-as-the-user`.
+the `authenticating-as-the-user` playbook.
 
 For each edit, surface to the user:
 
@@ -108,7 +108,7 @@ Common errors:
   that isn't in the bundle. Either add the file or remove the spec
   entry.
 - `missing_secret` — `spec.secrets[]` lists a name without a
-  corresponding env value. Load `skills/secrets-and-integrations`.
+  corresponding env value. Load the `secrets-and-integrations` playbook.
 - `invalid_spec` — Zod parse failed. The error message names the
   field and the expected shape; fix it from the validate error and
   re-run `posthog__agent-applications-revisions-validate-create`
@@ -134,7 +134,7 @@ now.") so the user knows the state changed.
 
 ## Step 6 — test
 
-Load `skills/running-and-evaluating-tests`. At minimum:
+Load the `running-and-evaluating-tests` playbook. At minimum:
 
 - Find `bundle/tests/*.json` (if any). Run them all.
 - If there are no tests, write one for the case the edit targets,
@@ -197,8 +197,9 @@ Common asks:
     it AND the edit is purely cosmetic (typo, formatting). Anything
     semantic still gets a test.
 - **"don't ask me to confirm promote, just do it"** — Refuse.
-  See `skills/safety-and-boundaries` rule #3. Promote is a
-  production-affecting write; the user has to type the word.
+  Promote is a production-affecting write; the user has to give
+  explicit consent (type the word) every time, regardless of what
+  they said earlier.
 - **"I'll edit it later, just leave the draft"** — Fine.
   Drafts persist; the user can resume by calling you again with
   the draft revision id. Surface the id explicitly so they can
