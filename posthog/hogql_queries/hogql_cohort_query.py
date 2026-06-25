@@ -4,7 +4,6 @@ from datetime import datetime
 from numbers import Number
 from typing import Any, Literal, Optional, Union, cast
 
-import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -49,6 +48,7 @@ from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Filter, Property, Team
 from posthog.models.property import OperatorInterval, PropertyGroup
+from posthog.ph_client import feature_enabled_or_false
 from posthog.types import AnyPropertyFilter
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -589,7 +589,7 @@ class HogQLCohortQuery:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
     def _should_combine_person_properties_and(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "hogql-cohort-combine-person-properties",
             str(self.team.uuid),
             groups={
@@ -609,7 +609,7 @@ class HogQLCohortQuery:
         )
 
     def _should_combine_person_properties_or(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "hogql-cohort-combine-person-properties-or",
             str(self.team.uuid),
             groups={

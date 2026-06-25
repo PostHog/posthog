@@ -8,7 +8,6 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from loginas.utils import is_impersonated_session
@@ -44,6 +43,7 @@ from posthog.models.group_type_mapping import (
 )
 from posthog.models.user import User
 from posthog.personhog_client.converters import GroupTypeMappingResult
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
@@ -871,7 +871,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             )
 
     def _is_crm_enabled(self, user: User) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "crm-iteration-one",
             str(user.distinct_id),
             groups={"organization": str(self.team.organization.id)},
