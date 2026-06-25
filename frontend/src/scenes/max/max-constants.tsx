@@ -953,6 +953,14 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         displayFormatter: (toolCall) =>
             toolCall.status === 'completed' ? 'Suggested UTM mappings' : 'Suggesting UTM mappings...',
     },
+    marketing_mmm_summary: {
+        name: 'Summarize marketing mix model',
+        description: 'Summarize the latest marketing mix modeling run with channel contributions and budget guidance',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Summarized marketing mix model' : 'Summarizing marketing mix model...',
+    },
     upsert_dashboard: {
         name: 'Create and edit dashboards',
         description: 'Create and edit dashboards with insights based on your requirements',

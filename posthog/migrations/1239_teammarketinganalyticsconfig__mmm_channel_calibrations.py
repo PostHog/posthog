@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1237_alter_integration_kind"),
+        ("posthog", "1238_ducklakebackfill_earliest_event_date"),
     ]
 
     operations = [

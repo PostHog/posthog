@@ -224,11 +224,7 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const activeKey = tabs.some((tab) => tab.key === activeTab) ? activeTab : MarketingAnalyticsTab.DASHBOARD
 
     return (
-        <LemonTabs
-            activeKey={activeKey}
-            onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
-            tabs={tabs}
-        />
+        <LemonTabs activeKey={activeKey} onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)} tabs={tabs} />
     )
 }
 

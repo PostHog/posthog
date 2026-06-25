@@ -294,7 +294,7 @@ class MmmActionsMixin:
         "a wide weekly modeling matrix (bring-your-own-model export). Staff only.",
     )
     @action(methods=["GET"], detail=False, url_path="mmm_dataset", required_scopes=["marketing_analytics:read"])
-    def mmm_dataset(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def mmm_dataset(self, request: Request, *args: Any, **kwargs: Any) -> Response | StreamingHttpResponse:
         self._assert_mmm_access(request)
         params = request.validated_query_data  # type: ignore[attr-defined]
         date_from = params.get("date_from")

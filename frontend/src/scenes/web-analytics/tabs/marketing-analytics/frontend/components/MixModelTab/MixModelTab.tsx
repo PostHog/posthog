@@ -1,6 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+} from '@posthog/lemon-ui'
 import { LineChart, TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -120,9 +128,7 @@ function DatasetSection({
                     Download CSV
                 </LemonButton>
             </div>
-            {dataset && dataset.status !== 'ok' ? (
-                <LemonBanner type="warning">{dataset.message}</LemonBanner>
-            ) : null}
+            {dataset && dataset.status !== 'ok' ? <LemonBanner type="warning">{dataset.message}</LemonBanner> : null}
             <LemonTable
                 columns={columns}
                 dataSource={dataset?.spend_panel ?? []}
@@ -135,7 +141,11 @@ function DatasetSection({
     )
 }
 
-function RunDiagnostics({ run }: { run: { r_squared: number; mape: number; divergences: number } | null }): JSX.Element | null {
+function RunDiagnostics({
+    run,
+}: {
+    run: { r_squared: number; mape: number; divergences: number } | null
+}): JSX.Element | null {
     if (!run) {
         return null
     }
