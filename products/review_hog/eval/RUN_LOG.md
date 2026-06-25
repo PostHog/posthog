@@ -22,6 +22,27 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
 
 ---
 
+## 2026-06-25 · audit fixes — resilience (retries / 70% floor) — PR #63625 @ `243ddf40295c`
+
+- **ReviewHog under test:** post-audit resilience fixes — sandbox failures now **raise** so Temporal
+  retries actually fire (the executor no longer swallows them to `None`), dedup no longer
+  bare-`RuntimeError`-aborts, a **70% fan-out failure floor** fails the run on a near-total wipeout
+  instead of finalizing an empty report as success, and all activities + child workflows + the parent
+  retry uniformly. `signals/reviewhog`, uncommitted. **Fresh run (DB reset first)** so the whole
+  pipeline re-ran — no resume.
+- **Pipeline (exit 0, every stage):** `commit` 1 · `pr_snapshot` 1 · `chunk_set` 1 (1 chunk) ·
+  `chunk_analysis` 1 · `perspective_result` **3/3** (no best-effort drops) · `issue_finding` 2 ·
+  `validation_verdict` 2. Final: **status idle · run_count 1 · body 4,793 chars**. Publish gated off.
+- **Findings:** 2 (both `hogql/database/database.py:1478`, the recurring hotspot) · **Validator: 0
+  kept / 2 dropped** — same criteria-driven outcome as the step-13/15 baseline. The clean signal: the
+  failure-path refactor is **behavior-preserving** — every stage ran, full 3-perspective fan-out, the
+  same finding hotspot, and the same validator behavior as the in-process and step-15 runs.
+
+| #   | perspective               | prio       | file:line                       | verdict                                            |
+| --- | ------------------------- | ---------- | ------------------------------- | -------------------------------------------------- |
+| 1   | Contracts & Security      | should_fix | hogql/database/database.py:1478 | ❌ dropped · "intended rebinding, not a contract"  |
+| 2   | Performance & Reliability | should_fix | hogql/database/database.py:1478 | ❌ dropped · "relies on an unwrapped DoesNotExist" |
+
 ## 2026-06-25 · step 15 — Temporal single-turn workflow — PR #63625 @ `243ddf40295c`
 
 - **ReviewHog under test:** step 15 — the whole pipeline is now a Temporal `ReviewPRWorkflow` (parent +
