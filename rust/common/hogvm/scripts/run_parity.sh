@@ -37,4 +37,5 @@ chrono-tz = "0.10.1"
 EOF
 
 cd "$ISO"
-HOGVM_CORPUS_DIR="$CORPUS" cargo test --test parity -- --nocapture "$@"
+# Corpus parity (whole programs) + per-STL parity (one case per STL function).
+HOGVM_CORPUS_DIR="$CORPUS" cargo test --test parity --test stl_parity -- --nocapture "$@"

@@ -60,6 +60,12 @@ The reference exposes **~123** STL names; Rust implements **~29** (23 native + 6
 4. **Null-on-missing semantics**: out-of-bounds array index and some missing-property accesses
    error (`UnknownProperty`) instead of returning `null`. *(Confirmed: `arrays`, `ifJump`.)*
 5. **Closure/upvalue capture bug**: `scope` prints `10` where Node prints `20`. *(Confirmed.)*
+6. **`typeof` collapses int/float to `"number"`** — the reference returns `"integer"` / `"float"`.
+   *(Confirmed: `typeof#0` → node `integer`, rust `number`.)*
+7. **The canonical printer doesn't special-case Hog temporals** — `toDateTime`/`toDate` produce
+   `{__hogDateTime__: true, …}` objects that the reference prints as `DateTime(dt, 'zone')` /
+   `Date(y, m, d)`. The Rust printer renders the raw object. → teach `print.rs` the temporal shapes.
+   *(Confirmed: `toDateTime#0`, `toDate#0`.)*
 
 ---
 
@@ -84,6 +90,28 @@ HOGVM_CORPUS_DIR=$PWD/common/hogvm/__tests__ cargo test -p hogvm --test parity -
 ```
 
 Current status: **7 PASS / 2 MISMATCH / 26 ERROR** of 35 programs. The loop drives ERROR→PASS.
+
+### 2a-bis. Per-STL parity (`tests/stl_parity.rs`) — built, working
+Whole-program tests cover the STL only incidentally. To give **each STL function its own
+reference-checked test**, `scripts/gen_stl_oracle.py` builds `print(fn(args))` bytecode for a
+representative case per function, runs it through the **reference Python VM** (the compliant
+implementation), and commits the bytecode + expected output to `tests/static/stl_oracle.json`.
+`tests/stl_parity.rs` replays that exact bytecode through the Rust VM and asserts a match
+("exact" cases byte-for-byte; non-deterministic ones like `now()` are "smoke" — must just run).
+
+Coverage: **103 / 130** STL functions have a direct case (**125 cases**). The 27 without one are
+operator aliases (`and`/`plus`/`equals`/…) and the lambda array fns (`arrayMap`/`arrayFilter`/…),
+both already exercised by the corpus harness, plus `run` (SQL) / `extract`.
+
+Current status: **29 PASS / 96 FAIL** — the FAILs are the STL backlog below.
+
+Regenerate the oracle (needs the reference VM deps `re2` + `pytz`; flox is unavailable here):
+```bash
+uv venv /tmp/hogvm-venv && uv pip install --python /tmp/hogvm-venv/bin/python google-re2 pytz
+PYTHONPATH=.:common /tmp/hogvm-venv/bin/python rust/common/hogvm/scripts/gen_stl_oracle.py
+```
+The committed `stl_oracle.json` means the Rust test runs without the venv; you only need it to
+regenerate after adding/altering cases.
 
 ### 2b. Performance (planned) — three modes, ingestion-shaped
 We measure the same compiled programs in three execution modes:
