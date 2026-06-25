@@ -3,8 +3,6 @@ from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION, convert_currency_call
 
-from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
-
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas.charge import SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import (
@@ -14,6 +12,9 @@ from products.revenue_analytics.backend.views.sources.helpers import (
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
 
 
 def build(handle: SourceHandle) -> BuiltQuery:

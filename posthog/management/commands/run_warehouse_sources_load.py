@@ -6,9 +6,18 @@ import structlog
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.logger import configure_logger
-from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState, start_health_server
-from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import BatchConsumer, ConsumerConfig
-from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import process_batch
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import (
+    HealthState,
+    start_health_server,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
+    BatchConsumer,
+    ConsumerConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import (
+    process_batch,
+)
 
 logger = structlog.get_logger(__name__)
 

@@ -4,11 +4,12 @@ import psycopg
 import structlog
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
-from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
     DUCKGRES_STATUS_TABLE,
     DUCKGRES_STATUS_VIEW,
 )
-from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     PARTITION_PRUNING_INTERVAL,
 )

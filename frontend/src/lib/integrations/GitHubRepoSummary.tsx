@@ -15,19 +15,32 @@ export function GitHubRepoSummary({
     installationId,
     accountType,
     accountName,
+    onBeforeManage,
 }: {
     repoNames: string[]
     loading: boolean
     installationId?: string | null
     accountType?: string
     accountName?: string
+    /** Called before opening the GitHub installation settings page. Use this to seed
+     * server-side state (via the `github_prepare_callback` endpoints) so the eventual
+     * Setup URL callback can be dispatched to the right team/personal handler. */
+    onBeforeManage?: (installationId: string) => Promise<void> | void
 }): JSX.Element {
     const manageButton = installationId ? (
         <LemonButton
             size="xsmall"
             type="secondary"
             icon={<IconGear />}
-            onClick={() => window.open(manageInstallationUrl(installationId, accountType, accountName), '_blank')}
+            onClick={async () => {
+                try {
+                    await onBeforeManage?.(installationId)
+                } catch {
+                    // Failing to seed state is non-fatal — the server falls back to UserIntegration
+                    // membership detection. We surface the GitHub page either way.
+                }
+                window.open(manageInstallationUrl(installationId, accountType, accountName), '_blank')
+            }}
             tooltip={repoNames.length > 0 ? 'Manage repository access on GitHub' : 'Configure repository access'}
         />
     ) : null
