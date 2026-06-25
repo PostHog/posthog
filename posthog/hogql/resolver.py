@@ -144,9 +144,7 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
-def resolve_table_scope(
-    table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
-) -> ast.SelectQueryType:
+def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: HogQLDialect) -> ast.SelectQueryType:
     """Resolve `SELECT * FROM <table_chain>` and return its query scope — the type other expressions
     resolve against to reference the table's columns. Raises `QueryError` if the database/table is
     unavailable. Caching, if wanted, is the caller's concern."""
