@@ -53,10 +53,59 @@ export function isFallbackEligible(errorMessage: string | undefined): boolean {
 
 /** Notified on each fall-over so the caller can mark analytics. */
 export interface FallbackHooks {
-    /** The attempt that just answered (0-based index into `models`). */
+    /** The model that just answered, with its ORIGINAL policy index (0-based).
+     *  >0 means a non-primary model served (a fallover this turn, or a sticky
+     *  lead carried over from a prior turn). */
     onAttempt?: (index: number, model: Model<string>) => void
-    /** A model was skipped after a fallback-eligible failure. */
+    /** A model was skipped after a fallback-eligible failure (original index). */
     onFallback?: (fromIndex: number, fromModel: Model<string>, reason: string | undefined) => void
+}
+
+/** Session-stability knobs. See `ModelOptimizeForSchema` in agent-shared. */
+export interface FallbackStickiness {
+    /**
+     * `cost` (default): once a model has served a turn, pin to it — every later
+     * turn uses ONLY that model, no cross-model failover (keeps the provider's
+     * prompt cache warm). `availability`: lead with the sticky model but still
+     * fail over to the rest of the list on failure.
+     */
+    optimizeFor?: 'cost' | 'availability'
+    /**
+     * The model that served the previous turn (e.g. read off a resumed
+     * conversation's last assistant message). Seeds the sticky lead / the pin so
+     * stickiness survives suspend→resume, not just consecutive in-process turns.
+     */
+    initialServedId?: string
+}
+
+/** Original-policy-indexed view of a model, so hooks report the policy position
+ *  regardless of the per-turn attempt order. */
+interface IndexedModel {
+    entry: ResolvedModel
+    index: number
+}
+
+/**
+ * The attempt order for one turn:
+ *  - no model served yet → full list in priority order (walk to find one).
+ *  - `cost` + a served model → just that model (no failover).
+ *  - `availability` + a served model → that model first, then the rest in
+ *    priority order (sticky lead + failover).
+ */
+function attemptOrder(models: ResolvedModel[], servedId: string | undefined, optimizeFor: string): IndexedModel[] {
+    const indexed: IndexedModel[] = models.map((entry, index) => ({ entry, index }))
+    if (!servedId) {
+        return indexed
+    }
+    const pos = indexed.findIndex((x) => x.entry.model.id === servedId)
+    if (pos < 0) {
+        return indexed
+    }
+    if (optimizeFor === 'cost') {
+        return [indexed[pos]]
+    }
+    const [lead] = indexed.splice(pos, 1)
+    return [lead, ...indexed]
 }
 
 /**
@@ -64,17 +113,32 @@ export interface FallbackHooks {
  * loop passes is ignored — this owns model selection — but each attempt honours
  * the caller's `options` (apiKey, headers, signal) with the entry's `reasoning`
  * applied on top.
+ *
+ * Session-sticky: across turns the wrapper remembers the model that last served
+ * and prefers it, so the provider's prompt cache stays warm rather than
+ * thrashing. `stickiness.optimizeFor` decides what happens on a later failure —
+ * `cost` pins (no failover), `availability` falls over. See `attemptOrder`.
  */
-export function fallbackStreamFn(base: StreamFn, models: ResolvedModel[], hooks?: FallbackHooks): StreamFn {
+export function fallbackStreamFn(
+    base: StreamFn,
+    models: ResolvedModel[],
+    hooks?: FallbackHooks,
+    stickiness?: FallbackStickiness
+): StreamFn {
     if (models.length === 0) {
         throw new Error('fallbackStreamFn requires at least one model')
     }
+    const optimizeFor = stickiness?.optimizeFor ?? 'cost'
+    // The model that served the most recent successful turn; persists across
+    // turns within this wrapped fn. Seeded from a resumed conversation.
+    let servedId = stickiness?.initialServedId
     return (_model, context, options) => {
+        const order = attemptOrder(models, servedId, optimizeFor)
         const out = createAssistantMessageEventStream()
         void (async () => {
-            for (let i = 0; i < models.length; i++) {
-                const entry = models[i]
-                const last = i === models.length - 1
+            for (let pos = 0; pos < order.length; pos++) {
+                const { entry, index } = order[pos]
+                const last = pos === order.length - 1
                 const opts = { ...options, reasoning: entry.reasoning ?? options?.reasoning }
                 let committed = false
                 try {
@@ -88,7 +152,8 @@ export function fallbackStreamFn(base: StreamFn, models: ResolvedModel[], hooks?
                         if (isContentEvent(event)) {
                             // First real progress — commit: flush buffered envelope + this event.
                             committed = true
-                            hooks?.onAttempt?.(i, entry.model)
+                            servedId = entry.model.id
+                            hooks?.onAttempt?.(index, entry.model)
                             for (const b of buffered) {
                                 out.push(b)
                             }
@@ -109,7 +174,8 @@ export function fallbackStreamFn(base: StreamFn, models: ResolvedModel[], hooks?
                     // fall over when eligible and attempts remain.
                     const failed = result.stopReason === 'error' || result.stopReason === 'aborted'
                     if (!failed) {
-                        hooks?.onAttempt?.(i, entry.model)
+                        servedId = entry.model.id
+                        hooks?.onAttempt?.(index, entry.model)
                         for (const b of buffered) {
                             out.push(b)
                         }
@@ -117,11 +183,11 @@ export function fallbackStreamFn(base: StreamFn, models: ResolvedModel[], hooks?
                         return
                     }
                     if (!last && result.stopReason === 'error' && isFallbackEligible(result.errorMessage)) {
-                        hooks?.onFallback?.(i, entry.model, result.errorMessage)
+                        hooks?.onFallback?.(index, entry.model, result.errorMessage)
                         continue
                     }
-                    // Permanent / abort / exhausted: surface this failure downstream.
-                    hooks?.onAttempt?.(i, entry.model)
+                    // Permanent / abort / exhausted / cost-pinned: surface this failure downstream.
+                    hooks?.onAttempt?.(index, entry.model)
                     for (const b of buffered) {
                         out.push(b)
                     }
@@ -136,7 +202,7 @@ export function fallbackStreamFn(base: StreamFn, models: ResolvedModel[], hooks?
                     }
                     const reason = err instanceof Error ? err.message : String(err)
                     if (!last && isFallbackEligible(reason)) {
-                        hooks?.onFallback?.(i, entry.model, reason)
+                        hooks?.onFallback?.(index, entry.model, reason)
                         continue
                     }
                     const message: AssistantMessage = {
@@ -157,7 +223,7 @@ export function fallbackStreamFn(base: StreamFn, models: ResolvedModel[], hooks?
                         errorMessage: reason,
                         timestamp: Date.now(),
                     }
-                    hooks?.onAttempt?.(i, entry.model)
+                    hooks?.onAttempt?.(index, entry.model)
                     out.push({ type: 'error', reason: 'error', error: message })
                     out.end(message)
                     return

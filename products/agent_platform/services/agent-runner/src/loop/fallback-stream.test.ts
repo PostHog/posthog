@@ -240,4 +240,123 @@ describe('fallbackStreamFn', () => {
         expect(calls).toEqual(['a'])
         expect(onFallback).not.toHaveBeenCalled()
     })
+
+    describe('session stickiness (optimize_for)', () => {
+        // A base that records which models were tried per turn and routes its
+        // response per (turn, model id). `turn.n` is bumped between drives.
+        function turnRoutedBase(
+            tried: string[][],
+            turn: { n: number },
+            respond: (turn: number, id: string) => { events: AssistantMessageEvent[]; result: AssistantMessage }
+        ): StreamFn {
+            return (model) => {
+                if (!tried[turn.n]) {
+                    tried[turn.n] = []
+                }
+                tried[turn.n].push(model.id)
+                const script = respond(turn.n, model.id)
+                const stream = createAssistantMessageEventStream()
+                queueMicrotask(() => {
+                    for (const e of script.events) {
+                        stream.push(e)
+                    }
+                    stream.end(script.result)
+                })
+                return stream
+            }
+        }
+
+        const drive2 = (fn: StreamFn): ReturnType<typeof drive> =>
+            drive(fn(fakeModel('a'), { messages: [] } as never, undefined))
+
+        it('cost (default): pins the first served model — later turns never try the others', async () => {
+            const tried: string[][] = []
+            const turn = { n: 0 }
+            // turn 0: a fails transiently → b serves and becomes the pin.
+            const base = turnRoutedBase(tried, turn, (t, id) =>
+                t === 0 && id === 'a' ? preCommitError('429') : success(id)
+            )
+            const fn = fallbackStreamFn(base, models(['a', 'b'])) // optimize_for defaults to cost
+            await drive2(fn)
+            turn.n = 1
+            await drive2(fn)
+            turn.n = 2
+            await drive2(fn)
+            expect(tried[0]).toEqual(['a', 'b']) // turn 0 walked a → b
+            expect(tried[1]).toEqual(['b']) // pinned to b — a is never tried again
+            expect(tried[2]).toEqual(['b'])
+        })
+
+        it('cost: a pinned model failing does NOT fall over — it surfaces the error', async () => {
+            const tried: string[][] = []
+            const turn = { n: 0 }
+            const base = turnRoutedBase(tried, turn, (t, id) => {
+                if (t === 0 && id === 'a') {
+                    return preCommitError('429') // establish pin = b
+                }
+                if (t === 1 && id === 'b') {
+                    return preCommitError('503') // pinned model now fails
+                }
+                return success(id)
+            })
+            const fn = fallbackStreamFn(base, models(['a', 'b']))
+            await drive2(fn)
+            turn.n = 1
+            const { result } = await drive2(fn)
+            // Cost mode is pinned to b: it must NOT fall back to the (healthy) a.
+            expect(tried[1]).toEqual(['b'])
+            expect(result.stopReason).toBe('error')
+            expect(result.errorMessage).toBe('503')
+        })
+
+        it('availability: leads with the sticky model but falls over when it fails, then re-sticks', async () => {
+            const tried: string[][] = []
+            const turn = { n: 0 }
+            const base = turnRoutedBase(tried, turn, (t, id) => {
+                if (t === 0 && id === 'a') {
+                    return preCommitError('429') // establish served = b
+                }
+                if (t === 1 && id === 'b') {
+                    return preCommitError('503') // sticky b fails → fall over to a
+                }
+                return success(id)
+            })
+            const fn = fallbackStreamFn(base, models(['a', 'b']), undefined, { optimizeFor: 'availability' })
+            await drive2(fn) // turn 0: a → b
+            turn.n = 1
+            const turn1 = await drive2(fn) // turn 1: lead b, b fails, fall over to a
+            expect(tried[1]).toEqual(['b', 'a'])
+            expect(turn1.result.content).toEqual([{ type: 'text', text: 'a' }])
+            turn.n = 2
+            await drive2(fn) // turn 2: re-stuck to the survivor a
+            expect(tried[2]).toEqual(['a'])
+        })
+
+        it('seeds the pin from initialServedId so it survives a resume (cost)', async () => {
+            const tried: string[][] = []
+            const turn = { n: 0 }
+            const base = turnRoutedBase(tried, turn, (_t, id) => success(id))
+            const fn = fallbackStreamFn(base, models(['a', 'b']), undefined, { initialServedId: 'b' })
+            await drive2(fn)
+            // First turn after resume is already pinned to the resumed model.
+            expect(tried[0]).toEqual(['b'])
+        })
+
+        it('reports the ORIGINAL policy index for a sticky non-primary lead', async () => {
+            const onAttempt = vi.fn()
+            const base = scriptedBase({ a: success('a'), b: success('b') })
+            const fn = fallbackStreamFn(
+                base,
+                models(['a', 'b']),
+                { onAttempt },
+                {
+                    optimizeFor: 'availability',
+                    initialServedId: 'b',
+                }
+            )
+            await drive(fn(fakeModel('a'), { messages: [] } as never, undefined))
+            // b leads, but its policy index (1) is what analytics records.
+            expect(onAttempt).toHaveBeenCalledWith(1, expect.objectContaining({ id: 'b' }))
+        })
+    })
 })

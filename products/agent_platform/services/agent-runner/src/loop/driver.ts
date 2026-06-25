@@ -92,6 +92,19 @@ import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
 import { lookupMcpToolApproval } from './mcp-tool-lookup'
 import { providerSafeName } from './provider-safe-names'
 
+/** The model id that served the most recent assistant turn, if any. Seeds the
+ *  fallback wrapper's sticky lead / cost-mode pin so it survives suspend→resume,
+ *  not just consecutive in-process turns. */
+function lastServedModelId(conversation: ConversationMessage[]): string | undefined {
+    for (let i = conversation.length - 1; i >= 0; i--) {
+        const message = conversation[i]
+        if (message.role === 'assistant' && message.model) {
+            return message.model
+        }
+    }
+    return undefined
+}
+
 export interface RunSessionDeps {
     /**
      * Priority-ordered models the loop tries (primary first, fallbacks after).
@@ -947,15 +960,29 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         let modelAttempt = 0
         let fellBackFrom: string | undefined
         if (deps.models.length > 1) {
-            coreStreamFn = fallbackStreamFn(coreStreamFn, deps.models, {
-                onAttempt: (index) => {
-                    modelAttempt = index
+            // Session-sticky model selection (see `spec.models.optimize_for`):
+            //  - `cost` (default): pin to the model that served the first turn so
+            //    its prompt cache stays warm; no cross-model failover after.
+            //  - `availability`: lead with the last-served model but fail over.
+            // Seed from the conversation's last assistant turn so the pin / sticky
+            // lead survives a suspend→resume, not just consecutive in-process turns.
+            coreStreamFn = fallbackStreamFn(
+                coreStreamFn,
+                deps.models,
+                {
+                    onAttempt: (index) => {
+                        modelAttempt = index
+                    },
+                    onFallback: (fromIndex, fromModel, reason) => {
+                        fellBackFrom = fromModel.id
+                        runLog.warn({ from: fromModel.id, attempt: fromIndex, reason }, 'model.fallback')
+                    },
                 },
-                onFallback: (fromIndex, fromModel, reason) => {
-                    fellBackFrom = fromModel.id
-                    runLog.warn({ from: fromModel.id, attempt: fromIndex, reason }, 'model.fallback')
-                },
-            })
+                {
+                    optimizeFor: rev.spec.models.optimize_for,
+                    initialServedId: lastServedModelId(session.conversation),
+                }
+            )
         }
         const streamFn = sanitizingStreamFn(coreStreamFn, nameToId)
 

@@ -12,7 +12,7 @@ import {
 describe('AgentSpecSchema', () => {
     it('parses a minimal spec with defaults', () => {
         const parsed = AgentSpecSchema.parse({})
-        expect(parsed.models).toEqual({ mode: 'auto', level: 'medium' })
+        expect(parsed.models).toEqual({ mode: 'auto', level: 'medium', optimize_for: 'cost' })
         expect(parsed.triggers).toEqual([])
         expect(parsed.tools).toEqual([])
         expect(parsed.limits.max_turns).toBe(50)
@@ -825,5 +825,32 @@ describe('modelPolicyToList', () => {
             reasoning: 'medium',
         })
         expect(modelPolicyToList(spec)).toEqual([{ model: 'openai/gpt-5', reasoning: 'medium' }])
+    })
+})
+
+describe('models.optimize_for', () => {
+    it('defaults to cost on an auto policy', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'medium' } })
+        expect(spec.models.optimize_for).toBe('cost')
+    })
+
+    it('defaults to cost on a manual policy', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'manual', models: [{ model: 'openai/gpt-5' }] } })
+        expect(spec.models.optimize_for).toBe('cost')
+    })
+
+    it('defaults to cost when models is omitted entirely', () => {
+        expect(AgentSpecSchema.parse({}).models.optimize_for).toBe('cost')
+    })
+
+    it.each(['cost', 'availability'] as const)('accepts optimize_for: %s', (mode) => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: mode } })
+        expect(spec.models.optimize_for).toBe(mode)
+    })
+
+    it('rejects an unknown optimize_for', () => {
+        expect(() =>
+            AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: 'latency' } })
+        ).toThrow()
     })
 })

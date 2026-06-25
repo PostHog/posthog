@@ -8097,6 +8097,7 @@ export namespace Schemas {
       mode: 'auto';
       level?: 'low' | 'medium' | 'high';
       reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+      optimize_for?: 'cost' | 'availability';
     } | {
       mode: 'manual';
       /** @minItems 1 */
@@ -8105,6 +8106,7 @@ export namespace Schemas {
       model: string;
       reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
     })[];
+      optimize_for?: 'cost' | 'availability';
     };
 
     export type AgentRevisionSpecTriggersItem = {
@@ -34603,6 +34605,7 @@ export namespace Schemas {
       mode: 'auto';
       level?: 'low' | 'medium' | 'high';
       reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+      optimize_for?: 'cost' | 'availability';
     } | {
       mode: 'manual';
       /** @minItems 1 */
@@ -34611,6 +34614,7 @@ export namespace Schemas {
       model: string;
       reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
     })[];
+      optimize_for?: 'cost' | 'availability';
     };
 
     export type PatchedAgentRevisionSpecTriggersItem = {

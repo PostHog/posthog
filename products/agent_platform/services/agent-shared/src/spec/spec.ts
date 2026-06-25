@@ -678,17 +678,36 @@ export const ModelEntrySchema = z.object({
 /** Quality/cost level for `auto` policy; mapped to a maintained model list (below). */
 export const ModelLevelSchema = z.enum(['low', 'medium', 'high'])
 
+/**
+ * How the runner treats the priority list across a session's turns.
+ *
+ *  - `cost` (default): the first turn walks the list until a model answers, then
+ *    pins that model for the rest of the session — every later turn uses ONLY it,
+ *    no cross-model failover. One provider per session keeps its prompt cache warm
+ *    (cache reads are ~0.1–0.5× of full input), which dominates multi-turn cost.
+ *    The trade: if the pinned model goes down mid-session the turn fails (after
+ *    pi-ai's same-provider retries) rather than switching — switching a large
+ *    cached session to a cold provider re-reads the whole context at full price.
+ *  - `availability`: the runner still leads with the last-served model (sticky, so
+ *    it doesn't thrash) but DOES fail over to the next model on failure, trading
+ *    that cold-cache re-read for keeping the session alive.
+ */
+export const ModelOptimizeForSchema = z.enum(['cost', 'availability'])
+
 /** `auto`: platform resolves `level` to a priority-ordered list at runtime.
- *  `manual`: author's explicit priority list. */
+ *  `manual`: author's explicit priority list.
+ *  `optimize_for` (both): session model stability vs. resilience — see above. */
 export const ModelPolicySchema = z.discriminatedUnion('mode', [
     z.object({
         mode: z.literal('auto'),
         level: ModelLevelSchema.default('medium'),
         reasoning: ReasoningEffortSchema.optional(),
+        optimize_for: ModelOptimizeForSchema.default('cost'),
     }),
     z.object({
         mode: z.literal('manual'),
         models: z.array(ModelEntrySchema).min(1),
+        optimize_for: ModelOptimizeForSchema.default('cost'),
     }),
 ])
 
@@ -806,7 +825,7 @@ export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema
 
 export const AgentSpecSchema = z.object({
     /** Model selection: auto level (default) or manual priority list. Resolve via `modelPolicyToList`. */
-    models: ModelPolicySchema.default({ mode: 'auto', level: 'medium' }),
+    models: ModelPolicySchema.default({ mode: 'auto', level: 'medium', optimize_for: 'cost' }),
     triggers: z.array(TriggerSchema).default([]),
     tools: z.array(ToolRefSchema).default([]),
     mcps: z.array(McpRefSchema).default([]),
@@ -829,6 +848,7 @@ export const AgentSpecSchema = z.object({
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
 export type ModelEntry = z.infer<typeof ModelEntrySchema>
 export type ModelLevel = z.infer<typeof ModelLevelSchema>
+export type ModelOptimizeFor = z.infer<typeof ModelOptimizeForSchema>
 export type ModelPolicy = z.infer<typeof ModelPolicySchema>
 
 /** Priority-ordered models the runner tries (primary first). Reasoning: per-entry → auto override → spec default. */

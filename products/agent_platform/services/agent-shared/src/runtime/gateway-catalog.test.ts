@@ -70,6 +70,7 @@ describe('validateModelPolicy', () => {
         const policy: ModelPolicy = {
             mode: 'manual',
             models: [{ model: 'anthropic/claude-haiku-4-5' }, { model: 'openai/gpt-foo' }, { model: 'openai/gpt-5' }],
+            optimize_for: 'cost',
         }
         const issues = validateModelPolicy(policy, CATALOG)
         expect(issues).toHaveLength(1)
@@ -77,18 +78,20 @@ describe('validateModelPolicy', () => {
     })
 
     it('accepts an auto policy whose level has at least one servable member', () => {
-        expect(validateModelPolicy({ mode: 'auto', level: 'high' }, CATALOG)).toEqual([])
+        expect(validateModelPolicy({ mode: 'auto', level: 'high', optimize_for: 'cost' }, CATALOG)).toEqual([])
     })
 
     it('flags an auto policy only when the whole level is unservable', () => {
-        const issues = validateModelPolicy({ mode: 'auto', level: 'high' }, [CATALOG[3]]) // only openai/gpt-5
+        const issues = validateModelPolicy({ mode: 'auto', level: 'high', optimize_for: 'cost' }, [CATALOG[3]]) // only openai/gpt-5
         // high = [opus-4-7, gpt-5-pro, sonnet-4-6]; none is openai/gpt-5 → whole level dead
         expect(issues).toHaveLength(1)
         expect(issues[0].pointer).toBe('spec.models.level')
     })
 
     it('fails open: empty catalog (unreachable gateway) blocks nothing', () => {
-        expect(validateModelPolicy({ mode: 'manual', models: [{ model: 'made/up' }] }, [])).toEqual([])
+        expect(
+            validateModelPolicy({ mode: 'manual', models: [{ model: 'made/up' }], optimize_for: 'cost' }, [])
+        ).toEqual([])
     })
 })
 

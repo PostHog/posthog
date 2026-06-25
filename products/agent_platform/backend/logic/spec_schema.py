@@ -135,7 +135,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         # auto/medium). auto: platform resolves `level` to a cross-provider list
         # at runtime. manual: author's explicit priority list.
         "models": {
-            "default": {"mode": "auto", "level": "medium"},
+            "default": {"mode": "auto", "level": "medium", "optimize_for": "cost"},
             "oneOf": [
                 {
                     "type": "object",
@@ -149,6 +149,15 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         "reasoning": {
                             "type": "string",
                             "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                        },
+                        # Session model stability vs. resilience. cost (default):
+                        # pin the first served model for the whole session (warm
+                        # cache, no failover). availability: lead sticky but fail
+                        # over on failure. Mirrors `ModelOptimizeForSchema`.
+                        "optimize_for": {
+                            "default": "cost",
+                            "type": "string",
+                            "enum": ["cost", "availability"],
                         },
                     },
                     "required": ["mode"],
@@ -173,6 +182,11 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                 "required": ["model"],
                                 "additionalProperties": False,
                             },
+                        },
+                        "optimize_for": {
+                            "default": "cost",
+                            "type": "string",
+                            "enum": ["cost", "availability"],
                         },
                     },
                     "required": ["mode", "models"],

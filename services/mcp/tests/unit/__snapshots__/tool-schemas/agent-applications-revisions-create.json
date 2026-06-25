@@ -277,6 +277,11 @@
                                     "const": "auto",
                                     "type": "string"
                                 },
+                                "optimize_for": {
+                                    "default": "cost",
+                                    "enum": ["cost", "availability"],
+                                    "type": "string"
+                                },
                                 "reasoning": {
                                     "enum": ["minimal", "low", "medium", "high", "xhigh"],
                                     "type": "string"
@@ -308,6 +313,11 @@
                                     },
                                     "minItems": 1,
                                     "type": "array"
+                                },
+                                "optimize_for": {
+                                    "default": "cost",
+                                    "enum": ["cost", "availability"],
+                                    "type": "string"
                                 }
                             },
                             "required": ["mode", "models"],
@@ -316,7 +326,8 @@
                     ],
                     "default": {
                         "level": "medium",
-                        "mode": "auto"
+                        "mode": "auto",
+                        "optimize_for": "cost"
                     }
                 },
                 "reasoning": {

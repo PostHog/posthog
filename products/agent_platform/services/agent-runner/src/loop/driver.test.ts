@@ -862,13 +862,45 @@ describe('driver runSession', () => {
                     model: { ...m.model, id: i === 0 ? 'a' : 'b' },
                 })),
                 streamFn: fallbackStreamFn(),
-                analytics: { write: async (batch) => void events.push(...batch) },
+                analytics: { write: async (batch: AnalyticsEvent[]) => void events.push(...batch) },
             })
             expect(out.state).toBe('completed')
             const gens = events.filter((e): e is AnalyticsGenerationEvent => e.kind === 'generation')
             expect(gens).toHaveLength(1)
             expect(gens[0].model_attempt).toBe(1)
             expect(gens[0].fallback_from).toBe('a')
+        })
+
+        it('cost mode pins to the conversation last-served model on resume (no primary probe)', async () => {
+            // A resumed session whose last assistant turn ran on `b`. With the
+            // default `optimize_for: cost`, the next turn must dispatch ONLY `b`
+            // — not probe the priority primary `a` — so the cache stays warm.
+            const dispatched: string[] = []
+            const recordFn: Parameters<typeof runSession>[2]['streamFn'] = (model) => {
+                dispatched.push(model.id)
+                const stream = createAssistantMessageEventStream()
+                queueMicrotask(() => {
+                    const done = fauxAssistantMessage('ok', { stopReason: 'stop' })
+                    stream.push({ type: 'start', partial: fauxAssistantMessage('') })
+                    stream.push({ type: 'done', reason: 'stop', message: done })
+                    stream.end(done)
+                })
+                return stream
+            }
+            const session = makeSession({
+                conversation: [
+                    { role: 'user', content: 'hi', timestamp: Date.now() },
+                    { role: 'assistant', content: [], model: 'b', timestamp: Date.now() } as never,
+                ],
+            })
+            const out = await run(makeRev(), session, {
+                models: [{ model: fauxModel([stop('x')]) }, { model: fauxModel([stop('y')]) }].map((m, i) => ({
+                    model: { ...m.model, id: i === 0 ? 'a' : 'b' },
+                })),
+                streamFn: recordFn,
+            })
+            expect(out.state).toBe('completed')
+            expect(dispatched).toEqual(['b'])
         })
 
         // Regression: a real provider echoes the PROVIDER-SAFE tool name
