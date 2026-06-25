@@ -2584,6 +2584,9 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
     warm_branch_provided = "branch" in validated_data
     warm_branch = validated_data.pop("branch", None)
+    warm_runtime_adapter = validated_data.pop("runtime_adapter", None)
+    warm_model = validated_data.pop("model", None)
+    warm_reasoning_effort = validated_data.pop("reasoning_effort", None)
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
@@ -2594,7 +2597,15 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         and validated_data.get("repository")
         and user_id is not None
     ):
-        warm_run = _find_idling_warm_run(team_id, user_id, repository=validated_data["repository"], branch=warm_branch)
+        warm_run = _find_idling_warm_run(
+            team_id,
+            user_id,
+            repository=validated_data["repository"],
+            branch=warm_branch,
+            runtime_adapter=warm_runtime_adapter,
+            model=warm_model,
+            reasoning_effort=warm_reasoning_effort,
+        )
         if warm_run is not None:
             warm_task = warm_run.task
             message = (validated_data.get("description") or "").strip()
@@ -2831,7 +2842,14 @@ def resolve_team_github_integration_id(team_id: int, github_integration_id: int)
 
 
 def _find_idling_warm_run(
-    team_id: int, user_id: int | None, *, repository: str | None, branch: str | None
+    team_id: int,
+    user_id: int | None,
+    *,
+    repository: str | None,
+    branch: str | None,
+    runtime_adapter: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
@@ -2841,13 +2859,14 @@ def _find_idling_warm_run(
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
     warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
 
-    Runs on a hot path (warm fires on every typing debounce), so every predicate is pushed into the
-    query — ``await_user_message`` is JSON-queryable (see ``SandboxWarmer.at_capacity``) — and only the
-    single most-recent match is fetched.
+    Reuse also requires the warm Run's ``runtime_adapter``/``model``/``reasoning_effort`` to match the
+    requested selection (each ``None``-normalized); a mismatch returns ``None`` so the caller cold-creates
+    on the correct runtime. The repo/branch/``await_user_message`` predicates stay in the query; the
+    runtime selection is matched in Python over the small candidate set.
     """
     if user_id is None or not repository:
         return None
-    return (
+    candidates = (
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
             task__team_id=team_id,
             task__created_by_id=user_id,
@@ -2859,9 +2878,15 @@ def _find_idling_warm_run(
         )
         .exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
         .select_related("task")
-        .order_by("-created_at")
-        .first()
+        .order_by("-created_at")[:20]
     )
+    wanted = (runtime_adapter or None, model or None, reasoning_effort or None)
+    for run in candidates:
+        state = run.state or {}
+        have = (state.get("runtime_adapter") or None, state.get("model") or None, state.get("reasoning_effort") or None)
+        if have == wanted:
+            return run
+    return None
 
 
 def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
@@ -2902,11 +2927,16 @@ def warm_task_sandbox(
     repository: str,
     github_integration_id: int,
     branch: str | None,
+    runtime_adapter: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> contracts.WarmTaskDTO | None:
     """Warm a full idling Run for a Code-app cloud task while the user composes.
 
     Births a draft Task (``USER_CREATED``), then ``SandboxWarmer.warm()`` provisions an interactive
-    Run that boots + clones + checks out ``branch`` + starts the agent, then idles awaiting the first
+    Run that boots + clones + checks out ``branch`` + starts the agent on the selected
+    ``runtime_adapter``/``model``/``reasoning_effort`` (carried on the Run state and read by the
+    agent-server at launch, so the sandbox boots on the right runtime), then idles awaiting the first
     ``user_message``. The Run is dispatched with ``create_pr=True`` so that, once activated on submit,
     it completes autonomously and opens a PR like a normal Code-app cloud task.
 
@@ -2928,8 +2958,20 @@ def warm_task_sandbox(
     from products.tasks.backend.logic.services.warm import (
         SandboxWarmer,  # noqa: PLC0415 — keep warming deps off the api import path
     )
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        RuntimeAdapter,
+        get_provider_for_runtime_adapter,
+    )
 
-    existing = _find_idling_warm_run(team_id, user_id, repository=repository, branch=branch)
+    existing = _find_idling_warm_run(
+        team_id,
+        user_id,
+        repository=repository,
+        branch=branch,
+        runtime_adapter=runtime_adapter,
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
     if existing is not None:
         return contracts.WarmTaskDTO(task_id=existing.task_id, run_id=existing.id)
 
@@ -2948,14 +2990,26 @@ def warm_task_sandbox(
     )
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
+    provider = get_provider_for_runtime_adapter(runtime_adapter)
+    initial_permission_mode = "auto" if runtime_adapter == RuntimeAdapter.CODEX.value else "default"
+    extra_state: dict = {
+        "branch": branch,
+        "initial_permission_mode": initial_permission_mode,
+        "use_modal_network_allowlist": False,
+    }
+    for key, value in {
+        "runtime_adapter": runtime_adapter,
+        "provider": provider.value if provider is not None else None,
+        "model": model,
+        "reasoning_effort": reasoning_effort,
+    }.items():
+        if value is not None:
+            extra_state[key] = value
+
     try:
         result = SandboxWarmer(task, user=task.created_by).warm(
             mode="interactive",
-            extra_state={
-                "branch": branch,
-                "initial_permission_mode": "default",
-                "use_modal_network_allowlist": False,
-            },
+            extra_state=extra_state,
             create_pr=True,
         )
     except (Throttled, PermissionDenied, QuotaLimitExceeded):
@@ -3004,18 +3058,26 @@ def run_task(
 
     if not resume_from_run_id:
         warm_run = _idling_warm_run_for_task(task)
-        # Only activate when the requested branch matches the branch the warm Run was provisioned on —
-        # otherwise the run would work the wrong branch in the warm sandbox. On mismatch, fall through
-        # to the cold path so a fresh run is created for the requested branch.
         if warm_run is not None and (branch or None) == (warm_run.branch or None):
-            _activate_warm_run(
-                warm_run,
-                task,
-                team_id,
-                message=pending_user_message or (task.description or None),
-                artifact_ids=validated_data.get("pending_user_artifact_ids") or [],
+            warm_state = warm_run.state or {}
+            warm_runtime_matches = (
+                warm_state.get("runtime_adapter") or None,
+                warm_state.get("model") or None,
+                warm_state.get("reasoning_effort") or None,
+            ) == (
+                validated_data.get("runtime_adapter") or None,
+                validated_data.get("model") or None,
+                validated_data.get("reasoning_effort") or None,
             )
-            return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
+            if warm_runtime_matches:
+                _activate_warm_run(
+                    warm_run,
+                    task,
+                    team_id,
+                    message=pending_user_message or (task.description or None),
+                    artifact_ids=validated_data.get("pending_user_artifact_ids") or [],
+                )
+                return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None

@@ -442,6 +442,7 @@ doesn't conflict with concurrent PRs.
 - helpscout
 - hibob
 - high_level
+- hightouch
 - hoorayhr
 - hubplanner
 - hugging_face
