@@ -416,6 +416,7 @@ export interface DashboardFiltersOpenApiApi {
  * * `error_tracking_list` - error_tracking_list
  * * `experiment_results` - experiment_results
  * * `experiments_list` - experiments_list
+ * * `logs_list` - logs_list
  * * `session_replay_list` - session_replay_list
  */
 export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
@@ -426,6 +427,7 @@ export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
     ErrorTrackingList: 'error_tracking_list',
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
+    LogsList: 'logs_list',
     SessionReplayList: 'session_replay_list',
 } as const
 
@@ -696,12 +698,69 @@ export interface ExperimentResultsWidgetConfigApi {
     experimentId?: number | null
 }
 
+/**
+ * Sort by newest (latest) or oldest (earliest) first.
+ */
+export type LogsListWidgetConfigApiOrderBy =
+    (typeof LogsListWidgetConfigApiOrderBy)[keyof typeof LogsListWidgetConfigApiOrderBy]
+
+export const LogsListWidgetConfigApiOrderBy = {
+    Latest: 'latest',
+    Earliest: 'earliest',
+} as const
+
+export type LogsListWidgetConfigApiSeverityLevelsItem =
+    (typeof LogsListWidgetConfigApiSeverityLevelsItem)[keyof typeof LogsListWidgetConfigApiSeverityLevelsItem]
+
+export const LogsListWidgetConfigApiSeverityLevelsItem = {
+    Trace: 'trace',
+    Debug: 'debug',
+    Info: 'info',
+    Warn: 'warn',
+    Error: 'error',
+    Fatal: 'fatal',
+} as const
+
+/**
+ * Render log timestamps in UTC or in each viewer's local timezone.
+ */
+export type LogsListWidgetConfigApiTimezone =
+    (typeof LogsListWidgetConfigApiTimezone)[keyof typeof LogsListWidgetConfigApiTimezone]
+
+export const LogsListWidgetConfigApiTimezone = {
+    Utc: 'UTC',
+    Local: 'local',
+} as const
+
+export interface LogsListWidgetConfigApi {
+    dateRange?: WidgetDateRangeApi | null
+    /**
+     * Maximum number of log lines to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /** Sort by newest (latest) or oldest (earliest) first. */
+    orderBy?: LogsListWidgetConfigApiOrderBy
+    /** Only show logs at these severity levels. Empty shows all levels. */
+    severityLevels?: LogsListWidgetConfigApiSeverityLevelsItem[]
+    /** Only show logs from these services. Empty shows all services. */
+    serviceNames?: string[]
+    /** Wrap long log lines instead of truncating them to a single row. */
+    wrapLines?: boolean
+    /** Render log timestamps in UTC or in each viewer's local timezone. */
+    timezone?: LogsListWidgetConfigApiTimezone
+    /** short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply. */
+    savedViewId?: string | null
+}
+
 export type DashboardWidgetConfigApi =
     | ActivityEventsListWidgetConfigApi
     | ErrorTrackingListWidgetConfigApi
     | SessionReplayListWidgetConfigApi
     | ExperimentsListWidgetConfigApi
     | ExperimentResultsWidgetConfigApi
+    | LogsListWidgetConfigApi
 
 export interface DashboardPatchWidgetOpenApiApi {
     /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
@@ -712,6 +771,7 @@ export interface DashboardPatchWidgetOpenApiApi {
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
+     * * `logs_list` - logs_list
      * * `session_replay_list` - session_replay_list */
     widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnumApi
     /** Widget-specific configuration. Shape depends on the tile's widget_type. */
@@ -8242,19 +8302,45 @@ export interface ExperimentResultsWidgetAddRequestOpenApiApi {
     config: ExperimentResultsWidgetConfigApi
 }
 
+export type LogsListWidgetAddRequestOpenApiApiWidgetType =
+    (typeof LogsListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof LogsListWidgetAddRequestOpenApiApiWidgetType]
+
+export const LogsListWidgetAddRequestOpenApiApiWidgetType = {
+    LogsList: 'logs_list',
+} as const
+
+export interface LogsListWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: LogsListWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the recent logs widget. */
+    config: LogsListWidgetConfigApi
+}
+
 export type AddDashboardWidgetRequestApi =
     | ActivityEventsListWidgetAddRequestOpenApiApi
     | ErrorTrackingListWidgetAddRequestOpenApiApi
     | SessionReplayListWidgetAddRequestOpenApiApi
     | ExperimentsListWidgetAddRequestOpenApiApi
     | ExperimentResultsWidgetAddRequestOpenApiApi
+    | LogsListWidgetAddRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -8381,12 +8467,36 @@ export interface ExperimentResultsWidgetUpdateRequestOpenApiApi {
     config?: ExperimentResultsWidgetConfigApi
 }
 
+export type LogsListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof LogsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof LogsListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const LogsListWidgetUpdateRequestOpenApiApiWidgetType = {
+    LogsList: 'logs_list',
+} as const
+
+export interface LogsListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: LogsListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the recent logs widget. Omit to leave unchanged. */
+    config?: LogsListWidgetConfigApi
+}
+
 export type UpdateDashboardWidgetRequestApi =
     | ActivityEventsListWidgetUpdateRequestOpenApiApi
     | ErrorTrackingListWidgetUpdateRequestOpenApiApi
     | SessionReplayListWidgetUpdateRequestOpenApiApi
     | ExperimentsListWidgetUpdateRequestOpenApiApi
     | ExperimentResultsWidgetUpdateRequestOpenApiApi
+    | LogsListWidgetUpdateRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -8544,12 +8654,32 @@ export interface ExperimentResultsWidgetCatalogEntryOpenApiApi {
     required_product_access?: string | null
 }
 
+export type LogsListWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof LogsListWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof LogsListWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const LogsListWidgetCatalogEntryOpenApiApiWidgetType = {
+    LogsList: 'logs_list',
+} as const
+
+export interface LogsListWidgetCatalogEntryOpenApiApi {
+    widget_type: LogsListWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: LogsListWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+}
+
 export type WidgetCatalogEntryApi =
     | ActivityEventsListWidgetCatalogEntryOpenApiApi
     | ErrorTrackingListWidgetCatalogEntryOpenApiApi
     | SessionReplayListWidgetCatalogEntryOpenApiApi
     | ExperimentsListWidgetCatalogEntryOpenApiApi
     | ExperimentResultsWidgetCatalogEntryOpenApiApi
+    | LogsListWidgetCatalogEntryOpenApiApi
 
 export interface WidgetCatalogResponseApi {
     /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -8635,6 +8765,15 @@ export type ExperimentResultsWidgetTypeEnumApi =
 
 export const ExperimentResultsWidgetTypeEnumApi = {
     ExperimentResults: 'experiment_results',
+} as const
+
+/**
+ * * `logs_list` - logs_list
+ */
+export type LogsListWidgetTypeEnumApi = (typeof LogsListWidgetTypeEnumApi)[keyof typeof LogsListWidgetTypeEnumApi]
+
+export const LogsListWidgetTypeEnumApi = {
+    LogsList: 'logs_list',
 } as const
 
 export type DashboardTemplatesListParams = {

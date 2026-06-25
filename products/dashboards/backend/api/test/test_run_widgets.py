@@ -29,6 +29,8 @@ from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,
     ACTIVITY_EVENTS_MAX_LIMIT,
     DEFAULT_WIDGET_LIST_LIMIT,
+    LOGS_LIST_DEFAULT_LIMIT,
+    LOGS_LIST_MAX_LIMIT,
     MAX_WIDGET_RESULT_LIMIT,
     MAX_WIDGETS_BATCH_SIZE,
 )
@@ -37,6 +39,7 @@ from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, W
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
+    LOGS_LIST_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     ErrorTrackingListWidgetConfig,
     SessionReplayOrderBy,
@@ -47,8 +50,10 @@ from products.dashboards.backend.widgets.activity_events_list import (
     run_activity_events_list_widget,
 )
 from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget
+from products.dashboards.backend.widgets.logs_list import run_logs_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 from products.error_tracking.backend.facade.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
+from products.logs.backend.models import LogsView
 
 
 class TestWidgetRegistry(APIBaseTest):
@@ -90,6 +95,42 @@ class TestWidgetRegistry(APIBaseTest):
         assert validated["orderBy"] == default_order_by
         assert "filterTestAccounts" not in validated
 
+    def test_validate_logs_list_config_defaults(self) -> None:
+        # Logs has its own larger page than other list widgets.
+        validated = validate_widget_config(LOGS_LIST_WIDGET_TYPE, {})
+        assert validated["limit"] == LOGS_LIST_DEFAULT_LIMIT
+        assert validated["orderBy"] == "latest"
+        assert validated["wrapLines"] is False
+        assert validated["timezone"] == "UTC"
+        assert "savedViewId" not in validated
+        assert "filterTestAccounts" not in validated
+
+    @parameterized.expand(
+        [
+            ("invalid_order_by", {"orderBy": "not_a_field"}),
+            ("invalid_severity_level", {"severityLevels": ["not_a_level"]}),
+            ("invalid_timezone", {"timezone": "America/New_York"}),
+            ("invalid_saved_view_id", {"savedViewId": 123}),
+        ]
+    )
+    def test_validate_logs_list_config_rejects_invalid_values(self, _label: str, config: dict) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config(LOGS_LIST_WIDGET_TYPE, config)
+
+    def test_validate_logs_list_config_accepts_severity_and_services(self) -> None:
+        validated = validate_widget_config(
+            LOGS_LIST_WIDGET_TYPE,
+            {"severityLevels": ["error", "warn"], "serviceNames": ["api", "web"], "orderBy": "earliest"},
+        )
+        assert validated["severityLevels"] == ["error", "warn"]
+        assert validated["serviceNames"] == ["api", "web"]
+        assert validated["orderBy"] == "earliest"
+
+    def test_validate_logs_list_config_rejects_test_account_filter(self) -> None:
+        # Logs queries have no test-account concept, so the field must not be accepted.
+        with self.assertRaises(Exception):
+            validate_widget_config(LOGS_LIST_WIDGET_TYPE, cast(dict[str, object], {"filterTestAccounts": True}))
+
     def test_validate_activity_events_list_config_defaults(self) -> None:
         validated = validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, {})
         assert validated["limit"] == ACTIVITY_EVENTS_DEFAULT_LIMIT
@@ -129,10 +170,28 @@ class TestWidgetRegistry(APIBaseTest):
         with self.assertRaises(Exception):
             validate_widget_config(widget_type, {"limit": 100})
 
+    def test_validate_logs_list_config_accepts_limit_up_to_max(self) -> None:
+        validated = validate_widget_config(LOGS_LIST_WIDGET_TYPE, {"limit": LOGS_LIST_MAX_LIMIT})
+        assert validated["limit"] == LOGS_LIST_MAX_LIMIT
+
+    def test_validate_logs_list_config_rejects_limit_above_max(self) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config(LOGS_LIST_WIDGET_TYPE, {"limit": LOGS_LIST_MAX_LIMIT + 1})
+
+    def test_validate_logs_list_config_accepts_display_and_saved_view(self) -> None:
+        validated = validate_widget_config(
+            LOGS_LIST_WIDGET_TYPE,
+            {"wrapLines": True, "timezone": "local", "savedViewId": "abc123"},
+        )
+        assert validated["wrapLines"] is True
+        assert validated["timezone"] == "local"
+        assert validated["savedViewId"] == "abc123"
+
     @parameterized.expand(
         [("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
         + [("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
         + [("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
+        + [("logs", LOGS_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
     )
     def test_validate_list_config_accepts_short_date_ranges(
         self, _label: str, widget_type: str, date_from: str
@@ -148,6 +207,7 @@ class TestWidgetRegistry(APIBaseTest):
             ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+            ("logs", LOGS_LIST_WIDGET_TYPE),
         ]
     )
     def test_validate_list_config_rejects_unsupported_date_range(self, _label: str, widget_type: str) -> None:
@@ -162,6 +222,7 @@ class TestWidgetRegistry(APIBaseTest):
             ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+            ("logs", LOGS_LIST_WIDGET_TYPE),
         ]
     )
     def test_validate_list_config_strips_unknown_date_range_keys(self, _label: str, widget_type: str) -> None:
@@ -352,7 +413,129 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(query.select, ACTIVITY_EVENTS_WIDGET_SELECT)
         self.assertEqual(query.orderBy, ["timestamp DESC"])
         self.assertEqual(query.after, "-24h")
+
+    @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
+    def test_runs_logs_widget_for_requested_tile(self, mock_runner_cls: MagicMock) -> None:
+        log_row = {
+            "uuid": "0196e9ab-0000-0000-0000-000000000000",
+            "timestamp": "2026-05-26T08:00:00Z",
+            "severity_text": "error",
+            "level": "error",
+            "body": "Boom",
+            "trace_id": "abc123",
+        }
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [log_row], "hasMore": False}
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="logs_list",
+            config={
+                "limit": 10,
+                "severityLevels": ["error"],
+                "serviceNames": ["api"],
+                "orderBy": "earliest",
+            },
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        body = self._run(dashboard_id, [tile_id])
+
+        self.assertEqual(len(body["results"]), 1)
+        self.assertEqual(body["results"][0]["tile_id"], tile_id)
+        self.assertEqual(body["results"][0]["widget_type"], LOGS_LIST_WIDGET_TYPE)
+        self.assertIsNone(body["results"][0]["error"])
+        result = body["results"][0]["result"]
+        self.assertEqual(result["limit"], 10)
+        self.assertEqual(result["results"][0], log_row)
+        self.assertEqual(result["totalCount"], 1)
+        self.assertFalse(result["totalCountCapped"])
+        mock_runner_cls.assert_called_once()
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.orderBy, "earliest")
+        self.assertEqual(query.severityLevels, ["error"])
+        self.assertEqual(query.serviceNames, ["api"])
+        self.assertTrue(query.excludeAttributes)
         self.assertEqual(query.limit, 10)
+
+    @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
+    def test_runs_logs_widget_with_saved_view(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False}
+        )
+        view = LogsView.objects.create(
+            team=self.team,
+            name="My view",
+            filters={
+                "severityLevels": ["warn"],
+                "serviceNames": ["worker"],
+                "searchTerm": "timeout",
+                "dateRange": {"date_from": "-3h", "date_to": None},
+            },
+        )
+        # Run the widget in-process: the run_widgets endpoint dispatches to a thread pool whose
+        # DB connection can't see the LogsView created in this test's (uncommitted) transaction.
+        run_logs_list_widget(
+            self.team,
+            {
+                "limit": 20,
+                "orderBy": "earliest",
+                "savedViewId": view.short_id,
+                # These are ignored once a saved view is selected — the view owns them.
+                "severityLevels": ["error"],
+                "serviceNames": ["api"],
+            },
+            user=self.user,
+        )
+
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.severityLevels, ["warn"])
+        self.assertEqual(query.serviceNames, ["worker"])
+        self.assertEqual(query.searchTerm, "timeout")
+        # Widget still owns sort + page size.
+        self.assertEqual(query.orderBy, "earliest")
+        self.assertEqual(query.limit, 20)
+
+    @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
+    def test_runs_logs_widget_falls_back_when_saved_view_missing(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False}
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="logs_list",
+            config={"limit": 15, "orderBy": "latest", "savedViewId": "missing", "severityLevels": ["error"]},
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        self._run(dashboard_id, [tile_id])
+
+        # Unknown view falls back to the widget's own config rather than erroring.
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.severityLevels, ["error"])
+        self.assertEqual(query.limit, 15)
+
+    @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
+    def test_runs_logs_widget_falls_back_when_saved_view_filters_invalid(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False}
+        )
+        # `filters` has no inner schema validation on write, so a stored level outside the enum is possible.
+        view = LogsView.objects.create(team=self.team, name="Bad view", filters={"severityLevels": ["critical"]})
+
+        # In-process so the lookup sees the view (see test_runs_logs_widget_with_saved_view). A malformed
+        # view degrades to the widget's own config rather than raising.
+        run_logs_list_widget(
+            self.team,
+            {"limit": 12, "orderBy": "latest", "savedViewId": view.short_id, "severityLevels": ["warn"]},
+            user=self.user,
+        )
+
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.severityLevels, ["warn"])
+        self.assertEqual(query.limit, 12)
 
     @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
     def test_activity_events_widget_applies_date_range_and_widget_filters(self, mock_runner_cls: MagicMock) -> None:
