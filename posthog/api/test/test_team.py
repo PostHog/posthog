@@ -567,6 +567,7 @@ def team_api_test_factory():
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
             # from posthog.models.insight_caching_state import InsightCachingState
+            from posthog.person_db_router import allow_persons_orm
             from posthog.test.persons import add_cohort_members, add_distinct_id, create_person
 
             from products.cohorts.backend.models.cohort import Cohort
@@ -585,12 +586,15 @@ def team_api_test_factory():
                 key="test",
                 created_by=self.user,
             )
-            FeatureFlagHashKeyOverride.objects.create(
-                team_id=team.pk,
-                person_id=person.id,
-                feature_flag_key=flag.key,
-                hash_key="test",
-            )
+            # FeatureFlagHashKeyOverride is a persons-DB table now deleted via personhog; seed a
+            # real row (block off) so the deletion path has something to act on.
+            with allow_persons_orm():
+                FeatureFlagHashKeyOverride.objects.create(
+                    team_id=team.pk,
+                    person_id=person.id,
+                    feature_flag_key=flag.key,
+                    hash_key="test",
+                )
             add_cohort_members(cohort, [person])
             EarlyAccessFeature.objects.create(
                 team=team,

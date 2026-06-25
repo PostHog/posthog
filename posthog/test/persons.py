@@ -302,11 +302,31 @@ def _create_person_in_orm(create_kwargs: dict[str, Any], dids: list[str]) -> Per
 
 
 def delete_person(person: Person) -> None:
-    """Delete a person from the personhog fake."""
+    """Soft-delete a person in ClickHouse and unseed the personhog fake.
+
+    Mirrors posthog.models.person.util.delete_person: writes CH tombstones with
+    version + 100 (so the delete wins over normal updates) for the person and each
+    of its distinct IDs, then removes it from the fake.
+    """
     fake = _get_active_fake()
     if fake is None:
         return
     from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2  # noqa: PLC0415
+
+    dids_with_version = list(fake._distinct_ids.get((person.team_id, person.pk), []))
+    _ch_create_person(
+        team_id=person.team_id,
+        properties=person.properties or {},
+        uuid=str(person.uuid),
+        is_identified=person.is_identified,
+        version=(person.version or 0) + 100,
+        created_at=person.created_at,
+        is_deleted=True,
+    )
+    for did in dids_with_version:
+        _ch_create_person_distinct_id(
+            person.team_id, did.distinct_id, str(person.uuid), version=(did.version or 0) + 100, is_deleted=True
+        )
 
     fake.delete_persons(person_pb2.DeletePersonsRequest(team_id=person.team_id, person_uuids=[str(person.uuid)]))
 
