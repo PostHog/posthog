@@ -21,7 +21,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
-from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
+from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -518,7 +518,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return
 
         # Lazy: data_load.service pulls in Temporal client / Celery setup we don't want at module load.
-        from products.data_warehouse.backend.logic.data_load.service import delete_cdc_extraction_schedule
+        from products.data_warehouse.backend.facade.api import delete_cdc_extraction_schedule
 
         # Schedule key = source id. NotFound is a no-op.
         try:

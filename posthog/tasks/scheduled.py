@@ -79,7 +79,7 @@ from products.conversations.backend.tasks import (
     wake_snoozed_tickets,
 )
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
-from products.data_warehouse.backend.tasks import send_external_data_failure_digest_catchup
+from products.data_warehouse.backend.facade.tasks import send_external_data_failure_digest_catchup
 from products.endpoints.backend.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,

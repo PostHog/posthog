@@ -708,7 +708,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -793,6 +793,19 @@ expose = [
 ]
 from = [
     "products.warehouse_sources",
+]
+
+# data_warehouse — facade landed (Phase 2). External consumers route through
+# backend.facade.* now; core tests still import a couple of its test helpers directly.
+# Shrinks as those fixtures relocate; the presentation wave (thinning the views, which
+# keep their import-linter allowances for now) and the final contract-check flip follow.
+[[interfaces]]
+expose = [
+    "backend\\.test.*",
+    "backend\\.tests.*",
+]
+from = [
+    "products.data_warehouse",
 ]
 
 # legal_documents has a non-standard public surface — posthog/urls registers its pandadoc

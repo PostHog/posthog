@@ -2,7 +2,7 @@ import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
 
-from products.data_warehouse.backend.s3 import get_s3_client
+from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import strip_s3_protocol
 
 logger = structlog.get_logger(__name__)
