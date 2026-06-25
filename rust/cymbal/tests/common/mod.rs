@@ -24,11 +24,11 @@ use cymbal::stages::resolution::{
     remote::{
         config::RemoteResolutionConfig, pool::EndpointPool, resolver::RemoteResolutionContext,
     },
-    symbol::SymbolResolver,
     ResolutionStage,
 };
-use cymbal::symbol_store::chunk_id::OrChunkId;
-use cymbal::symbol_store::proguard::ProguardRef;
+use cymbal::symbolication::symbol::SymbolResolver;
+use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
+use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::{
     batch::Batch, exception_properties::ExceptionProperties, operator::TeamId, stage::Stage,
     Exception, ExceptionList, Stacktrace,
@@ -164,7 +164,12 @@ impl CymbalResolution for StubServer {
                         let item = match next {
                             Ok(item) => item,
                             Err(err) => {
-                                let _ignored = tx.send(Err(err)).await;
+                                // The client may close its request half as soon as every in-flight
+                                // item has a terminal outcome. Tonic can surface that as an h2 body
+                                // read error on the server task; don't turn client-side shutdown into
+                                // an extra response-stream failure after the fixture has already sent
+                                // the outcomes the test cares about.
+                                drop(err);
                                 return;
                             }
                         };

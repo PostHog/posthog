@@ -66,7 +66,7 @@ except ImportError:
     pass
 from posthog.slo.types import SloOutcome
 
-from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
+from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
 MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
@@ -96,10 +96,10 @@ class TestQueryRunner(BaseTest):
         super().tearDown()
         cache.clear()
 
-    def setup_test_query_runner_class(self):
+    def setup_test_query_runner_class(self, base: type[QueryRunner] = QueryRunner):
         """Setup required methods and attributes of the abstract base class."""
 
-        class TestQueryRunner(QueryRunner):
+        class TestQueryRunner(base):  # type: ignore[misc, valid-type]
             query: TheTestQuery
             cached_response: TheTestCachedBasicQueryResponse
 
@@ -339,6 +339,12 @@ class TestQueryRunner(BaseTest):
 
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_473689ec17cc982383519776503e498bd0e44f16e6b6f0073412599254a69aba"
+
+    def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
+
+        assert "restricted_objects" not in runner.get_cache_payload()
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -1244,16 +1250,8 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         # Object/resource AC only applies to non-admins.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        # create_for only preloads database.user_access_control under this flag, which the ctx
-        # runner's fingerprint reads; enable it so partitioning is exercised on the ctx path.
-        self._ff_patcher = mock.patch(
-            "posthog.hogql.database.database.posthoganalytics.feature_enabled",
-            side_effect=lambda flag, *args, **kwargs: flag == "hogql-access-control",
-        )
-        self._ff_patcher.start()
 
     def tearDown(self):
-        self._ff_patcher.stop()
         super().tearDown()
         cache.clear()
 
@@ -1515,7 +1513,6 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         self._ac(resource="notebook", access_level="none")
 
         with (
-            mock.patch("posthog.hogql.database.database.posthoganalytics.feature_enabled", return_value=True),
             restriction_cache_scope(),
             CaptureQueriesContext(connection) as ctx,
         ):
@@ -1547,10 +1544,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         # Warm the snapshot - the single bulk fetch the fingerprint already paid for.
         _ = user_access_control.blocked_resources
 
-        with (
-            mock.patch("posthog.hogql.database.database.posthoganalytics.feature_enabled", return_value=True),
-            CaptureQueriesContext(connection) as ctx,
-        ):
+        with CaptureQueriesContext(connection) as ctx:
             database = Database.create_for(team=self.team, user=self.user, user_access_control=user_access_control)
 
         # Same object reused, table still denied, and no second ee_accesscontrol fetch.

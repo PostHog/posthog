@@ -1,22 +1,23 @@
 import { DateTime } from 'luxon'
 
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import {
+    createPersonUpdateFields,
+    fetchDistinctIdValues,
+    fetchDistinctIds,
+    fetchPersons,
+} from '~/common/persons/repositories/test-helpers'
+
 import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../../src/config/kafka-topics'
-import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../../src/ingestion/analytics/outputs'
-import { IngestionOutputs } from '../../../src/ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '../../../src/ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { IngestionGeneralServer } from '../../../src/servers/ingestion-general-server'
 import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '../../../src/types'
 import { PostgresRouter, PostgresUse } from '../../../src/utils/db/postgres'
 import { parseJSON } from '../../../src/utils/json-parse'
 import { UUIDT, castTimestampOrNow } from '../../../src/utils/utils'
-import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
-import {
-    createPersonUpdateFields,
-    fetchDistinctIdValues,
-    fetchDistinctIds,
-    fetchPersons,
-} from '../../../src/worker/ingestion/persons/repositories/test-helpers'
 import { Clickhouse } from '../../helpers/clickhouse'
 import { waitForExpect } from '../../helpers/expectations'
 import { ensureKafkaTopics } from '../../helpers/kafka'

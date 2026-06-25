@@ -145,7 +145,16 @@ tools:
         description: >
             List all table schemas across all data warehouse sources. Each schema represents one table being synced from
             an external source. Returns the schema name, sync status, sync frequency, incremental field configuration,
-            and latest error. Use this to see which tables are actively syncing and their health.
+            last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To
+            check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column
+            definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns.
+        response:
+            exclude:
+                - table.columns
+                - available_columns
+    external-data-schemas-logs-retrieve:
+        operation: external_data_schemas_logs_retrieve
+        enabled: false
     external-data-schemas-partial-update:
         operation: external_data_schemas_partial_update
         enabled: true
@@ -242,9 +251,9 @@ tools:
         title: List direct-query connections
         description: >
             List external data sources that can be used as a connectionId when running execute-sql against an external
-            source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike
-            external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to
-            discover valid connectionId values.
+            source (direct-query Postgres and MySQL connections). Returns a lightweight id, prefix, and engine for each
+            — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this
+            to discover valid connectionId values.
     external-data-sources-create:
         operation: external_data_sources_create
         enabled: true
@@ -352,7 +361,13 @@ tools:
         description: >
             List all configured data warehouse import sources in the project. Returns each source's type (Postgres,
             Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this
-            to discover what external data sources are connected.
+            to discover what external data sources are connected. Per-schema column definitions are omitted to keep the
+            payload small — to look up a single table's sync status by name use external-data-schemas-list with a
+            search, and to see a table's columns use external-data-schemas-retrieve.
+        response:
+            exclude:
+                - schemas.*.table.columns
+                - schemas.*.available_columns
     external-data-sources-partial-update:
         operation: external_data_sources_partial_update
         enabled: true

@@ -35,6 +35,10 @@ from posthog.temporal.alerts import (
     ACTIVITIES as ALERT_ACTIVITIES,
     WORKFLOWS as ALERT_WORKFLOWS,
 )
+from posthog.temporal.backfill_group_type_created_at import (
+    ACTIVITIES as BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES,
+    WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS,
+)
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -43,13 +47,6 @@ from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import ManagedWorker, create_worker
-from posthog.temporal.data_imports.settings import (
-    ACTIVITIES as DATA_SYNC_ACTIVITIES,
-    EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
-    EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-    WORKFLOWS as DATA_SYNC_WORKFLOWS,
-)
-from posthog.temporal.data_imports.sources import load_all_sources
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
     WORKFLOWS as DATA_MODELING_WORKFLOWS,
@@ -195,7 +192,7 @@ from products.exports.backend.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
-from products.logs.backend.temporal import (
+from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
@@ -203,14 +200,23 @@ from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
+from products.signals.backend.emission.temporal_settings import (
+    EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+    EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
+)
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
-from products.tasks.backend.temporal import (
+from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.settings import (
+    ACTIVITIES as DATA_SYNC_ACTIVITIES,
+    WORKFLOWS as DATA_SYNC_WORKFLOWS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources import load_all_sources
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
     WORKFLOWS as WA_DIGEST_WORKFLOWS,
@@ -257,6 +263,7 @@ _task_queue_specs = [
         + EXPERIMENTS_WORKFLOWS
         + EXPERIMENTS_RECALCULATION_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
+        + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
@@ -271,6 +278,7 @@ _task_queue_specs = [
         + EXPERIMENTS_ACTIVITIES
         + EXPERIMENTS_RECALCULATION_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
+        + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES,
     ),

@@ -614,7 +614,7 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             destination_data = {
-                "type": "S3",
+                "type": "AwsS3",
                 "config": {
                     "bucket_name": "my-production-s3-bucket",
                     "region": "us-east-1",
@@ -665,7 +665,7 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             destination_data = {
-                "type": "S3",
+                "type": "AwsS3",
                 "config": {
                     "bucket_name": "my-production-s3-bucket",
                     "region": "us-east-1",

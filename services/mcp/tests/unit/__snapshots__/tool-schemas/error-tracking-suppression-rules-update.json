@@ -1780,7 +1780,6 @@
             "type": "object"
         },
         "id": {
-            "description": "A UUID string identifying this error tracking suppression rule.",
             "type": "string"
         },
         "sampling_rate": {

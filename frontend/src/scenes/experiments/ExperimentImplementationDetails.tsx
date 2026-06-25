@@ -25,6 +25,7 @@ import {
     ReactSnippet,
     RubySnippet,
 } from './ExperimentCodeSnippets'
+import { getExperimentVariants } from './utils'
 
 interface ExperimentImplementationDetailsProps {
     experiment: Partial<Experiment> | null
@@ -252,7 +253,7 @@ function PromptExperimentImplementation({
 }
 
 function GenericExperimentImplementation({ experiment }: ExperimentImplementationDetailsProps): JSX.Element {
-    const defaultVariant = experiment?.parameters?.feature_flag_variants?.[1]?.key ?? 'test'
+    const defaultVariant = getExperimentVariants(experiment)[1]?.key ?? 'test'
     const [currentVariant, setCurrentVariant] = useState(defaultVariant)
     const [defaultSelectedOption] = OPTIONS
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
@@ -277,12 +278,10 @@ function GenericExperimentImplementation({ experiment }: ExperimentImplementatio
                                 className="min-w-[5rem]"
                                 onSelect={setCurrentVariant}
                                 value={currentVariant}
-                                options={(experiment?.parameters?.feature_flag_variants || []).map(
-                                    (variant: MultivariateFlagVariant) => ({
-                                        value: variant.key,
-                                        label: variant.key,
-                                    })
-                                )}
+                                options={getExperimentVariants(experiment).map((variant: MultivariateFlagVariant) => ({
+                                    value: variant.key,
+                                    label: variant.key,
+                                }))}
                             />
                         </div>
                         <div>

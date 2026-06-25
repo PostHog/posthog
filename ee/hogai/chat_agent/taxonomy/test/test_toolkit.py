@@ -5,6 +5,10 @@ from langchain_core.agents import AgentAction
 from parameterized import parameterized
 from pydantic import BaseModel
 
+from posthog.schema import AssistantToolCall
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
 from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool
 
@@ -274,3 +278,24 @@ class TestTaxonomyAgentToolkit(BaseTest):
             self.assertIn(expected_tool, tool_names)
 
         self.assertEqual(len(tools), len(expected_default_tools) + len(expected_custom_tools))
+
+    @patch("ee.hogai.chat_agent.taxonomy.toolkit.restricted_property_names")
+    async def test_handle_entity_properties_excludes_restricted(self, mock_restricted):
+        mock_restricted.return_value = {"secret"}
+        await PropertyDefinition.objects.acreate(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="secret", property_type="String"
+        )
+        await PropertyDefinition.objects.acreate(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="visible", property_type="String"
+        )
+        task = AssistantToolCall(id="1", name="retrieve_entity_properties", args={"entity": "person"})
+        result = await self.toolkit._handle_entity_properties_task({"task": task})
+        self.assertIn("<name>visible</name>", result.result)
+        self.assertNotIn("<name>secret</name>", result.result)
+
+    @patch("ee.hogai.chat_agent.taxonomy.toolkit.restricted_property_names")
+    async def test_retrieve_multiple_entity_property_values_hides_restricted(self, mock_restricted):
+        mock_restricted.return_value = {"secret"}
+        results = await self.toolkit._retrieve_multiple_entity_property_values("person", ["secret"])
+        self.assertEqual(len(results), 1)
+        self.assertIn("No values found for property secret", results[0])

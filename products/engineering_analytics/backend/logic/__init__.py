@@ -8,12 +8,14 @@ only in canonical types.
 """
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
+    GitHubSource,
     PRLifecycle,
     PullRequestList,
     WorkflowHealthItem,
@@ -23,6 +25,10 @@ from products.engineering_analytics.backend.logic.queries.ci_cards import query_
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
+from products.engineering_analytics.backend.logic.sources import list_github_sources
+
+if TYPE_CHECKING:
+    from posthog.rbac.user_access_control import UserAccessControl
 
 # Default recency window when a caller omits date_from. Relative strings (-30d) and
 # ISO8601 are both accepted and resolved against the team's timezone.
@@ -45,20 +51,30 @@ def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
     return query_ci_cards(curated=curated)
 
 
+# Listing the team's connected sources is its own concern (no curated read handle): it threads the
+# requesting user's access control so the picker can't enumerate sources the user can't access.
+def build_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
+    return list_github_sources(team=team, user_access_control=user_access_control)
+
+
 def build_pull_request_list(*, curated: CuratedGitHubSource, date_from: str | None = None) -> PullRequestList:
     parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
     return query_pull_request_list(curated=curated, date_from=parsed_from)
 
 
 def build_workflow_health(
-    *, curated: CuratedGitHubSource, date_from: str | None = None, date_to: str | None = None
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowHealthItem]:
     parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
     parsed_to = _parse_date(curated.team, date_to) if date_to else None
     span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
     if span_days > _MAX_WINDOW_DAYS:
         raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
-    return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to)
+    return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=branch)
 
 
 def _parse_date(team: Team, value: str) -> datetime:

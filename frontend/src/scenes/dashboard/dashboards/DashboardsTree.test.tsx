@@ -7,13 +7,10 @@ import { DashboardsTree } from './DashboardsTree'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: jest.fn() }))
 jest.mock('./DashboardsTable', () => ({
-    DashboardsTable: ({ dashboards, folderForDashboard }: any) => (
+    DashboardsTable: ({ dashboards }: any) => (
         <div>
             {dashboards.map((dashboard: { id: number; name: string }) => (
-                <span key={dashboard.id}>
-                    {dashboard.name}
-                    {folderForDashboard ? ` @ ${folderForDashboard(dashboard)}` : ''}
-                </span>
+                <span key={dashboard.id}>{dashboard.name}</span>
             ))}
         </div>
     ),
@@ -159,20 +156,5 @@ describe('DashboardsTree', () => {
         const { container } = render(<DashboardsTree />)
         clickExpandToggle(container)
         expect(setExpandedFolders).toHaveBeenCalledWith({})
-    })
-
-    it('resolves each dashboard folder from entryByRef (the same source as scoping)', () => {
-        mockValues({
-            currentSubtreeDashboards: [
-                { id: 1, name: 'Revenue' },
-                { id: 2, name: 'Loose' },
-            ],
-            entryByRef: { '1': { path: 'Marketing/Q1/Revenue' } },
-        })
-        render(<DashboardsTree />)
-        // A filed dashboard shows its parent folder; one with no FileSystem entry shows the Unfiled bucket
-        // (Unfiled/Dashboards) — the same bucket the tree groups it under.
-        expect(screen.getByText('Revenue @ Marketing/Q1')).toBeInTheDocument()
-        expect(screen.getByText('Loose @ Unfiled/Dashboards')).toBeInTheDocument()
     })
 })

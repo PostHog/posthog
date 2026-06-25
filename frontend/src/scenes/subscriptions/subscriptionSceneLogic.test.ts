@@ -5,8 +5,8 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import {
+    RecurrenceIntervalEnumApi,
     ResourceTypeEnumApi,
-    SubscriptionFrequencyEnumApi,
     SubscriptionsDeliveriesListStatus,
     TargetTypeEnumApi,
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
@@ -40,7 +40,7 @@ const MOCK_SUBSCRIPTION: SubscriptionApi = {
     dashboard_export_insights: [],
     target_type: TargetTypeEnumApi.Email,
     target_value: 'a@b.com',
-    frequency: SubscriptionFrequencyEnumApi.Weekly,
+    frequency: RecurrenceIntervalEnumApi.Weekly,
     interval: 1,
     start_date: '2022-01-01T00:00:00Z',
     created_at: '2023-04-27T10:04:37.977401Z',
@@ -62,7 +62,7 @@ const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
     dashboard_export_insights: [],
     target_type: TargetTypeEnumApi.Email,
     target_value: 'a@b.com',
-    frequency: SubscriptionFrequencyEnumApi.Weekly,
+    frequency: RecurrenceIntervalEnumApi.Weekly,
     interval: 1,
     start_date: '2022-01-01T00:00:00Z',
     created_at: '2023-04-27T10:04:37.977401Z',

@@ -17,9 +17,10 @@ from posthog.models.data_deletion_request import (
     ExecutionMode,
     RequestStatus,
     RequestType,
-    compile_hogql_predicate,
+    cached_compile_hogql_predicate,
     event_match_params,
     event_match_sql_fragment,
+    invalidate_compiled_predicate_cache,
     jsonhas_expr,
     verify_queued_request,
 )
@@ -213,7 +214,7 @@ class DataDeletionRequestForm(forms.ModelForm):
 
 def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
     """Append the compiled HogQL predicate (if any) to ``fragment`` and merge params."""
-    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    hogql_sql, hogql_values = cached_compile_hogql_predicate(obj)
     if not hogql_sql:
         return fragment, params
     combined = f"{fragment} AND ({hogql_sql})".strip() if fragment else f"AND ({hogql_sql})"
@@ -552,6 +553,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         readonly = super().get_readonly_fields(request, obj)
         if self._is_locked(obj):
             return tuple(readonly) + EDITABLE_FIELDS
+        if obj is not None:
+            # team_id is immutable once the request exists — a request belongs to one team.
+            return (*tuple(readonly), "team_id")
         return readonly
 
     def save_model(self, request, obj, form, change):
@@ -561,6 +565,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         elif form.changed_data and CRITERIA_FIELDS & set(form.changed_data):
             obj.criteria_updated_by = request.user
             obj.criteria_updated_at = timezone.now()
+            # Criteria changed — the cached compiled predicate (used by stats/preview) is stale.
+            invalidate_compiled_predicate_cache(obj.pk)
             obj.count = None
             obj.part_count = None
             obj.parts_size = None

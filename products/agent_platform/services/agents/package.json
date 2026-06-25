@@ -1,0 +1,31 @@
+{
+    "name": "@posthog/agents-image",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Build glue for the unified posthog-agents container image. Bundles ingress/runner/janitor/migrate entrypoints into self-contained ESM files; not a runtime package.",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "type": "module",
+    "scripts": {
+        "lint": "oxlint --quiet .",
+        "format": "oxfmt .",
+        "format:check": "oxfmt --check .",
+        "build": "tsx scripts/build.ts",
+        "typescript:check": "tsc --noEmit -p ."
+    },
+    "dependencies": {
+        "@posthog/agent-ingress": "workspace:*",
+        "@posthog/agent-janitor": "workspace:*",
+        "@posthog/agent-runner": "workspace:*",
+        "node-rdkafka": "^3.4.0"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "esbuild": "^0.25.10",
+        "tsx": "^4.7.0",
+        "typescript": "catalog:"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 4 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -57,7 +57,18 @@ export const EngineeringAnalyticsPullRequestsQueryParams = /* @__PURE__ */ zod.o
 })
 
 /**
- * Per-workflow CI health over a window (default last 30 days, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, and a zero-filled daily run history. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * The team's connected GitHub data warehouse sources, oldest first. Populate a source picker from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect GitHub more than once (e.g. one source per repository); this lists them all, including any whose tables aren't fully synced yet.
+ */
+export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Per-workflow CI health over a window (default last 30 days, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, and a zero-filled daily run history. Optionally scope to a single git branch via `branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const EngineeringAnalyticsWorkflowHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -68,6 +79,12 @@ export const EngineeringAnalyticsWorkflowHealthParams = /* @__PURE__ */ zod.obje
 })
 
 export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod.object({
+    branch: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches."
+        ),
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
     source_id: zod

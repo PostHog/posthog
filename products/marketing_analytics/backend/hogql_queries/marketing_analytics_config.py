@@ -104,6 +104,7 @@ class MarketingAnalyticsConfig:
     attribution_mode: AttributionMode = AttributionMode.LAST_TOUCH
 
     conversion_goal_precomputation_enabled: bool = False
+    costs_precomputation_enabled: bool = False
 
     @classmethod
     def from_team(cls, team: "Team") -> "MarketingAnalyticsConfig":
@@ -117,6 +118,15 @@ class MarketingAnalyticsConfig:
         # Gate precomputation behind feature flag
         config.conversion_goal_precomputation_enabled = posthoganalytics.feature_enabled(
             "marketing-analytics-precomputation",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={"organization": {"id": str(team.organization.id)}},
+        )
+
+        # Gate cost precomputation (reads native CH instead of the S3 cost tables) behind its own flag,
+        # so it rolls out independently of the conversion/touchpoint precompute.
+        config.costs_precomputation_enabled = posthoganalytics.feature_enabled(
+            "marketing-analytics-costs-precomputation",
             str(team.uuid),
             groups={"organization": str(team.organization.id)},
             group_properties={"organization": {"id": str(team.organization.id)}},

@@ -3,10 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { GraphsHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DashboardsContent } from 'scenes/dashboard/dashboards/DashboardsContent'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
@@ -75,7 +75,7 @@ export function Dashboards(): JSX.Element {
                             resourceType={AccessControlResourceType.Dashboard}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <AppShortcut
+                            <Shortcut
                                 name="NewDashboard"
                                 keybind={[keyBinds.new]}
                                 intent="New dashboard"
@@ -90,7 +90,7 @@ export function Dashboards(): JSX.Element {
                                 >
                                     New dashboard
                                 </LemonButton>
-                            </AppShortcut>
+                            </Shortcut>
                         </AccessControlAction>
                     </>
                 }

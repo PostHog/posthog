@@ -40,7 +40,6 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.logic.sources import PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
@@ -51,6 +50,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import validate_source_prefix
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 FIXTURE_DIR = Path(__file__).parents[3] / "fixtures"
 
@@ -76,9 +76,12 @@ def _flatten_pr(pr: dict[str, Any]) -> dict[str, Any]:
 
 
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
+    scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in ("repository", "pull_requests")]
     return {
-        **{key: run[key] for key in WORKFLOW_RUNS_COLUMNS if key != "repository"},
+        # .get() tolerates a pre-existing fixture captured before run_attempt / pull_requests were added.
+        **{key: run.get(key) for key in scalar_keys},
         "repository": json.dumps(run["repository"]),
+        "pull_requests": json.dumps(run.get("pull_requests", [])),
     }
 
 

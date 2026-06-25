@@ -2,7 +2,7 @@
  * Output names registered by the CDP deployments.
  *
  * Shared names (`APP_METRICS_OUTPUT`, `LOG_ENTRIES_OUTPUT`) live in
- * `ingestion/common/outputs` and are re-used by the CDP monitoring path.
+ * `common/outputs` and are re-used by the CDP monitoring path.
  * Names declared here are CDP-local — the topic each one resolves to is
  * driven by the registry build in `registry.ts`.
  */

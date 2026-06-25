@@ -4,7 +4,10 @@ import { loaders } from 'kea-loaders'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { experimentsList } from 'products/experiments/frontend/generated/api'
-import type { ExperimentApi, PaginatedExperimentListApi } from 'products/experiments/frontend/generated/api.schemas'
+import type {
+    ExperimentBasicApi,
+    PaginatedExperimentBasicListApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 
 import type { eventExperimentsLogicType } from './eventExperimentsLogicType'
 
@@ -14,7 +17,7 @@ export interface EventExperimentsLogicProps {
 
 export const EXPERIMENTS_PER_PAGE = 10
 
-const EMPTY_RESULT: PaginatedExperimentListApi = { count: 0, next: null, previous: null, results: [] }
+const EMPTY_RESULT: PaginatedExperimentBasicListApi = { count: 0, next: null, previous: null, results: [] }
 
 export const eventExperimentsLogic = kea<eventExperimentsLogicType>([
     path(['scenes', 'data-management', 'events', 'eventExperimentsLogic']),
@@ -33,7 +36,7 @@ export const eventExperimentsLogic = kea<eventExperimentsLogicType>([
         experiments: [
             EMPTY_RESULT,
             {
-                loadExperiments: async (): Promise<PaginatedExperimentListApi> => {
+                loadExperiments: async (): Promise<PaginatedExperimentBasicListApi> => {
                     return await experimentsList(String(values.currentProjectId), {
                         event: props.event,
                         limit: EXPERIMENTS_PER_PAGE,
@@ -53,4 +56,4 @@ export const eventExperimentsLogic = kea<eventExperimentsLogicType>([
     }),
 ])
 
-export type { ExperimentApi }
+export type { ExperimentBasicApi }

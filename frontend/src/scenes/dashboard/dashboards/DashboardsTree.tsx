@@ -7,12 +7,11 @@ import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardBasicType } from '~/types'
 
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
-import { dashboardParentSegments, FolderTreeNode, UNFILED_DASHBOARDS_FOLDER } from './dashboardsFileSystemUtils'
+import { FolderTreeNode } from './dashboardsFileSystemUtils'
 import { DashboardsTable } from './DashboardsTable'
 import { DashboardsTreeFolderMenu } from './DashboardsTreeFolderMenu'
 
@@ -76,13 +75,6 @@ export function DashboardsTree(): JSX.Element {
     const expandablePaths = collectExpandablePaths(folderTree)
     const expandedItemIds = [ROOT_ID, ...expandablePaths.filter((id) => expandedFolders[id])]
     const allExpanded = expandablePaths.length > 0 && expandablePaths.every((id) => expandedFolders[id])
-
-    const folderForDashboard = (dashboard: DashboardBasicType): string => {
-        // Match the tree's bucketing exactly: entry-less dashboards live under Unfiled/Dashboards there,
-        // so label them the same here rather than a bare "Unfiled".
-        const segments = dashboardParentSegments(entryByRef[String(dashboard.id)])
-        return segments.length > 0 ? joinPath(segments) : UNFILED_DASHBOARDS_FOLDER
-    }
 
     return (
         <div className="grid grid-cols-[260px_1fr] gap-4" data-attr="dashboards-tree">
@@ -178,7 +170,6 @@ export function DashboardsTree(): JSX.Element {
                 <DashboardsTable
                     dashboards={currentSubtreeDashboards}
                     dashboardsLoading={dashboardsLoading}
-                    folderForDashboard={folderForDashboard}
                     dashboardFsEntry={(id) => entryByRef[String(id)]}
                 />
             </div>

@@ -30,6 +30,7 @@ from products.replay_vision.backend.temporal.constants import (
     build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.signals.backend.models import SignalSourceConfig
 
 
 class _VisionAPITestCase(APIBaseTest):
@@ -665,6 +666,33 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 200, resp.json())
         self.mock_refresh_estimate.assert_called_once()
+
+
+class TestScannerSignalSourceEnablement(_VisionAPITestCase):
+    def _payload(self, **overrides: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": "signal-enablement",
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_FLASH,
+        }
+        payload.update(overrides)
+        return payload
+
+    def _has_source_config(self) -> bool:
+        return SignalSourceConfig.objects.filter(team=self.team, source_product="replay_vision").exists()
+
+    def test_creating_with_emits_signals_writes_no_source_config(self) -> None:
+        # Scanner findings are self-authorizing — the scanner is the config, so no SignalSourceConfig row is created.
+        resp = self.client.post(self.scanners_url, data=self._payload(emits_signals=True), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        assert not self._has_source_config()
+
+    def test_enabling_emits_signals_on_update_writes_no_source_config(self) -> None:
+        scanner = self._create_scanner()
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"emits_signals": True}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        assert not self._has_source_config()
 
 
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):

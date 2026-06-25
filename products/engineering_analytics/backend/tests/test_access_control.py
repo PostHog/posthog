@@ -78,3 +78,21 @@ class TestEngineeringAnalyticsAccessControl(WarehouseAccessControlTestMixin):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["truncated"] is False
+
+    def test_denied_user_cannot_enumerate_source_b_via_sources(self) -> None:
+        # The picker lists only sources the user can access; B is denied, so it must not appear --
+        # no id/repo/prefix enumeration of a restricted source, and no source_id to feed the reads.
+        self.client.force_login(self.no_access_user)
+        response = self.client.get(self._url("sources"))
+
+        assert response.status_code == status.HTTP_200_OK
+        ids = {source["id"] for source in response.json()}
+        assert str(self.source_a.id) in ids
+        assert str(self.source_b.id) not in ids
+
+    def test_allowed_user_can_enumerate_source_b_via_sources(self) -> None:
+        self.client.force_login(self.editor_user)
+        response = self.client.get(self._url("sources"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert str(self.source_b.id) in {source["id"] for source in response.json()}
