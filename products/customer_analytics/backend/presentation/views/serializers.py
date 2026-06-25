@@ -124,7 +124,10 @@ class CustomerProfileConfigSerializer(DataclassSerializer):
 class CustomerJourneySerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True)
     insight = serializers.IntegerField(
-        help_text="ID of the funnel insight this journey is based on. Must reference an insight in the same project.",
+        help_text=(
+            "Numeric id (not the short_id) of the funnel insight this journey is based on. "
+            "Must reference an insight in the same project."
+        ),
     )
     name = serializers.CharField(
         max_length=400,
