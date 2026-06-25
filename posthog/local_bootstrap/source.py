@@ -6,7 +6,7 @@ import json
 import tempfile
 import contextlib
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import boto3
 import pyarrow.parquet as pq
@@ -20,11 +20,10 @@ from posthog.local_bootstrap.config import (
     TableImportConfig,
 )
 
-if TYPE_CHECKING:
-    from types_boto3_s3 import S3Client
 
-
-def build_s3_client(location: S3Location) -> S3Client:
+# boto3.client("s3") is left untyped on purpose: mypy and ty resolve it to different stub packages
+# (mypy_boto3_s3 vs types_boto3_s3), so a concrete S3Client annotation can't satisfy both checkers.
+def build_s3_client(location: S3Location):
     """Build a boto3 S3 client for a location. Credentials fall back to the ambient AWS config
     (env vars, instance profile) when not supplied, so the same code works against AWS and
     S3-compatible stores like MinIO/SeaweedFS via ``endpoint_url``."""
@@ -62,7 +61,7 @@ def list_files(config: TableImportConfig) -> list[DiscoveredFile]:
 
 
 @contextlib.contextmanager
-def _download_to_temp(client: S3Client, bucket: str, key: str) -> Iterator[str]:
+def _download_to_temp(client, bucket: str, key: str) -> Iterator[str]:
     """Download an object to a temp file and yield its path, removing it afterwards. Reading from a
     real file lets pyarrow stream row groups instead of buffering the whole object in memory."""
     suffix = os.path.splitext(key)[1] or ".tmp"
