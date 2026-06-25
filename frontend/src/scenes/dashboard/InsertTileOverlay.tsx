@@ -90,6 +90,9 @@ function InsertionStrip({
     getMenuItems: (targetY: number) => LemonMenuItem[]
 }): JSX.Element {
     const stripRef = useRef<HTMLDivElement>(null)
+    // Freeze the "+" while the pointer is pressed: repositioning it mid-click moves the DOM node out
+    // from under the cursor, so the browser never completes the click and it takes a second one.
+    const pointerDownRef = useRef(false)
     const [menuOpen, setMenuOpen] = useState(false)
     // Where the "+" sits along the strip — follows the cursor, frozen while the menu is open so it
     // stays anchored under the popover. Null until first hover, where it falls back to the left edge.
@@ -114,8 +117,11 @@ function InsertionStrip({
             // eslint-disable-next-line react/forbid-dom-props
             style={{ left: 0, width: gridWidth, top: topPx - HOVER_HIT_HEIGHT / 2, height: HOVER_HIT_HEIGHT }}
             // Seed on enter so the "+" appears under the cursor instead of sliding in from the left.
-            onMouseEnter={(e) => !menuOpen && setButtonX(clampButtonX(e.clientX))}
-            onMouseMove={(e) => !menuOpen && setButtonX(clampButtonX(e.clientX))}
+            onMouseEnter={(e) => !menuOpen && !pointerDownRef.current && setButtonX(clampButtonX(e.clientX))}
+            onMouseMove={(e) => !menuOpen && !pointerDownRef.current && setButtonX(clampButtonX(e.clientX))}
+            onMouseDown={() => (pointerDownRef.current = true)}
+            onMouseUp={() => (pointerDownRef.current = false)}
+            onMouseLeave={() => (pointerDownRef.current = false)}
         >
             <div
                 className={clsx(
