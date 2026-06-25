@@ -9,6 +9,15 @@
             "maxLength": 500000,
             "type": "string"
         },
+        "content_base64": {
+            "description": "Base64-encoded binary content for the next version, used by adapters such as slack_file.",
+            "type": "string"
+        },
+        "content_type": {
+            "description": "MIME type for content_base64 or source-backed edits.",
+            "maxLength": 255,
+            "type": "string"
+        },
         "id": {
             "type": "string"
         },
@@ -25,10 +34,18 @@
             "maxLength": 255,
             "type": "string"
         },
+        "source_artifact_id": {
+            "description": "Existing run artifact id to use as the next version content source.",
+            "type": "string"
+        },
+        "source_storage_path": {
+            "description": "Existing run artifact storage_path to use as the next version content source.",
+            "type": "string"
+        },
         "task_id": {
             "type": "string"
         }
     },
-    "required": ["artifact_id", "id", "task_id", "content"],
+    "required": ["artifact_id", "id", "task_id"],
     "type": "object"
 }

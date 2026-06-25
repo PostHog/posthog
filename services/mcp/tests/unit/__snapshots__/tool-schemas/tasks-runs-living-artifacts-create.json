@@ -2,19 +2,28 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "adapter": {
-            "description": "Optional preferred storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted document artifacts use connector storage with S3 fallback.\n\n* `slack_message` - slack_message\n* `slack_canvas` - slack_canvas\n* `document_connector` - document_connector\n* `s3` - s3\n* `github_pr` - github_pr",
-            "enum": ["slack_message", "slack_canvas", "document_connector", "s3", "github_pr"],
+            "description": "Optional preferred storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted document and spreadsheet artifacts use connector storage with S3 fallback.\n\n* `slack_message` - slack_message\n* `slack_canvas` - slack_canvas\n* `slack_file` - slack_file\n* `document_connector` - document_connector\n* `s3` - s3\n* `github_pr` - github_pr",
+            "enum": ["slack_message", "slack_canvas", "slack_file", "document_connector", "s3", "github_pr"],
             "type": "string"
         },
         "artifact_type": {
             "default": "document",
-            "description": "Artifact format or delivery surface to create.\n\n* `slack_message` - slack_message\n* `slack_canvas` - slack_canvas\n* `document` - document\n* `spreadsheet` - spreadsheet\n* `dashboard` - dashboard\n* `file` - file\n* `github_pr` - github_pr",
+            "description": "Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.\n\n* `slack_message` - slack_message\n* `slack_canvas` - slack_canvas\n* `document` - document\n* `spreadsheet` - spreadsheet\n* `dashboard` - dashboard\n* `file` - file\n* `github_pr` - github_pr",
             "enum": ["slack_message", "slack_canvas", "document", "spreadsheet", "dashboard", "file", "github_pr"],
             "type": "string"
         },
         "content": {
             "description": "Markdown or text content for the initial artifact version.",
             "maxLength": 500000,
+            "type": "string"
+        },
+        "content_base64": {
+            "description": "Base64-encoded binary content for Slack file uploads or binary S3-backed artifacts. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts.",
+            "type": "string"
+        },
+        "content_type": {
+            "description": "MIME type for content_base64 or source-backed artifacts, such as application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.",
+            "maxLength": 255,
             "type": "string"
         },
         "id": {
