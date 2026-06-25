@@ -132,12 +132,6 @@ export class SessionBatchMetrics {
         buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
     })
 
-    private static readonly retentionRedisLatency = new Histogram({
-        name: 'recording_blob_ingestion_v2_retention_redis_latency_seconds',
-        help: 'Time taken for retention service Redis calls (acquire + GET/SET + release)',
-        buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
-    })
-
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()
     }
@@ -237,9 +231,5 @@ export class SessionBatchMetrics {
 
     public static observeKeystoreRedisLatency(seconds: number): void {
         this.keystoreRedisLatency.observe(seconds)
-    }
-
-    public static observeRetentionRedisLatency(seconds: number): void {
-        this.retentionRedisLatency.observe(seconds)
     }
 }

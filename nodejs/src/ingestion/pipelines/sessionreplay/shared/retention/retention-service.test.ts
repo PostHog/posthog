@@ -1,7 +1,5 @@
-import { Redis } from 'ioredis'
-
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
-import { RedisPool, TeamId } from '~/types'
+import { TeamId } from '~/types'
 
 import { RetentionServiceMetrics } from './metrics'
 import { RetentionService } from './retention-service'
@@ -12,29 +10,10 @@ jest.mock('./metrics', () => ({
     },
 }))
 
-jest.mock('~/ingestion/pipelines/sessionreplay/sessions/metrics', () => ({
-    SessionBatchMetrics: {
-        observeRetentionRedisLatency: jest.fn(),
-    },
-}))
-
 describe('RetentionService', () => {
     let retentionService: RetentionService
-    let mockRedisClient: jest.Mocked<Redis>
 
     beforeEach(() => {
-        jest.useFakeTimers()
-
-        mockRedisClient = {
-            get: jest.fn().mockResolvedValue(null),
-            set: jest.fn(),
-        } as unknown as jest.Mocked<Redis>
-
-        const mockRedisPool = {
-            acquire: jest.fn().mockReturnValue(mockRedisClient),
-            release: jest.fn(),
-        } as unknown as jest.Mocked<RedisPool>
-
         const mockTeamService = {
             getRetentionPeriodByTeamId: jest.fn().mockImplementation((teamId: TeamId) => {
                 return {
@@ -46,11 +25,7 @@ describe('RetentionService', () => {
             }),
         } as unknown as jest.Mocked<TeamService>
 
-        retentionService = new RetentionService(mockRedisPool, mockTeamService)
-    })
-
-    afterEach(() => {
-        jest.useRealTimers()
+        retentionService = new RetentionService(mockTeamService)
     })
 
     describe('getRetentionByTeamId', () => {
@@ -67,6 +42,13 @@ describe('RetentionService', () => {
         it('should throw error for unknown team id', async () => {
             const retentionPromise = retentionService.getRetentionByTeamId(3)
             await expect(retentionPromise).rejects.toThrow('Error during retention period lookup: Unknown team id 3')
+        })
+
+        it('should throw error for invalid retention period', async () => {
+            const retentionPromise = retentionService.getRetentionByTeamId(4)
+            await expect(retentionPromise).rejects.toThrow(
+                'Error during retention period lookup: Got invalid value foobar'
+            )
         })
     })
 
@@ -92,30 +74,17 @@ describe('RetentionService', () => {
                 'Error during retention period lookup: Got invalid value foobar'
             )
         })
+    })
 
-        it('should load retention from Redis if key exists', async () => {
-            mockRedisClient.get = jest.fn().mockReturnValue('30d')
-
-            const retentionPeriod = await retentionService.getSessionRetention(1, '123')
-            expect(retentionPeriod).toEqual('30d')
-
-            expect(mockRedisClient.get).toHaveBeenCalledTimes(1)
-            expect(mockRedisClient.get).toHaveBeenCalledWith('@posthog/replay/session-retention-123')
+    describe('getSessionRetentionDays', () => {
+        it('should return 30 for 30d retention', async () => {
+            const days = await retentionService.getSessionRetentionDays(1, '123')
+            expect(days).toEqual(30)
         })
 
-        it('should store retention in Redis if key does not exist', async () => {
-            mockRedisClient.get = jest.fn().mockReturnValue(null)
-
-            const retentionPeriod = await retentionService.getSessionRetention(1, '123')
-            expect(retentionPeriod).toEqual('30d')
-
-            expect(mockRedisClient.set).toHaveBeenCalledTimes(1)
-            expect(mockRedisClient.set).toHaveBeenCalledWith(
-                '@posthog/replay/session-retention-123',
-                '30d',
-                'EX',
-                24 * 60 * 60
-            )
+        it('should return 365 for 1y retention', async () => {
+            const days = await retentionService.getSessionRetentionDays(2, '321')
+            expect(days).toEqual(365)
         })
     })
 
