@@ -1,5 +1,5 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
-import { AGENT_CLI_API_KEY_SCOPES, API_KEY_SCOPE_PRESETS, API_SCOPES } from 'lib/scopes'
+import { AGENT_CLI_API_KEY_SCOPES, API_KEY_SCOPE_PRESETS, API_SCOPES, formatScopeDescription } from 'lib/scopes'
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -9,6 +9,20 @@ const getRenderableKeyCreationScopes = (): Set<string> =>
                 .map((action) => `${key}:${action}`)
         )
     )
+
+describe('formatScopeDescription', () => {
+    it('returns the known description for a recognised scope', () => {
+        expect(formatScopeDescription('user:read')).toBe('Read access to users')
+    })
+
+    it('formats unknown scopes by replacing underscores with spaces', () => {
+        expect(formatScopeDescription('wizard_session:write')).toBe('Write access to wizard session')
+    })
+
+    it('returns the bare scope string when there is no colon separator', () => {
+        expect(formatScopeDescription('baretoken')).toBe('baretoken')
+    })
+})
 
 describe('API_KEY_SCOPE_PRESETS', () => {
     const findPreset = (value: string): (typeof API_KEY_SCOPE_PRESETS)[number] => {
