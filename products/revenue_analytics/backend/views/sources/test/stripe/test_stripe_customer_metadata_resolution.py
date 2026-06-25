@@ -21,7 +21,7 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_CHARGE_COLUMNS,
     STRIPE_INVOICE_COLUMNS,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,

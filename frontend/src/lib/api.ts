@@ -2731,6 +2731,7 @@ const api = {
                     ActivityScope.TICKET,
                     ActivityScope.COHORT,
                     ActivityScope.OAUTH_APPLICATION,
+                    ActivityScope.EXTERNAL_DATA_SCHEMA,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {

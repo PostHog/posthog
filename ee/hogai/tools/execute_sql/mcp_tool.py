@@ -10,7 +10,7 @@ from posthog.hogql.taxonomy_validation import validate_taxonomy_references
 
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
