@@ -12762,6 +12762,22 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export type ClusteringConfigEventFiltersItem = { [key: string]: unknown };
+
+    export interface ClusteringConfig {
+      /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
+      event_filters: ClusteringConfigEventFiltersItem[];
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export type ClusteringConfigSetEventFiltersEventFiltersItem = { [key: string]: unknown };
+
+    export interface ClusteringConfigSetEventFilters {
+      /** PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters. */
+      event_filters: ClusteringConfigSetEventFiltersEventFiltersItem[];
+    }
+
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
@@ -55960,10 +55976,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type EnvironmentsLlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
-
     export type EnvironmentsLlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -62373,10 +62385,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
 
     export type LlmAnalyticsClusteringJobsListParams = {
     /**

@@ -33,17 +33,61 @@ tools:
         operation: llm_analytics_parser_recipes_retrieve
         enabled: false
     llma-clustering-config-get:
-        operation: llm_analytics_clustering_config_retrieve
-        enabled: false
+        operation: llm_analytics_clustering_config_list
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get clustering config
+        description: >
+            Retrieve the team's clustering event-filter configuration for automated AI observability clustering. New
+            scheduled clustering should usually use clustering jobs, but this remains useful when auditing existing
+            automation.
     llma-clustering-config-set-event-filters:
         operation: llm_analytics_clustering_config_set_event_filters_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set clustering config filters
+        description: >
+            Replace the team's clustering event filters. Pass event_filters as a PostHog property-filter array, or an
+            empty array to clear the filters. Prefer clustering jobs for new trace, generation, or evaluation clustering
+            automation.
     llma-clustering-job-create:
         operation: llm_analytics_clustering_jobs_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create clustering job
+        description: >
+            Create a scheduled AI observability clustering job for the current team. Jobs define the analysis level
+            (trace, generation, or evaluation), event filters that scope included items, and whether the job is enabled.
+            Creating a custom job disables the migration-created default job for the same analysis level.
     llma-clustering-job-delete:
         operation: llm_analytics_clustering_jobs_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete clustering job
+        description: >
+            Delete a scheduled AI observability clustering job by ID. This removes future scheduled clustering for that
+            job but does not delete historical $ai_trace_clusters, $ai_generation_clusters, or $ai_evaluation_clusters
+            events already emitted by previous runs.
     llma-clustering-job-get:
         operation: llm_analytics_clustering_jobs_retrieve
         enabled: true
@@ -55,8 +99,8 @@ tools:
             idempotent: true
         title: Get clustering job
         description: >
-            Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or
-            generation), event filters, enabled status, and timestamps.
+            Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace,
+            generation, or evaluation), event filters, enabled status, and timestamps.
     llma-clustering-job-list:
         operation: llm_analytics_clustering_jobs_list
         enabled: true
@@ -68,19 +112,42 @@ tools:
             idempotent: true
         title: List clustering jobs
         description: >
-            List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis
-            level (trace or generation) and event filters that scope which traces are included in clustering runs.
-            Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or
-            execute-sql to query them.
+            List all clustering job configurations for the current team (max 10 per team). Each job defines an analysis
+            level (trace, generation, or evaluation) and event filters that scope which items are included in clustering
+            runs. To inspect emitted cluster results, use the exploring LLM clusters skill and query the cluster events
+            with execute-sql.
     llma-clustering-job-update:
         operation: llm_analytics_clustering_jobs_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update clustering job
+        description: >
+            Partially update a scheduled AI observability clustering job. Use this to rename a job, switch enabled
+            status, adjust event_filters, or change the analysis level (trace, generation, or evaluation).
     llma-clustering-job-update-full:
         operation: llm_analytics_clustering_jobs_update
         enabled: false
     llma-clustering-run-create:
         operation: llm_analytics_clustering_runs_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        requires_ai_consent: true
+        title: Trigger clustering run
+        description: >
+            Trigger an asynchronous AI observability clustering workflow for the current project. Provide either explicit
+            clustering parameters or clustering_job_id to reuse a saved job's analysis level and event filters. The
+            response returns workflow_id and status=started; poll cluster results later by querying $ai_trace_clusters,
+            $ai_generation_clusters, or $ai_evaluation_clusters events with execute-sql.
     llma-dataset-create:
         operation: datasets_create
         enabled: false
