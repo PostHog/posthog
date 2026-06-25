@@ -116,6 +116,9 @@ def _ch_tags(team_id: int) -> AbstractContextManager[None]:
 def _aware_utc(value: Any, default: datetime) -> datetime:
     if value is None:
         value = default
+    if isinstance(value, int | float):
+        # Batch-export persons store created_at as epoch seconds (uint32), not a parquet timestamp.
+        return datetime.fromtimestamp(value, tz=UTC)
     if isinstance(value, str):
         value = isoparse(value)
     if value.tzinfo is None:
@@ -356,15 +359,26 @@ def import_persons(
     return TableResult(table="persons", rows_imported=len(live), distinct_ids_imported=distinct_ids)
 
 
-def run_bootstrap(config: BootstrapConfig, plans: list[TablePlan], progress: Progress | None = None) -> BootstrapReport:
-    config.validate()
+def run_bootstrap(
+    config: BootstrapConfig,
+    plans: list[TablePlan],
+    progress: Progress | None = None,
+    team_id: int | None = None,
+) -> BootstrapReport:
+    config.validate(require_identity=team_id is None)
     progress = progress or Progress()
 
-    team, _user, created_user = ensure_project(config)
+    if team_id is not None:
+        team = Team.objects.get(id=team_id)
+        created_user = False
+        project_name = team.name
+        email = config.email or ""
+    else:
+        team, _user, created_user = ensure_project(config)
+        project_name = config.project_name
+        email = config.email
 
-    report = BootstrapReport(
-        team_id=team.id, project_name=config.project_name, email=config.email, created_user=created_user
-    )
+    report = BootstrapReport(team_id=team.id, project_name=project_name, email=email, created_user=created_user)
     for plan in plans:
         if plan.config.table == "events":
             report.results.append(import_events(team, plan.config, plan.files, config.batch_size, progress))

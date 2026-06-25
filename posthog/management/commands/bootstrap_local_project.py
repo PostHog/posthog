@@ -60,18 +60,28 @@ class Command(BaseCommand):
         parser.add_argument("--compression", default="zstd", help="Compression codec, or 'none' (default zstd)")
         parser.add_argument("--batch-size", type=int, default=10_000, help="Rows per insert batch (default 10000)")
         parser.add_argument("--yes", "-y", action="store_true", help="Skip the confirmation prompt")
+        parser.add_argument(
+            "--team-id",
+            type=int,
+            help="Import into an existing team instead of creating a new project (skips project/user creation)",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         if not settings.DEBUG and not settings.TEST:
             raise CommandError("bootstrap_local_project is a local-development tool and refuses to run in production")
 
-        name = options["name"] or self._prompt("Project name")
-        email = options["email"] or self._prompt("Owner email")
+        team_id = options.get("team_id")
+        if team_id:
+            name = options["name"] or ""
+            email = options["email"] or ""
+        else:
+            name = options["name"] or self._prompt("Project name")
+            email = options["email"] or self._prompt("Owner email")
         compression = None if options["compression"] in ("none", "") else options["compression"]
 
         config = self._build_config(name, email, compression, options)
         try:
-            config.validate()
+            config.validate(require_identity=team_id is None)
         except BootstrapConfigError as error:
             raise CommandError(str(error))
 
@@ -82,7 +92,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("Aborted."))
             return
 
-        report = run_bootstrap(config, plans, self._progress())
+        report = run_bootstrap(config, plans, self._progress(), team_id=options.get("team_id"))
         self.stdout.write("")  # close the progress line
         self._print_final_report(report)
 

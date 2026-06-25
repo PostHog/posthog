@@ -66,15 +66,15 @@ class BootstrapConfig:
     """Full configuration for a bootstrap run."""
 
     project_name: str
-    email: str
+    email: str = ""
     password: str = "12345678"
     tables: list[TableImportConfig] = field(default_factory=list)
     batch_size: int = 10_000
 
-    def validate(self) -> None:
-        if not self.project_name:
+    def validate(self, require_identity: bool = True) -> None:
+        if require_identity and not self.project_name:
             raise BootstrapConfigError("A project name is required")
-        if not self.email:
+        if require_identity and not self.email:
             raise BootstrapConfigError("An email is required")
         if not self.tables:
             raise BootstrapConfigError("At least one of the events or persons tables must be configured")
