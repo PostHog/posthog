@@ -10,6 +10,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
+import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
@@ -42,6 +43,7 @@ from posthog.models.integration import (
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
+    AwsS3Integration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -61,6 +63,8 @@ from posthog.models.integration import (
     LinkedInAdsIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
+    S3CompatibleIntegration,
+    S3CredentialIntegrationError,
     SlackIntegration,
     StripeIntegration,
     TwilioIntegration,
@@ -556,6 +560,57 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "aws-s3":
+            config = validated_data.get("config", {})
+            name = config.get("name")
+            aws_access_key_id = config.get("aws_access_key_id")
+            aws_secret_access_key = config.get("aws_secret_access_key")
+
+            if not (name and aws_access_key_id and aws_secret_access_key):
+                raise ValidationError("Name, access key ID, and secret access key must be provided")
+            if not all(isinstance(value, str) for value in (name, aws_access_key_id, aws_secret_access_key)):
+                raise ValidationError("Name, access key ID, and secret access key must be strings")
+
+            try:
+                instance = AwsS3Integration.integration_from_config(
+                    team_id=team_id,
+                    name=name,
+                    aws_access_key_id=aws_access_key_id,
+                    aws_secret_access_key=aws_secret_access_key,
+                    created_by=request.user,
+                )
+            except S3CredentialIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "s3-compatible":
+            config = validated_data.get("config", {})
+            name = config.get("name")
+            endpoint_url = config.get("endpoint_url")
+            aws_access_key_id = config.get("aws_access_key_id")
+            aws_secret_access_key = config.get("aws_secret_access_key")
+
+            if not (name and endpoint_url and aws_access_key_id and aws_secret_access_key):
+                raise ValidationError("Name, endpoint URL, access key ID, and secret access key must be provided")
+            if not all(
+                isinstance(value, str) for value in (name, endpoint_url, aws_access_key_id, aws_secret_access_key)
+            ):
+                raise ValidationError("Name, endpoint URL, access key ID, and secret access key must be strings")
+
+            try:
+                # SSRF validation of `endpoint_url` happens inside `integration_from_config`.
+                instance = S3CompatibleIntegration.integration_from_config(
+                    team_id=team_id,
+                    name=name,
+                    endpoint_url=endpoint_url,
+                    aws_access_key_id=aws_access_key_id,
+                    aws_secret_access_key=aws_secret_access_key,
+                    created_by=request.user,
+                )
+            except S3CredentialIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
         elif validated_data["kind"] == "postgresql":
             config = validated_data.get("config", {})
             host = config.get("host")
@@ -1013,7 +1068,19 @@ class IntegrationViewSet(
             return Response(cached)
 
         session = google_search_console_session(instance.id, instance.team_id)
-        sites = list_sites(session)
+        try:
+            sites = list_sites(session)
+        except requests.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code in (401, 403):
+                # The token refreshed fine but the connected Google account isn't authorized to
+                # read Search Console — a customer-side connection issue, not a PostHog bug. Return
+                # an actionable 400 rather than letting the HTTPError surface as an unhandled 500.
+                raise ValidationError(
+                    "Google Search Console rejected the credentials. Please reconnect your account "
+                    "and ensure it has read access to the property."
+                )
+            raise
         response_data = {"sites": sites}
         cache.set(cache_key, response_data, GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS)
         return Response(response_data)

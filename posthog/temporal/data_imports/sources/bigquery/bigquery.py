@@ -58,8 +58,10 @@ from posthog.temporal.data_imports.sources.generated_configs import BigQuerySour
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [
+    "BIGQUERY_DATASET_NOT_FOUND_ERROR",
     "BIGQUERY_TOKEN_RESPONSE_ERROR",
     "BigQueryCredentialsRejectedError",
+    "BigQueryDatasetNotFoundError",
     "BigQueryImplementation",
     "BigQueryTokenRefreshError",
     "bigquery_client",
@@ -79,6 +81,24 @@ BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
 # Used both when raising below and when matching in `BigQuerySource.get_non_retryable_errors`,
 # so it must stay free of volatile data (urls, ids, timestamps).
 BIGQUERY_TOKEN_RESPONSE_ERROR = "BigQuery OAuth token endpoint returned an unexpected response"
+
+# User-facing message for a missing dataset/table during schema discovery. Raised below and matched
+# in `BigQuerySource.get_non_retryable_errors`, so it must stay free of volatile data (ids, regions).
+BIGQUERY_DATASET_NOT_FOUND_ERROR = (
+    "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or "
+    "it may live in a different region — verify your dataset and table names, and set the dataset "
+    "region in your source configuration if it isn't in the US."
+)
+
+
+class BigQueryDatasetNotFoundError(Exception):
+    """Raised when schema discovery queries a dataset/table that doesn't exist in the queried region.
+
+    `client.query()` raises a `google.api_core.exceptions.NotFound` whose `str()` is a raw
+    "404 Not found: Dataset ... was not found in location US ... Job ID: ..." — BigQuery job
+    internals the user can't act on, which would otherwise leak straight to the create/validate
+    response. We re-raise it with the same actionable wording we map this condition to during syncs.
+    """
 
 
 class BigQueryTokenRefreshError(Exception):
@@ -252,6 +272,34 @@ def bigquery_storage_read_client(
         # sync leaks an open gRPC channel + its file descriptors. Closing the
         # transport closes the underlying channel.
         transport.close()
+
+
+def _detect_dataset_region(config: BigQuerySourceConfig) -> str | None:
+    """Resolve the dataset's BigQuery location for schema-discovery queries.
+
+    Credentials validate with a region-agnostic table listing, but a query job created
+    without an explicit location defaults to the US multi-region — so a dataset that lives
+    in another region passes validation yet fails discovery with "... was not found in
+    location US". `get_dataset` is region-agnostic, so read the dataset's real location and
+    pin discovery to it. Returns None on any failure, leaving the original behaviour intact.
+    """
+    with bigquery_client(
+        _resolve_project_id(config),
+        None,
+        config.key_file.private_key,
+        config.key_file.private_key_id,
+        config.key_file.client_email,
+        config.key_file.token_uri,
+    ) as bq:
+        try:
+            dataset_ref = bq.dataset(_resolve_dataset_id(config), project=_resolve_query_project(config))
+            return bq.get_dataset(dataset_ref).location
+        except Exception as e:
+            # Best-effort: fall back to the default location so `get_columns` still surfaces the
+            # actionable not-found error. Log rather than capture, to keep the fallback visible
+            # without spamming error tracking.
+            structlog.get_logger().warning("Failed to auto-detect BigQuery dataset region", exc_info=e)
+            return None
 
 
 def delete_table(
@@ -674,7 +722,10 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
     @contextmanager
     def connect(self, config: BigQuerySourceConfig) -> Iterator[bigquery.Client]:
-        region = _resolve_region(config)
+        # Without a custom region the client is built with `location=None`, so discovery
+        # query jobs default to the US multi-region and miss datasets in other regions.
+        # Auto-detect the dataset's location so discovery runs where the data lives.
+        region = _resolve_region(config) or _detect_dataset_region(config)
         with bigquery_client(
             _resolve_project_id(config),
             region,
@@ -714,6 +765,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 config.dataset_id,
             )
             return {}
+        except NotFound as e:
+            structlog.get_logger().warning(
+                "BigQuery dataset '%s' not found during schema discovery: %s", config.dataset_id, e
+            )
+            raise BigQueryDatasetNotFoundError(BIGQUERY_DATASET_NOT_FOUND_ERROR) from e
         except TypeError as e:
             # See `BigQueryTokenRefreshError`: google-auth raises an opaque
             # `TypeError: string indices must be integers` when the OAuth token endpoint

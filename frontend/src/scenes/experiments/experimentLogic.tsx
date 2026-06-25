@@ -720,6 +720,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
         }),
+        updateExperimentVariantNotes: (variantNotes: Record<string, string>) => ({ variantNotes }),
         setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => ({ exposureCriteria }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
@@ -1869,6 +1870,23 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error('Failed to update experiment variant images')
             }
         },
+        updateExperimentVariantNotes: async ({ variantNotes }) => {
+            try {
+                const updatedParameters = {
+                    ...values.experiment.parameters,
+                    variant_notes: variantNotes,
+                }
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                    parameters: updatedParameters,
+                    update_feature_flag_params: false,
+                })
+                actions.setExperiment({
+                    parameters: updatedParameters,
+                })
+            } catch {
+                lemonToast.error('Failed to update experiment variant notes')
+            }
+        },
         updateDistribution: async ({ variants, rolloutPercentage }) => {
             const { rollout_percentage: _, ...otherParams } = values.experiment?.parameters || {}
             actions.updateExperiment({
@@ -2465,8 +2483,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 : current.filter((k: string) => k !== variantKey)
 
             try {
+                // excluded_variants is the canonical column; the backend mirrors it into the
+                // deprecated `parameters` blob. No need to resend feature_flag_variants — the
+                // backend validates exclusions against the linked flag. The column updates
+                // atomically, so we just send the new list.
                 await asyncActions.updateExperiment({
-                    parameters: { ...values.experiment.parameters, excluded_variants: next },
+                    excluded_variants: next,
                 })
                 lemonToast.success(
                     excluded
@@ -2631,7 +2653,20 @@ export const experimentLogic = kea<experimentLogicType>([
                         end_date: experiment.end_date,
                         holdout: experiment.holdout,
                     })
-                    return await performQuery(query, undefined, getExperimentRefreshMode(values.featureFlags, refresh))
+                    // Show the cached exposures immediately when the backend is recomputing in the
+                    // background, instead of hanging on the spinner until the recompute finishes.
+                    return await performQuery(
+                        query,
+                        undefined,
+                        getExperimentRefreshMode(values.featureFlags, refresh),
+                        undefined, // queryId
+                        undefined, // setPollResponse
+                        undefined, // filtersOverride
+                        undefined, // variablesOverride
+                        false, // pollOnly
+                        undefined, // limitContext
+                        true // acceptStaleCache
+                    )
                 },
             },
         ],
@@ -2697,7 +2732,10 @@ export const experimentLogic = kea<experimentLogicType>([
         variants: [(s) => [s.experiment], (experiment): MultivariateFlagVariant[] => getExperimentVariants(experiment)],
         excludedVariants: [
             (s) => [s.experiment],
-            (experiment: Experiment): string[] => experiment?.parameters?.excluded_variants ?? [],
+            // Canonical home is the excluded_variants column; fall back to the legacy parameters
+            // mirror during the deprecation window. `??` honors an explicit empty list.
+            (experiment: Experiment): string[] =>
+                experiment?.excluded_variants ?? experiment?.parameters?.excluded_variants ?? [],
         ],
         experimentMathAggregationForTrends: [
             (s) => [s.experiment],

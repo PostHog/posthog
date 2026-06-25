@@ -295,6 +295,37 @@ class TestMakeRequestErrorHandling:
         result = _make_request(mock_session, "https://api.pinterest.com/v5/test")
         assert result == {"items": []}
 
+    def test_chunked_encoding_error_is_retried(self):
+        # A mid-stream connection drop while reading the body raises ChunkedEncodingError, which must
+        # be retried so a single dropped connection doesn't fail the whole import.
+        good_response = mock.MagicMock()
+        good_response.raise_for_status.return_value = None
+        good_response.json.return_value = {"items": []}
+
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            requests.exceptions.ChunkedEncodingError(
+                "Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"
+            ),
+            good_response,
+        ]
+
+        with mock.patch("tenacity.nap.time.sleep"):
+            result = _make_request(mock_session, "https://api.pinterest.com/v5/test")
+
+        assert result == {"items": []}
+        assert mock_session.get.call_count == 2
+
+    def test_chunked_encoding_error_eventually_reraises(self):
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = requests.exceptions.ChunkedEncodingError("Connection broken")
+
+        with mock.patch("tenacity.nap.time.sleep"):
+            with pytest.raises(requests.exceptions.ChunkedEncodingError):
+                _make_request(mock_session, "https://api.pinterest.com/v5/test")
+
+        assert mock_session.get.call_count == 5
+
 
 class TestPinterestAdsSource:
     def test_unknown_endpoint(self):

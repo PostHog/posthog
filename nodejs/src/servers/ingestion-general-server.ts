@@ -2,10 +2,16 @@ import { IntegrationManagerService } from '~/cdp/services/managers/integration-m
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
-import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/producer-registry'
+import {
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '~/ingestion/common/producers'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
@@ -30,12 +36,6 @@ import {
     createFeatureFlagCalledDedupRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '../config/redis-pools'
-import {
-    KafkaDownstreamProducerEnvConfig,
-    KafkaUpstreamProducerEnvConfig,
-    getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaUpstreamProducerEnvConfig,
-} from '../ingestion/common/config'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { extend, newScope } from '../ingestion/common/scopes'
 import {
@@ -44,7 +44,6 @@ import {
     IngestionOutputsConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
-    PersonHogConfig,
     RedisConnectionsConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'

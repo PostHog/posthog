@@ -72,8 +72,9 @@ from posthog.security.outbound_proxy import internal_requests
 from ..db import WRITER_DB
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
+from ..logic.posthog_identity_app import provision_posthog_identity_apps
 from ..logic.spec_schema import missing_required_secrets
-from ..models import AgentApplication, AgentRevision
+from ..models import AgentApplication, AgentIdentityCredential, AgentRevision
 from .serializers import (
     AgentApplicationSerializer,
     AgentRevisionSerializer,
@@ -188,7 +189,11 @@ class JanitorUpstreamError(APIException):
 AGENT_SESSION_LOG_SOURCE = "agent_session"
 
 
-def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, user: Any) -> tuple[str, int] | None:
+def _mint_preview_jwt(
+    application: AgentApplication,
+    revision: AgentRevision,
+    user: Any,
+) -> tuple[str, int] | None:
     """Mint a short-lived HS256 JWT scoped to (app, rev) for non-live invokes.
 
     Returns `(token, ttl_seconds)` or `None` when no shared signing key is
@@ -196,11 +201,13 @@ def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, us
 
     Bound to (app, rev) so a captured token can't be replayed against a
     different draft, and to `aud = agent-ingress.preview` so it can't be
-    replayed against any other agent-platform service.
+    replayed against any other agent-platform service. The token only admits
+    the non-live revision through routing; the revision runs against its own
+    `encrypted_env`, so there's no per-session secret payload to carry.
     """
     if not settings.AGENT_INTERNAL_SIGNING_KEY:
         return None
-    ttl_seconds = 60
+    ttl_seconds = 15 * 60
     payload: dict[str, Any] = {
         "app": str(application.id),
         "rev": str(revision.id),
@@ -526,12 +533,24 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "partial_update",
         "destroy",
         "approvals_decide",
+        "users_connection_delete",
         # POST `preview_proxy` forwards `run`/`send`/`cancel` — each starts,
         # feeds, or kills a draft session, driving the agent's configured
         # tools and incurring inference cost. That's a write-class capability,
         # so it lives here even though it targets a non-live revision. The GET
         # `listen` counterpart (read-only SSE tail) stays in read actions.
         "preview_proxy",
+        # Minting a preview JWT is a write-class capability regardless of verb:
+        # the returned token lets a holder call `run`/`send`/`cancel` against a
+        # draft directly, equivalent to `preview_proxy`. BOTH verbs require
+        # `agents:write` — the POST (`preview_token_mint`) and the GET sibling
+        # (`preview_token`, kept only because EventSource can't set headers)
+        # return the identical usable token, so a read token must not be able to
+        # mint one via either path and hit ingress on its own. (The
+        # `preview_proxy*` actions differ: they use the JWT server-side and
+        # never hand it back, so the GET `preview_proxy_get` stays read-scoped.)
+        "preview_token_mint",
+        "preview_token",
     ]
     scope_object_read_actions = [
         "list",
@@ -539,12 +558,15 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
+        "users_list",
         "stats",
         # GET (SSE `listen`) → `preview_proxy_get`. DRF uses the bound function
         # name as `view.action`, so the GET variant is its own scope-map entry;
         # the mutating POST sibling (`preview_proxy`) is a write action above.
+        # The proxy uses the preview JWT server-side and never returns it, so
+        # this read-scoped GET can't leak a usable credential (unlike
+        # `preview_token`, which is write-scoped above).
         "preview_proxy_get",
-        "preview_token",
         "approvals_list",
         "approvals_retrieve",
     ]
@@ -567,10 +589,21 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save(team_id=self.team_id, created_by_id=self.request.user.id)
 
     def perform_destroy(self, instance: AgentApplication) -> None:
-        """Soft-delete: archived=True, archived_at=NOW. Preserves audit history."""
-        instance.archived = True
-        instance.archived_at = timezone.now()
-        instance.save(update_fields=["archived", "archived_at", "updated_at"])
+        """Soft-delete: archived=True, archived_at=NOW. Preserves audit history.
+
+        Also revoke every linked identity credential for the application: archive
+        is terminal (no unarchive), so a retired agent should hold no decryptable
+        bearers. Done in the same transaction via the ORM — Django owns this table,
+        so no janitor round-trip — and `state='active'` keeps it idempotent.
+        """
+        now = timezone.now()
+        with transaction.atomic(using=WRITER_DB):
+            instance.archived = True
+            instance.archived_at = now
+            instance.save(update_fields=["archived", "archived_at", "updated_at"])
+            AgentIdentityCredential.objects.using(WRITER_DB).filter(application_id=instance.id, state="active").update(
+                state="revoked", revoked_at=now, updated_at=now
+            )
 
     # Ingress trigger paths the preview-proxy is allowed to forward to. Keeping
     # this an allowlist (vs an arbitrary passthrough) gives us a single place
@@ -754,59 +787,55 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # server-side mediation. Both share `_mint_preview_jwt` so the
     # JWT payload + secret can't drift between paths.
 
-    @extend_schema(
-        operation_id="agent_applications_preview_token",
-        parameters=[
-            OpenApiParameter(
-                "revision_id",
-                OpenApiTypes.UUID,
-                OpenApiParameter.QUERY,
-                required=True,
-                description="Target draft revision. Must belong to this application and not be live.",
-            ),
-        ],
-        request=None,
-        responses=OpenApiResponse(
-            response=inline_serializer(
-                name="AgentApplicationPreviewTokenResponse",
-                fields={
-                    "token": drf_serializers.CharField(
-                        help_text="HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly.",
-                    ),
-                    "expires_in": drf_serializers.IntegerField(
-                        help_text="Token TTL in seconds from issue. Clients should refresh before this elapses.",
-                    ),
-                    "ingress_slug": drf_serializers.CharField(
-                        help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix.",
-                    ),
-                    "endpoints": drf_serializers.JSONField(
-                        help_text="Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode.",
-                    ),
-                    "auth": drf_serializers.JSONField(
-                        help_text="How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source.",
-                    ),
-                    "preview_proxy": drf_serializers.JSONField(
-                        help_text="Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above.",
-                    ),
-                },
-            )
+    # Reused by GET + POST so drf-spectacular emits one component and the two
+    # operations stay shape-locked. POST is the contract-faithful verb (minting
+    # is a write); GET stays for `EventSource` callers and back-compat.
+    _PREVIEW_TOKEN_RESPONSE = OpenApiResponse(
+        response=inline_serializer(
+            name="AgentApplicationPreviewTokenResponse",
+            fields={
+                "token": drf_serializers.CharField(
+                    help_text="HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly.",
+                ),
+                "expires_in": drf_serializers.IntegerField(
+                    help_text="Token TTL in seconds from issue. Clients should refresh before this elapses.",
+                ),
+                "ingress_slug": drf_serializers.CharField(
+                    help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix.",
+                ),
+                "endpoints": drf_serializers.JSONField(
+                    help_text="Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode.",
+                ),
+                "auth": drf_serializers.JSONField(
+                    help_text="How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source.",
+                ),
+                "preview_proxy": drf_serializers.JSONField(
+                    help_text="Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above.",
+                ),
+            },
         ),
     )
-    @action(detail=True, methods=["get"], url_path="preview-token")
-    def preview_token(self, request: Request, **kwargs) -> Response:
-        """Mint a short-lived JWT for talking to a non-live revision
-        directly via the public ingress URL. The caller attaches it as
-        the `x-agent-preview-token` header (or `?preview_token=` query
-        param for `EventSource`). See `_mint_preview_jwt` for the
-        payload + claim binding.
 
-        The response also includes `endpoints`, `auth`, and
-        `preview_proxy` blocks so the caller can wire a preview
-        invocation without grepping the agent-ingress source for which
-        path each trigger exposes or which header name carries the
-        token. This is the "self-describing" half of preview-mode —
-        every piece of info you need to hit ingress is in one response.
-        """
+    _PREVIEW_TOKEN_PARAMETERS = [
+        OpenApiParameter(
+            "revision_id",
+            OpenApiTypes.UUID,
+            OpenApiParameter.QUERY,
+            required=True,
+            description="Target draft revision. Must belong to this application and not be live.",
+        ),
+    ]
+
+    # The two verbs live on separate action methods so DRF resolves them to
+    # distinct `view.action` names — `preview_token` (GET) and
+    # `preview_token_mint` (POST). Both are write-scoped (see the scope lists):
+    # the returned JWT is a usable credential for `run`/`send`/`cancel`, so
+    # minting it requires `agents:write` no matter the verb. The GET sibling
+    # exists only because EventSource can't set headers — it is NOT a
+    # read-only-safe alternative. A shared body keeps the response shape
+    # lock-stepped across both.
+
+    def _build_preview_token_response(self, request: Request) -> Response:
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
@@ -820,9 +849,9 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError(
                 "preview-token is for non-live revisions only; the live revision is reachable without a token via its public ingress URL"
             )
+        spec = revision.spec if isinstance(revision.spec, dict) else {}
         token_pair = _mint_preview_jwt(application, revision, request.user)
         ingress_slug = f"{application.slug}-{revision.id.hex}"
-        spec = revision.spec if isinstance(revision.spec, dict) else {}
         body: dict[str, Any] = {
             "token": token_pair[0] if token_pair is not None else "",
             "expires_in": token_pair[1] if token_pair is not None else 0,
@@ -832,6 +861,53 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "preview_proxy": _build_preview_proxy_info(request, application),
         }
         return Response(body)
+
+    @extend_schema(
+        operation_id="agent_applications_preview_token_mint",
+        parameters=_PREVIEW_TOKEN_PARAMETERS,
+        request=None,
+        responses=_PREVIEW_TOKEN_RESPONSE,
+    )
+    @action(detail=True, methods=["post"], url_path="preview-token")
+    def preview_token_mint(self, request: Request, **kwargs) -> Response:
+        """Mint a short-lived JWT for talking to a non-live revision
+        directly via the public ingress URL. The caller attaches it as
+        the `x-agent-preview-token` header (or `?preview_token=` query
+        param for `EventSource`). See `_mint_preview_jwt` for the
+        payload + claim binding.
+
+        The response also includes `endpoints`, `auth`, and
+        `preview_proxy` blocks so the caller can wire a preview
+        invocation without grepping the agent-ingress source for which
+        path each trigger exposes or which header name carries the
+        token. This is the "self-describing" half of preview-mode —
+        every piece of info you need to hit ingress is in one response.
+
+        POST is the canonical verb — minting credentials for downstream
+        `run`/`send`/`cancel` is a write-class capability. A GET sibling
+        exists at the same URL for `EventSource` callers (which can't set
+        headers); it is also write-scoped, since it returns the same token.
+        """
+        return self._build_preview_token_response(request)
+
+    @extend_schema(
+        operation_id="agent_applications_preview_token",
+        parameters=_PREVIEW_TOKEN_PARAMETERS,
+        request=None,
+        responses=_PREVIEW_TOKEN_RESPONSE,
+    )
+    @preview_token_mint.mapping.get
+    def preview_token(self, request: Request, **kwargs) -> Response:
+        """GET sibling of `preview_token_mint`. Same body and response
+        shape — exists because `EventSource` can't set headers, so SSE
+        callers fetch the token via GET and then attach `?preview_token=`
+        to the ingress URL. Behind the same URL (`url_path="preview-token"`)
+        thanks to DRF's `@<action>.mapping.get`; DRF resolves it to a
+        distinct `view.action`, but it is in `scope_object_write_actions`
+        alongside the POST sibling — both return a usable credential, so
+        both require `agents:write`.
+        """
+        return self._build_preview_token_response(request)
 
     @extend_schema(
         operation_id="agent_applications_stats",
@@ -935,6 +1011,14 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                 ),
                                 "usage_total": _AGENT_SESSION_USAGE_TOTAL,
                                 "retry_count": drf_serializers.IntegerField(),
+                                "is_preview": drf_serializers.BooleanField(
+                                    help_text=(
+                                        "True when the session ran against a draft revision in preview mode. "
+                                        "Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics "
+                                        "events are tagged with `$agent_is_preview: true`. Surface a preview badge "
+                                        "on the row so authors can distinguish iteration from live traffic."
+                                    ),
+                                ),
                                 "created_at": drf_serializers.DateTimeField(),
                                 "updated_at": drf_serializers.DateTimeField(),
                             },
@@ -969,9 +1053,118 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 offset=offset,
                 state=request.query_params.get("state") or None,
                 revision_id=request.query_params.get("revision_id") or None,
+                agent_user_id=request.query_params.get("agent_user_id") or None,
                 created_after=request.query_params.get("created_after") or None,
                 created_before=request.query_params.get("created_before") or None,
+                search=request.query_params.get("search") or None,
             )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_users_list",
+        description=(
+            "List this agent's end-users (the stable identities behind inbound "
+            "principals) and each user's linked external connections. Connection "
+            "metadata only — credential material is never returned."
+        ),
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentUsersList",
+                fields={
+                    "count": drf_serializers.IntegerField(),
+                    "results": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentUserWithConnections",
+                            fields={
+                                "id": drf_serializers.UUIDField(),
+                                "principal_kind": drf_serializers.CharField(
+                                    help_text="Edge-identity kind: slack | jwt | posthog | service | …",
+                                ),
+                                "principal_id": drf_serializers.CharField(),
+                                "metadata": drf_serializers.JSONField(allow_null=True, required=False),
+                                "created_at": drf_serializers.DateTimeField(),
+                                "connections": drf_serializers.ListField(
+                                    child=inline_serializer(
+                                        name="AgentUserConnection",
+                                        fields={
+                                            "id": drf_serializers.UUIDField(),
+                                            "provider": drf_serializers.CharField(),
+                                            "scopes": drf_serializers.ListField(child=drf_serializers.CharField()),
+                                            "state": drf_serializers.CharField(help_text="active | revoked"),
+                                            "subject": drf_serializers.CharField(allow_null=True, required=False),
+                                            "access_expires_at": drf_serializers.DateTimeField(
+                                                allow_null=True, required=False
+                                            ),
+                                            "created_at": drf_serializers.DateTimeField(),
+                                            "updated_at": drf_serializers.DateTimeField(),
+                                            "revoked_at": drf_serializers.DateTimeField(
+                                                allow_null=True, required=False
+                                            ),
+                                        },
+                                    )
+                                ),
+                            },
+                        )
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="users")
+    def users_list(self, request: Request, **kwargs) -> Response:
+        """End-users of this agent, each with their linked connections."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            payload = _janitor().list_users(int(self.team_id), str(application.id))
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_users_connection_delete",
+        description=(
+            "Revoke one of an end-user's linked connections. The credential is "
+            "marked revoked (kept for audit), so the agent can no longer act as "
+            "that user on the provider."
+        ),
+        parameters=[
+            OpenApiParameter("agent_user_id", OpenApiTypes.UUID, OpenApiParameter.PATH, required=True),
+            OpenApiParameter(
+                "provider",
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
+                required=True,
+                description="Identity provider id (e.g. 'posthog', 'github').",
+            ),
+        ],
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentConnectionDelete",
+                fields={
+                    "provider": drf_serializers.CharField(),
+                    "revoked": drf_serializers.BooleanField(),
+                },
+            )
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path=r"users/(?P<agent_user_id>[^/.]+)/connections/(?P<provider>[^/.]+)",
+    )
+    def users_connection_delete(
+        self, request: Request, agent_user_id: str = "", provider: str = "", **kwargs
+    ) -> Response:
+        """Revoke one linked connection for an end-user."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            payload = _janitor().delete_connection(int(self.team_id), str(application.id), agent_user_id, provider)
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         return Response(payload)
@@ -1036,6 +1229,14 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         help_text="Times the janitor has re-queued this session after a stuck-running detection.",
                     ),
                     "usage_total": _AGENT_SESSION_USAGE_TOTAL,
+                    "is_preview": drf_serializers.BooleanField(
+                        help_text=(
+                            "True when the session ran against a draft revision in preview mode. "
+                            "Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics "
+                            "events are tagged with `$agent_is_preview: true`. Surface a preview badge "
+                            "on session detail so authors can distinguish iteration from live traffic."
+                        ),
+                    ),
                     "created_at": drf_serializers.DateTimeField(),
                     "updated_at": drf_serializers.DateTimeField(),
                     "conversation_trimmed": drf_serializers.BooleanField(
@@ -1148,6 +1349,13 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "application_id": drf_serializers.UUIDField(help_text="UUID of the parent agent application."),
         "team_id": drf_serializers.IntegerField(help_text="Team that owns the agent."),
         "revision_id": drf_serializers.UUIDField(help_text="Revision the gated call was proposed against."),
+        "is_preview": drf_serializers.BooleanField(
+            help_text=(
+                "Mirrors the owning session's `is_preview`. True when the request originated from a "
+                "draft revision running in preview mode — render a preview badge in the approvals "
+                "queue so reviewers can tell author-iteration approvals apart from production traffic."
+            ),
+        ),
         "turn": drf_serializers.IntegerField(help_text="Turn number within the session that emitted the call."),
         "tool_call_id": drf_serializers.CharField(
             help_text="pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result."
@@ -1168,7 +1376,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ),
         "approver_scope": drf_serializers.DictField(
             child=drf_serializers.JSONField(),
-            help_text="Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time.",
+            help_text="Resolved approval policy (type: principal|agent, allow_edit) at request time.",
         ),
         "state": drf_serializers.ChoiceField(
             choices=[
@@ -1334,9 +1542,13 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="approvals/(?P<approval_id>[^/.]+)/decide")
     def approvals_decide(self, request: Request, approval_id: str = "", **kwargs) -> Response:
-        """Approve or reject a queued tool-approval request. Team-admin only
-        (plan §6.1). The runtime side runs the tool platform-side on approve
-        and wakes the session with a synthetic tool_result either way."""
+        """Approve or reject a queued `agent`-type tool-approval request.
+
+        This is the OWNER decision surface — the only PostHog-authoritative one:
+        team admins decide here, in the console. `principal`-type approvals are
+        decided by the session principal at the ingress decision API, not here.
+        The runtime side runs the tool platform-side on approve and wakes the
+        session with a synthetic tool_result either way."""
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
@@ -1347,22 +1559,28 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             existing = _janitor().get_approval(approval_id, application_id=str(application.id))
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
-        # When the spec sets `allow_agent_approver: False`, only a human acting
-        # interactively may decide. Accept either SessionAuthentication, or a
-        # bearer from a first-party PostHog OAuth app (e.g. PostHog Code, where a
-        # human approves in-app) — `is_first_party` is staff-set on the app, so a
-        # third-party OAuth app or a personal API key can't decide a human-only
-        # approval regardless of scope.
+        # Only `agent`-type approvals are decided through the console. A
+        # `principal`-type request is the session owner's to clear at the ingress
+        # decision API; collapse it to not-found here. (Legacy rows queued before
+        # the principal/agent split carry `approvers[]` instead of `type` — map
+        # `team_admins` → agent so an in-flight old row stays decidable.)
+        scope = existing.get("approver_scope", {})
+        approval_type = scope.get("type")
+        if approval_type is None:
+            approval_type = "agent" if "team_admins" in (scope.get("approvers") or []) else "principal"
+        if approval_type != "agent":
+            raise NotFound("Approval not found")
+        # A human acting interactively only: SessionAuthentication, or a bearer
+        # from a first-party PostHog OAuth app (e.g. PostHog Code, where a human
+        # approves in-app) — `is_first_party` is staff-set on the app, so a
+        # third-party OAuth app or a personal API key can't decide an owner
+        # approval.
         authenticator = request.successful_authenticator
         is_session = isinstance(authenticator, SessionAuthentication)
         is_first_party_oauth = isinstance(authenticator, OAuthAccessTokenAuthentication) and bool(
             getattr(getattr(authenticator.access_token, "application", None), "is_first_party", False)
         )
-        if (
-            existing.get("approver_scope", {}).get("allow_agent_approver") is False
-            and not is_session
-            and not is_first_party_oauth
-        ):
+        if not is_session and not is_first_party_oauth:
             raise NotFound("Approval not found")
         try:
             payload = _janitor().decide_approval(
@@ -1544,6 +1762,18 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 f"Set the value(s) via the env editor then retry."
             )
 
+        # Managed PostHog identity providers: ensure each declared `{kind:posthog}`
+        # provider has a (normal, user-consented) OAuthApplication and inject its
+        # client_id into the spec. Idempotent; runs before the state flip so the
+        # frozen-and-live spec carries the client_id the runner links against.
+        spec_mutated = provision_posthog_identity_apps(
+            # Promote requires auth, so this is always a real User (not Anonymous);
+            # cast to satisfy the `User | None` signature, as elsewhere in this file.
+            application=revision.application,
+            revision=revision,
+            acting_user=cast(User, request.user),
+        )
+
         # All three writes — demote previous live, set this live, point the
         # application — must succeed or fail together. select_for_update on
         # the application row serializes concurrent promotes so two callers
@@ -1558,7 +1788,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 previously_live.state = "archived"
                 previously_live.save(update_fields=["state", "updated_at"])
             revision.state = "live"
-            revision.save(update_fields=["state", "updated_at"])
+            revision.save(update_fields=["state", "spec", "updated_at"] if spec_mutated else ["state", "updated_at"])
             application.live_revision = revision
             application.save(update_fields=["live_revision", "updated_at"])
         return Response({"ok": True, "state": "live"})
@@ -2650,7 +2880,7 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         GET /api/projects/<team>/agent_fleet/approvals/       — approval-gated tool requests across every agent in the team
 
     All three endpoints proxy the janitor (which owns the runtime DB). Used
-    by the agent-console "fleet" overview to render the cards on the agents
+    by the "fleet" overview to render the cards on the agents
     list without per-agent N+1.
     """
 
@@ -2737,6 +2967,14 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                     help_text="Last assistant text (~120 chars). Null when no assistant turns yet.",
                                 ),
                                 "usage_total": _AGENT_SESSION_USAGE_TOTAL,
+                                "is_preview": drf_serializers.BooleanField(
+                                    help_text=(
+                                        "True when the session ran against a draft revision in preview mode. "
+                                        "Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics "
+                                        "events are tagged with `$agent_is_preview: true`. Render a preview badge "
+                                        "on the row so author iteration is distinguishable from live traffic."
+                                    ),
+                                ),
                                 "created_at": drf_serializers.DateTimeField(),
                                 "updated_at": drf_serializers.DateTimeField(),
                             },

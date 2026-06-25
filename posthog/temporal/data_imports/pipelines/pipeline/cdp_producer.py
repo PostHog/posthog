@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
 class CDPProducer:
@@ -31,6 +32,7 @@ class CDPProducer:
     job_id: str
     logger: FilteringBoundLogger
     _should_produce_cache: bool | None
+    _table_name_cache: str | None
 
     def __init__(self, team_id: int, schema_id: str, job_id: str, logger: FilteringBoundLogger) -> None:
         self.team_id = team_id
@@ -38,6 +40,7 @@ class CDPProducer:
         self.job_id = job_id
         self.logger = logger
         self._should_produce_cache = None
+        self._table_name_cache = None
 
     def _get_fs(self) -> pa_fs.S3FileSystem:
         if settings.USE_LOCAL_SETUP:
@@ -82,6 +85,19 @@ class CDPProducer:
 
                 raise ValueError("Could not serialize record to JSON") from e
 
+    async def get_dot_notated_table_name(self) -> str:
+        if self._table_name_cache is not None:
+            return self._table_name_cache
+
+        @database_sync_to_async_pool
+        def _resolve() -> str:
+            schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
+            raw_table_name = build_table_name(schema.source, schema.name)
+            return get_data_warehouse_table_name(schema.source, raw_table_name)
+
+        self._table_name_cache = await _resolve()
+        return self._table_name_cache
+
     def _build_event_id(self, row: object) -> str:
         """Build a deterministic event id that is unique per row per job.
 
@@ -96,17 +112,14 @@ class CDPProducer:
         if self._should_produce_cache is not None:
             return self._should_produce_cache
 
+        dot_notated_table_name = await self.get_dot_notated_table_name()
+
         @database_sync_to_async_pool
-        def _check():
-            schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
-
-            raw_table_name = build_table_name(schema.source, schema.name)
-            dot_notated_table_name = get_data_warehouse_table_name(schema.source, raw_table_name)
-
-            self.logger.debug(f"Checking if table {dot_notated_table_name} is used in any hog functions")
+        def _check() -> bool:
+            self.logger.debug(f"Checking if table {dot_notated_table_name} is used in any hog functions or workflows")
             self.logger.debug(f"Using table_name = {dot_notated_table_name}, source = data-warehouse-table")
 
-            return (
+            has_matching_hog_function = (
                 HogFunction.objects.filter(
                     team_id=self.team_id,
                     enabled=True,
@@ -116,6 +129,18 @@ class CDPProducer:
                 .exclude(deleted=True)
                 .exists()
             )
+
+            if has_matching_hog_function:
+                return True
+
+            # Also gate on active workflows (HogFlows) triggered by this table - without this the
+            # producer never emits to Kafka for a team whose only consumer is a warehouse-triggered workflow.
+            return HogFlow.objects.filter(
+                team_id=self.team_id,
+                status=HogFlow.State.ACTIVE,
+                trigger__type="data-warehouse-table",
+                trigger__table_name=dot_notated_table_name,
+            ).exists()
 
         self._should_produce_cache = await _check()
         return self._should_produce_cache
@@ -148,6 +173,10 @@ class CDPProducer:
 
         await self.logger.adebug(f"Producing CDP data to Kafka from S3 path prefix {self._get_path_prefix()}")
 
+        # Propagate the dot-notated table name so the Node consumer can match warehouse-triggered
+        # workflows (HogFlows) against trigger.table_name without an extra lookup.
+        dot_notated_table_name = await self.get_dot_notated_table_name()
+
         files_to_produce = await self._list_files_to_produce()
 
         await self.logger.adebug(f"Found {len(files_to_produce)} files to produce to Kafka")
@@ -166,6 +195,7 @@ class CDPProducer:
                             for row in batch.to_pylist():
                                 row_as_props = {
                                     "team_id": self.team_id,
+                                    "table_name": dot_notated_table_name,
                                     "event_id": self._build_event_id(row),
                                     "properties": row,
                                 }

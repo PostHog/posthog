@@ -437,6 +437,23 @@ describe('hog-charts scales', () => {
             expect(result.yAxes!.y1.position).toBe('right')
         })
 
+        it('builds a right-positioned yAxes record for a sole axis pinned right', () => {
+            // A single series whose only axis is configured `position: 'right'` — the alternating
+            // default would place index 0 on the left, so without honoring the override the gutter
+            // renders left. The scalar fast path would also drop the yAxes record entirely.
+            const only = makeSeries({ key: 'only', data: [0, 1200], yAxisId: 'right' })
+            const result = createScales([only], ['a', 'b'], dimensions, {
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'left' },
+                    { id: 'right', position: 'right' },
+                ],
+            })
+            expect(result.yAxes).not.toBeUndefined()
+            expect(result.yAxes!.right.position).toBe('right')
+            // scales.y mirrors the sole axis so gridlines align with the right gutter's ticks.
+            expect(result.y(600)).toBe(result.yAxes!.right.scale(600))
+        })
+
         it('uses a single-axis options.axes scaleType for the sole axis', () => {
             const only = makeSeries({ key: 'only', data: [1, 10, 100, 1000] })
             const result = createScales([only], ['a', 'b', 'c', 'd'], dimensions, {

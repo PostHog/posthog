@@ -12,7 +12,8 @@ const AUTHORITATIVE_METADATA = {
     scopes_supported: ['openid', 'profile', 'email'],
     response_types_supported: ['code'],
     response_modes_supported: ['query'],
-    grant_types_supported: ['authorization_code', 'refresh_token'],
+    grant_types_supported: ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:jwt-bearer'],
+    authorization_grant_profiles_supported: ['urn:ietf:params:oauth:grant-profile:id-jag'],
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
     code_challenge_methods_supported: ['S256'],
     service_documentation: 'https://posthog.com/docs/model-context-protocol',
@@ -61,6 +62,9 @@ describe('handleMetadata', () => {
         expect(data.scopes_supported).toEqual(AUTHORITATIVE_METADATA.scopes_supported)
         expect(data.response_types_supported).toEqual(AUTHORITATIVE_METADATA.response_types_supported)
         expect(data.grant_types_supported).toEqual(AUTHORITATIVE_METADATA.grant_types_supported)
+        expect(data.authorization_grant_profiles_supported).toEqual(
+            AUTHORITATIVE_METADATA.authorization_grant_profiles_supported
+        )
         expect(data.code_challenge_methods_supported).toContain('S256')
         expect(data.service_documentation).toBe(AUTHORITATIVE_METADATA.service_documentation)
         expect(data.client_id_metadata_document_supported).toBe(true)
