@@ -915,11 +915,13 @@ def get_teams_with_recording_count_in_period(
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_observations_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
-    # Replay Vision emits one `$recording_observed` event per observation into the team's events table.
+    # Replay Vision emits one `$recording_observed` event per observation into the team's events table,
+    # with `event_uuid` set to the observation id. Count distinct uuids so at-least-once ingestion
+    # duplicates (same observation, same uuid) aren't over-counted — this is a billing input.
     with tags_context(product=Product.REPLAY_VISION, feature=Feature.USAGE_REPORT):
         return sync_execute(
             """
-            SELECT team_id, COUNT() as count
+            SELECT team_id, count(distinct uuid) as count
             FROM events
             WHERE event = '$recording_observed' AND timestamp >= %(begin)s AND timestamp < %(end)s
             GROUP BY team_id
