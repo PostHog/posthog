@@ -28,6 +28,11 @@ type HmacSha256 = Hmac<Sha256>;
 const GATEWAY_PREFIX: &str = "$ai_gateway";
 const VERIFIED_PROPERTY: &str = "$ai_gateway_verified";
 
+/// Counter for every provenance decision that mutates an event, labelled by
+/// `reason` (`verified`, `stale`, `forged`, …). Lets us alert on forgery
+/// attempts (`forged`) and gateway/capture clock skew (`stale`).
+pub const PROVENANCE_METRIC: &str = "capture_v1_gateway_provenance";
+
 /// The JSON-key form of `GATEWAY_PREFIX` (a leading quote, no escapes). Used by
 /// the fast-path scan; the static assert below keeps it pinned to GATEWAY_PREFIX
 /// so the scan can't drift from the strip path's prefix.
@@ -76,16 +81,37 @@ fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
     headers.get(name)?.to_str().ok().map(str::to_owned)
 }
 
-/// Verifies the HMAC against the gateway's canonical tuple and checks freshness.
+/// Outcome of checking a gateway signature, so callers can tell a forgery
+/// (`Invalid`) from clock skew (`Stale`) for metrics. Only `Verified` is trusted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provenance {
+    /// Valid HMAC, signed within the freshness window.
+    Verified,
+    /// Valid HMAC, but `signed_at` is outside the freshness window — gateway or
+    /// capture clock skew (or a signature replayed past its lifetime).
+    Stale,
+    /// HMAC mismatch, unparseable signature, or no signature at all.
+    Invalid,
+}
+
+/// Verifies the HMAC against the gateway's canonical tuple, then checks freshness.
+/// A bad HMAC is `Invalid`; a good HMAC outside the window is `Stale`.
 pub fn verify(
     secret: &[u8],
     token: &str,
     distinct_id: &str,
     sig: &GatewaySignature,
     now: DateTime<Utc>,
-) -> bool {
+) -> Provenance {
     let message = canonical(&[token, distinct_id, &sig.request_id, &sig.signed_at]);
-    verify_hmac(secret, &message, &sig.signature) && is_fresh(&sig.signed_at, now)
+    if !verify_hmac(secret, &message, &sig.signature) {
+        return Provenance::Invalid;
+    }
+    if is_fresh(&sig.signed_at, now) {
+        Provenance::Verified
+    } else {
+        Provenance::Stale
+    }
 }
 
 // Length-prefixed encoding of the four fields: each is its big-endian u32 byte
@@ -242,8 +268,10 @@ fn parse_hex4(b: &[u8]) -> Option<u32> {
 }
 
 /// Strips the `$ai_gateway*` namespace from raw properties. Returns `None` when
-/// nothing changed (or the properties don't parse), so the caller keeps the
-/// original bytes and avoids a needless reserialize.
+/// nothing changed, so the caller keeps the original bytes and avoids a needless
+/// reserialize. Non-object properties (e.g. an array) also return `None`: they
+/// can't carry a marker any downstream `JSONExtract(properties, key)` can read,
+/// so leaving them untouched is safe.
 pub fn strip_gateway_raw(properties: &RawValue) -> Option<Box<RawValue>> {
     let mut map: Map<String, Value> = serde_json::from_str(properties.get()).ok()?;
     let before = map.len();
@@ -309,48 +337,54 @@ mod tests {
 
     #[test]
     fn verifies_a_valid_fresh_signature() {
-        assert!(verify(
-            SECRET,
-            TOKEN,
-            DISTINCT_ID,
-            &valid_sig("req-1"),
-            now()
-        ));
+        assert_eq!(
+            verify(SECRET, TOKEN, DISTINCT_ID, &valid_sig("req-1"), now()),
+            Provenance::Verified
+        );
     }
 
     #[test]
     fn verifies_with_an_empty_request_id() {
-        assert!(verify(SECRET, TOKEN, DISTINCT_ID, &valid_sig(""), now()));
+        assert_eq!(
+            verify(SECRET, TOKEN, DISTINCT_ID, &valid_sig(""), now()),
+            Provenance::Verified
+        );
     }
 
     #[test]
     fn rejects_a_tampered_distinct_id() {
-        assert!(!verify(SECRET, TOKEN, "user-8", &valid_sig("req-1"), now()));
+        assert_eq!(
+            verify(SECRET, TOKEN, "user-8", &valid_sig("req-1"), now()),
+            Provenance::Invalid
+        );
     }
 
     #[test]
     fn rejects_a_tampered_token() {
-        assert!(!verify(
-            SECRET,
-            "phc_other",
-            DISTINCT_ID,
-            &valid_sig("req-1"),
-            now()
-        ));
+        assert_eq!(
+            verify(SECRET, "phc_other", DISTINCT_ID, &valid_sig("req-1"), now()),
+            Provenance::Invalid
+        );
     }
 
     #[test]
     fn rejects_a_garbage_signature() {
         let mut sig = valid_sig("req-1");
         sig.signature = "deadbeef".to_string();
-        assert!(!verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()));
+        assert_eq!(
+            verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()),
+            Provenance::Invalid
+        );
     }
 
     #[test]
     fn rejects_a_non_hex_signature() {
         let mut sig = valid_sig("req-1");
         sig.signature = "not-hex".to_string();
-        assert!(!verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()));
+        assert_eq!(
+            verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()),
+            Provenance::Invalid
+        );
     }
 
     #[test]
@@ -363,7 +397,10 @@ mod tests {
             signed_at,
             request_id: "req-1".to_string(),
         };
-        assert!(!verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()));
+        assert_eq!(
+            verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()),
+            Provenance::Invalid
+        );
     }
 
     #[test]
@@ -379,7 +416,10 @@ mod tests {
             signed_at,
             request_id: String::new(),
         };
-        assert!(!verify(SECRET, TOKEN, "user\nreq", &forged, now()));
+        assert_eq!(
+            verify(SECRET, TOKEN, "user\nreq", &forged, now()),
+            Provenance::Invalid
+        );
     }
 
     #[test]
@@ -390,7 +430,11 @@ mod tests {
             signed_at: stale,
             request_id: "req-1".to_string(),
         };
-        assert!(!verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()));
+        // Valid HMAC, but outside the window — clock skew, not forgery.
+        assert_eq!(
+            verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()),
+            Provenance::Stale
+        );
     }
 
     #[test]
@@ -401,7 +445,10 @@ mod tests {
             signed_at: edge,
             request_id: "req-1".to_string(),
         };
-        assert!(verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()));
+        assert_eq!(
+            verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()),
+            Provenance::Verified
+        );
     }
 
     #[test]
@@ -414,7 +461,10 @@ mod tests {
             signed_at: edge,
             request_id: "req-1".to_string(),
         };
-        assert!(verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()));
+        assert_eq!(
+            verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()),
+            Provenance::Verified
+        );
     }
 
     #[test]
@@ -426,7 +476,11 @@ mod tests {
             signed_at: beyond,
             request_id: "req-1".to_string(),
         };
-        assert!(!verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()));
+        // Valid HMAC, but past the future edge — skew, not forgery.
+        assert_eq!(
+            verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()),
+            Provenance::Stale
+        );
     }
 
     #[test]
@@ -436,7 +490,12 @@ mod tests {
             signed_at: "not-a-date".to_string(),
             request_id: "req-1".to_string(),
         };
-        assert!(!verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()));
+        // HMAC is valid (the gateway signed it), but the timestamp doesn't
+        // parse, so freshness fails — never trusted.
+        assert_eq!(
+            verify(SECRET, TOKEN, DISTINCT_ID, &sig, now()),
+            Provenance::Stale
+        );
     }
 
     #[test]
@@ -569,12 +628,9 @@ mod tests {
             request_id: "req-123".to_string(),
         };
         let now: DateTime<Utc> = "2026-05-28T10:00:00Z".parse().unwrap();
-        assert!(verify(
-            b"test-signing-secret",
-            "phc_test",
-            "user-7",
-            &sig,
-            now
-        ));
+        assert_eq!(
+            verify(b"test-signing-secret", "phc_test", "user-7", &sig, now),
+            Provenance::Verified
+        );
     }
 }

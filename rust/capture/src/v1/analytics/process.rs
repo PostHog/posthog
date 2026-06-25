@@ -149,7 +149,7 @@ fn apply_gateway_provenance(state: &router::State, context: &Context, events: &m
             continue;
         }
 
-        let verified = match (secret, context.gateway_signature.as_ref()) {
+        let outcome = match (secret, context.gateway_signature.as_ref()) {
             (Some(secret), Some(sig)) => gp::verify(
                 secret.as_bytes(),
                 &context.api_token,
@@ -157,17 +157,27 @@ fn apply_gateway_provenance(state: &router::State, context: &Context, events: &m
                 sig,
                 now,
             ),
-            _ => false,
+            // No secret or no signature — nothing to trust.
+            _ => gp::Provenance::Invalid,
         };
 
-        if verified {
+        if outcome == gp::Provenance::Verified {
             if let Some(props) = gp::stamp_verified_raw(&ev.event.properties) {
                 ev.event.properties = props;
                 ev.is_gateway_verified = true;
+                metrics::counter!(gp::PROVENANCE_METRIC, "reason" => "verified").increment(1);
             }
         } else if gp::has_gateway_props(&ev.event.properties) {
             if let Some(props) = gp::strip_gateway_raw(&ev.event.properties) {
                 ev.event.properties = props;
+                // A marker that didn't ride a fresh, valid signature: stale HMAC
+                // is clock skew, anything else is a forged/leftover marker.
+                let reason = if outcome == gp::Provenance::Stale {
+                    "stale"
+                } else {
+                    "forged"
+                };
+                metrics::counter!(gp::PROVENANCE_METRIC, "reason" => reason).increment(1);
             }
         }
     }
@@ -2457,6 +2467,82 @@ mod tests {
             "gateway props must be stripped"
         );
         assert!(raw.contains("$ai_model"), "non-gateway props must survive");
+    }
+
+    /// process_batch wiring: a valid signature is verified ahead of the limiter
+    /// and the trusted marker survives serialization into the published payload.
+    #[tokio::test]
+    async fn process_batch_stamps_verified_gateway_event_into_published_payload() {
+        let token = "phc_test_token";
+        let distinct_id = "user-1";
+        let now = Utc::now();
+        let ts = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build();
+        let signed_at = now.to_rfc3339();
+        let sig = GatewaySignature {
+            signature: sign_for_test(
+                GW_SECRET.as_bytes(),
+                token,
+                distinct_id,
+                "req-1",
+                &signed_at,
+            ),
+            signed_at,
+            request_id: "req-1".to_string(),
+        };
+        let mut ctx = gateway_context(token, now, Some(sig));
+        let batch = valid_batch(vec![Event {
+            event: "$ai_generation".to_string(),
+            distinct_id: distinct_id.to_string(),
+            properties: test_utils::raw_obj(r#"{"$ai_model":"claude"}"#),
+            ..valid_event()
+        }]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        ts.mock_producer.with_records(|records| {
+            assert_eq!(records.len(), 1, "the verified event must be published");
+            assert!(
+                records[0].payload.contains("$ai_gateway_verified"),
+                "verified marker must reach the published payload"
+            );
+        });
+    }
+
+    /// process_batch wiring: a client-set marker with no signature is stripped
+    /// before the event is serialized, so it never reaches the meter as trusted.
+    #[tokio::test]
+    async fn process_batch_strips_forged_gateway_marker_from_published_payload() {
+        let token = "phc_test_token";
+        let now = Utc::now();
+        let ts = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build();
+        let mut ctx = gateway_context(token, now, None);
+        let batch = valid_batch(vec![Event {
+            event: "$ai_generation".to_string(),
+            distinct_id: "user-1".to_string(),
+            properties: test_utils::raw_obj(
+                r#"{"$ai_gateway_verified":true,"$ai_model":"claude"}"#,
+            ),
+            ..valid_event()
+        }]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        ts.mock_producer.with_records(|records| {
+            assert_eq!(
+                records.len(),
+                1,
+                "the event is still published, just untrusted"
+            );
+            assert!(
+                !records[0].payload.contains("$ai_gateway"),
+                "forged marker must be stripped before publish"
+            );
+            assert!(records[0].payload.contains("$ai_model"));
+        });
     }
 
     // =========================================================================
