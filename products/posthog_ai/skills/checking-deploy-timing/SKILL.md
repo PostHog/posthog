@@ -26,12 +26,12 @@ They're returned newest-first; paginate with `offset` if you need to go further 
 ## Workflow
 
 1. **Find the change's merge commit.** Identify the PR (e.g. `gh search prs --repo PostHog/posthog --author <user> "<keywords>"`), then `gh pr view <n> --repo PostHog/posthog --json number,title,mergedAt,mergeCommit,state`. Note the merge commit SHA and `mergedAt`.
-2. **Find the first deploy to the target environment after the merge.** Scan the `deploy` annotations for the earliest `... to <env>` marker with `date_marker` after `mergedAt`. Match the region the user asked about (`prod-us` for "the US", `prod-eu` for "the EU").
+2. **Find the first deploy to the target environment after the merge.** Match the region the user asked about (`prod-us` for "the US", `prod-eu` for "the EU"). The annotations come back **newest-first**, so don't just take the first `... to <env>` match on page 1 — that's the _most recent_ deploy, not the first one after the merge. Walk newest→oldest (paginating with `offset`) through that environment's markers until a `date_marker` falls _before_ `mergedAt`; the last matching marker you saw before crossing that boundary is the first deploy after the merge.
 3. **Confirm the deployed commit actually contains the merge commit.** A later `date_marker` is necessary but not sufficient — the deploy might predate the merge in git history. Verify ancestry:
    ```sh
    gh api repos/PostHog/posthog/compare/<merge_sha>...<deployed_sha> --jq '{status,ahead_by,behind_by}'
    ```
-   `behind_by: 0` with `status` `ahead` or `identical` means the deployed commit includes the merge. If `behind_by > 0`, that deploy is *before* the change — keep scanning forward to the next deploy of that environment.
+   `behind_by: 0` with `status` `ahead` or `identical` means the deployed commit includes the merge. If `behind_by > 0`, that deploy is _before_ the change — keep scanning forward to the next deploy of that environment.
 4. **Report** the deploy time (and PR/commit) for the region asked about. Mention other regions if relevant — `prod-us` and `prod-eu` usually deploy minutes apart but not simultaneously.
 
 ## Notes
