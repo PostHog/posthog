@@ -486,9 +486,11 @@ impl<'a> HogVM<'a> {
             Operation::Try => {
                 // i32 to permit setting a catch offset lower than the IP
                 let catch_offset: i32 = self.next()?;
-                // +1 to skip the POP_TRY that follows the try'd operations
+                // The reference computes `catchIp = <TRY position> + 1 + offset`. After reading the
+                // opcode and offset, self.ip points two past the TRY position, so subtract one to land
+                // on the same instruction (the compiler's offset already skips the POP_TRY).
                 let catch_ip = (self.ip as i64)
-                    .checked_add(catch_offset as i64 + 1)
+                    .checked_add(catch_offset as i64 - 1)
                     .ok_or(VmError::IntegerOverflow)? as usize;
                 let frame = ThrowFrame {
                     catch_ptr: catch_ip,
