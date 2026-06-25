@@ -451,7 +451,7 @@ database "posthog" {
   }
   materialized_view "ops_query_log_archive_mv" {
     to_table = "posthog.writable_query_log_archive"
-    query    = "SELECT hostname, user, query_id, initial_query_id, is_initial_query, type, event_date, event_time, event_time_microseconds, query_start_time, query_start_time_microseconds, query_duration_ms, read_rows, read_bytes, written_rows, written_bytes, result_rows, result_bytes, memory_usage, peak_threads_usage, current_database, query, formatted_query, normalized_query_hash, query_kind, exception_code, exception, stack_trace, JSONExtractInt(log_comment, 'team_id') AS team_id, if(isValidJSON(log_comment), log_comment, '{}') AS log_comment, ProfileEvents FROM system.query_log WHERE type != 'QueryStart'"
+    query = file("sql/ops_query_log_archive_mv.sql")
     column "hostname" {
       type = "LowCardinality(String)"
     }

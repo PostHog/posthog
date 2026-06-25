@@ -2,7 +2,7 @@
 database "posthog" {
   materialized_view "kafka_logs34_avro_mv" {
     to_table = "posthog.logs34"
-    query    = "SELECT kafka_logs_avro.* EXCEPT(created_at, attribute_values, attribute_keys, attributes, attributes_map_str, attributes_map_float, attributes_map_datetime, resource_attributes), mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str, mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes, toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id, observed_timestamp + toIntervalDay(toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))) AS original_expiry_timestamp, _partition, _topic, _offset, toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count, toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed, toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed FROM posthog.kafka_logs_avro"
+    query = file("sql/kafka_logs34_avro_mv.sql")
     column "uuid" {
       type = "String"
     }
@@ -127,7 +127,7 @@ database "posthog" {
   }
   materialized_view "kafka_logs_avro_billing_metrics_mv" {
     to_table = "posthog.logs_billing_metrics"
-    query    = "SELECT team_id, time_bucket, service_name, sumSimpleState(floor(_bytes_uncompressed / _record_count)) AS bytes_uncompressed, sumSimpleState(floor(_bytes_compressed / _record_count)) AS bytes_compressed, sumSimpleState(1) AS record_count FROM (SELECT team_id, toStartOfInterval(timestamp, toIntervalMinute(1)) AS time_bucket, service_name AS service_name, _record_count, _bytes_uncompressed, _bytes_compressed FROM posthog.logs34) GROUP BY team_id, time_bucket, service_name"
+    query = file("sql/kafka_logs_avro_billing_metrics_mv.sql")
     column "team_id" {
       type = "Int32"
     }
@@ -225,7 +225,7 @@ database "posthog" {
   }
   materialized_view "kafka_trace_spans_avro_mv" {
     to_table = "posthog.trace_spans"
-    query    = "SELECT * EXCEPT(attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code), toInt8(kind) AS kind, toUInt32(flags) AS flags, toUInt32(dropped_attributes_count) AS dropped_attributes_count, toUInt32(dropped_events_count) AS dropped_events_count, toUInt32(dropped_links_count) AS dropped_links_count, toInt16(status_code) AS status_code, mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str, mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes, toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id, _partition, _topic, _offset, toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count, toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) AS _bytes_uncompressed, toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) AS _bytes_compressed FROM posthog.kafka_trace_spans_avro"
+    query = file("sql/kafka_trace_spans_avro_mv.sql")
     column "uuid" {
       type = "String"
     }
@@ -920,7 +920,7 @@ database "posthog" {
   }
   materialized_view "trace_span_to_attributes" {
     to_table = "posthog.trace_attributes"
-    query    = "SELECT team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, 'span_attribute' AS attribute_type, attribute_count FROM (SELECT team_id AS team_id, toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket, toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket, service_name AS service_name, resource_fingerprint, arrayJoin(mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes)) AS attribute, attribute.1 AS attribute_key, attribute.2 AS attribute_value, sumSimpleState(1) AS attribute_count FROM posthog.trace_spans GROUP BY team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, attribute)"
+    query = file("sql/trace_span_to_attributes.sql")
     column "team_id" {
       type = "Int32"
     }
@@ -951,7 +951,7 @@ database "posthog" {
   }
   materialized_view "trace_span_to_resource_attributes" {
     to_table = "posthog.trace_attributes"
-    query    = "SELECT team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, 'span_resource_attribute' AS attribute_type, attribute_count FROM (SELECT team_id AS team_id, toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket, toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket, service_name AS service_name, resource_fingerprint, arrayJoin(resource_attributes) AS attribute, attribute.1 AS attribute_key, attribute.2 AS attribute_value, sumSimpleState(1) AS attribute_count FROM posthog.trace_spans GROUP BY team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, attribute)"
+    query = file("sql/trace_span_to_resource_attributes.sql")
     column "team_id" {
       type = "Int32"
     }
@@ -982,7 +982,7 @@ database "posthog" {
   }
   materialized_view "trace_span_to_span_attributes" {
     to_table = "posthog.trace_attributes"
-    query    = "SELECT team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, 'span' AS attribute_type, attribute_count FROM (SELECT team_id AS team_id, toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket, toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket, service_name AS service_name, resource_fingerprint, 'name' AS attribute_key, name AS attribute_value, sumSimpleState(1) AS attribute_count FROM posthog.trace_spans GROUP BY team_id, original_expiry_time_bucket, time_bucket, service_name, resource_fingerprint, name)"
+    query = file("sql/trace_span_to_span_attributes.sql")
     column "team_id" {
       type = "Int32"
     }
@@ -1337,7 +1337,7 @@ database "posthog" {
   }
   materialized_view "trace_spans_to_kafka_metrics_mv" {
     to_table = "posthog.trace_spans_kafka_metrics"
-    query    = "SELECT _partition, _topic, maxSimpleState(_offset) AS max_offset, maxSimpleState(observed_timestamp) AS max_observed_timestamp, maxSimpleState(timestamp) AS max_timestamp, maxSimpleState(now()) AS max_created_at, maxSimpleState(now() - observed_timestamp) AS max_lag FROM posthog.trace_spans GROUP BY _partition, _topic"
+    query = file("sql/trace_spans_to_kafka_metrics_mv.sql")
     column "_partition" {
       type = "UInt64"
     }

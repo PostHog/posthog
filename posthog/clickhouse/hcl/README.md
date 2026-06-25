@@ -23,6 +23,7 @@ hcl/
   roles/logs/              # LOGS objects identical across all cloud envs
   env/<env>/ops.hcl        # per-env OPS overlays (sharded_tophog zoo_path, prod-us ProfileEvents2, dev prom_metrics)
   env-logs/<env>/          # per-env LOGS overlays (kafka/zoo_path/distributed variants; traces on prod only)
+  <layer>/sql/<object>.sql # view/MV query bodies extracted from a layer, referenced as query = file("sql/<object>.sql")
   golden/<env>-<role>.hcl  # resolved composition per node (the desired schema); check.sh diffs against it
   sql/<env>-<role>.sql     # generated build-from-scratch CREATE schema per node (apply to a fresh ClickHouse)
   check.sh                 # CI guard: validate + diff every node vs golden + verify golden/ & sql/ are fresh
@@ -52,7 +53,7 @@ HCL=posthog/clickhouse/hcl
 $HCL/bin/hclexp -help
 # it is equivalent to:
 docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
-  ghcr.io/posthog/chschema:sha-f9490b7 -help
+  ghcr.io/posthog/chschema:sha-1871283 -help
 ```
 
 (For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in
@@ -64,6 +65,10 @@ docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
    - LOGS → `roles/logs/` (common) or `env-logs/<env>/` (per-env / differing)
    - a brand-new object → add it to the layer above **and**, if it's on a new role, add that role's
      line to `nodes` (+ a golden for it).
+   - a long view/MV `query` → keep it in `<layer>/sql/<object>.sql` and reference it as
+     `query = file("sql/<object>.sql")` (resolved relative to the layer file). The loader normalizes
+     `file()`, heredoc, and inline forms to one canonical query, so the form is purely cosmetic — edit
+     the `.sql`. `gen-sql.sh`/`gen-golden.sh` emit the beautified form.
 
 2. **Preview the DDL** the change produces, per node:
    ```bash

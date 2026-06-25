@@ -28,10 +28,11 @@ permissions:
     packages: read
 
 env:
-    # Pin to a concrete chschema build (not :latest) for reproducibility. sha-f9490b7
-    # has the modifier-aware diff (chschema #59) so the guard compares ALIAS/
-    # MATERIALIZED/DEFAULT columns. Override via repo variable.
-    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-f9490b7' }}
+    # Pin to a concrete chschema build (not :latest) for reproducibility. sha-1871283
+    # adds file()/heredoc query refs with beautify-canonical normalization on the
+    # layer loader (#68/#69) so a query authored as file("sql/x.sql") compares equal
+    # to its golden; it retains the modifier-aware diff (#59). Override via repo variable.
+    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-1871283' }}
 
 jobs:
     ops-hcl-guard:

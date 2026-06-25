@@ -112,14 +112,136 @@ CREATE TABLE posthog.sharded_query_log_archive (
   lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
   lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.sharded_query_log_archive', '{replica}-{shard}') ORDER BY (team_id, event_date, event_time, query_id) PARTITION BY toYYYYMM(event_date) SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets';
-CREATE VIEW posthog.custom_metrics_backups AS WITH ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names, [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values, ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions, ['gauge', 'gauge', 'gauge', 'gauge'] AS types, arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl SELECT tpl.1 AS name, map('instance', hostname()) AS labels, tpl.2 AS value, tpl.3 AS help, tpl.4 AS type FROM system.backup_log WHERE event_date = today() GROUP BY event_date;
-CREATE VIEW posthog.custom_metrics_dictionaries AS SELECT 'ClickHouseCustomMetric_DictionariesFailed' AS name, map('instance', hostname(), 'database', d.database, 'dictionary', d.dict_name, 'uuid', toString(d.uuid), 'status', toString(d.status)) AS labels, toUInt64(1) AS value, 'Dictionary is in FAILED or FAILED_AND_RELOADING status' AS help, 'gauge' AS type FROM (SELECT name AS dict_name, database, uuid, status FROM system.dictionaries WHERE status IN ('FAILED', 'FAILED_AND_RELOADING')) AS d;
-CREATE VIEW posthog.custom_metrics_part_counts AS SELECT 'ClickHouseCustomMetric_MaxPartCountPerPartition' AS name, map('instance', hostname(), 'database', database, 'table', `table`, 'partition', partition) AS labels, part_count AS value, 'Maximum number of active parts for any partition in a PostHog table' AS help, 'gauge' AS type FROM (SELECT database, `table`, partition, count() AS part_count FROM system.parts WHERE active AND (database = 'posthog') GROUP BY database, `table`, partition ORDER BY database ASC, `table` ASC, part_count DESC, partition ASC LIMIT 1 BY database, `table`);
-CREATE VIEW posthog.custom_metrics_replication_queue AS WITH ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names, [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values, ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions, ['gauge', 'gauge', 'gauge'] AS types, arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl SELECT tpl.1 AS name, map('table', `table`, 'instance', hostname()) AS labels, tpl.2 AS value, tpl.3 AS help, tpl.4 AS type FROM system.replication_queue GROUP BY `table` HAVING value > 0;
-CREATE VIEW posthog.custom_metrics_server_crash AS SELECT 'ClickHouseCustomMetric_ServerCrash' AS name, map('instance', hostname()) AS labels, count() AS value, 'Number of server crashes for current date' AS help, 'gauge' AS type FROM system.crash_log WHERE event_date = today() GROUP BY hostname();
-CREATE VIEW posthog.custom_metrics_table_sizes AS SELECT 'ClickHouseCustomMetric_TableTotalBytes' AS name, map('instance', hostname(), 'database', database, 'table', `table`) AS labels, CAST(total_bytes, 'Float64') AS value, 'Size of a database table on a given node (need a sum for sharded)' AS help, 'gauge' AS type FROM system.tables WHERE (database NOT IN ('INFORMATION_SCHEMA', 'information_schema')) AND (total_bytes IS NOT NULL);
-CREATE VIEW posthog.custom_metrics_test AS SELECT 'ClickHouseCustomMetric_Test' AS name, map('instance', hostname()) AS labels, 1 AS value, 'Test to check that the metric endpoint is working' AS help, 'gauge' AS type;
-CREATE VIEW posthog.daily_aggregated_query_log_archive AS SELECT event_date AS day, team_id, user, current_database, query_kind, lc_kind, lc_access_method, lc_query_type, lc_product, lc_name, lc_feature, lc_query__kind, lc_api_key_label, count() AS query_count, sum(read_bytes) AS read_bytes, sum(read_rows) AS read_rows, sum(query_duration_ms) AS query_duration_ms, sum(ProfileEvents_OSCPUVirtualTimeMicroseconds) AS cpu_microseconds, countIf(exception_code != 0) AS error_count, countIf(exception_code IN (159, 160, 241)) AS timeout_oom_count FROM posthog.sharded_query_log_archive WHERE is_initial_query AND (event_date < today()) GROUP BY day, team_id, user, current_database, query_kind, lc_kind, lc_access_method, lc_query_type, lc_product, lc_name, lc_feature, lc_query__kind, lc_api_key_label;
+CREATE VIEW posthog.custom_metrics_backups AS WITH
+  ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
+  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values,
+  ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions,
+  ['gauge', 'gauge', 'gauge', 'gauge'] AS types,
+  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+SELECT
+  tpl.1 AS name,
+  map('instance', hostname()) AS labels,
+  tpl.2 AS value,
+  tpl.3 AS help,
+  tpl.4 AS type
+FROM system.backup_log
+WHERE event_date = today()
+GROUP BY
+  event_date;
+CREATE VIEW posthog.custom_metrics_dictionaries AS SELECT
+  'ClickHouseCustomMetric_DictionariesFailed' AS name,
+  map(
+    'instance',
+    hostname(),
+    'database',
+    d.database,
+    'dictionary',
+    d.dict_name,
+    'uuid',
+    toString(d.uuid),
+    'status',
+    toString(d.status)
+  ) AS labels,
+  toUInt64(1) AS value,
+  'Dictionary is in FAILED or FAILED_AND_RELOADING status' AS help,
+  'gauge' AS type
+FROM
+  (
+    SELECT name AS dict_name, database, uuid, status
+    FROM system.dictionaries
+    WHERE status IN ('FAILED', 'FAILED_AND_RELOADING')
+  ) AS d;
+CREATE VIEW posthog.custom_metrics_part_counts AS SELECT
+  'ClickHouseCustomMetric_MaxPartCountPerPartition' AS name,
+  map('instance', hostname(), 'database', database, 'table', `table`, 'partition', partition) AS labels,
+  part_count AS value,
+  'Maximum number of active parts for any partition in a PostHog table' AS help,
+  'gauge' AS type
+FROM
+  (
+    SELECT database, `table`, partition, count() AS part_count
+    FROM system.parts
+    WHERE
+      active
+    AND
+      (database = 'posthog')
+    GROUP BY
+      database, `table`, partition
+    ORDER BY database ASC, `table` ASC, part_count DESC, partition ASC
+    LIMIT 1 BY database, `table`
+  );
+CREATE VIEW posthog.custom_metrics_replication_queue AS WITH
+  ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names,
+  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values,
+  ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions,
+  ['gauge', 'gauge', 'gauge'] AS types,
+  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+SELECT
+  tpl.1 AS name,
+  map('table', `table`, 'instance', hostname()) AS labels,
+  tpl.2 AS value,
+  tpl.3 AS help,
+  tpl.4 AS type
+FROM system.replication_queue
+GROUP BY
+  `table`
+HAVING
+  value > 0;
+CREATE VIEW posthog.custom_metrics_server_crash AS SELECT
+  'ClickHouseCustomMetric_ServerCrash' AS name,
+  map('instance', hostname()) AS labels,
+  count() AS value,
+  'Number of server crashes for current date' AS help,
+  'gauge' AS type
+FROM system.crash_log
+WHERE event_date = today()
+GROUP BY
+  hostname();
+CREATE VIEW posthog.custom_metrics_table_sizes AS SELECT
+  'ClickHouseCustomMetric_TableTotalBytes' AS name,
+  map('instance', hostname(), 'database', database, 'table', `table`) AS labels,
+  CAST(total_bytes, 'Float64') AS value,
+  'Size of a database table on a given node (need a sum for sharded)' AS help,
+  'gauge' AS type
+FROM system.tables
+WHERE
+  (database NOT IN ('INFORMATION_SCHEMA', 'information_schema'))
+AND
+  (total_bytes IS NOT NULL);
+CREATE VIEW posthog.custom_metrics_test AS SELECT
+  'ClickHouseCustomMetric_Test' AS name,
+  map('instance', hostname()) AS labels,
+  1 AS value,
+  'Test to check that the metric endpoint is working' AS help,
+  'gauge' AS type;
+CREATE VIEW posthog.daily_aggregated_query_log_archive AS SELECT
+  event_date AS day,
+  team_id,
+  user,
+  current_database,
+  query_kind,
+  lc_kind,
+  lc_access_method,
+  lc_query_type,
+  lc_product,
+  lc_name,
+  lc_feature,
+  lc_query__kind,
+  lc_api_key_label,
+  count() AS query_count,
+  sum(read_bytes) AS read_bytes,
+  sum(read_rows) AS read_rows,
+  sum(query_duration_ms) AS query_duration_ms,
+  sum(ProfileEvents_OSCPUVirtualTimeMicroseconds) AS cpu_microseconds,
+  countIf(exception_code != 0) AS error_count,
+  countIf(exception_code IN (159, 160, 241)) AS timeout_oom_count
+FROM posthog.sharded_query_log_archive
+WHERE
+  is_initial_query
+AND
+  (event_date < today())
+GROUP BY
+  day, team_id, user, current_database, query_kind, lc_kind, lc_access_method, lc_query_type, lc_product, lc_name, lc_feature, lc_query__kind, lc_api_key_label;
 CREATE TABLE posthog.query_log_archive (
   hostname LowCardinality(String),
   user LowCardinality(String),
@@ -281,5 +403,107 @@ CREATE TABLE posthog.writable_query_log_archive (
   log_comment JSON(max_dynamic_paths=256, access_method LowCardinality(String), alert_config_id String, api_key_label String, api_key_mask String, batch_export_id String, chargeable Bool, client_query_id String, cohort_id Int64, `dagster.job_name` String, `dagster.run_id` String, `dagster.tags.owner` String, dashboard_id Int64, experiment_feature_flag_key String, experiment_id Int64, feature LowCardinality(String), id String, insight_id Int64, is_impersonated Bool, kind LowCardinality(String), name String, org_id String, person_on_events_mode LowCardinality(String), product LowCardinality(String), query_type LowCardinality(String), request_name String, route_id String, service_name String, session_id String, table_id String, team_id Int64, `temporal.activity_id` String, `temporal.activity_type` String, `temporal.attempt` Int64, `temporal.workflow_id` String, `temporal.workflow_namespace` String, `temporal.workflow_run_id` String, `temporal.workflow_type` String, user_id Int64, warehouse_query Bool, workflow LowCardinality(String), workload LowCardinality(String), SKIP cache_key, SKIP filter, SKIP hogql_features, SKIP http_referer, SKIP http_request_id, SKIP http_user_agent, SKIP query_settings, SKIP timings, SKIP user_email),
   ProfileEvents Map(String, UInt64)
 ) ENGINE = Distributed('ops', 'posthog', 'query_log_archive_buffer');
-CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_mv TO posthog.writable_query_log_archive (hostname LowCardinality(String), user LowCardinality(String), query_id String, initial_query_id String, is_initial_query UInt8, type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4), event_date Date, event_time DateTime, event_time_microseconds DateTime64(6), query_start_time DateTime, query_start_time_microseconds DateTime64(6), query_duration_ms UInt64, read_rows UInt64, read_bytes UInt64, written_rows UInt64, written_bytes UInt64, result_rows UInt64, result_bytes UInt64, memory_usage UInt64, peak_threads_usage UInt64, current_database LowCardinality(String), query String, formatted_query String, normalized_query_hash UInt64, query_kind LowCardinality(String), exception_code Int32, exception String, stack_trace String, team_id Int64, log_comment String, ProfileEvents Map(LowCardinality(String), UInt64)) AS SELECT hostname, user, query_id, initial_query_id, is_initial_query, type, event_date, event_time, event_time_microseconds, query_start_time, query_start_time_microseconds, query_duration_ms, read_rows, read_bytes, written_rows, written_bytes, result_rows, result_bytes, memory_usage, peak_threads_usage, current_database, query, formatted_query, normalized_query_hash, query_kind, exception_code, exception, stack_trace, JSONExtractInt(log_comment, 'team_id') AS team_id, if(isValidJSON(log_comment), log_comment, '{}') AS log_comment, ProfileEvents FROM system.query_log WHERE type != 'QueryStart';
-CREATE VIEW posthog.custom_metrics AS SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_test UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_replication_queue UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_server_crash UNION ALL SELECT * FROM posthog.custom_metrics_table_sizes UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_part_counts UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_dictionaries UNION ALL SELECT 'ClickHouseCustomMetric_S3DiskBytesUsed' AS name, map('instance', hostname(), 'disk', disk_name) AS labels, toFloat64(sum(bytes_on_disk)) AS value, 'Bytes currently used by ClickHouse parts on S3-backed disks on this node' AS help, 'gauge' AS type FROM system.parts WHERE disk_name IN ('s3disk', 'cache') GROUP BY disk_name UNION ALL SELECT 'ClickHouseCustomMetric_MergeFailures15m' AS name, map('instance', hostname()) AS labels, toFloat64(count()) AS value, 'Number of failed merge operations in the last 15 minutes' AS help, 'gauge' AS type FROM system.part_log WHERE (event_time >= (now() - toIntervalMinute(15))) AND (event_type = 'MergeParts') AND (error > 0) AND (merge_reason != 'NotAMerge') AND (error != 40) UNION ALL SELECT 'ClickHouseCustomMetric_MergeRetriesMaxPerTable15m' AS name, map('instance', hostname()) AS labels, toFloat64(max(cnt)) AS value, 'Max failed merge retries for any single table in the last 15 minutes' AS help, 'gauge' AS type FROM (SELECT count() AS cnt FROM system.part_log WHERE (event_time >= (now() - toIntervalMinute(15))) AND (event_type = 'MergeParts') AND (error > 0) AND (merge_reason != 'NotAMerge') AND (error != 40) GROUP BY database, `table`, partition_id);
+CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_mv TO posthog.writable_query_log_archive (hostname LowCardinality(String), user LowCardinality(String), query_id String, initial_query_id String, is_initial_query UInt8, type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4), event_date Date, event_time DateTime, event_time_microseconds DateTime64(6), query_start_time DateTime, query_start_time_microseconds DateTime64(6), query_duration_ms UInt64, read_rows UInt64, read_bytes UInt64, written_rows UInt64, written_bytes UInt64, result_rows UInt64, result_bytes UInt64, memory_usage UInt64, peak_threads_usage UInt64, current_database LowCardinality(String), query String, formatted_query String, normalized_query_hash UInt64, query_kind LowCardinality(String), exception_code Int32, exception String, stack_trace String, team_id Int64, log_comment String, ProfileEvents Map(LowCardinality(String), UInt64)) AS SELECT
+  hostname,
+  user,
+  query_id,
+  initial_query_id,
+  is_initial_query,
+  type,
+  event_date,
+  event_time,
+  event_time_microseconds,
+  query_start_time,
+  query_start_time_microseconds,
+  query_duration_ms,
+  read_rows,
+  read_bytes,
+  written_rows,
+  written_bytes,
+  result_rows,
+  result_bytes,
+  memory_usage,
+  peak_threads_usage,
+  current_database,
+  query,
+  formatted_query,
+  normalized_query_hash,
+  query_kind,
+  exception_code,
+  exception,
+  stack_trace,
+  JSONExtractInt(log_comment, 'team_id') AS team_id,
+  if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
+  ProfileEvents
+FROM system.query_log
+WHERE type != 'QueryStart';
+CREATE VIEW posthog.custom_metrics AS SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_test
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_replication_queue
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_server_crash
+UNION ALL
+SELECT *
+FROM posthog.custom_metrics_table_sizes
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_part_counts
+UNION ALL
+SELECT * REPLACE(toFloat64(value) AS value)
+FROM posthog.custom_metrics_dictionaries
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_S3DiskBytesUsed' AS name,
+  map('instance', hostname(), 'disk', disk_name) AS labels,
+  toFloat64(sum(bytes_on_disk)) AS value,
+  'Bytes currently used by ClickHouse parts on S3-backed disks on this node' AS help,
+  'gauge' AS type
+FROM system.parts
+WHERE disk_name IN ('s3disk', 'cache')
+GROUP BY
+  disk_name
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_MergeFailures15m' AS name,
+  map('instance', hostname()) AS labels,
+  toFloat64(count()) AS value,
+  'Number of failed merge operations in the last 15 minutes' AS help,
+  'gauge' AS type
+FROM system.part_log
+WHERE
+  (event_time >= (now() - toIntervalMinute(15)))
+AND
+  (event_type = 'MergeParts')
+AND
+  (error > 0)
+AND
+  (merge_reason != 'NotAMerge')
+AND
+  (error != 40)
+UNION ALL
+SELECT
+  'ClickHouseCustomMetric_MergeRetriesMaxPerTable15m' AS name,
+  map('instance', hostname()) AS labels,
+  toFloat64(max(cnt)) AS value,
+  'Max failed merge retries for any single table in the last 15 minutes' AS help,
+  'gauge' AS type
+FROM
+  (
+    SELECT count() AS cnt
+    FROM system.part_log
+    WHERE
+      (event_time >= (now() - toIntervalMinute(15)))
+    AND
+      (event_type = 'MergeParts')
+    AND
+      (error > 0)
+    AND
+      (merge_reason != 'NotAMerge')
+    AND
+      (error != 40)
+    GROUP BY
+      database, `table`, partition_id
+  );

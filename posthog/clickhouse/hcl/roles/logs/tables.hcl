@@ -1,11 +1,11 @@
 # LOGS role — managed logs/traces/metrics objects extracted from *-logs.hcl dumps.
 database "posthog" {
   view "custom_metrics" {
-    query = "SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_test UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_replication_queue UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_server_crash UNION ALL SELECT * FROM posthog.custom_metrics_table_sizes UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_part_counts UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_dictionaries UNION ALL SELECT 'ClickHouseCustomMetric_S3DiskBytesUsed' AS name, map('instance', hostname(), 'disk', disk_name) AS labels, toFloat64(sum(bytes_on_disk)) AS value, 'Bytes currently used by ClickHouse parts on S3-backed disks on this node' AS help, 'gauge' AS type FROM system.parts WHERE disk_name IN ('s3disk', 'cache') GROUP BY disk_name UNION ALL SELECT 'ClickHouseCustomMetric_MergeFailures15m' AS name, map('instance', hostname()) AS labels, toFloat64(count()) AS value, 'Number of failed merge operations in the last 15 minutes' AS help, 'gauge' AS type FROM system.part_log WHERE (event_time >= (now() - toIntervalMinute(15))) AND (event_type = 'MergeParts') AND (error > 0) AND (merge_reason != 'NotAMerge') AND (error != 40) UNION ALL SELECT 'ClickHouseCustomMetric_MergeRetriesMaxPerTable15m' AS name, map('instance', hostname()) AS labels, toFloat64(max(cnt)) AS value, 'Max failed merge retries for any single table in the last 15 minutes' AS help, 'gauge' AS type FROM (SELECT count() AS cnt FROM system.part_log WHERE (event_time >= (now() - toIntervalMinute(15))) AND (event_type = 'MergeParts') AND (error > 0) AND (merge_reason != 'NotAMerge') AND (error != 40) GROUP BY database, `table`, partition_id)"
+    query = file("sql/custom_metrics.sql")
   }
   materialized_view "kafka_logs_avro_kafka_metrics_mv" {
     to_table = "posthog.logs_kafka_metrics"
-    query    = "SELECT _partition, _topic, maxSimpleState(_offset) AS max_offset, maxSimpleState(observed_timestamp) AS max_observed_timestamp, maxSimpleState(timestamp) AS max_timestamp, maxSimpleState(now()) AS max_created_at, maxSimpleState(now() - observed_timestamp) AS max_lag FROM posthog.logs34 GROUP BY _partition, _topic"
+    query = file("sql/kafka_logs_avro_kafka_metrics_mv.sql")
     column "_partition" {
       type = "UInt32"
     }
@@ -100,7 +100,7 @@ database "posthog" {
   }
   materialized_view "kafka_metrics_avro_kafka_metrics_mv" {
     to_table = "posthog.metrics_kafka_metrics"
-    query    = "SELECT _partition, _topic, maxSimpleState(_offset) AS max_offset, maxSimpleState(observed_timestamp) AS max_observed_timestamp, maxSimpleState(timestamp) AS max_timestamp, maxSimpleState(now()) AS max_created_at, maxSimpleState(now() - observed_timestamp) AS max_lag FROM posthog.kafka_metrics_avro GROUP BY _partition, _topic"
+    query = file("sql/kafka_metrics_avro_kafka_metrics_mv.sql")
     column "_partition" {
       type = "UInt64"
     }
@@ -125,7 +125,7 @@ database "posthog" {
   }
   materialized_view "kafka_metrics_avro_mv" {
     to_table = "posthog.metrics1"
-    query    = "SELECT uuid, trace_id, span_id, ifNull(trace_flags, 0) AS trace_flags, timestamp, observed_timestamp, ifNull(service_name, '') AS service_name, ifNull(metric_name, '') AS metric_name, ifNull(metric_type, '') AS metric_type, ifNull(value, 0) AS value, toUInt64(ifNull(count, 1)) AS count, histogram_bounds, arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts, ifNull(unit, '') AS unit, ifNull(aggregation_temporality, '') AS aggregation_temporality, ifNull(is_monotonic, 0) AS is_monotonic, mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes, ifNull(instrumentation_scope, '') AS instrumentation_scope, mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str, mapSort(mapFilter((k, v) -> isNotNull(v), mapApply((k, v) -> (concat(k, '__float'), toFloat64OrNull(JSONExtract(v, 'String'))), attributes))) AS attributes_map_float, toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id FROM posthog.kafka_metrics_avro SETTINGS min_insert_block_size_rows=0, min_insert_block_size_bytes=0"
+    query = file("sql/kafka_metrics_avro_mv.sql")
     column "uuid" {
       type = "String"
     }
@@ -256,7 +256,7 @@ database "posthog" {
   }
   materialized_view "logs34_to_log_attributes" {
     to_table = "posthog.log_attributes2"
-    query    = "SELECT team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, attribute_type, attribute_count FROM (SELECT team_id AS team_id, toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket, toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket, service_name AS service_name, resource_fingerprint, mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes, arrayJoin(attributes) AS attribute, 'log' AS attribute_type, attribute.1 AS attribute_key, attribute.2 AS attribute_value, sumSimpleState(1) AS attribute_count FROM posthog.logs34 GROUP BY team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attributes)"
+    query = file("sql/logs34_to_log_attributes.sql")
     column "team_id" {
       type = "Int32"
     }
@@ -287,7 +287,7 @@ database "posthog" {
   }
   materialized_view "logs34_to_resource_attributes" {
     to_table = "posthog.log_attributes2"
-    query    = "SELECT team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, attribute_type, attribute_count FROM (SELECT team_id AS team_id, toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket, toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket, service_name AS service_name, resource_fingerprint, arrayJoin(resource_attributes) AS attribute, 'resource' AS attribute_type, attribute.1 AS attribute_key, attribute.2 AS attribute_value, sumSimpleState(1) AS attribute_count FROM posthog.logs34 GROUP BY team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, resource_attributes)"
+    query = file("sql/logs34_to_resource_attributes.sql")
     column "team_id" {
       type = "Int32"
     }
@@ -490,7 +490,7 @@ database "posthog" {
   }
   materialized_view "metrics1_to_metric_attributes" {
     to_table = "posthog.metric_attributes"
-    query    = "SELECT team_id, time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, attribute_type, attribute_count FROM (SELECT team_id AS team_id, toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket, service_name AS service_name, resource_fingerprint, mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes, arrayJoin(attributes) AS attribute, 'metric' AS attribute_type, attribute.1 AS attribute_key, attribute.2 AS attribute_value, sumSimpleState(1) AS attribute_count FROM posthog.metrics1 GROUP BY team_id, time_bucket, service_name, resource_fingerprint, attributes)"
+    query = file("sql/metrics1_to_metric_attributes.sql")
     column "team_id" {
       type = "Int32"
     }
@@ -518,7 +518,7 @@ database "posthog" {
   }
   materialized_view "metrics1_to_resource_attributes" {
     to_table = "posthog.metric_attributes"
-    query    = "SELECT team_id, time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, attribute_type, attribute_count FROM (SELECT team_id AS team_id, toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket, service_name AS service_name, resource_fingerprint, arrayJoin(resource_attributes) AS attribute, 'resource' AS attribute_type, attribute.1 AS attribute_key, attribute.2 AS attribute_value, sumSimpleState(1) AS attribute_count FROM posthog.metrics1 GROUP BY team_id, time_bucket, service_name, resource_fingerprint, resource_attributes)"
+    query = file("sql/metrics1_to_resource_attributes.sql")
     column "team_id" {
       type = "Int32"
     }
