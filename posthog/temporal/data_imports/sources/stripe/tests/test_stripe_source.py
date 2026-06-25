@@ -7,14 +7,17 @@ from unittest.mock import MagicMock, patch
 import stripe as stripe_lib
 from stripe import ListObject
 
-from posthog.temporal.data_imports.sources.generated_configs import StripeAuthMethodConfig, StripeSourceConfig
-from posthog.temporal.data_imports.sources.stripe import stripe as stripe_module
-from posthog.temporal.data_imports.sources.stripe.constants import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+    StripeAuthMethodConfig,
+    StripeSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.sources.stripe.source import StripeSource
-from posthog.temporal.data_imports.sources.stripe.stripe import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
     StripeNestedResource,
     StripeResource,
@@ -66,7 +69,7 @@ class TestStripeGetRowsIncrementalCursor:
         resumable_source_manager.can_resume.return_value = False
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.stripe.stripe._build_resources",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe._build_resources",
             return_value={"charge": resource},
         ):
             rows = list(
@@ -155,7 +158,7 @@ class TestStripeSource:
         )
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
             side_effect=StripeAuthenticationError(f"Invalid API Key provided: {pasted_secret}"),
         ):
             ok, message = self.source.validate_credentials(config, team_id=1)

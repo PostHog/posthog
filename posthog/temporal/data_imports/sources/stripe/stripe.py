@@ -14,19 +14,21 @@ from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
-from posthog.temporal.data_imports.sources.common.base import (
+
+from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSyncResult,
 )
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
-from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from posthog.temporal.data_imports.sources.stripe.constants import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
@@ -45,10 +47,11 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
-from posthog.temporal.data_imports.sources.stripe.settings import APPEND_ONLY_INCREMENTAL_FIELDS, WEBHOOK_ONLY_ENDPOINTS
-
-from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
+    APPEND_ONLY_INCREMENTAL_FIELDS,
+    WEBHOOK_ONLY_ENDPOINTS,
+)
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
