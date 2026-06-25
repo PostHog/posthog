@@ -113,12 +113,14 @@ function buildStickinessResponse(series: SeriesData[]): TrendsQueryResponse {
     return {
         results: series.map((s, i) => {
             const buckets = s.data.length
+            // Compare current/previous share one series identity (order 0), mirroring the real runner.
+            const seriesOrder = s.compare || s.breakdown_value != null ? 0 : i
             return {
                 action: {
                     id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
                     type: 'events',
                     name: s.label,
-                    order: i,
+                    order: seriesOrder,
                 },
                 label: s.label,
                 count: s.data.reduce((a, b) => a + b, 0),
@@ -127,6 +129,8 @@ function buildStickinessResponse(series: SeriesData[]): TrendsQueryResponse {
                 labels: Array.from({ length: buckets }, (_, j) => `${j + 1} day${j === 0 ? '' : 's'}`),
                 days: Array.from({ length: buckets }, (_, j) => j + 1),
                 breakdown_value: s.breakdown_value,
+                compare: s.compare,
+                compare_label: s.compare_label,
             }
         }),
     } as TrendsQueryResponse

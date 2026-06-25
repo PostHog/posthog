@@ -32,16 +32,18 @@ from .cache import (
     set_cached_bot_user_id,
     set_cached_slack_avatar,
     set_cached_slack_user,
+    slack_ticket_create_lock,
 )
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
-from .services.attachments import is_valid_image, save_file_to_uploaded_media
-from .support_slack import (
-    SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
-    SUPPORT_SLACK_MAX_IMAGE_BYTES,
-    get_support_slack_bot_token,
+from .services.attachments import (
+    CONVERSATIONS_MAX_IMAGE_BYTES,
+    build_content_with_images,
+    is_valid_image,
+    save_file_to_uploaded_media,
 )
+from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, get_support_slack_bot_token
 
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
@@ -58,28 +60,6 @@ def _get_team_id(team: Team) -> int:
     if not isinstance(team_id, int):
         raise ValueError("Invalid team id")
     return team_id
-
-
-def _build_content_with_images(
-    cleaned_text: str, rich_content: dict[str, Any] | None, images: list[dict[str, Any]]
-) -> tuple[str, dict[str, Any] | None]:
-    content = cleaned_text
-    if not images:
-        return content, rich_content
-
-    image_markdown = "\n".join(f"![{img['name']}]({img['url']})" for img in images)
-    content = f"{cleaned_text}\n\n{image_markdown}" if cleaned_text else image_markdown
-    if not isinstance(rich_content, dict):
-        rich_content = {"type": "doc", "content": []}
-    rich_nodes = rich_content.setdefault("content", [])
-    for img in images:
-        rich_nodes.append(
-            {
-                "type": "image",
-                "attrs": {"src": img["url"], "alt": img.get("name", "image")},
-            }
-        )
-    return content, rich_content
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -250,12 +230,12 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
             content_length_header = response.headers.get("Content-Length")
             if content_length_header:
                 try:
-                    if int(content_length_header) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
+                    if int(content_length_header) > CONVERSATIONS_MAX_IMAGE_BYTES:
                         logger.warning(
                             "🖼️ slack_file_download_too_large_from_header",
                             url=next_url,
                             content_length=int(content_length_header),
-                            max_allowed=SUPPORT_SLACK_MAX_IMAGE_BYTES,
+                            max_allowed=CONVERSATIONS_MAX_IMAGE_BYTES,
                         )
                         return None
                 except ValueError:
@@ -263,13 +243,13 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
                         "🖼️ slack_file_download_invalid_content_length", url=next_url, value=content_length_header
                     )
                     return None
-            payload = response.read(SUPPORT_SLACK_MAX_IMAGE_BYTES + 1)
-            if len(payload) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
+            payload = response.read(CONVERSATIONS_MAX_IMAGE_BYTES + 1)
+            if len(payload) > CONVERSATIONS_MAX_IMAGE_BYTES:
                 logger.warning(
                     "🖼️ slack_file_download_too_large_from_body",
                     url=next_url,
                     bytes_read=len(payload),
-                    max_allowed=SUPPORT_SLACK_MAX_IMAGE_BYTES,
+                    max_allowed=CONVERSATIONS_MAX_IMAGE_BYTES,
                 )
                 return None
             logger.debug("🖼️ slack_file_download_succeeded", url=next_url, bytes_read=len(payload))
@@ -427,7 +407,7 @@ def create_or_update_slack_ticket(
             )
             return ticket
 
-        content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
         Comment.objects.create(
             team=team,
@@ -467,24 +447,46 @@ def create_or_update_slack_ticket(
         )
         return None
 
-    content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+    content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
-    ticket = Ticket.objects.create_with_number(
-        team=team,
-        channel_source=Channel.SLACK,
-        channel_detail=channel_detail,
-        widget_session_id="",  # Not used for Slack tickets
-        distinct_id=user_info.get("email") or "",
-        status=Status.NEW,
-        anonymous_traits={
-            "name": user_info["name"],
-            **({"email": user_info["email"]} if user_info["email"] else {}),
-        },
-        slack_channel_id=slack_channel_id,
-        slack_thread_ts=thread_ts,
-        slack_team_id=slack_team_id,
-        unread_team_count=0 if is_team_member else 1,
-    )
+    # Serialize concurrent ticket creation for the same Slack thread via Redis lock.
+    # Without this, two reaction_added events from different users race through the
+    # .exists() checks above and both create a ticket.
+    with slack_ticket_create_lock(team_id, slack_channel_id, thread_ts) as acquired:
+        # Return None (not the existing ticket) on every dedup path: the winning worker
+        # owns the create-side effects (first comment, confirmation message, and the
+        # caller's _backfill_thread_replies). Handing a non-None ticket back to a losing
+        # reaction/mention would re-trigger backfill and duplicate every thread comment.
+        if not acquired:
+            logger.info(
+                "slack_ticket_create_lock_not_acquired",
+                team_id=team_id,
+                slack_channel_id=slack_channel_id,
+                thread_ts=thread_ts,
+            )
+            return None
+
+        # Re-check after acquiring — the winner may have committed between our earlier
+        # .exists() call and now.
+        if Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=thread_ts).exists():
+            return None
+
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            channel_source=Channel.SLACK,
+            channel_detail=channel_detail,
+            widget_session_id="",  # Not used for Slack tickets
+            distinct_id=user_info.get("email") or "",
+            status=Status.NEW,
+            anonymous_traits={
+                "name": user_info["name"],
+                **({"email": user_info["email"]} if user_info["email"] else {}),
+            },
+            slack_channel_id=slack_channel_id,
+            slack_thread_ts=thread_ts,
+            slack_team_id=slack_team_id,
+            unread_team_count=0 if is_team_member else 1,
+        )
 
     Comment.objects.create(
         team=team,
@@ -828,7 +830,7 @@ def _backfill_thread_replies(
         else:
             customer_message_count += 1
 
-        content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
         comments_to_create.append(
             Comment(
@@ -996,7 +998,8 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
 
     Fires for any channel the bot is in (Slack only delivers member_joined_channel /
     member_left_channel for channels the bot belongs to). Gated per-direction by the
-    team's settings.
+    team's settings. Members of the team's own organization are skipped — the alert is
+    meant to surface external participants, not internal teammates.
     """
     settings_dict = team.conversations_settings or {}
 
@@ -1028,6 +1031,12 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
 
     # Slack also fires member_joined_channel for the bot's own join — skip it to avoid noise.
     if user == own_bot_user_id:
+        return
+
+    # Members of the team's own organization are internal teammates, not the external
+    # participants these alerts surface — skip them.
+    slack_user = resolve_slack_user(client, user)
+    if resolve_posthog_user_for_slack(slack_user.get("email"), team):
         return
 
     verb = "joined" if joined else "left"

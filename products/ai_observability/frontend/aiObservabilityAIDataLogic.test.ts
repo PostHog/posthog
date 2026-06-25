@@ -27,7 +27,6 @@ describe('aiObservabilityAIDataLogic', () => {
                 tools: undefined,
                 traceId: 'trace-1',
                 timestamp: '2026-04-30T10:00:00Z',
-                aiEventsRolloutEnabled: true,
             })
         })
             .toFinishAllListeners()
@@ -55,8 +54,8 @@ describe('aiObservabilityAIDataLogic', () => {
                             event: '$ai_generation',
                             createdAt: '2026-04-30T10:00:00Z',
                             properties: {
-                                $ai_input: [{ role: 'user', content: 'post-strip hi' }],
-                                $ai_output_choices: [{ role: 'assistant', content: 'post-strip hello' }],
+                                $ai_input: [{ role: 'user', content: 'hi' }],
+                                $ai_output_choices: [{ role: 'assistant', content: 'hello' }],
                                 $ai_tools: [{ function: { name: 'search' } }],
                             },
                         },
@@ -82,15 +81,14 @@ describe('aiObservabilityAIDataLogic', () => {
                 tools: undefined,
                 traceId: 'trace-1',
                 timestamp: '2026-04-30T10:00:00Z',
-                aiEventsRolloutEnabled: true,
             })
         })
             .toFinishAllListeners()
             .toMatchValues({
                 aiDataCache: {
                     'event-1': {
-                        input: [{ role: 'user', content: 'post-strip hi' }],
-                        output: [{ role: 'assistant', content: 'post-strip hello' }],
+                        input: [{ role: 'user', content: 'hi' }],
+                        output: [{ role: 'assistant', content: 'hello' }],
                         tools: [{ function: { name: 'search' } }],
                     },
                 },
@@ -113,7 +111,6 @@ describe('aiObservabilityAIDataLogic', () => {
                 tools: undefined,
                 traceId: 'trace-1',
                 timestamp: '2026-04-30T10:00:00Z',
-                aiEventsRolloutEnabled: true,
             })
         })
             .toFinishAllListeners()
@@ -144,29 +141,7 @@ describe('aiObservabilityAIDataLogic', () => {
                 input: undefined,
                 output: undefined,
                 tools: undefined,
-                aiEventsRolloutEnabled: true,
                 ...coords,
-            })
-        }).toFinishAllListeners()
-
-        expect(querySpy).not.toHaveBeenCalled()
-    })
-
-    it('skips the fetch when the ai-events-table-rollout flag is off', async () => {
-        const querySpy = jest.spyOn(mockApi, 'query')
-
-        const logic = aiObservabilityAIDataLogic()
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.loadAIDataForEvent({
-                eventId: 'event-1',
-                input: undefined,
-                output: undefined,
-                tools: undefined,
-                traceId: 'trace-1',
-                timestamp: '2026-04-30T10:00:00Z',
-                aiEventsRolloutEnabled: false,
             })
         }).toFinishAllListeners()
 

@@ -24,7 +24,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_imports.naming_convention import NamingConvention
 
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -32,6 +31,7 @@ from products.warehouse_sources.backend.models.util import (
     clean_type,
     remove_named_tuples,
 )
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 logger = structlog.get_logger(__name__)
 
@@ -194,7 +194,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             sync_saved_query_workflow(self, create=not schedule_exists)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
-            logger.warning(
+            logger.exception(
                 "failed_to_schedule_saved_query",
                 team_id=self.team_id,
                 saved_query_id=str(self.id),

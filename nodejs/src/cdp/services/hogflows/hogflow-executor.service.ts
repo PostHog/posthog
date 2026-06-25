@@ -71,6 +71,7 @@ export function createHogFlowInvocation(
         functionId: hogFlow.id, // TODO: Include version?
         hogFlow,
         person: globals.person, // This is outside of state as we don't persist it
+        groups: globals.groups, // Same as person: in-memory only (test path); real execution re-resolves on dequeue
         filterGlobals,
         queue: 'hogflow',
         queuePriority: 1,
@@ -123,13 +124,20 @@ export class HogFlowExecutorService {
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
         const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
 
+        // Trigger-source compatibility is decided by the pipeline's eligibilityFn (see
+        // HogFlowInvocationPipeline). Flows that reach this loop are assumed to be source-compatible
+        // with the given globals — the executor's job is just to evaluate filter bytecode.
         for (const hogFlow of hogFlows) {
-            if (hogFlow.trigger.type !== 'event') {
+            const trigger = hogFlow.trigger
+
+            // Defensive: only the trigger types that carry `filters` make it through eligibility.
+            if (trigger.type !== 'event' && trigger.type !== 'data-warehouse-table') {
                 continue
             }
+
             const filterResults = await filterFunctionInstrumented({
                 fn: hogFlow,
-                filters: hogFlow.trigger.filters,
+                filters: trigger.filters,
                 filterGlobals,
             })
 

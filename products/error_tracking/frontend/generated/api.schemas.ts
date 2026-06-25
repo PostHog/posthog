@@ -519,58 +519,40 @@ export interface PatchedErrorTrackingGroupingRuleApi {
     readonly updated_at?: string
 }
 
-/**
- * * `archived` - Archived
- * * `active` - Active
- * * `resolved` - Resolved
- * * `pending_release` - Pending release
- * * `suppressed` - Suppressed
- */
-export type ErrorTrackingIssueFullStatusEnumApi =
-    (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
-
-export const ErrorTrackingIssueFullStatusEnumApi = {
-    Archived: 'archived',
-    Active: 'active',
-    Resolved: 'resolved',
-    PendingRelease: 'pending_release',
-    Suppressed: 'suppressed',
-} as const
-
-export interface ErrorTrackingIssueAssignmentApi {
+export interface ErrorTrackingIssueAssigneeReadApi {
     readonly id: number | string | null
-    readonly type: string
+    type: string
+}
+
+export interface ErrorTrackingIssueCohortReadApi {
+    id: number
+    name: string
 }
 
 /**
- * @nullable
+ * Read-only serializer for issue contract types returned by the facade.
  */
-export type ErrorTrackingIssueFullApiCohort = {
-    readonly id?: number
-    readonly name?: string
-} | null
-
-export interface ErrorTrackingIssueFullApi {
-    readonly id: string
-    status?: ErrorTrackingIssueFullStatusEnumApi
+export interface ErrorTrackingIssueReadApi {
+    id: string
+    status: string
     /** @nullable */
-    name?: string | null
+    name: string | null
     /** @nullable */
-    description?: string | null
-    first_seen: string
-    assignee: ErrorTrackingIssueAssignmentApi
+    description: string | null
+    /** @nullable */
+    first_seen: string | null
+    assignee: ErrorTrackingIssueAssigneeReadApi | null
     external_issues: ErrorTrackingExternalReferenceResultApi[]
-    /** @nullable */
-    readonly cohort: ErrorTrackingIssueFullApiCohort
+    cohort: ErrorTrackingIssueCohortReadApi | null
 }
 
-export interface PaginatedErrorTrackingIssueFullListApi {
+export interface PaginatedErrorTrackingIssueReadListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingIssueFullApi[]
+    results: ErrorTrackingIssueReadApi[]
 }
 
 /**
@@ -626,25 +608,20 @@ export interface PatchedErrorTrackingIssueWriteApi {
 }
 
 /**
- * @nullable
+ * Read-only serializer for issue contract types returned by the facade.
  */
-export type PatchedErrorTrackingIssueFullApiCohort = {
-    readonly id?: number
-    readonly name?: string
-} | null
-
-export interface PatchedErrorTrackingIssueFullApi {
-    readonly id?: string
-    status?: ErrorTrackingIssueFullStatusEnumApi
+export interface PatchedErrorTrackingIssueReadApi {
+    id?: string
+    status?: string
     /** @nullable */
     name?: string | null
     /** @nullable */
     description?: string | null
-    first_seen?: string
-    assignee?: ErrorTrackingIssueAssignmentApi
-    external_issues?: ErrorTrackingExternalReferenceResultApi[]
     /** @nullable */
-    readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
+    first_seen?: string | null
+    assignee?: ErrorTrackingIssueAssigneeReadApi | null
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
+    cohort?: ErrorTrackingIssueCohortReadApi | null
 }
 
 export interface ErrorTrackingIssueMergeRequestApi {
@@ -1223,51 +1200,31 @@ export interface ErrorTrackingIssuesListResponseApi {
     nextOffset?: number
 }
 
-/**
- * * `ready` - Ready
- * * `computing` - Computing
- */
-export type ErrorTrackingRecommendationStatusEnumApi =
-    (typeof ErrorTrackingRecommendationStatusEnumApi)[keyof typeof ErrorTrackingRecommendationStatusEnumApi]
-
-export const ErrorTrackingRecommendationStatusEnumApi = {
-    Ready: 'ready',
-    Computing: 'computing',
-} as const
-
-/**
- * Recommendation payload, shape depends on type.
- */
-export type ErrorTrackingRecommendationApiMeta = { [key: string]: unknown }
-
 export interface ErrorTrackingRecommendationApi {
     /** Recommendation UUID. */
-    readonly id: string
+    id: string
     /** Recommendation type identifier (e.g. 'alerts'). */
-    readonly type: string
+    type: string
     /** Recommendation payload, shape depends on type. */
-    readonly meta: ErrorTrackingRecommendationApiMeta
+    meta: unknown
     /** Whether the recommendation's recommended action has been satisfied. */
-    readonly completed: boolean
-    /** 'ready' if meta is fresh, 'computing' if a refresh is in progress.
-     *
-     * * `ready` - Ready
-     * * `computing` - Computing */
-    readonly status: ErrorTrackingRecommendationStatusEnumApi
+    completed: boolean
+    /** 'ready' if meta is fresh, 'computing' if a refresh is in progress. */
+    status: string
     /**
      * Timestamp meta was last successfully computed.
      * @nullable
      */
-    readonly computed_at: string | null
+    computed_at: string | null
     /**
      * Timestamp the user dismissed this recommendation, if any.
      * @nullable
      */
-    readonly dismissed_at: string | null
+    dismissed_at: string | null
     /** Timestamp the recommendation row was first created. */
-    readonly created_at: string
+    created_at: string
     /** Timestamp the recommendation row was last updated. */
-    readonly updated_at: string
+    updated_at: string
 }
 
 export interface PaginatedErrorTrackingRecommendationListApi {
@@ -1609,38 +1566,17 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly updated_at?: string
 }
 
-/**
- * Release associated with this symbol set, if any.
- * @nullable
- */
-export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null
-
 export interface ErrorTrackingSymbolSetApi {
-    /** Unique symbol set ID. */
-    readonly id: string
-    /** Reference used to match stack frames to this symbol set. */
-    readonly ref: string
-    /** Project/team ID that owns this symbol set. */
-    readonly team_id: number
-    /** When this symbol set row was created. */
-    readonly created_at: string
-    /**
-     * When this symbol set was last used to resolve a stack frame.
-     * @nullable
-     */
-    readonly last_used: string | null
-    /**
-     * Reason symbol lookup failed, if the source map is missing or invalid.
-     * @nullable
-     */
-    readonly failure_reason: string | null
-    /** Whether this symbol set has an uploaded source map file available to download. */
-    readonly has_uploaded_file: boolean
-    /**
-     * Release associated with this symbol set, if any.
-     * @nullable
-     */
-    readonly release: ErrorTrackingSymbolSetApiRelease
+    id: string
+    ref: string
+    team_id: number
+    created_at: string
+    /** @nullable */
+    last_used: string | null
+    /** @nullable */
+    failure_reason: string | null
+    has_uploaded_file: boolean
+    release: ErrorTrackingReleaseApi | null
 }
 
 export interface PaginatedErrorTrackingSymbolSetListApi {

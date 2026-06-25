@@ -28,7 +28,6 @@ import {
 import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
-import { SplitAiEventsStepConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import {
     GroupStoreBatchContext,
     createGroupStoreBeforeBatchStep,
@@ -41,6 +40,7 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { FeatureFlagCalledDedupService } from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { Team } from '~/types'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
@@ -48,7 +48,14 @@ import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
 
-import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+} from './outputs'
 import {
     PerDistinctIdPipelineConfig,
     PerDistinctIdPipelineInput,
@@ -75,9 +82,9 @@ export interface JoinedIngestionPipelineConfig {
         | GroupsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
         | AppMetricsOutput
     >
-    splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions
     /**
      * Maximum number of batches the BatchingPipeline will accept concurrently.
@@ -100,6 +107,7 @@ export interface JoinedIngestionPipelineDeps {
     promiseScheduler: PromiseScheduler
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
+    featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     teamManager: TeamManager
     cookielessManager: CookielessManager
     groupTypeManager: GroupTypeManager
@@ -145,7 +153,6 @@ export function createJoinedIngestionPipeline<
         personsPrefetchEnabled,
         cdpHogWatcherSampleRate,
         outputs,
-        splitAiEventsConfig,
         perDistinctIdOptions,
         concurrentBatches,
     } = config
@@ -160,6 +167,7 @@ export function createJoinedIngestionPipeline<
         promiseScheduler,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
+        featureFlagCalledDedupService,
         teamManager,
         cookielessManager,
         groupTypeManager,
@@ -183,7 +191,9 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
+        featureFlagCalledDedupService,
         personsPrefetchEnabled,
+        flagCalledPersonlessDefaultTeams: perDistinctIdOptions.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
         hogTransformer,
         cdpHogWatcherSampleRate,
     }
@@ -191,7 +201,6 @@ export function createJoinedIngestionPipeline<
     const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
         outputs,
-        splitAiEventsConfig,
         aiSubpipelineFactory,
         teamManager,
         groupTypeManager,

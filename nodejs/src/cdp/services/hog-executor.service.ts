@@ -28,6 +28,7 @@ import type {
     MinimalLogEntry,
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
+import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
@@ -36,7 +37,10 @@ import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 import {
+    SELF_LOOP_MAX_DEPTH,
     SelfLoopGuardMode,
+    getSelfLoopDepth,
+    injectSelfLoopDepth,
     isPostHogIngestUrl,
     isSelfReferentialIngestFetch,
     selfLoopGuardCounter,
@@ -769,31 +773,78 @@ export class HogExecutorService {
             }
         }
 
-        // Observe-only detection of event-forwarding loops: a fetch back into this
-        // project's own ingestion endpoint re-enters the pipeline and can re-trigger this
-        // same function. We only measure for now (a follow-up will design enforcement from
-        // this signal). The ingest-URL check gates the team lookup so external fetches (the
-        // common case) pay nothing, and the whole block fails open - detection must never
-        // break a destination it was only meant to watch.
-        if (this.config.selfLoopGuardMode !== 'disabled' && isPostHogIngestUrl(params.url)) {
+        // Bound event-forwarding loops: a fetch back into this project's own ingestion
+        // endpoint re-enters the pipeline and can re-trigger this same function. The
+        // ingest-URL check gates the team lookup so external fetches (the common case) pay
+        // nothing, and the whole block fails open - the guard must never break a destination
+        // it was only meant to protect.
+        const guardMode = this.config.selfLoopGuardMode
+        if (guardMode !== 'disabled' && isPostHogIngestUrl(params.url)) {
             try {
                 const team = await this.asyncContext.teamManager.getTeam(invocation.teamId)
                 if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {
-                    selfLoopGuardCounter.inc({ mode: this.config.selfLoopGuardMode, action: 'detected' })
-                    addLog(
-                        'warn',
-                        `This fetch targets a PostHog ingestion endpoint using this project's own API key, which can form an event-forwarding loop. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
-                    )
+                    // Depth is counted per function id, so this destination is bounded only
+                    // by how many times IT has re-fed itself - an event that merely passed
+                    // through other functions can never trip the guard for it.
+                    const functionId = invocation.hogFunction.id
+                    const depth = getSelfLoopDepth(invocation.state.globals.event?.properties, functionId)
+
+                    if (guardMode === 'warn') {
+                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'detected' })
+                        addLog(
+                            'warn',
+                            `This fetch targets a PostHog ingestion endpoint using this project's own API key, which can form an event-forwarding loop. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
+                        )
+                    } else if (depth >= SELF_LOOP_MAX_DEPTH) {
+                        // enforce, this destination has re-fed itself to the cap - break it.
+                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'blocked' })
+                        addLog(
+                            'error',
+                            `Refusing to fetch a PostHog ingestion endpoint using this project's own API key - this destination's event-forwarding loop has already repeated ${SELF_LOOP_MAX_DEPTH} times. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
+                        )
+                        result.error = new Error('Self-referential event-forwarding loop blocked at max depth')
+                        result.finished = true
+                        return result
+                    } else {
+                        // enforce, under the cap - stamp this destination's next hop and proceed.
+                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'allowed_with_counter' })
+                        params.body = injectSelfLoopDepth(params.body, functionId, depth + 1)
+                    }
                 }
             } catch (err) {
-                logger.warn('🦔', '[HogExecutor] Self-loop guard detection skipped due to an internal error', {
+                logger.warn('🦔', '[HogExecutor] Self-loop guard skipped due to an internal error', {
                     error: err,
                     teamId: invocation.teamId,
                 })
             }
         }
 
-        const fetchParams: FetchOptions = { method, headers }
+        // AWS SigV4 signatures expire after ~5 minutes. Sign immediately before the
+        // fetch (every attempt — including retries) so a request that sat in the
+        // backoff queue or whose first attempt timed out cannot reach AWS with a
+        // stale signature. Signing artifacts (Authorization, X-Amz-Date) are
+        // regenerated here and never persisted back to queueParameters. Credential
+        // resolution + missing-input handling live in `aws-sigv4.ts` — see
+        // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
+        let signedHeaders = headers
+        if (params.aws_sigv4) {
+            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
+            if (!resolved.ok) {
+                addLog('error', resolved.error)
+                result.error = new Error(resolved.error)
+                result.finished = true
+                return result
+            }
+            signedHeaders = signAwsRequest({
+                method,
+                url: params.url,
+                body: params.body ?? '',
+                headers,
+                credentials: resolved.credentials,
+            })
+        }
+
+        const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body

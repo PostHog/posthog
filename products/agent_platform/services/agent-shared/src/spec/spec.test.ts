@@ -3,14 +3,36 @@ import {
     AgentSpecSchema,
     AuthConfigSchema,
     getSecretAllowedHosts,
+    ModelIdSchema,
     principalsMatch,
     secretHostMatches,
 } from './spec'
 
+describe('ModelIdSchema', () => {
+    // Runtime (`resolveModel` in agent-runner/src/models/pi-client.ts) demands
+    // `<provider>/<model-id>`; if authoring lets a bare id through, the runner
+    // crashes the session at first turn. Keep the contract enforced here.
+    it.each([
+        ['anthropic/claude-haiku-4-5', true],
+        ['anthropic/claude-opus-4-7', true],
+        ['openai/gpt-4o-mini', true],
+        ['ai-gateway/claude-haiku-4-5', true],
+        ['openai/o1-preview', true],
+        ['claude-haiku-4-5', false], // bare id — the runtime explosion this guards against
+        ['', false],
+        ['anthropic/', false],
+        ['/claude-haiku-4-5', false],
+        ['Anthropic/Claude', false], // provider must be lowercase
+        ['anthropic/claude haiku', false], // no spaces
+    ])('%s → %s', (input, valid) => {
+        expect(ModelIdSchema.safeParse(input).success).toBe(valid)
+    })
+})
+
 describe('AgentSpecSchema', () => {
     it('parses a minimal spec with defaults', () => {
-        const parsed = AgentSpecSchema.parse({ model: 'claude-opus-4-7' })
-        expect(parsed.model).toBe('claude-opus-4-7')
+        const parsed = AgentSpecSchema.parse({ model: 'anthropic/claude-opus-4-7' })
+        expect(parsed.model).toBe('anthropic/claude-opus-4-7')
         expect(parsed.triggers).toEqual([])
         expect(parsed.tools).toEqual([])
         expect(parsed.entrypoint).toBe('agent.md')
@@ -19,7 +41,7 @@ describe('AgentSpecSchema', () => {
 
     it('parses a fully-populated spec', () => {
         const spec: AgentSpec = AgentSpecSchema.parse({
-            model: 'claude-opus-4-7',
+            model: 'anthropic/claude-opus-4-7',
             triggers: [
                 { type: 'slack', config: { channel_id: 'C01', mention_only: true, trusted_workspaces: '*' } },
                 { type: 'webhook', config: { path: '/hook' }, auth: { modes: [{ type: 'posthog_internal' }] } },
@@ -30,7 +52,6 @@ describe('AgentSpecSchema', () => {
             ],
             mcps: [{ id: 'posthog', url: 'https://app.posthog.com/api/mcp' }],
             skills: [{ id: 'deep-research', path: 'skills/deep-research/SKILL.md' }],
-            integrations: ['slack:T01'],
             secrets: ['ACME_KEY'],
             limits: { max_turns: 10, max_tool_calls: 50, max_wall_seconds: 300 },
             entrypoint: 'agent.md',
@@ -42,33 +63,33 @@ describe('AgentSpecSchema', () => {
 
     describe('limits.max_output_tokens', () => {
         it('defaults to undefined (runner picks a reasoning-aware default)', () => {
-            const parsed = AgentSpecSchema.parse({ model: 'x' })
+            const parsed = AgentSpecSchema.parse({ model: 'test/x' })
             expect(parsed.limits.max_output_tokens).toBeUndefined()
         })
 
         it('accepts an integer value', () => {
-            const parsed = AgentSpecSchema.parse({ model: 'x', limits: { max_output_tokens: 16_384 } })
+            const parsed = AgentSpecSchema.parse({ model: 'test/x', limits: { max_output_tokens: 16_384 } })
             expect(parsed.limits.max_output_tokens).toBe(16_384)
         })
 
         it('rejects zero and negative values', () => {
-            expect(() => AgentSpecSchema.parse({ model: 'x', limits: { max_output_tokens: 0 } })).toThrow()
-            expect(() => AgentSpecSchema.parse({ model: 'x', limits: { max_output_tokens: -1 } })).toThrow()
+            expect(() => AgentSpecSchema.parse({ model: 'test/x', limits: { max_output_tokens: 0 } })).toThrow()
+            expect(() => AgentSpecSchema.parse({ model: 'test/x', limits: { max_output_tokens: -1 } })).toThrow()
         })
 
         it('rejects values above the typo-guard upper bound', () => {
-            expect(() => AgentSpecSchema.parse({ model: 'x', limits: { max_output_tokens: 200_001 } })).toThrow()
+            expect(() => AgentSpecSchema.parse({ model: 'test/x', limits: { max_output_tokens: 200_001 } })).toThrow()
         })
     })
 
     it('rejects unknown trigger type', () => {
         expect(() =>
-            AgentSpecSchema.parse({ model: 'x', triggers: [{ type: 'carrier-pigeon', config: {} }] })
+            AgentSpecSchema.parse({ model: 'test/x', triggers: [{ type: 'carrier-pigeon', config: {} }] })
         ).toThrow()
     })
 
     it('rejects unknown tool kind', () => {
-        expect(() => AgentSpecSchema.parse({ model: 'x', tools: [{ kind: 'rogue', id: 'x' }] })).toThrow()
+        expect(() => AgentSpecSchema.parse({ model: 'test/x', tools: [{ kind: 'rogue', id: 'x' }] })).toThrow()
     })
 
     describe('cron trigger config', () => {
@@ -80,7 +101,7 @@ describe('AgentSpecSchema', () => {
 
         it('parses a minimal cron trigger with all defaults', () => {
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [{ type: 'cron', config: minimal }],
             })
             const t = spec.triggers[0]
@@ -96,7 +117,7 @@ describe('AgentSpecSchema', () => {
 
         it('parses a fully-populated cron trigger', () => {
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [
                     {
                         type: 'cron',
@@ -123,7 +144,7 @@ describe('AgentSpecSchema', () => {
         it('rejects a name with disallowed characters', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     triggers: [{ type: 'cron', config: { ...minimal, name: 'Weekly_Digest' } }],
                 })
             ).toThrow()
@@ -132,7 +153,7 @@ describe('AgentSpecSchema', () => {
         it('rejects a name with a leading hyphen', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     triggers: [{ type: 'cron', config: { ...minimal, name: '-digest' } }],
                 })
             ).toThrow()
@@ -141,7 +162,7 @@ describe('AgentSpecSchema', () => {
         it('rejects an empty schedule', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     triggers: [{ type: 'cron', config: { ...minimal, schedule: '' } }],
                 })
             ).toThrow()
@@ -150,7 +171,7 @@ describe('AgentSpecSchema', () => {
         it('rejects an empty prompt', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     triggers: [{ type: 'cron', config: { ...minimal, prompt: '' } }],
                 })
             ).toThrow()
@@ -159,7 +180,7 @@ describe('AgentSpecSchema', () => {
         it('rejects a prompt longer than 4096 chars', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     triggers: [{ type: 'cron', config: { ...minimal, prompt: 'x'.repeat(4097) } }],
                 })
             ).toThrow()
@@ -168,7 +189,7 @@ describe('AgentSpecSchema', () => {
         it('rejects an unknown catch_up mode', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     triggers: [{ type: 'cron', config: { ...minimal, catch_up: 'fire-twice' } }],
                 })
             ).toThrow()
@@ -177,7 +198,7 @@ describe('AgentSpecSchema', () => {
         it('rejects max_catch_up_age_seconds above the 7-day cap', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     triggers: [{ type: 'cron', config: { ...minimal, max_catch_up_age_seconds: 7 * 86400 + 1 } }],
                 })
             ).toThrow()
@@ -186,7 +207,7 @@ describe('AgentSpecSchema', () => {
         it('rejects max_catch_up_age_seconds below 1', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     triggers: [{ type: 'cron', config: { ...minimal, max_catch_up_age_seconds: 0 } }],
                 })
             ).toThrow()
@@ -195,18 +216,18 @@ describe('AgentSpecSchema', () => {
 
     describe('framework_prompt config', () => {
         it('defaults to undefined when not present', () => {
-            const spec = AgentSpecSchema.parse({ model: 'x' })
+            const spec = AgentSpecSchema.parse({ model: 'test/x' })
             expect(spec.framework_prompt).toBeUndefined()
         })
 
         it('parses an empty config with default omit list', () => {
-            const spec = AgentSpecSchema.parse({ model: 'x', framework_prompt: {} })
+            const spec = AgentSpecSchema.parse({ model: 'test/x', framework_prompt: {} })
             expect(spec.framework_prompt?.omit).toEqual([])
         })
 
         it('parses a populated omit list', () => {
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 framework_prompt: { omit: ['meta_tool_guidance', 'reasoning_hint'] },
             })
             expect(spec.framework_prompt?.omit).toEqual(['meta_tool_guidance', 'reasoning_hint'])
@@ -215,7 +236,7 @@ describe('AgentSpecSchema', () => {
         it('rejects unknown omit values', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     framework_prompt: { omit: ['unknown_section'] },
                 })
             ).toThrow()
@@ -223,7 +244,7 @@ describe('AgentSpecSchema', () => {
 
         it('parses a version_pin', () => {
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 framework_prompt: { version_pin: 1 },
             })
             expect(spec.framework_prompt?.version_pin).toBe(1)
@@ -232,7 +253,7 @@ describe('AgentSpecSchema', () => {
         it('rejects negative version_pin', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     framework_prompt: { version_pin: 0 },
                 })
             ).toThrow()
@@ -242,7 +263,7 @@ describe('AgentSpecSchema', () => {
     describe('approval-gated tools', () => {
         it('defaults tools to requires_approval: false with admin-only policy', () => {
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 tools: [{ kind: 'native', id: '@posthog/query' }],
             })
             const t = spec.tools[0]
@@ -252,15 +273,14 @@ describe('AgentSpecSchema', () => {
                 throw new Error('expected native tool')
             }
             expect(t.requires_approval).toBe(false)
-            expect(t.approval_policy.approvers).toEqual(['team_admins'])
+            expect(t.approval_policy.type).toBe('principal')
             expect(t.approval_policy.allow_edit).toBe(false)
-            expect(t.approval_policy.allow_agent_approver).toBe(false)
             expect(t.approval_policy.ttl_ms).toBe(24 * 60 * 60 * 1000)
         })
 
         it('parses requires_approval: true with overridden policy fields', () => {
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 tools: [
                     {
                         kind: 'native',
@@ -278,14 +298,13 @@ describe('AgentSpecSchema', () => {
             expect(t.approval_policy.allow_edit).toBe(true)
             expect(t.approval_policy.ttl_ms).toBe(60 * 60 * 1000)
             // unspecified fields still defaulted
-            expect(t.approval_policy.approvers).toEqual(['team_admins'])
-            expect(t.approval_policy.allow_agent_approver).toBe(false)
+            expect(t.approval_policy.type).toBe('principal')
         })
 
         it('rejects ttl_ms below 1 minute', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     tools: [
                         {
                             kind: 'native',
@@ -301,7 +320,7 @@ describe('AgentSpecSchema', () => {
         it('rejects ttl_ms above 7 days', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     tools: [
                         {
                             kind: 'native',
@@ -314,34 +333,17 @@ describe('AgentSpecSchema', () => {
             ).toThrow()
         })
 
-        it('rejects empty approvers list', () => {
-            expect(() =>
-                AgentSpecSchema.parse({
-                    model: 'x',
-                    tools: [
-                        {
-                            kind: 'native',
-                            id: '@posthog/team-delete',
-                            requires_approval: true,
-                            approval_policy: { approvers: [] },
-                        },
-                    ],
-                })
-            ).toThrow()
-        })
-
-        it('parses session_principal as an approver scope', () => {
-            // PR 7 widened the v0 enum from `['team_admins']` to add
-            // `['session_principal']` so the concierge can route gated
-            // calls back to the session owner via the per-asker fast path.
+        it('back-compat: an unmappable legacy approvers list falls back to the default principal type', () => {
+            // An empty (or unrecognised) legacy `approvers` derives no `type`, so
+            // it lands on the `principal` default rather than throwing.
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 tools: [
                     {
                         kind: 'native',
                         id: '@posthog/team-delete',
                         requires_approval: true,
-                        approval_policy: { approvers: ['session_principal'] },
+                        approval_policy: { approvers: [] },
                     },
                 ],
             })
@@ -349,19 +351,67 @@ describe('AgentSpecSchema', () => {
             if (t.kind === 'client') {
                 throw new Error('expected native tool')
             }
-            expect(t.approval_policy.approvers).toEqual(['session_principal'])
+            expect(t.approval_policy.type).toBe('principal')
         })
 
-        it('rejects approver scopes not yet supported in v0', () => {
+        it('parses an explicit agent type', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'test/x',
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/team-delete',
+                        requires_approval: true,
+                        approval_policy: { type: 'agent' },
+                    },
+                ],
+            })
+            const t = spec.tools[0]
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
+            expect(t.approval_policy.type).toBe('agent')
+        })
+
+        it.each([
+            { approvers: ['session_principal'], type: 'principal' },
+            { approvers: ['team_admins'], type: 'agent' },
+        ])('back-compat: maps legacy approvers $approvers to type $type', ({ approvers, type }) => {
+            // Specs frozen before the principal/agent split carry `approvers[]`
+            // (+ `allow_agent_approver`); the preprocess derives `type` and drops
+            // the legacy keys so old revisions keep validating.
+            const spec = AgentSpecSchema.parse({
+                model: 'test/x',
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/team-delete',
+                        requires_approval: true,
+                        approval_policy: { approvers, allow_agent_approver: false, ttl_ms: 900_000 },
+                    },
+                ],
+            })
+            const t = spec.tools[0]
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
+            expect(t.approval_policy.type).toBe(type)
+            expect(t.approval_policy.ttl_ms).toBe(900_000)
+            // Legacy keys are gone from the parsed shape.
+            expect('approvers' in t.approval_policy).toBe(false)
+            expect('allow_agent_approver' in t.approval_policy).toBe(false)
+        })
+
+        it('rejects an invalid approval type', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     tools: [
                         {
                             kind: 'native',
                             id: '@posthog/team-delete',
                             requires_approval: true,
-                            approval_policy: { approvers: ['session_owner'] },
+                            approval_policy: { type: 'session_owner' },
                         },
                     ],
                 })
@@ -374,12 +424,11 @@ describe('AgentSpecSchema', () => {
             // Bare strings in tools[] are the post-PR-7 equivalent of the
             // old allowlist[]: gates inclusion, no approval policy.
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 mcps: [
                     {
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
-                        auth: { integration: 'linear:T01' },
                         secrets: ['LINEAR_TOKEN'],
                         tools: ['create-issue', 'list-issues'],
                     },
@@ -388,14 +437,13 @@ describe('AgentSpecSchema', () => {
             const m = spec.mcps[0]
             expect(m.id).toBe('linear')
             expect(m.url).toBe('https://mcp.linear.app/sse')
-            expect(m.auth?.integration).toBe('linear:T01')
             expect(m.secrets).toEqual(['LINEAR_TOKEN'])
             expect(m.tools).toEqual(['create-issue', 'list-issues'])
         })
 
         it('parses object-form tools[] entries with approval gating', () => {
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 mcps: [
                     {
                         id: 'posthog',
@@ -405,7 +453,7 @@ describe('AgentSpecSchema', () => {
                             {
                                 name: 'agent-applications-revisions-promote-create',
                                 requires_approval: true,
-                                approval_policy: { approvers: ['session_principal'], ttl_ms: 900_000 },
+                                approval_policy: { type: 'principal', ttl_ms: 900_000 },
                             },
                         ],
                     },
@@ -419,7 +467,7 @@ describe('AgentSpecSchema', () => {
             }
             expect(gated.name).toBe('agent-applications-revisions-promote-create')
             expect(gated.requires_approval).toBe(true)
-            expect(gated.approval_policy.approvers).toEqual(['session_principal'])
+            expect(gated.approval_policy.type).toBe('principal')
             expect(gated.approval_policy.ttl_ms).toBe(900_000)
             // Unspecified fields fall through to the approval-policy defaults.
             expect(gated.approval_policy.allow_edit).toBe(false)
@@ -432,7 +480,7 @@ describe('AgentSpecSchema', () => {
             // author wants the object slot reserved for a future config knob
             // (e.g. description override) without flipping the gate on.
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 mcps: [
                     {
                         id: 'linear',
@@ -451,7 +499,7 @@ describe('AgentSpecSchema', () => {
 
         it('defaults secrets to [] and tools to undefined when omitted on external', () => {
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 mcps: [{ id: 'linear', url: 'https://mcp.linear.app/sse' }],
             })
             const m = spec.mcps[0]
@@ -466,7 +514,7 @@ describe('AgentSpecSchema', () => {
             // @posthog/http-request — the runner walks headers + substitutes
             // ${NAME} from `secrets[]` before opening the client.
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 mcps: [
                     {
                         id: 'github',
@@ -519,7 +567,7 @@ describe('AgentSpecSchema', () => {
                 },
             },
         ])('rejects an external entry with $label', ({ mcp }) => {
-            expect(() => AgentSpecSchema.parse({ model: 'x', mcps: [mcp] })).toThrow()
+            expect(() => AgentSpecSchema.parse({ model: 'test/x', mcps: [mcp] })).toThrow()
         })
 
         it('silently drops a legacy `allowlist[]` field (zod default + PR 7 hard-break)', () => {
@@ -530,7 +578,7 @@ describe('AgentSpecSchema', () => {
             // their old narrowed set. This test pins the no-op so a future
             // `.strict()` add (which would reject) is a conscious choice.
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 mcps: [
                     {
                         id: 'linear',
@@ -547,19 +595,19 @@ describe('AgentSpecSchema', () => {
 
     describe('resume config (per-agent TTL on completed sessions)', () => {
         it('defaults to undefined when not present (preserves today behaviour)', () => {
-            const spec = AgentSpecSchema.parse({ model: 'x' })
+            const spec = AgentSpecSchema.parse({ model: 'test/x' })
             expect(spec.resume).toBeUndefined()
         })
 
         it('applies sensible defaults when an empty resume section is present', () => {
-            const spec = AgentSpecSchema.parse({ model: 'x', resume: {} })
+            const spec = AgentSpecSchema.parse({ model: 'test/x', resume: {} })
             expect(spec.resume?.enabled).toBe(false)
             expect(spec.resume?.max_completed_age_ms).toBe(7 * 24 * 60 * 60_000)
         })
 
         it('parses an opt-in week-long TTL config', () => {
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 resume: { enabled: true, max_completed_age_ms: 14 * 24 * 60 * 60_000 },
             })
             expect(spec.resume?.enabled).toBe(true)
@@ -567,7 +615,7 @@ describe('AgentSpecSchema', () => {
         })
 
         it('rejects a non-positive max_completed_age_ms', () => {
-            expect(() => AgentSpecSchema.parse({ model: 'x', resume: { max_completed_age_ms: 0 } })).toThrow()
+            expect(() => AgentSpecSchema.parse({ model: 'test/x', resume: { max_completed_age_ms: 0 } })).toThrow()
         })
     })
 
@@ -579,13 +627,13 @@ describe('AgentSpecSchema', () => {
         it('declarative triggers require an auth block', () => {
             // webhook/chat/mcp must declare who can call them — no implicit default.
             expect(() =>
-                AgentSpecSchema.parse({ model: 'x', triggers: [{ type: 'webhook', config: { path: '/h' } }] })
+                AgentSpecSchema.parse({ model: 'test/x', triggers: [{ type: 'webhook', config: { path: '/h' } }] })
             ).toThrow()
         })
 
         it('per-trigger auth lands on the trigger', () => {
             const parsed = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [{ type: 'chat', config: {}, auth: { modes: [{ type: 'posthog' }] } }],
             })
             const chat = parsed.triggers[0]
@@ -627,13 +675,13 @@ describe('AgentSpecSchema', () => {
 
     describe('secrets[] — host-binding union', () => {
         it('accepts a bare-string entry (back-compat; resolvable but unbound)', () => {
-            const spec = AgentSpecSchema.parse({ model: 'x', secrets: ['ACME_KEY'] })
+            const spec = AgentSpecSchema.parse({ model: 'test/x', secrets: ['ACME_KEY'] })
             expect(spec.secrets).toEqual(['ACME_KEY'])
         })
 
         it('accepts the object form with allowed_hosts', () => {
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 secrets: [{ name: 'SLACK_BOT_TOKEN', allowed_hosts: ['slack.com'] }],
             })
             expect(spec.secrets).toEqual([{ name: 'SLACK_BOT_TOKEN', allowed_hosts: ['slack.com'] }])
@@ -645,7 +693,7 @@ describe('AgentSpecSchema', () => {
             // ship with host bindings. http-request only refuses egress on
             // the bare-string entries at substitution time.
             const spec = AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 secrets: ['LEGACY', { name: 'GH_PAT', allowed_hosts: ['api.github.com'] }],
             })
             expect(spec.secrets).toHaveLength(2)
@@ -657,7 +705,7 @@ describe('AgentSpecSchema', () => {
             // declare "no binding."
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     secrets: [{ name: 'X', allowed_hosts: [] }],
                 })
             ).toThrow()
@@ -666,7 +714,7 @@ describe('AgentSpecSchema', () => {
         it('rejects an object entry missing the name', () => {
             expect(() =>
                 AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     secrets: [{ allowed_hosts: ['x.example'] }],
                 })
             ).toThrow()
@@ -675,7 +723,7 @@ describe('AgentSpecSchema', () => {
 
     describe('getSecretAllowedHosts', () => {
         const spec: AgentSpec = AgentSpecSchema.parse({
-            model: 'x',
+            model: 'test/x',
             secrets: ['LEGACY', { name: 'GH_PAT', allowed_hosts: ['api.github.com', '*.github.com'] }],
         })
 
@@ -726,6 +774,25 @@ describe('AgentSpecSchema', () => {
             ],
         ])('%s', (_label, stored, incoming, expected) => {
             expect(principalsMatch(stored, incoming)).toBe(expected)
+        })
+    })
+
+    describe('identity_providers[] binding', () => {
+        it('accepts the per-asker `principal` binding (defaulting when omitted)', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'test/x',
+                identity_providers: [{ kind: 'posthog' }],
+            })
+            expect(spec.identity_providers[0]?.binding).toBe('principal')
+        })
+
+        it('rejects the unimplemented `agent` binding (the runtime seam exists, but a spec cannot select it)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'test/x',
+                    identity_providers: [{ kind: 'posthog', binding: 'agent' }],
+                })
+            ).toThrow()
         })
     })
 })

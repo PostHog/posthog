@@ -6,6 +6,7 @@ import {
     SignalSourceProduct,
     SignalSourceType,
 } from '~/queries/schema/schema-signals'
+import type { UserBasicType } from '~/types'
 
 export type { EnrichedReviewer, RelevantCommit }
 export { SignalSourceProduct, SignalSourceType }
@@ -70,6 +71,12 @@ export interface SignalReportArtefact {
     type: string
     content: Record<string, any>
     created_at: string
+    /** Log artefacts are editable in place; null for write-once rows. */
+    updated_at?: string | null
+    /** Set when a human produced the artefact (drives the "by {name}" attribution byline). */
+    created_by?: UserBasicType | null
+    /** Set when an agent task produced the artefact (attribution reads "by agent"). */
+    task_id?: string | null
 }
 
 export interface SignalReportArtefactResponse {
@@ -134,6 +141,14 @@ export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-ac
  */
 export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable', 'runs']
 
+/**
+ * Tabs deprecated from the tab bar entirely (route preserved for back-compat / deep links). The
+ * per-report run logs now expand inline within the report detail's Runs section, so the standalone
+ * project-wide Runs view no longer earns a tab. `urls.inboxReport('runs', …)` and `urls.inbox('runs')`
+ * still resolve to `AgentRunDetail` / `RunsTab` for anything that deep-links to them.
+ */
+export const INBOX_TAB_BAR_HIDDEN_KEYS: InboxTabKey[] = ['runs']
+
 /** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
 export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const
 export type InboxFlatListTabKey = (typeof INBOX_FLAT_LIST_TAB_KEYS)[number]
@@ -155,19 +170,15 @@ export const INBOX_SCOPE_FOR_YOU: InboxScope = 'for-you'
 export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────
+// The task↔report association is the `task_run` artefact log (see artefactTypes.ts). The
+// relationship vocabulary below is retained only for the task-creation kickoff path, where the
+// backend still accepts `signal_report_task_relationship` (implementation) when starting a PR run.
 
 export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['repo_selection', 'research', 'implementation'] as const
 
 export type SignalReportTaskRelationship = (typeof SIGNAL_REPORT_TASK_RELATIONSHIPS)[number]
 
 export const SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP: SignalReportTaskRelationship = 'implementation'
-
-export interface SignalReportTask {
-    id: string
-    relationship: SignalReportTaskRelationship
-    task_id: string
-    created_at: string
-}
 
 // ── Autonomy config (per-user override; backend SignalUserAutonomyConfigView) ─
 
