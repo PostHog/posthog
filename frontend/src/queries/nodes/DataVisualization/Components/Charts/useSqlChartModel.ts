@@ -46,7 +46,10 @@ export function useSqlChartModel<TConfig>(
     )
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useMemo(
+        () => buildTheme({ gridColor: isDarkModeOn ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }),
+        [isDarkModeOn]
+    )
 
     const config = useMemo(
         () =>

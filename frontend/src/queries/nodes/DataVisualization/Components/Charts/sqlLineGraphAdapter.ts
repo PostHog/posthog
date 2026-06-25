@@ -239,8 +239,6 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
             ...(settings?.display?.yAxisPosition === 'right' ? { yAxisId: 'right' } : {}),
-            // Area fill, but never on a bar — a bar-override on an area-graph chart resolves to
-            // `type: 'bar'` yet `isAreaSeries` is still true for the whole area graph.
             ...(type !== 'bar' && isAreaSeries(visualizationType, settings)
                 ? { fill: { opacity: AREA_FILL_OPACITY } }
                 : {}),
@@ -290,6 +288,7 @@ export function buildSqlTooltipConfig(
         pinnable: true,
         placement: 'cursor',
         sortedByValue: true,
+        maxRows: 10,
         valueFormatter: (value: number, entry: TooltipContext['seriesData'][number]) =>
             formatSqlSeriesValue(value, (entry.series.meta as SqlLineSeriesMeta | undefined)?.settings),
         showTotal: chartSettings.showTotalRow !== false,
@@ -426,9 +425,7 @@ export function buildLineChartConfig({
                           gridDefault: false,
                       }),
                   ]
-                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
-                      gridDefault: false,
-                  }),
+                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
         showCrosshair: true,
         showAxisLines: true,
         showTickMarks: true,
@@ -494,7 +491,10 @@ export function buildComboChartConfig({
         barLayout: comboBarLayoutForDisplay(visualizationType),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
-        tooltip: { ...buildSqlTooltipConfig(chartSettings, ySeriesData), ...(labelFormatter ? { labelFormatter } : {}) },
+        tooltip: {
+            ...buildSqlTooltipConfig(chartSettings, ySeriesData),
+            ...(labelFormatter ? { labelFormatter } : {}),
+        },
         curve: 'monotone',
     }
 }
