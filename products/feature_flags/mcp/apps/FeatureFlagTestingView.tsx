@@ -128,7 +128,12 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                     <Card key={index}>
                                         <CardContent>
                                             <div className="flex items-center gap-2">
-                                                <span className="text-sm font-medium">Condition #{index + 1}:</span>
+                                                <span className="text-sm font-medium">
+                                                    {/* Negative index marks the synthetic early-access enrollment super condition */}
+                                                    {condition.index < 0
+                                                        ? 'Early access enrollment:'
+                                                        : `Condition #${condition.index + 1}:`}
+                                                </span>
                                                 <Badge variant={condition.matched ? 'success' : 'destructive'}>
                                                     {condition.matched ? 'Matched' : 'No match'}
                                                 </Badge>
