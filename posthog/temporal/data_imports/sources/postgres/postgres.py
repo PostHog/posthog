@@ -32,14 +32,21 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import (
+
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
     incremental_type_to_operator,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+    SourceInputs,
+    SourceResponse,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
@@ -49,22 +56,26 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
-from posthog.temporal.data_imports.sources.common.sql import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
     ValidatedRowFilter,
     compute_projected_columns,
 )
-from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
-from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
-from posthog.temporal.data_imports.sources.common.sql.predicates_psycopg import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
+    SQLSourceImplementation,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
+    IncrementalFieldFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates_psycopg import (
     and_join,
     render_psycopg_row_filter_conditions,
 )
-from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
-from posthog.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
-from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
     get_partition_settings_for_partitioned_table as _get_partition_settings_for_partitioned_table,
@@ -75,8 +86,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     iterate_partitions,
     list_child_partitions,
 )
-
-from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
+from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 # Sources created after this date must use SSL/TLS connections
 SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
