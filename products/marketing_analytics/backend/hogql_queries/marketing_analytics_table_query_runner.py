@@ -32,6 +32,11 @@ from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRu
 
 logger = structlog.get_logger(__name__)
 
+# Discriminator column tagging each row in the compare UNION ALL with its period.
+COMPARE_PERIOD_FIELD = "_period"
+COMPARE_PERIOD_CURRENT = "current"
+COMPARE_PERIOD_PREVIOUS = "previous"
+
 
 class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[MarketingAnalyticsTableQueryResponse]):
     query: MarketingAnalyticsTableQuery
@@ -79,7 +84,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             if isinstance(query, ast.SelectQuery)
             else []
         )
-
         # Check if there are more results
         has_more = len(results) > requested_limit
 
@@ -121,45 +125,24 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.source_field)),
         )
 
-    def _build_compare_join(
-        self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
-    ) -> ast.JoinExpr:
-        """Build the join expression for comparing current and previous periods.
+    def _get_compare_pivot_keys(self) -> list[str]:
+        """Columns that uniquely identify a row at the current drill-down level.
 
-        Join keys must uniquely identify a row at each drill-down level. Names alone
-        don't satisfy this for ad-group / ad levels — two campaigns can both have an
-        ad-group named "All Audiences", and renaming an entity between periods would
-        appear as "deleted + created". So at AD_GROUP / AD we join by the platform ID
-        + source. This assumes (AD_GROUP_ID, SOURCE) and (AD_ID, SOURCE) are unique
-        per source — true for Meta; future adapters must preserve it or add campaign_id
-        to the join.
+        These are the keys the compare pivot groups by — the same keys the old
+        LEFT JOIN matched on. Names alone don't uniquely identify a row at ad-group /
+        ad levels (two campaigns can both have an ad-group named "All Audiences", and
+        renaming an entity between periods would appear as "deleted + created"), so at
+        AD_GROUP / AD we key by the platform ID + source. This assumes (AD_GROUP_ID,
+        SOURCE) and (AD_ID, SOURCE) are unique per source — true for Meta; future
+        adapters must preserve it or add campaign_id to the key.
         """
         level = self.config.drill_down_level
         campaign_alias = self.config.get_campaign_column_alias()
 
-        def _eq(column: str) -> ast.CompareOperation:
-            return ast.CompareOperation(
-                left=ast.Field(chain=["current_period", column]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Field(chain=["previous_period", column]),
-            )
-
         if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
-            # Group-by key is (ad_group_id, source). Join on the same so renamed
-            # ad-groups still match across periods.
-            join_condition: ast.Expr = ast.And(
-                exprs=[
-                    _eq(MarketingAnalyticsBaseColumns.AD_GROUP_ID.value),
-                    _eq(MarketingAnalyticsBaseColumns.SOURCE.value),
-                ]
-            )
+            return [MarketingAnalyticsBaseColumns.AD_GROUP_ID.value, MarketingAnalyticsBaseColumns.SOURCE.value]
         elif level == MarketingAnalyticsDrillDownLevel.AD:
-            join_condition = ast.And(
-                exprs=[
-                    _eq(MarketingAnalyticsBaseColumns.AD_ID.value),
-                    _eq(MarketingAnalyticsBaseColumns.SOURCE.value),
-                ]
-            )
+            return [MarketingAnalyticsBaseColumns.AD_ID.value, MarketingAnalyticsBaseColumns.SOURCE.value]
         elif level in (
             MarketingAnalyticsDrillDownLevel.CHANNEL,
             MarketingAnalyticsDrillDownLevel.SOURCE,
@@ -169,24 +152,10 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         ):
             # Repurposed-alias levels: campaign_alias holds the unique grouping value
             # (channel type / source / utm value). Names are stable identifiers here.
-            join_condition = _eq(campaign_alias)
+            return [campaign_alias]
         else:
-            # Campaign level joins on both Campaign + Source
-            join_condition = ast.And(exprs=[_eq(campaign_alias), _eq(MarketingAnalyticsBaseColumns.SOURCE.value)])
-
-        return ast.JoinExpr(
-            table=current_period_query,
-            alias="current_period",
-            next_join=ast.JoinExpr(
-                table=previous_period_query,
-                alias="previous_period",
-                join_type="LEFT JOIN",
-                constraint=ast.JoinConstraint(
-                    expr=join_condition,
-                    constraint_type="ON",
-                ),
-            ),
-        )
+            # Campaign level keys on both Campaign + Source.
+            return [campaign_alias, MarketingAnalyticsBaseColumns.SOURCE.value]
 
     def _build_paginated_query(
         self, select_columns: list[ast.Expr], select_from: ast.JoinExpr | None, ctes=None
@@ -242,28 +211,93 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
 
-        # Create the join manually with proper AST structure
-        join_expr = self._build_compare_join(current_period_query, previous_period_query)
-
         # Get column names for the compare query
         select_columns = self._get_filtered_select_columns(current_period_query)
 
-        # Create tuple columns for comparison
-        tuple_columns: list[ast.Expr] = [
+        return self._build_compare_pivot(current_period_query, previous_period_query, select_columns)
+
+    def _build_compare_pivot(
+        self,
+        current_period_query: ast.SelectQuery,
+        previous_period_query: ast.SelectQuery,
+        select_columns: list[ast.Expr],
+    ) -> ast.SelectQuery:
+        """Combine the two period queries with UNION ALL + a GROUP BY pivot instead of a LEFT JOIN.
+
+        ClickHouse runs a LEFT JOIN sequentially (build the right side, then probe the left); the
+        UNION ALL lets it run both period branches as concurrent pipelines. The pivot reproduces the
+        LEFT JOIN exactly:
+        - Each period query already emits one row per key, so `anyIf(col, _period=...)` picks that
+          single value.
+        - For a current row with no previous counterpart, `anyIf(col, _period='previous')` matches
+          no rows and returns the default of the column's type — '' / 0 for non-Nullable columns,
+          NULL for already-Nullable ones (CPC / CTR / ROAS). This is exactly what the LEFT JOIN
+          produces under ClickHouse's default `join_use_nulls = 0`, so reproducing it manually
+          (e.g. forcing NULL) would actually diverge from the join.
+        - `HAVING countIf(current) > 0` drops previous-only rows — matching the LEFT JOIN keeping
+          `current_period` as the left side.
+        The output tuples, aliases, order and limit are identical to the join form, so the ORDER BY
+        (over a current-period metric, expressed on the same tuple alias) and pagination are unchanged.
+        """
+        column_aliases = [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
+        key_columns = self._get_compare_pivot_keys()
+
+        def _labeled_period(period: str, period_query: ast.SelectQuery) -> ast.SelectQuery:
+            select: list[ast.Expr] = [
+                ast.Alias(alias=COMPARE_PERIOD_FIELD, expr=ast.Constant(value=period)),
+                *(ast.Field(chain=[alias]) for alias in column_aliases),
+            ]
+            return ast.SelectQuery(
+                select=select,
+                select_from=ast.JoinExpr(table=period_query),
+            )
+
+        union_query = ast.SelectSetQuery.create_from_queries(
+            [
+                _labeled_period(COMPARE_PERIOD_CURRENT, current_period_query),
+                _labeled_period(COMPARE_PERIOD_PREVIOUS, previous_period_query),
+            ],
+            "UNION ALL",
+        )
+        union_alias = "combined"
+
+        def _period_eq(period: str) -> ast.Expr:
+            return ast.CompareOperation(
+                left=ast.Field(chain=[union_alias, COMPARE_PERIOD_FIELD]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=period),
+            )
+
+        def _any_if(alias: str, period: str) -> ast.Expr:
+            return ast.Call(
+                name="anyIf",
+                args=[ast.Field(chain=[union_alias, alias]), _period_eq(period)],
+            )
+
+        # Build the pivot columns in the same order/alias as the join form.
+        pivot_columns: list[ast.Expr] = [
             ast.Alias(
-                alias=col.alias if isinstance(col, ast.Alias) else str(col),
+                alias=alias,
                 expr=ast.Call(
                     name="tuple",
-                    args=[
-                        ast.Field(chain=["current_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
-                        ast.Field(chain=["previous_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
-                    ],
+                    args=[_any_if(alias, COMPARE_PERIOD_CURRENT), _any_if(alias, COMPARE_PERIOD_PREVIOUS)],
                 ),
             )
-            for col in select_columns
+            for alias in column_aliases
         ]
 
-        return self._build_paginated_query(tuple_columns, join_expr)
+        group_by: list[ast.Expr] = [ast.Field(chain=[union_alias, key]) for key in key_columns]
+        having = ast.CompareOperation(
+            left=ast.Call(name="countIf", args=[_period_eq(COMPARE_PERIOD_CURRENT)]),
+            op=ast.CompareOperationOp.Gt,
+            right=ast.Constant(value=0),
+        )
+
+        select_from = ast.JoinExpr(table=union_query, alias=union_alias)
+        paginated = self._build_paginated_query(pivot_columns, select_from)
+        paginated.group_by = group_by
+        paginated.having = having
+        return paginated
 
     def _build_select_columns_mapping(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
