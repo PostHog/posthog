@@ -36,7 +36,7 @@ export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
             if (!model) {
                 return null
             }
-            const { valueFormatter, showTotal, totalFormatter } = model.config.tooltip ?? {}
+            const { valueFormatter, labelFormatter, showTotal, totalFormatter } = model.config.tooltip ?? {}
             return (
                 <DefaultTooltip
                     {...ctx}
@@ -45,6 +45,7 @@ export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
                         ((value, entry) =>
                             formatSqlSeriesValue(value, (entry.series.meta as SqlLineSeriesMeta | undefined)?.settings))
                     }
+                    labelFormatter={labelFormatter}
                     showTotal={showTotal}
                     totalFormatter={totalFormatter}
                     sortedByValue

@@ -302,6 +302,9 @@ export interface TooltipConfig {
     // DefaultTooltipProps for semantics — these mirror it.
     /** Second arg is the row's `seriesData` entry, for per-series formatting. */
     valueFormatter?: (value: number, entry: TooltipContext['seriesData'][number]) => string
+    /** Transforms the raw x-axis label before showing it in the tooltip header — use to convert
+     *  ISO datetime strings to human-readable dates. */
+    labelFormatter?: (label: string) => string
     showTotal?: boolean
     totalLabel?: string
     totalFormatter?: (value: number) => string

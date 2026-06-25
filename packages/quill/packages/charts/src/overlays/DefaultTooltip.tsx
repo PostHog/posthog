@@ -9,6 +9,9 @@ export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta
      *  settings — rather than with one global formatter. Defaults to `toLocaleString`. Existing
      *  callers that take only `value` keep working (the extra argument is ignored). */
     valueFormatter?: (value: number, entry: SeriesDatum<Meta>) => string
+    /** Transforms the header label before display — use to convert raw ISO strings to human-
+     *  readable dates. Defaults to rendering the label as-is. */
+    labelFormatter?: (label: string) => string
     /** Append a footer row summing the visible series at the hovered point. `overlay` series
      *  (e.g. goal lines) are excluded from the sum, and the row is suppressed when fewer than two
      *  summable series remain — a single-series total would just restate the one row. */
@@ -28,6 +31,7 @@ export function DefaultTooltip<Meta = unknown>({
     label,
     seriesData,
     valueFormatter,
+    labelFormatter,
     showTotal,
     totalLabel = 'Total',
     totalFormatter,
@@ -43,13 +47,15 @@ export function DefaultTooltip<Meta = unknown>({
 
     return (
         <TooltipSurface>
-            <div data-attr="hog-chart-tooltip-label" className="font-semibold mb-1">
-                {label}
+            <div data-attr="hog-chart-tooltip-label" className="font-semibold mb-1 opacity-60">
+                {labelFormatter ? labelFormatter(label) : label}
             </div>
             {rows.map((s) => (
-                <div key={s.series.key} data-attr="hog-chart-tooltip-row" className="flex items-center gap-2">
+                <div key={s.series.key} data-attr="hog-chart-tooltip-row" className="flex items-center gap-2 min-w-0">
                     <TooltipSwatch color={s.color} />
-                    <span data-attr="hog-chart-tooltip-series">{s.series.label}:</span>
+                    <span data-attr="hog-chart-tooltip-series" className="flex-1 min-w-0 truncate">
+                        {s.series.label}
+                    </span>
                     <strong data-attr="hog-chart-tooltip-value">{format(s.value, s)}</strong>
                 </div>
             ))}
@@ -58,8 +64,8 @@ export function DefaultTooltip<Meta = unknown>({
                     data-attr="hog-chart-tooltip-total"
                     className="flex items-center gap-2 mt-1 pt-1 border-t border-current/25 font-semibold"
                 >
-                    <span className="w-2" />
-                    <span>{totalLabel}:</span>
+                    <span className="w-2 shrink-0" />
+                    <span className="flex-1">{totalLabel}</span>
                     <strong data-attr="hog-chart-tooltip-value">{formatTotal(total)}</strong>
                 </div>
             )}
