@@ -129,7 +129,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                         <CardContent>
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-medium">
-                                                    {/* Negative index marks the synthetic early-access enrollment super condition */}
+                                                    {/* index < 0: enrollment super condition */}
                                                     {condition.index < 0
                                                         ? 'Early access enrollment:'
                                                         : `Condition #${condition.index + 1}:`}
@@ -137,7 +137,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                                 <Badge variant={condition.matched ? 'success' : 'destructive'}>
                                                     {condition.matched ? 'Matched' : 'No match'}
                                                 </Badge>
-                                                {/* The enrollment super condition has no rollout — only show the badge for release conditions */}
+                                                {/* enrollment super condition has no rollout */}
                                                 {condition.index >= 0 && (
                                                     <Badge>{condition.rollout_percentage}% rollout</Badge>
                                                 )}

@@ -335,7 +335,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                     >
                                                         <div className="flex items-center gap-2 mb-2">
                                                             <h6 className="font-medium text-sm">
-                                                                {/* Negative index marks the synthetic early-access enrollment super condition (see flags service) */}
+                                                                {/* index < 0: enrollment super condition */}
                                                                 {condition.index < 0
                                                                     ? 'Early access enrollment'
                                                                     : `Condition #${condition.index}`}

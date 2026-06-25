@@ -383,9 +383,8 @@ pub struct PropertyAnalysis {
     pub explanation: String,
 }
 
-/// Sentinel [`ConditionAnalysis::index`] for synthetic super conditions (early-access enrollment)
-/// that have no position in the flag's zero-based release conditions. Negative so consumers can
-/// tell it apart from a real release condition and label it appropriately rather than "Condition #N".
+/// `ConditionAnalysis::index` for the early-access enrollment entry, which has no position among
+/// the zero-based release conditions. Negative so consumers can label it instead of "Condition #N".
 pub const SUPER_CONDITION_INDEX: i32 = -1;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -583,22 +582,16 @@ impl FlagDetails {
             let mut property_analyses = Vec::new();
             let mut condition_matched = false;
 
-            // Determine if this condition matched based on overall flag result and condition index.
-            // Only attribute the match to a release condition when the flag actually matched via one
-            // (ConditionMatch). Super-condition (early-access enrollment) and holdout wins are
-            // reported separately and must not paint a release condition as the winner — an enrolled
-            // user wins via SuperConditionValue with condition_index Some(0), which would otherwise
-            // mislabel release condition 0 as the matching condition.
+            // Only a real ConditionMatch wins a release condition. Super-condition (enrollment) and
+            // holdout wins also report condition_index Some(0), but must not be attributed here.
             if flag_match.matches
                 && matches!(flag_match.reason, FeatureFlagMatchReason::ConditionMatch)
             {
                 condition_matched = match flag_match.condition_index {
                     Some(condition_index) => index == condition_index,
-                    // Fallback: assume first condition matched if we have a condition match but no index
                     None => index == 0,
                 };
             }
-            // If the flag did not match via a release condition, condition_matched stays false here.
 
             // Analyze properties within this group
             if let Some(properties) = &group.properties {
@@ -794,11 +787,8 @@ impl FlagDetails {
             analyses.push(analysis);
         }
 
-        // Early-access enrollment is an overriding "super" condition evaluated before the release
-        // conditions above (see flag_matching.rs): an opted-in person enables the flag and an
-        // opted-out person disables it, regardless of the release conditions. The matcher reports
-        // this via reason=SuperConditionValue, but the release-condition loop above cannot see it,
-        // so surface it explicitly as the first entry instead of silently omitting it.
+        // Surface the early-access enrollment super condition: the matcher applies it before the
+        // release conditions, but the loop above can't see it.
         if flag.filters.feature_enrollment == Some(true) {
             analyses.insert(
                 0,
@@ -809,10 +799,7 @@ impl FlagDetails {
         analyses
     }
 
-    /// Build the synthetic condition entry describing the early-access enrollment super condition.
-    ///
-    /// `index` is set to [`SUPER_CONDITION_INDEX`] (negative) so consumers can tell it apart from
-    /// the zero-based release conditions and label it accordingly rather than as "Condition #N".
+    /// Synthetic [`ConditionAnalysis`] for the early-access enrollment super condition.
     fn build_enrollment_condition_analysis(
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
@@ -820,17 +807,13 @@ impl FlagDetails {
     ) -> ConditionAnalysis {
         let enrollment_key = FlagFilters::enrollment_key(&flag.key);
 
-        // The person's enrollment status comes from the `$feature_enrollment/<key>` property,
-        // mirroring the matcher: exactly "true"/bool-true means opted in; any other present value
-        // means opted out; absent means enrollment does not apply and the release conditions decide.
+        // Mirror the matcher: "true"/bool-true = opted in, any other present value = opted out,
+        // absent = enrollment doesn't apply.
         let actual_value = property_values.and_then(|props| props.get(&enrollment_key).cloned());
         let enrolled = matches!(&actual_value, Some(v) if v == "true" || v == &Value::Bool(true));
         let opted_out = actual_value.is_some() && !enrolled;
 
-        // This super condition is the winner only when the matcher actually resolved the flag
-        // through it for an opted-in person (reason=SuperConditionValue, matches=true). An opt-out
-        // forces the flag off but is not an enabling match, and an absent property means a release
-        // condition decided the outcome.
+        // Winner only when the matcher actually resolved the flag through enrollment.
         let matched = enrolled
             && flag_match.matches
             && matches!(
@@ -1002,6 +985,9 @@ where
 mod tests {
     use super::*;
     use crate::flags::flag_match_reason::FeatureFlagMatchReason;
+    use crate::flags::flag_match_reason::FeatureFlagMatchReason::{
+        ConditionMatch, SuperConditionValue,
+    };
     use crate::flags::flag_matching::FeatureFlagMatch;
     use chrono::Utc;
     use rstest::rstest;
@@ -1505,37 +1491,17 @@ mod tests {
     }
 
     #[rstest]
-    // Opted in: enrollment is the sole winner and the release condition is NOT mislabeled as
-    // matched, even though the super condition reports condition_index Some(0).
-    #[case::opted_in(
-        Some("true"),
-        FeatureFlagMatchReason::SuperConditionValue,
-        true,
-        true,
-        true,
-        "Enrolled",
-        false
-    )]
-    // Opted out: enrollment overrides the (otherwise matching) release condition to disable the flag.
+    #[case::opted_in(Some("true"), SuperConditionValue, true, true, true, "Enrolled", false)]
     #[case::opted_out(
         Some("false"),
-        FeatureFlagMatchReason::SuperConditionValue,
+        SuperConditionValue,
         false,
         false,
         false,
         "Opted out",
         false
     )]
-    // Not enrolled: enrollment does not apply, so a release condition decides and keeps its match.
-    #[case::not_enrolled(
-        None,
-        FeatureFlagMatchReason::ConditionMatch,
-        true,
-        false,
-        false,
-        "Not enrolled",
-        true
-    )]
+    #[case::not_enrolled(None, ConditionMatch, true, false, false, "Not enrolled", true)]
     fn test_condition_analysis_surfaces_early_access_enrollment(
         #[case] enrollment_value: Option<&str>,
         #[case] reason: FeatureFlagMatchReason,
@@ -1548,39 +1514,22 @@ mod tests {
         use crate::flags::flag_models::FeatureFlag;
         use std::collections::HashMap;
 
-        // An early-access flag: enrollment is on, plus one release condition on `is_scoped`.
-        let flag: FeatureFlag = serde_json::from_value(json!(
-            {
-                "id": 1,
-                "team_id": 1,
-                "name": "beta-feature",
-                "key": "beta-feature",
-                "active": true,
-                "filters": {
-                    "feature_enrollment": true,
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "is_scoped",
-                                    "value": ["false"],
-                                    "operator": "exact",
-                                    "type": "person"
-                                }
-                            ],
-                            "rollout_percentage": 100
-                        }
-                    ]
-                }
+        let flag: FeatureFlag = serde_json::from_value(json!({
+            "id": 1, "team_id": 1, "name": "beta-feature", "key": "beta-feature", "active": true,
+            "filters": {
+                "feature_enrollment": true,
+                "groups": [{
+                    "properties": [{ "key": "is_scoped", "value": ["false"], "operator": "exact", "type": "person" }],
+                    "rollout_percentage": 100
+                }]
             }
-        ))
+        }))
         .unwrap();
 
+        // is_scoped="false" makes the release condition match, so opted-in/out exercise enrollment
+        // overriding an otherwise-matching release condition.
         let enrollment_key = "$feature_enrollment/beta-feature";
-        let mut property_values = HashMap::new();
-        // `is_scoped` = "false" makes the release condition's own properties match, so the opted-in
-        // and opted-out cases exercise "enrollment overrides an otherwise-matching release condition".
-        property_values.insert("is_scoped".to_string(), json!("false"));
+        let mut property_values = HashMap::from([("is_scoped".to_string(), json!("false"))]);
         if let Some(v) = enrollment_value {
             property_values.insert(enrollment_key.to_string(), json!(v));
         }
@@ -1601,8 +1550,7 @@ mod tests {
             chrono_tz::Tz::UTC,
         );
 
-        // The enrollment super condition is surfaced as the first entry, distinct from the release
-        // condition — without the fix it was omitted entirely.
+        // Enrollment is surfaced as the first entry (omitted entirely before the fix).
         assert_eq!(analysis.len(), 2);
         let enrollment = &analysis[0];
         assert_eq!(enrollment.index, SUPER_CONDITION_INDEX);
@@ -1611,28 +1559,18 @@ mod tests {
             enrollment.properties_matched,
             expected_enrollment_properties_matched
         );
-        assert!(
-            enrollment
-                .explanation
-                .contains(expected_explanation_fragment),
-            "explanation {:?} should mention {:?}",
-            enrollment.explanation,
-            expected_explanation_fragment
-        );
-        assert_eq!(enrollment.properties.len(), 1);
-        assert_eq!(enrollment.properties[0].key, enrollment_key);
+        assert!(enrollment
+            .explanation
+            .contains(expected_explanation_fragment));
         assert_eq!(
             enrollment.properties[0].actual_value,
             enrollment_value.map(|v| json!(v))
         );
 
-        // The release condition keeps its real index and is only the winner when the flag actually
-        // matched through it — never hijacked by the super condition's condition_index Some(0).
-        let release = &analysis[1];
-        assert_eq!(release.index, 0);
-        assert_eq!(release.matched, expected_release_condition_matched);
-
-        // At most one condition is ever the winner.
+        // The release condition wins only when the flag matched through it — never hijacked by the
+        // super condition's condition_index Some(0).
+        assert_eq!(analysis[1].index, 0);
+        assert_eq!(analysis[1].matched, expected_release_condition_matched);
         assert!(analysis.iter().filter(|c| c.matched).count() <= 1);
     }
 }
