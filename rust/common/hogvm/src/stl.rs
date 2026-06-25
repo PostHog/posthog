@@ -54,25 +54,35 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "typeof")?;
                 let arg = args[0].deref(&vm.heap)?;
-                // TODO - tuples, dates, datetimes, errors are all just duck-typed "objects" or "arrays", but we should
-                // still support them I guess
-                match arg {
+                let t = match arg {
                     // The reference distinguishes integer/float, not a single "number".
                     HogLiteral::Number(n) => {
-                        let t = if n.is_float() { "float" } else { "integer" };
-                        Ok(HogLiteral::String(t.to_string()).into())
+                        if n.is_float() {
+                            "float"
+                        } else {
+                            "integer"
+                        }
                     }
-                    HogLiteral::Boolean(_) => Ok(HogLiteral::String("boolean".to_string()).into()),
-                    HogLiteral::String(_) => Ok(HogLiteral::String("string".to_string()).into()),
-                    HogLiteral::Array(_) => Ok(HogLiteral::String("array".to_string()).into()),
-                    HogLiteral::Tuple(_) => Ok(HogLiteral::String("tuple".to_string()).into()),
-                    HogLiteral::Object(_) => Ok(HogLiteral::String("object".to_string()).into()),
-                    HogLiteral::Callable(_) => {
-                        Ok(HogLiteral::String("function".to_string()).into())
+                    HogLiteral::Boolean(_) => "boolean",
+                    HogLiteral::String(_) => "string",
+                    HogLiteral::Array(_) => "array",
+                    HogLiteral::Tuple(_) => "tuple",
+                    // Datetimes, dates, and errors are duck-typed objects distinguished by markers.
+                    HogLiteral::Object(obj) => {
+                        if obj_marker(&vm.heap, obj, "__hogDateTime__")? {
+                            "datetime"
+                        } else if obj_marker(&vm.heap, obj, "__hogDate__")? {
+                            "date"
+                        } else if obj_marker(&vm.heap, obj, "__hogError__")? {
+                            "error"
+                        } else {
+                            "object"
+                        }
                     }
-                    HogLiteral::Closure(_) => Ok(HogLiteral::String("function".to_string()).into()),
-                    HogLiteral::Null => Ok(HogLiteral::String("null".to_string()).into()),
-                }
+                    HogLiteral::Callable(_) | HogLiteral::Closure(_) => "function",
+                    HogLiteral::Null => "null",
+                };
+                Ok(HogLiteral::String(t.to_string()).into())
             }),
         ),
         (
