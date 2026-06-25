@@ -162,6 +162,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     class Meta:
         db_table = "posthog_datawarehousetable"
+        constraints = [
+            # At most one live self-managed backing table per (team, name). Live mirrors queryable().
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=Q(external_data_source__isnull=True) & (Q(deleted=False) | Q(deleted__isnull=True)),
+                name="unique_live_self_managed_dwh_table",
+            )
+        ]
 
     @property
     def name_chain(self) -> list[str]:

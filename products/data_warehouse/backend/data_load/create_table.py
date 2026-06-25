@@ -2,6 +2,7 @@ import uuid
 import dataclasses
 
 from django.conf import settings
+from django.db import IntegrityError
 
 from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import ServerException
@@ -51,6 +52,22 @@ async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: in
     return total_mib
 
 
+@database_sync_to_async
+def aget_live_backing_table_by_name(team_id: int, name: str) -> DataWarehouseTable | None:
+    # Self-managed (no external source) == a materialized view's backing table.
+    return (
+        DataWarehouseTable.objects.filter(team_id=team_id, name=name, external_data_source__isnull=True)
+        .exclude(deleted=True)
+        .order_by("-created_at")
+        .first()
+    )
+
+
+@database_sync_to_async
+def asoft_delete_table(table: DataWarehouseTable) -> None:
+    table.soft_delete()
+
+
 async def create_table_from_saved_query(
     job_id: str,
     saved_query_id: str,
@@ -84,16 +101,27 @@ async def create_table_from_saved_query(
             "queryable_folder": queryable_folder,
         }
 
-        # create or update
         table_created: DataWarehouseTable | None = await aget_table_by_saved_query_id(saved_query_id_converted, team_id)
-        if table_created:
-            table_created.format = table_format
-            table_created.url_pattern = url_pattern
-            table_created.queryable_folder = queryable_folder
-            await asave_datawarehousetable(table_created)
+        if table_created is not None and table_created.deleted:
+            table_created = None
 
-        if not table_created:
-            table_created = await acreate_datawarehousetable(**table_params)
+        # No live linked table: retire any leftover backing row for this name, then create a fresh one.
+        if table_created is None:
+            leftover = await aget_live_backing_table_by_name(team_id, table_name)
+            if leftover is not None:
+                await asoft_delete_table(leftover)
+            try:
+                table_created = await acreate_datawarehousetable(**table_params)
+            except IntegrityError:
+                # Lost the create race to a concurrent run; reuse its row.
+                table_created = await aget_live_backing_table_by_name(team_id, table_name)
+                if table_created is None:
+                    raise
+
+        table_created.format = table_format
+        table_created.url_pattern = url_pattern
+        table_created.queryable_folder = queryable_folder
+        await asave_datawarehousetable(table_created)
 
         assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
