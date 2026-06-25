@@ -19,23 +19,27 @@ from temporalio.service import RPCError
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult, WebhookSyncResult
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 
 from products.data_warehouse.backend.api.test.utils import create_external_data_source_ok
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.external_data_source.webhooks import WebhookHogFunctionCreateResult
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    WebhookCreationResult,
+    WebhookSyncResult,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 pytestmark = [
     pytest.mark.django_db,
@@ -247,7 +251,7 @@ class TestExternalDataSchema(APIBaseTest):
     def test_incremental_fields_cdc_available_gating(
         self, _name: str, source_cdc_enabled: bool, team_ff_enabled: bool, expected_cdc_available
     ):
-        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
         job_inputs = {
             "host": "localhost",
@@ -313,8 +317,8 @@ class TestExternalDataSchema(APIBaseTest):
     ):
         # xmin is Postgres-only: the endpoint must report `xmin_available=None` for any other source,
         # even one that erroneously sets `supports_xmin=True`.
-        from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
-        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
         source_impl = PostgresSource if source_type == ExternalDataSourceType.POSTGRES else MySQLSource
         source = ExternalDataSource.objects.create(
@@ -449,6 +453,48 @@ class TestExternalDataSchema(APIBaseTest):
             schema.refresh_from_db()
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_update_schema_sync_type_is_logged_to_activity(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        )
+
+        with (
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "full_refresh"},
+            )
+            assert response.status_code == 200
+
+        logs = ActivityLog.objects.filter(scope="ExternalDataSchema", item_id=str(schema.id), activity="updated")
+        sync_type_changes = [
+            c for log in logs for c in (log.detail or {}).get("changes", []) if c["field"] == "sync_type"
+        ]
+        assert sync_type_changes == [
+            {
+                "type": "ExternalDataSchema",
+                "field": "sync_type",
+                "action": "changed",
+                "before": "incremental",
+                "after": "full_refresh",
+            }
+        ]
 
     def test_update_schema_sets_and_clears_incremental_field_lookback_seconds(self):
         source = ExternalDataSource.objects.create(
@@ -858,7 +904,7 @@ class TestExternalDataSchema(APIBaseTest):
 
     @staticmethod
     def _xmin_discovery_patches(supports_xmin: bool = True, flag_enabled: bool = True):
-        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
         fake_schema = SourceSchema(
             name="public.orders",
@@ -2276,7 +2322,7 @@ class TestUpdateExternalDataSchema:
                 return_value=True,
             ),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
             ) as mock_add_table,
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
@@ -2588,7 +2634,9 @@ class TestUpdateExternalDataSchema:
                 "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
                 return_value=True,
             ),
-            mock.patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
+            ),
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
                 return_value=False,

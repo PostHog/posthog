@@ -7,8 +7,10 @@ query-time computation:
 
   1. Resolve a normalized token from the strongest available signal (the
      x-anthropic-client vendor header, then Claude Code's User-Agent surface,
-     then the session-pinned clientInfo.name, then the User-Agent product token,
-     then the OAuth client name) — `HARNESS_TOKEN_SQL`.
+     then the clientInfo.name — `$mcp_client_name` as reported by the posthog-node
+     MCP analytics SDK, or `mcp_session_client_name` as reported by PostHog's hosted
+     MCP server — then the User-Agent product token, then the OAuth client name) —
+     `HARNESS_TOKEN_SQL`.
   2. Bucket that token into a customer label — `harness_label_sql`.
 
 This module is being established as the single source of truth. Today the same
@@ -45,6 +47,7 @@ _RAW_TOKEN = f"""coalesce(
         NULL
     ),
     if(lower({_UA_PRODUCT}) = 'claude-code', {_UA_TOKEN}, NULL),
+    nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
     nullIf(nullIf(toString(properties.mcp_session_client_name), ''), 'mcp'),
     nullIf({_UA_TOKEN}, ''),
     nullIf(toString(properties.$mcp_oauth_client_name), ''),

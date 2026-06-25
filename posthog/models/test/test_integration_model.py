@@ -42,6 +42,7 @@ from posthog.models.integration import (
     S3CompatibleIntegration,
     S3CredentialIntegrationError,
     SlackIntegration,
+    invalidate_github_repository_caches_for_installation,
     raise_if_github_rate_limited,
 )
 from posthog.models.organization import Organization
@@ -936,6 +937,35 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         assert result["status_code"] == 502
 
+    def test_get_open_pr_base_for_head_returns_base_ref_of_open_pr(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = [{"base": {"ref": "master"}, "head": {"ref": "posthog-code/fix"}}]
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response) as mock_get:
+            result = github.get_open_pr_base_for_head("PostHog/posthog", "posthog-code/fix")
+        assert result == "master"
+        # Query is scoped to open PRs whose head is the branch, in the repo owner's namespace.
+        assert mock_get.call_args.kwargs["params"] == {
+            "head": "PostHog:posthog-code/fix",
+            "state": "open",
+            "per_page": 1,
+        }
+
+    def test_get_open_pr_base_for_head_returns_none_when_no_open_pr(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = []
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
+            assert github.get_open_pr_base_for_head("PostHog/posthog", "master") is None
+
+    def test_get_open_pr_base_for_head_returns_none_on_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_get", return_value=None):
+            assert github.get_open_pr_base_for_head("PostHog/posthog", "posthog-code/fix") is None
+
     def test_get_diff_truncates_oversized_diff(self):
         from posthog.models.integration import _MAX_DIFF_CHARS
 
@@ -1461,6 +1491,36 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.repository_cache == []
         assert integration.repository_cache_updated_at is None
         mock_list_all.assert_called_once_with()
+
+    def test_invalidate_github_repository_caches_for_installation_clears_team_and_personal_rows(self):
+        from posthog.models.user_integration import UserIntegration
+
+        team_integration = self.create_integration(
+            {"installation_id": "12345", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        team_integration.integration_id = "12345"
+        team_integration.repository_cache = [{"id": 1, "name": "a", "full_name": "org/a"}]
+        team_integration.repository_cache_updated_at = timezone.now()
+        team_integration.save(update_fields=["integration_id", "repository_cache", "repository_cache_updated_at"])
+
+        user_integration = UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ACCESS_TOKEN"},
+            repository_cache=[{"id": 2, "name": "b", "full_name": "org/b"}],
+            repository_cache_updated_at=timezone.now(),
+        )
+
+        invalidate_github_repository_caches_for_installation("12345")
+
+        team_integration = Integration.objects.get(pk=team_integration.pk)
+        user_integration = UserIntegration.objects.get(pk=user_integration.pk)
+        assert team_integration.repository_cache_updated_at is None
+        assert user_integration.repository_cache_updated_at is None
+        assert team_integration.repository_cache == [{"id": 1, "name": "a", "full_name": "org/a"}]
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
     def test_list_cached_repositories_pages_with_full_cached_snapshot(self, mock_list_all):

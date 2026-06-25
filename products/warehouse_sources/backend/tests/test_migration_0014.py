@@ -4,7 +4,7 @@ from posthog.test.base import TestMigrations
 
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 
 class BackfillS3FolderNameMigrationTest(TestMigrations):

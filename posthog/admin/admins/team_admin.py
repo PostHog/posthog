@@ -4,7 +4,7 @@ import json
 import uuid
 import asyncio
 import hashlib
-import tempfile
+import dataclasses
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -33,10 +33,9 @@ from posthog.admin.inlines.organization_member_for_related_inline import Organiz
 from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
-from posthog.cloud_utils import is_cloud
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
@@ -47,7 +46,6 @@ from posthog.personhog_client.proto import (
     GetGroupTypeMappingsByTeamIdRequest,
     UpdateGroupTypeMappingRequest,
 )
-from posthog.session_recordings.recordings import recording_s3_client
 from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
@@ -59,15 +57,16 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     RecordingsWithSessionIdsInput,
     RecordingsWithTeamInput,
 )
-from posthog.temporal.session_replay.import_recording.types import ImportRecordingInput
-
-from products.replay.backend.models.exported_recording import ExportedRecording
-from products.replay.backend.services.export_recording import ReplayActivityContext, trigger_recording_export
 
 logger = get_logger()
 
 # Upper bound on a single admin AI gateway top-up, to catch fat-fingered amounts.
 MAX_CREDIT_USD = Decimal("1000000")
+
+
+@dataclasses.dataclass(frozen=True)
+class ReplayActivityContext(ActivityContextBase):
+    reason: str
 
 
 class TeamAdminForm(ModelForm):
@@ -137,8 +136,6 @@ class TeamAdmin(admin.ModelAdmin):
         "updated_at",
         "internal_properties",
         "remote_config_cache_actions",
-        "export_individual_replay",
-        "import_individual_replay",
         "delete_recordings",
         "api_token_display",
         "admit_state",
@@ -266,8 +263,6 @@ class TeamAdmin(admin.ModelAdmin):
             {
                 "classes": ["collapse"],
                 "fields": [
-                    "export_individual_replay",
-                    "import_individual_replay",
                     "delete_recordings",
                 ],
             },
@@ -496,39 +491,6 @@ class TeamAdmin(admin.ModelAdmin):
         if team_is_allowed_to_bypass_throttle(team.id):
             props.append("API_QUERIES_RATE_LIMIT_BYPASS")
         return format_html("<span>{}</span>", ", ".join(props) or "-")
-
-    @admin.display(description="Export individual session replay data")
-    def export_individual_replay(self, team: Team):
-        if not team.pk:
-            return "-"
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/export_individual_replay.html",
-                {
-                    "team": team,
-                    "export_url": f"/admin/posthog/team/{team.pk}/export-replay/",
-                    "export_history_url": f"/admin/posthog/team/{team.pk}/export-history/",
-                },
-                request=getattr(self, "_current_request", None),
-            )
-        )
-
-    @admin.display(description="Import individual session replay data")
-    def import_individual_replay(self, team: Team):
-        if not team.pk:
-            return "-"
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/import_individual_replay.html",
-                {
-                    "team": team,
-                    "import_url": f"/admin/posthog/team/{team.pk}/import-replay/",
-                },
-                request=getattr(self, "_current_request", None),
-            )
-        )
 
     @admin.display(description="API token")
     def api_token_display(self, team: Team):
@@ -847,26 +809,6 @@ class TeamAdmin(admin.ModelAdmin):
                 name="posthog_team_rebuild_cache",
             ),
             path(
-                "<path:object_id>/export-replay/",
-                self.admin_site.admin_view(self.export_replay_view),
-                name="posthog_team_export_replay",
-            ),
-            path(
-                "<path:object_id>/import-replay/",
-                self.admin_site.admin_view(self.import_replay_view),
-                name="posthog_team_import_replay",
-            ),
-            path(
-                "<path:object_id>/export-history/",
-                self.admin_site.admin_view(self.export_history_view),
-                name="posthog_team_export_history",
-            ),
-            path(
-                "<path:object_id>/download-export/<uuid:export_id>/",
-                self.admin_site.admin_view(self.download_export_view),
-                name="posthog_team_download_export",
-            ),
-            path(
                 "<path:object_id>/set-api-token/",
                 self.admin_site.admin_view(self.set_api_token_view),
                 name="posthog_team_set_api_token",
@@ -959,60 +901,6 @@ class TeamAdmin(admin.ModelAdmin):
         messages.success(request, f"API token updated for team '{team.name}'.")
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
-    def export_replay_view(self, request, object_id):
-        team = Team.objects.get(pk=object_id)
-
-        if request.method == "GET":
-            context = {
-                **self.admin_site.each_context(request),
-                "team": team,
-                "title": f"Export Session Replay - {team.name}",
-            }
-            return render(request, "admin/posthog/team/export_replay_form.html", context)
-
-        session_id = request.POST.get("session_id", "").strip()
-        reason = request.POST.get("reason", "").strip()
-
-        if not session_id:
-            messages.error(request, "Session ID is required")
-            return redirect(reverse("admin:posthog_team_export_replay", args=[object_id]))
-
-        if not reason:
-            messages.error(request, "Reason is required")
-            return redirect(reverse("admin:posthog_team_export_replay", args=[object_id]))
-
-        logger.info(
-            "export_replay_triggered",
-            team_id=team.id,
-            session_id=session_id,
-            reason=reason,
-            triggered_by=request.user.email,
-        )
-
-        try:
-            export_record = trigger_recording_export(
-                team=team,
-                session_id=session_id,
-                reason=reason,
-                user=request.user,
-                was_impersonated=False,
-            )
-
-            messages.success(
-                request,
-                f"Export triggered for session '{session_id}' on team '{team.name}' by {request.user.email}. Export ID: {export_record.id}",
-            )
-        except Exception as e:
-            logger.exception(
-                "export_replay_failed",
-                team_id=team.id,
-                session_id=session_id,
-                error=str(e),
-            )
-            messages.error(request, f"Export failed: {e}")
-
-        return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
-
     def view_cache(self, request, object_id):
         team = Team.objects.get(pk=object_id)
         hypercache = RemoteConfig.get_hypercache()
@@ -1041,133 +929,6 @@ class TeamAdmin(admin.ModelAdmin):
 
         self.message_user(request, f"Cache rebuilt for team '{team.name}' (token: {team.api_token})")
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
-
-    def import_replay_view(self, request, object_id):
-        if is_cloud():
-            messages.error(request, "Importing session replays is not allowed on cloud")
-            return redirect(reverse("admin:posthog_team_change", args=[object_id]))
-
-        team = Team.objects.get(pk=object_id)
-
-        if request.method == "GET":
-            context = {
-                **self.admin_site.each_context(request),
-                "team": team,
-                "title": f"Import Session Replay - {team.name}",
-            }
-            return render(request, "admin/posthog/team/import_replay_form.html", context)
-
-        reason = request.POST.get("reason", "").strip()
-        import_file: UploadedFile | None = request.FILES.get("import_file")
-
-        if not import_file:
-            messages.error(request, "Import file is required")
-            return redirect(reverse("admin:posthog_team_import_replay", args=[object_id]))
-
-        if not reason:
-            messages.error(request, "Reason is required")
-            return redirect(reverse("admin:posthog_team_import_replay", args=[object_id]))
-
-        if not import_file.name or not import_file.name.endswith(".zip"):
-            messages.error(request, "Import file must be a .zip file")
-            return redirect(reverse("admin:posthog_team_import_replay", args=[object_id]))
-
-        logger.info(
-            "import_replay_triggered",
-            team_id=team.id,
-            file_name=import_file.name,
-            file_size=import_file.size,
-            reason=reason,
-            triggered_by=request.user.email,
-        )
-
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
-                for chunk in import_file.chunks():
-                    tmp_file.write(chunk)
-                tmp_file_path = tmp_file.name
-
-            temporal = sync_connect()
-            workflow_input = ImportRecordingInput(team_id=team.id, export_file=tmp_file_path)
-            workflow_id = f"import-recording-{team.id}-{uuid.uuid4()}"
-
-            asyncio.run(
-                temporal.start_workflow(
-                    "import-recording",
-                    workflow_input,
-                    id=workflow_id,
-                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                    retry_policy=common.RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(minutes=1),
-                    ),
-                )
-            )
-
-            log_activity(
-                organization_id=team.organization_id,
-                team_id=team.id,
-                user=request.user,
-                was_impersonated=False,
-                item_id=None,
-                scope="Replay",
-                activity="imported",
-                detail=Detail(
-                    name=f"Session replay import from {import_file.name}",
-                    type="admin_import",
-                    context=ReplayActivityContext(reason=reason),
-                ),
-            )
-
-            messages.success(
-                request,
-                f"Import triggered for team '{team.name}' by {request.user.email}.",
-            )
-        except Exception as e:
-            logger.exception(
-                "import_replay_failed",
-                team_id=team.id,
-                error=str(e),
-            )
-            messages.error(request, f"Import failed: {e}")
-
-        return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
-
-    def export_history_view(self, request, object_id):
-        team = Team.objects.get(pk=object_id)
-
-        exports = ExportedRecording.objects.filter(team=team).order_by("-created_at")[:50]
-
-        context = {
-            **self.admin_site.each_context(request),
-            "team": team,
-            "exports": exports,
-            "title": f"Export History - {team.name}",
-        }
-        return render(request, "admin/posthog/team/export_history.html", context)
-
-    def download_export_view(self, request, object_id, export_id):
-        team = Team.objects.get(pk=object_id)
-        try:
-            export = ExportedRecording.objects.get(id=export_id, team=team)
-
-            if not export.export_location:
-                messages.error(request, "Export content not available yet")
-                return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
-
-            content = recording_s3_client.recording_s3_client().download_file(export.export_location)
-
-            response = HttpResponse(content, content_type="application/zip")
-            filename = f"export-{export.session_id}.zip"
-            response["Content-Disposition"] = f'attachment; filename="{filename}"'
-            return response
-
-        except ExportedRecording.DoesNotExist:
-            messages.error(request, "Export not found")
-            return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
-        except Exception as e:
-            messages.error(request, f"Failed to download export: {e}")
-            return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
 
     def _get_delete_workflows(self, team_id: int) -> list[dict]:
         """Fetch recent delete-recordings workflows for this team from Temporal."""
