@@ -58,6 +58,7 @@ export function StepWaitUntilConditionConfiguration({
                             }
                             typeKey="workflow-wait-until-event"
                             buttonCopy="Add event"
+                            excludeGroupProperties
                         />
                     </div>
 
@@ -96,6 +97,7 @@ export function StepWaitUntilConditionConfiguration({
                         partialSetWorkflowActionConfig(action.id, { condition: { ...condition, filters } })
                     }
                     typeKey="workflow-wait-until-condition"
+                    excludeGroupProperties
                 />
             </div>
 
