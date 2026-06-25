@@ -136,24 +136,38 @@ Built (all three modes):
 A key efficiency point baked into the Rust paths — build the STL once per worker and swap
 `ctx.globals` per event, rather than rebuilding the STL map 10k times.
 
-**First results (4-core sandbox, 10k events / 2k batches):**
+**Results (4-core sandbox, 10k events / 2k batches):**
 
-| mode | events/s | vs Node |
-|---|---|---|
-| Node (single, V8) | 13.6k | 1.00× |
-| Rust single-thread | 10.3k | 0.76× |
-| Rust-from-Node (napi FFI, parallel) | 23.6k | **1.73×** |
-| Rust parallel (in-process, 4 cores) | 39.9k | 2.93× |
+| mode | initial | after perf fixes | vs Node |
+|---|---|---|---|
+| Node (single, V8) | 13.6k | 13.1k | 1.00× |
+| Rust single-thread | 10.3k | **21.1k** | **1.61×** |
+| Rust-from-Node (napi FFI, parallel) | 23.6k | **34.5k** | **2.63×** |
+| Rust parallel (in-process, 4 cores) | 39.9k | **80.5k** | **6.14×** |
 
-Takeaways that steer the loop:
-1. **Single-threaded, the Rust VM is *slower* than Node** (V8's JIT is excellent here). The win is
-   entirely from parallelism — so Phase 2 must both (a) reclaim single-thread speed and (b) keep the
-   parallel scaling. There's real single-thread headroom (per-event heap allocs, globals re-parsed
-   to `HogValue` each run, STL lookups).
-2. **The realistic FFI path is 1.73× Node** — rayon parallelism wins, but marshalling the batch
-   across the boundary (JS objects → `serde_json::Value` → back) costs ~40% of the in-process gain.
-   Reducing that (compact/columnar event encoding, or more work per event) is the FFI lever.
-3. In-process Rust parallel is 2.93× Node and scales ~linearly (3.87× on 4 cores in isolation).
+#### Perf investigation (why Rust started out *slower* than Node, and the fix)
+Initially Rust single-thread lost to V8 (0.76×) — suspicious for an interpreter. A `callgrind`
+profile of the single-threaded path was decisive: **the interpreter loop itself
+(`step`+`next`+`get_bytecode`) was ~1.5%** of cost. The time was in the value model / native-result
+handling:
+- **`walk_emplacing` — 25%**: every native result array was re-walked element-by-element and
+  re-heap-allocated. Added a fast path that emplaces flat (non-nested) arrays as-is. (→ 6.4%.)
+- **`arraySort`/`arrayReverseSort`** partitioned into `(oks, errs)` Vecs even when nothing errored.
+  Replaced with a single-pass `collect_sorted_nums`.
+- **`next()`** cloned + serde-deserialized the `JsonValue` *and* eagerly built a type-name String on
+  every instruction fetch. Now borrow-deserializes from `&Value` with lazy error strings. (Minor for
+  array-heavy workloads, but real for instruction-heavy ones.)
+
+Net: Rust single-thread **10.3k → 21.1k events/s (2.0×)**, flipping it from 0.76× to **1.61× Node**;
+parallel **39.9k → 80.5k (6.14× Node)**; FFI **23.6k → 34.5k (2.63× Node)**. Lesson: "Rust is slow"
+was an implementation bug, not a property of the language.
+
+What remains (Phase 2): the residual cost is the value model itself — `Vec::clone` (12%) and
+`drop_in_place<HogLiteral>` (~16%) from cloning/dropping a `Vec<HogValue>` of fat enums on every
+array op. Levers: specialized numeric arrays (avoid `Vec<HogValue>` for number arrays), in-place ops
+when the array isn't aliased, a smaller `HogValue`, and caching the globals→`HogValue` conversion.
+For the FFI path, marshalling the batch across the boundary is still ~40% — compact/columnar event
+encoding is the lever.
 
 ---
 

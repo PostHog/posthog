@@ -63,6 +63,10 @@ fn throughput(events: u64, dur: std::time::Duration) -> f64 {
     events as f64 / dur.as_secs_f64()
 }
 
+fn env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
+}
+
 fn time_best<F: Fn() -> Vec<Value>>(reps: usize, f: F) -> std::time::Duration {
     let mut best = std::time::Duration::MAX;
     for _ in 0..reps {
@@ -95,21 +99,29 @@ fn main() {
         expected.len()
     );
 
-    let events: Vec<u64> = (0..TOTAL_EVENTS).collect();
+    // Env-tunable for profiling: HOGVM_BENCH_EVENTS, HOGVM_BENCH_REPS, HOGVM_BENCH_SINGLE_ONLY=1.
+    let total_events: u64 = env_u64("HOGVM_BENCH_EVENTS", TOTAL_EVENTS);
+    let reps: usize = env_u64("HOGVM_BENCH_REPS", 5) as usize;
+    let single_only = std::env::var("HOGVM_BENCH_SINGLE_ONLY").is_ok();
+
+    let events: Vec<u64> = (0..total_events).collect();
     let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
     // Give rayon several chunks per core for load balancing, but keep them within a batch.
     let par_chunk = (BATCH_SIZE / 4).max(1);
 
     println!(
-        "\nworkload: {TOTAL_EVENTS} events, batch {BATCH_SIZE}, {SERIES_LEN}-element series | cores: {cores}"
+        "\nworkload: {total_events} events, batch {BATCH_SIZE}, {SERIES_LEN}-element series | cores: {cores}"
     );
 
-    let reps = 5;
     let single = time_best(reps, || run_single(&program, &events));
+    if single_only {
+        println!("single   : {:>8.2} ms  | {:>12.0} events/s", single.as_secs_f64() * 1e3, throughput(total_events, single));
+        return;
+    }
     let parallel = time_best(reps, || run_parallel(&program, &events, par_chunk));
 
-    let single_tput = throughput(TOTAL_EVENTS, single);
-    let parallel_tput = throughput(TOTAL_EVENTS, parallel);
+    let single_tput = throughput(total_events, single);
+    let parallel_tput = throughput(total_events, parallel);
 
     println!("\n================ pure-Rust ingestion perf ================");
     println!(
