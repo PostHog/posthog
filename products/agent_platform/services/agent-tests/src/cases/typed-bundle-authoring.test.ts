@@ -95,7 +95,11 @@ describe('typed bundle authoring API: real e2e', () => {
             // skills + tools start empty.
             expect(res.body.bundle.skills).toEqual([])
             expect(res.body.bundle.tools).toEqual([])
-            expect(res.body.bundle.spec).toEqual(expect.objectContaining({ model: 'faux/faux' }))
+            expect(res.body.bundle.spec).toEqual(
+                expect.objectContaining({
+                    models: { mode: 'manual', models: [{ model: 'faux/faux' }], optimize_for: 'cost' },
+                })
+            )
             expect(res.body.warnings).toEqual([])
         })
     })
@@ -248,7 +252,11 @@ describe('typed bundle authoring API: real e2e', () => {
             const put = await request(c.janitor).put(`/revisions/${rid}/spec`).send({ spec: newSpec })
             expect(put.status).toBe(200)
             const get = await request(c.janitor).get(`/revisions/${rid}/bundle`)
-            expect(get.body.bundle.spec.models).toEqual({ mode: 'manual', models: [{ model: 'faux/changed' }] })
+            expect(get.body.bundle.spec.models).toEqual({
+                mode: 'manual',
+                models: [{ model: 'faux/changed' }],
+                optimize_for: 'cost',
+            })
             expect(get.body.bundle.skills).toHaveLength(1)
             expect(get.body.bundle.tools).toHaveLength(1)
         })

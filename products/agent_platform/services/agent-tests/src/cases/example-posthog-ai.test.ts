@@ -72,6 +72,7 @@ describe('example: posthog-ai bundle', () => {
         expect(AgentSpecSchema.parse(spec).models).toEqual({
             mode: 'manual',
             models: [{ model: 'openai/gpt-5.5' }],
+            optimize_for: 'cost',
         })
     })
 })
