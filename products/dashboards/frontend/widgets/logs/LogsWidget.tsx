@@ -1,6 +1,7 @@
 import { combineUrl } from 'kea-router'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
+import { getLocalTimeZone } from 'lib/utils/timezones'
 import { urls } from 'scenes/urls'
 
 import {
@@ -25,7 +26,7 @@ export type LogsWidgetResult = {
 /** 'local' renders in the viewer's own timezone; 'UTC' (default) renders the same for everyone. */
 function resolveDisplayTimezone(timezone: string | null | undefined): string {
     if (timezone === 'local') {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone
+        return getLocalTimeZone()
     }
     return 'UTC'
 }
