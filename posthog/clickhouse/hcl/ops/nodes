@@ -10,20 +10,27 @@
 # role's composition -> node_roles = every role here; OPS-only objects (roles/ops*,
 # env/*) appear only in the ops compositions -> node_roles = [OPS].
 #
-# The OPS node is modeled per env (it carries the env differences). The other roles
-# carry only the shared managed subset today, so one representative env (prod-us) is
-# enough to put them in the role set — shared objects are env-identical. Fully modeling
-# the DATA node (events_recent + the DATA-specific custom_metrics aggregator +
-# custom_metrics_events_recent_lag) is a follow-up; until then events_recent is treated
-# as OPS-only.
+# Both managed roles (OPS, LOGS) are modeled for all three cloud envs (dev, prod-us,
+# prod-eu); OPS additionally has `local`. OPS carries the env differences; LOGS carries
+# the shared managed subset (env-identical, but verified per env for fidelity).
+#
+# SCOPE: the pilot is OPS + LOGS. The other roles (data/endpoints/aux/ai_events/sessions)
+# also host the shared query_log_archive path + custom_metrics, but are intentionally
+# left out for now, so node_roles for shared objects derives to [OPS, LOGS] rather than
+# every role. To bring a role under management, uncomment its line and regenerate the
+# golden from a host of that role (codegen/README has the extraction).
 
 local    ops        shared roles/ops env/local
 dev      ops        shared roles/ops env/dev
 prod-us  ops        shared roles/ops roles/ops-prod env/prod-us
 prod-eu  ops        shared roles/ops roles/ops-prod env/prod-eu
 
-prod-us  data       shared
-prod-us  endpoints  shared
-prod-us  aux        shared
-prod-us  ai_events  shared
-prod-us  sessions   shared
+dev      logs       shared
+prod-us  logs       shared
+prod-eu  logs       shared
+
+# prod-us  data       shared
+# prod-us  endpoints  shared
+# prod-us  aux        shared
+# prod-us  ai_events  shared
+# prod-us  sessions   shared

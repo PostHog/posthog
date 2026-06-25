@@ -1,7 +1,7 @@
-node "prod-us-iad-ch-1a-ai-events" {
+node "prod-us-iad-ch-1a-logs" {
   macros = {
-    cluster         = "ai_events"
-    hostClusterRole = "ai_events"
+    cluster         = "logs"
+    hostClusterRole = "logs"
     hostClusterType = "offline"
     replica         = "a"
     shard           = "1"

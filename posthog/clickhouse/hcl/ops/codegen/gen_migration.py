@@ -38,7 +38,9 @@ MANIFEST = os.path.join(OPS_DIR, "nodes")
 HCLEXP = os.path.join(os.path.dirname(OPS_DIR), "bin", "hclexp")
 
 # Canonical role order for emitted node_roles (mirrors ALL_ROLES in migration 0273).
-ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "ops"]
+# Only roles present in the manifest appear; the rest are listed for stable ordering
+# if/when they are uncommented there.
+ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "logs", "ops"]
 
 _OPS = [
     ("ALTER TABLE", "ALTER"),

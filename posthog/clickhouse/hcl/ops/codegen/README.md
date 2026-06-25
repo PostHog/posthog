@@ -17,9 +17,9 @@ edit OPS HCL ─▶ for each (env, role) node in ../nodes: hclexp diff -sql (com
 A node's schema = `compose(its layers)` (see `../nodes`). Placement falls out of it:
 
 - **`node_roles`** = the roles whose composition surfaced a statement. A change to a
-  `shared/` object appears in every role's node → `node_roles` = all roles; a change
-  to an OPS-only object (`roles/ops*`, `env/*`) appears only in the ops nodes →
-  `node_roles = [OPS]`.
+  `shared/` object appears in every managed role's node → `node_roles` = those roles
+  (the pilot manages OPS + LOGS, so `[LOGS, OPS]`); a change to an OPS-only object
+  (`roles/ops*`, `env/*`) appears only in the ops nodes → `node_roles = [OPS]`.
 - **`is_alter_on_replicated_table`** = ALTER on a `Replicated*` MergeTree (engine).
 - **`sharded`** = replicated *and* on the multi-shard DATA cluster.
 - **Env-specific** statements (only some envs) are flagged for `settings.CLOUD_DEPLOYMENT`
@@ -48,9 +48,9 @@ and bump `max_migration.txt`.
   comment; the human writes the `CLOUD_DEPLOYMENT` branch (auto-gating is a follow-up).
 - Output goes to stdout; placement as the next numbered migration + `max_migration.txt`
   bump is manual.
-- The DATA node is not yet fully modeled (`events_recent` + the DATA-specific
-  `custom_metrics` aggregator), so `events_recent` currently derives as OPS-only — see
-  `../nodes`.
+- Scoped to OPS + LOGS (see `../nodes`). Other roles that also host the shared
+  `query_log_archive` path are commented out, so shared-object changes target only
+  OPS + LOGS; `events_recent` derives as OPS-only until the DATA node is modeled.
 
 ## Adding/moving objects
 

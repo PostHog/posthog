@@ -1,10 +1,10 @@
-node "prod-us-iad-ch-10c" {
+node "dev-us-iad-ch-1a-logs" {
   macros = {
-    cluster         = "posthog"
-    hostClusterRole = "data"
-    hostClusterType = "online"
-    replica         = "c"
-    shard           = "10"
+    cluster         = "logs"
+    hostClusterRole = "logs"
+    hostClusterType = "offline"
+    replica         = "a"
+    shard           = "1"
   }
 }
 

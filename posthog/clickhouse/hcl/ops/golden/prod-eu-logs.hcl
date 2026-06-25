@@ -1,9 +1,9 @@
-node "prod-us-iad-ch-1c-sessions" {
+node "prod-eu-fra-ch-1a-logs" {
   macros = {
-    cluster         = "sessions"
-    hostClusterRole = "sessions"
+    cluster         = "logs"
+    hostClusterRole = "logs"
     hostClusterType = "offline"
-    replica         = "c"
+    replica         = "a"
     shard           = "1"
   }
 }
