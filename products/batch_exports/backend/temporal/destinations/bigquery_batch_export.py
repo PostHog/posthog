@@ -574,7 +574,6 @@ class BigQueryClient:
 
     def __init__(self, client: bigquery.Client):
         self.sync_client = client
-        self._storage_write_client: bigquery_storage_v1.BigQueryWriteClient | None = None
 
         self.logger = LOGGER.bind(project_id=client.project)
         self.external_logger = EXTERNAL_LOGGER.bind(project_id=client.project)
