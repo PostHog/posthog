@@ -12,7 +12,7 @@ deployed — so it must not happen.
 - **Never on public `PostHog/posthog`:** do not open a PR, push a branch, or file an
   issue there that fixes or describes a security weakness — not even a "small" or
   "obvious" one, and not a test that demonstrates the exploit.
-- **What counts as a security fix** (route any of these to `posthog-private`): closing
+- **What counts as a security fix** (route any of these to `PostHog/posthog-private`): closing
   an access-control / IDOR gap, an injection (SQL/HogQL/command/path), SSRF, an
   auth / session / token weakness, secret exposure, an XSS / CSRF / open-redirect
   issue, or any change whose purpose is to close an exploitable hole. **If unsure,
