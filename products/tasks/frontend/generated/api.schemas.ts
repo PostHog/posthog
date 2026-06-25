@@ -395,6 +395,34 @@ export const SignalReportTaskRelationshipEnumApi = {
 } as const
 
 /**
+ * * `claude` - claude
+ * * `codex` - codex
+ */
+export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
+
+export const RuntimeAdapterEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `xhigh` - xhigh
+ * * `max` - max
+ */
+export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
+
+export const ReasoningEffortEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Xhigh: 'xhigh',
+    Max: 'max',
+} as const
+
+/**
  * Request body for creating or updating a task.
  *
  * Field required/default semantics match the ``Task`` model. The view passes
@@ -464,6 +492,21 @@ export interface TaskWriteApi {
      * @nullable
      */
     branch?: string | null
+    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi
+    /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
+    model?: string
+    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi
 }
 
 /**
@@ -536,6 +579,21 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     branch?: string | null
+    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi
+    /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
+    model?: string
+    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi
 }
 
 /**
@@ -593,23 +651,6 @@ export type ClaudeRuntimeAdapterEnumApi = (typeof ClaudeRuntimeAdapterEnumApi)[k
 
 export const ClaudeRuntimeAdapterEnumApi = {
     Claude: 'claude',
-} as const
-
-/**
- * * `low` - low
- * * `medium` - medium
- * * `high` - high
- * * `xhigh` - xhigh
- * * `max` - max
- */
-export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
-
-export const ReasoningEffortEnumApi = {
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Xhigh: 'xhigh',
-    Max: 'max',
 } as const
 
 /**
@@ -979,17 +1020,6 @@ export interface TaskStagedArtifactsPrepareUploadResponseApi {
     /** Prepared staged uploads for the requested artifacts */
     artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
 }
-
-/**
- * * `claude` - claude
- * * `codex` - codex
- */
-export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
-
-export const RuntimeAdapterEnumApi = {
-    Claude: 'claude',
-    Codex: 'codex',
-} as const
 
 /**
  * * `anthropic` - anthropic
@@ -1889,6 +1919,21 @@ export interface WarmTaskRequestApi {
      * @nullable
      */
     branch?: string | null
+    /** Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi
+    /** LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run. */
+    model?: string
+    /** Reasoning effort to warm the sandbox on for models that expose an effort control.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi
 }
 
 /**
