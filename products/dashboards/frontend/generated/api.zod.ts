@@ -1792,6 +1792,14 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneOrderDirect
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneStatusDefault = `all`
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemFiveNameMax = 400
 
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixNameMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitDefault = 50
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitMax = 100
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneOrderByDefault = `latest`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneWrapLinesDefault = false
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneTimezoneDefault = `UTC`
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
 export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
@@ -1899,6 +1907,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitMax)
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitDefault)
                                     .describe('Maximum number of events to return.'),
+                                eventName: zod
+                                    .union([zod.string().min(1), zod.null()])
+                                    .optional()
+                                    .describe('Limit the feed to a single event name. Omit or null for all events.'),
                             })
                             .optional()
                             .describe('New configuration for the recent events widget. Omit to leave unchanged.'),
@@ -2231,6 +2243,83 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                             })
                             .optional()
                             .describe('New configuration for the experiment results widget. Omit to leave unchanged.'),
+                    }),
+                    zod.object({
+                        tile_id: zod
+                            .number()
+                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
+                        name: zod
+                            .string()
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixNameMax)
+                            .nullish()
+                            .describe(
+                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
+                            ),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
+                        widget_type: zod.enum(['logs_list']),
+                        config: zod
+                            .object({
+                                dateRange: zod
+                                    .union([
+                                        zod.object({
+                                            date_from: zod
+                                                .union([
+                                                    zod.enum([
+                                                        '-1M',
+                                                        '-30M',
+                                                        '-1h',
+                                                        '-3h',
+                                                        '-24h',
+                                                        '-7d',
+                                                        '-14d',
+                                                        '-30d',
+                                                        '-90d',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional(),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                limit: zod
+                                    .number()
+                                    .min(1)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneLimitDefault)
+                                    .describe('Maximum number of log lines to return.'),
+                                orderBy: zod
+                                    .enum(['latest', 'earliest'])
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneOrderByDefault)
+                                    .describe('Sort by newest (latest) or oldest (earliest) first.'),
+                                severityLevels: zod
+                                    .array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']))
+                                    .optional()
+                                    .describe('Only show logs at these severity levels. Empty shows all levels.'),
+                                serviceNames: zod
+                                    .array(zod.string())
+                                    .optional()
+                                    .describe('Only show logs from these services. Empty shows all services.'),
+                                wrapLines: zod
+                                    .boolean()
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneWrapLinesDefault)
+                                    .describe('Wrap long log lines instead of truncating them to a single row.'),
+                                timezone: zod
+                                    .enum(['UTC', 'local'])
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemSixConfigOneTimezoneDefault)
+                                    .describe("Render log timestamps in UTC or in each viewer's local timezone."),
+                                savedViewId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.'
+                                    ),
+                            })
+                            .optional()
+                            .describe('New configuration for the recent logs widget. Omit to leave unchanged.'),
                     }),
                 ])
             )

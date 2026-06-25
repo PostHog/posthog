@@ -8439,12 +8439,36 @@ export interface ExperimentResultsWidgetUpdateRequestOpenApiApi {
     config?: ExperimentResultsWidgetConfigApi
 }
 
+export type LogsListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof LogsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof LogsListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const LogsListWidgetUpdateRequestOpenApiApiWidgetType = {
+    LogsList: 'logs_list',
+} as const
+
+export interface LogsListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: LogsListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the recent logs widget. Omit to leave unchanged. */
+    config?: LogsListWidgetConfigApi
+}
+
 export type UpdateDashboardWidgetRequestApi =
     | ActivityEventsListWidgetUpdateRequestOpenApiApi
     | ErrorTrackingListWidgetUpdateRequestOpenApiApi
     | SessionReplayListWidgetUpdateRequestOpenApiApi
     | ExperimentsListWidgetUpdateRequestOpenApiApi
     | ExperimentResultsWidgetUpdateRequestOpenApiApi
+    | LogsListWidgetUpdateRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
