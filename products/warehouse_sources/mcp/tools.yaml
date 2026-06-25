@@ -383,6 +383,9 @@ tools:
             the source_type or access_method after creation. Avoid sending new connection credentials inline here — to
             rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them
             securely in their browser rather than pasting secrets into the chat.
+    external-data-sources-preview-resource-create:
+        operation: external_data_sources_preview_resource_create
+        enabled: false
     external-data-sources-refresh-schemas:
         operation: external_data_sources_refresh_schemas_create
         enabled: true

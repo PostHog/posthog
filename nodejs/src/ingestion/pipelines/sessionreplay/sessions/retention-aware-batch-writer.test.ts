@@ -7,7 +7,7 @@ import { TeamId } from '~/types'
 import { RetentionAwareStorage } from './retention-aware-batch-writer'
 
 jest.mock('@aws-sdk/lib-storage')
-jest.mock('~/utils/logger')
+jest.mock('~/common/utils/logger')
 
 jest.setTimeout(1000)
 

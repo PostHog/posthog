@@ -688,6 +688,8 @@ export interface TicketApi {
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
+    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+    readonly ai_triage: unknown
     readonly created_at: string
     readonly updated_at: string
     readonly message_count: number
@@ -724,6 +726,11 @@ export interface TicketApi {
     readonly github_repo: string | null
     /** @nullable */
     readonly github_issue_number: number | null
+    /**
+     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * @nullable
+     */
+    readonly organization_id: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -766,6 +773,8 @@ export interface PatchedTicketApi {
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
+    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+    readonly ai_triage?: unknown
     readonly created_at?: string
     readonly updated_at?: string
     readonly message_count?: number
@@ -802,6 +811,11 @@ export interface PatchedTicketApi {
     readonly github_repo?: string | null
     /** @nullable */
     readonly github_issue_number?: number | null
+    /**
+     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * @nullable
+     */
+    readonly organization_id?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }

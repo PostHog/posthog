@@ -5,30 +5,31 @@ import { Counter, Gauge } from 'prom-client'
 
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { HogTransformationResult } from '~/common/hog-transformations/hog-transformer.interface'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { OverflowOutput } from '~/common/outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { ErrorTrackingSettingsManager } from '~/common/utils/error-tracking-settings-manager'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '~/common/utils/event-ingestion-restrictions'
+import { logger } from '~/common/utils/logger'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { IngestionLane } from '~/ingestion/config'
 import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { MainLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
 import { PluginEvent } from '~/plugin-scaffold'
-import { HealthCheckResult, IngestionLane, PluginServerService } from '~/types'
-import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
-import {
-    EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerComponent,
-} from '~/utils/event-ingestion-restrictions'
-import { logger } from '~/utils/logger'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
+import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { CymbalClient } from './cymbal'
 import {
@@ -324,9 +325,11 @@ export class ErrorTrackingConsumer {
                         ? `${input.team.id}:exceptions:issue:${issueId}`
                         : null
                 },
-                // Per-issue keys are high-cardinality; collapse every issue's outcomes into a
-                // single app_metrics2 row per team rather than one row per issue.
-                getAppSourceId: (input) => `${input.team.id}:exceptions:per_issue`,
+                // Record the allowed/rate_limited decision per issue so the per-issue view can
+                // show counts keyed by the Cymbal-assigned issue id. getAppSourceId is only called
+                // for inputs whose getKey was non-null, which guarantees $exception_issue_id is a
+                // non-empty string here.
+                getAppSourceId: (input) => input.event.properties?.$exception_issue_id as string,
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,
                 dropReason: 'rate_limited:per_issue',

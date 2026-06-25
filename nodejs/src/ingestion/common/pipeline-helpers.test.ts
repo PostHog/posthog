@@ -2,16 +2,16 @@ import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { logDroppedMessage, produceMessageToDLQ, redirectMessageToOutput } from '~/ingestion/common/pipeline-helpers'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { logger } from '~/utils/logger'
-import { captureException } from '~/utils/posthog'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 // Mock all dependencies
-jest.mock('~/utils/logger')
-jest.mock('~/utils/posthog')
+jest.mock('~/common/utils/logger')
+jest.mock('~/common/utils/posthog')
 
 jest.mock('~/ingestion/common/ingestion-warnings', () => {
     const actual = jest.requireActual('~/ingestion/common/ingestion-warnings')

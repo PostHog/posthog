@@ -114,7 +114,7 @@ from products.signals.backend.temporal.types import (
     SignalReportReingestionWorkflowInputs,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -211,6 +211,13 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
+
+    @tracer.start_as_current_span("signals.source_configs.list")
+    def list(self, request, *args, **kwargs):
+        # This list is fetched on inbox load. The default serializer resolves a per-row `status`,
+        # which for session-analysis rows makes a synchronous Temporal RPC — a potential N+1. The
+        # span lets us see how much of the inbox load this endpoint accounts for.
+        return super().list(request, *args, **kwargs)
 
     def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
         return (
@@ -1067,14 +1074,24 @@ class SignalReportViewSet(
             ),
         ],
     )
+    @tracer.start_as_current_span("signals.reports.list")
     def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        reports = list(page if page is not None else queryset)
+        # The reports list is the primary inbox-load endpoint. Each phase gets its own child span
+        # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
+        # products), the task facade (PR urls), or serialization, rather than one opaque request.
+        with tracer.start_as_current_span("signals.reports.list.queryset"):
+            queryset = self.filter_queryset(self.get_queryset())
+            page = self.paginate_queryset(queryset)
+            reports = list(page if page is not None else queryset)
 
         report_ids = [str(r.id) for r in reports]
-        source_products_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
-        implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+        trace.get_current_span().set_attribute("signals.reports.list.count", len(report_ids))
+
+        with tracer.start_as_current_span("signals.reports.list.fetch_source_products"):
+            source_products_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
+
+        with tracer.start_as_current_span("signals.reports.list.fetch_implementation_pr_urls"):
+            implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
 
         context = {
             **self.get_serializer_context(),
@@ -1083,9 +1100,12 @@ class SignalReportViewSet(
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 
+        with tracer.start_as_current_span("signals.reports.list.serialize"):
+            data = serializer.data
+
         if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return Response(serializer.data)
+            return self.get_paginated_response(data)
+        return Response(data)
 
     @extend_schema(exclude=True)
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])

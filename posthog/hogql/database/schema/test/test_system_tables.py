@@ -47,10 +47,12 @@ from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable as DataWarehouseTableModel,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 if TYPE_CHECKING:
@@ -58,7 +60,10 @@ if TYPE_CHECKING:
 else:
     Account = apps.get_model("customer_analytics", "Account")
 
-ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
+# Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
+# `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
+# so they have no team_id filter and can't be `SELECT *`-ed directly — skip them here.
+ALL_SYSTEM_TABLE_NAMES = sorted(name for name, node in SystemTables().children.items() if node.table is not None)
 
 # {table_name: "sql_alias.column_name"} for team_id filter assertion
 TEAM_ID_FILTER_PATTERNS = {
@@ -99,6 +104,10 @@ class TestSystemTablesTeamScoping(BaseTest):
             # isolation is covered by TestSystemAccountsLazyJoins.
             "_account_resource_notebooks",
             "_account_tagged_items",
+            # information_schema is a namespace of virtual catalog tables (tables/columns/
+            # relationships/data_types) computed per-query from the caller's own Database object,
+            # so it has no team_id column to isolate; behaviour is covered by TestInformationSchema.
+            "information_schema",
         }
 
         untested = all_tables - tested_tables - excluded_tables
