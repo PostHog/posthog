@@ -1648,7 +1648,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     const connectorsLoaded = (values.connectors?.length ?? 0) > 0
                     posthog.capture('warehouse new source kind unresolved', { kind, connectorsLoaded })
                     if (connectorsLoaded) {
-                        lemonToast.error(`We couldn't open the "${kind}" connector — please pick a source from the list.`)
+                        lemonToast.error(
+                            `We couldn't open the "${kind}" connector — please pick a source from the list.`
+                        )
                     }
                 }
                 actions.selectConnector(null)
@@ -1717,7 +1719,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                     const loadedFile: string = await new Promise((resolve, reject) => {
                                         const fileReader = new FileReader()
                                         fileReader.onload = (e) => resolve(e.target?.result as string)
-                                        fileReader.onerror = (e) => reject(e)
+                                        fileReader.onerror = () =>
+                                            reject(fileReader.error ?? new Error(`Failed to read the "${name}" file`))
                                         fileReader.readAsText(payload['payload'][name][0])
                                     })
                                     fieldPayload[name] = JSON.parse(loadedFile)
