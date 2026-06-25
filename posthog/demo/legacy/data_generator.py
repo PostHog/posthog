@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from django.conf import settings
 
+from psycopg import sql
 from psycopg.types.json import Jsonb
 
 from posthog.models import Person, Team
@@ -38,11 +39,13 @@ class DataGenerator:
 
         with persons_db_connection(writer=True) as conn:
             with conn.cursor() as cur:
+                insert_query = sql.SQL(
+                    "INSERT INTO {} (team_id, uuid, properties, is_identified, created_at) "
+                    "VALUES (%s, %s, %s, %s, now()) RETURNING id"
+                ).format(sql.Identifier(settings.PERSON_TABLE_NAME))
                 for person in self.people:
                     cur.execute(
-                        f"INSERT INTO {settings.PERSON_TABLE_NAME} "
-                        "(team_id, uuid, properties, is_identified, created_at) "
-                        "VALUES (%s, %s, %s, %s, now()) RETURNING id",
+                        insert_query,
                         (self.team.pk, str(person.uuid), Jsonb(person.properties), person.is_identified),
                     )
                     row = cur.fetchone()

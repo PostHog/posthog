@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 import psycopg
+from psycopg import sql
 from psycopg.types.json import Jsonb
 
 from posthog.clickhouse.client import query_with_columns
@@ -62,6 +63,11 @@ def _insert_persons(
     if not clickhouse_persons:
         return {}
 
+    insert_query = sql.SQL(
+        "INSERT INTO {} (team_id, uuid, properties, is_identified, created_at, version, last_seen_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id"
+    ).format(sql.Identifier(person_table_name))
+
     uuid_to_pk: dict[str, int] = {}
     for row in clickhouse_persons:
         uuid = str(row["uuid"])
@@ -70,9 +76,7 @@ def _insert_persons(
             properties = json.loads(properties)
 
         cur.execute(
-            f"INSERT INTO {person_table_name} "
-            "(team_id, uuid, properties, is_identified, created_at, version, last_seen_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            insert_query,
             (
                 target_team_id,
                 uuid,
