@@ -54,7 +54,11 @@ export function buildLifecycleValueLabelFormatter(
             ? activeBandTotal(context.previousBandValues)
             : activeBandTotal(context.bandValues)
         if (denominator === 0) {
-            return valueText
+            // The first period's dormant bar has no previous active total to divide by — fall back to
+            // the raw value (even in percentages-only mode) so it still gets a label instead of
+            // rendering blank. For an active segment a zero total only happens when the segment itself
+            // is zero (already skipped upstream), so leave that path as a skip.
+            return isDormant ? formatValue(value) : valueText
         }
         const pct = Math.round((Math.abs(context.rawValue) / denominator) * 100)
         return showValues ? `${valueText} (${pct}%)` : `${pct}%`

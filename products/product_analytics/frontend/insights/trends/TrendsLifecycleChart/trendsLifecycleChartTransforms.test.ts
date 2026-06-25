@@ -277,11 +277,22 @@ describe('buildLifecycleValueLabelFormatter', () => {
         expect(formatter(-10, 2, 1, { ...band, rawValue: -10 })).toBe('20%')
     })
 
-    it('skips the dormant percentage at the first period (no previous band)', () => {
-        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: true, showPercentages: true })
-        expect(
-            formatter(-10, 2, 0, { rawValue: -10, bandValues: [20, -10], previousBandValues: [], isPercent: false })
-        ).toBe('-10')
+    it('labels the first-period dormant bar with its value in both modes (no previous band)', () => {
+        const firstPeriodDormant: ValueLabelContext = {
+            rawValue: -10,
+            bandValues: [20, -10],
+            previousBandValues: [],
+            isPercent: false,
+        }
+        // No previous active total to divide by, so the percentage is omitted — but the bar still gets
+        // a label (its value) rather than rendering blank, even when only percentages were requested.
+        const withValues = buildLifecycleValueLabelFormatter(formatValue, { showValues: true, showPercentages: true })
+        expect(withValues(-10, 2, 0, firstPeriodDormant)).toBe('-10')
+        const percentagesOnly = buildLifecycleValueLabelFormatter(formatValue, {
+            showValues: false,
+            showPercentages: true,
+        })
+        expect(percentagesOnly(-10, 2, 0, firstPeriodDormant)).toBe('-10')
     })
 
     it('returns an empty string (skip) for percentages-only when the band has no active total', () => {
