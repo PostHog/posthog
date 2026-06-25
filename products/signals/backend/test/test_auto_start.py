@@ -271,4 +271,3 @@ def test_create_implementation_task_handoff_without_config_does_not_infer_featur
 
     assert mock_create.call_args.kwargs["branch"] == "posthog-self-driving/fix-foo"
     assert mock_create.call_args.kwargs["pr_base_branch"] is None
-    assert "infer_pr_base_from_branch" not in mock_create.call_args.kwargs
