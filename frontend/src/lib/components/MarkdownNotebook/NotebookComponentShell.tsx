@@ -397,7 +397,8 @@ export function areNotebookComponentShellPropsEqual(
         previousProps.componentPanels.results === nextProps.componentPanels.results &&
         previousProps.rememberedComponentPanels?.filters === nextProps.rememberedComponentPanels?.filters &&
         previousProps.rememberedComponentPanels?.results === nextProps.rememberedComponentPanels?.results &&
-        getNodeFingerprint(previousProps.node) === getNodeFingerprint(nextProps.node)
+        (previousProps.node === nextProps.node ||
+            getNodeFingerprint(previousProps.node) === getNodeFingerprint(nextProps.node))
     )
 }
 
