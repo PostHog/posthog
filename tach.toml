@@ -706,7 +706,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review)",
+    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -775,6 +775,22 @@ expose = [
 ]
 from = [
     "products.mcp_store",
+]
+
+# warehouse_sources — facade landed (Phase 1 merge base); core (posthog/ee), sibling
+# products, and data_warehouse still import its models, shared types, and temporal
+# internals directly. Shrinks as the team-sliced read sweeps land and the deferred
+# temporal couplings (HogQL direct-SQL, Google Search Console, the salesforce migration)
+# move behind the facade; data_warehouse's usage clears in Phase 2. Keeps
+# backend:contract-check off package.json until empty.
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+    "backend\\.types.*",
+    "backend\\.temporal.*",
+]
+from = [
+    "products.warehouse_sources",
 ]
 
 # legal_documents has a non-standard public surface — posthog/urls registers its pandadoc
