@@ -234,7 +234,7 @@ export const getBillingAlertsCheckNowCreateUrl = (organizationId: string, id: st
 }
 
 /**
- * Evaluate this billing alert immediately against real billing usage or spend data.
+ * Evaluate this billing alert immediately against real billing usage or spend data. Manual checks can send notifications when the evaluation records a dispatchable event.
  */
 export const billingAlertsCheckNowCreate = async (
     organizationId: string,

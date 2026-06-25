@@ -27,6 +27,36 @@ tools:
     add-product-intent-partial-update:
         operation: organizations_projects_add_product_intent_partial_update
         enabled: false
+    billing-alerts-check-now-create:
+        operation: billing_alerts_check_now_create
+        enabled: false
+    billing-alerts-create:
+        operation: billing_alerts_create
+        enabled: false
+    billing-alerts-destinations-create:
+        operation: billing_alerts_destinations_create
+        enabled: false
+    billing-alerts-destinations-delete-create:
+        operation: billing_alerts_destinations_delete_create
+        enabled: false
+    billing-alerts-destroy:
+        operation: billing_alerts_destroy
+        enabled: false
+    billing-alerts-events-list:
+        operation: billing_alerts_events_list
+        enabled: false
+    billing-alerts-list:
+        operation: billing_alerts_list
+        enabled: false
+    billing-alerts-partial-update:
+        operation: billing_alerts_partial_update
+        enabled: false
+    billing-alerts-retrieve:
+        operation: billing_alerts_retrieve
+        enabled: false
+    billing-alerts-update:
+        operation: billing_alerts_update
+        enabled: false
     change-organization-create:
         operation: organizations_projects_change_organization_create
         enabled: false
