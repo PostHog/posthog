@@ -78,6 +78,9 @@ const Component = ({
               dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
           }
     const { insightName } = useValues(insightLogic(insightLogicProps))
+    const isOutputPaneOpen = expanded
+    const isEditorPaneOpen = !!editingNodeIds[resolvedNodeId]
+    const showSqlOutputToolbar = isOutputPaneOpen && isEditorPaneOpen
 
     useEffect(() => {
         let title = 'Query'
@@ -139,7 +142,7 @@ const Component = ({
         // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [query])
 
-    if (!expanded) {
+    if (!isOutputPaneOpen) {
         return null
     }
 
@@ -189,7 +192,7 @@ const Component = ({
                 <NotebookSQLEditorOutput
                     attributes={attributes}
                     updateAttributes={updateAttributes}
-                    showOutputToolbar={!!editingNodeIds[resolvedNodeId]}
+                    showOutputToolbar={showSqlOutputToolbar}
                 />
             </div>
         )
