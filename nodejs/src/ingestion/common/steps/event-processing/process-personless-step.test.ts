@@ -3,11 +3,11 @@ import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
 import { DateTime } from 'luxon'
 
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
+import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_MERGE_EVENTS } from '~/config/kafka-topics'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
@@ -95,6 +95,12 @@ describe('createProcessPersonlessStep', () => {
             [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 'ingestion_warnings_test',
+                mockProducer,
+                'test'
+            ),
+            [PERSON_MERGE_EVENTS_OUTPUT]: new SingleIngestionOutput(
+                PERSON_MERGE_EVENTS_OUTPUT,
+                KAFKA_PERSON_MERGE_EVENTS,
                 mockProducer,
                 'test'
             ),

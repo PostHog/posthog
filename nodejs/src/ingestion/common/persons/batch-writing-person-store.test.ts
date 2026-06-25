@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { PERSONS_OUTPUT, PersonDistinctIdsOutput, PersonsOutput } from '~/common/outputs'
+import { PERSONS_OUTPUT, PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '~/common/outputs'
 import {
     personProfileBatchIgnoredPropertiesCounter,
     personProfileBatchUpdateOutcomeCounter,
@@ -50,7 +50,7 @@ describe('BatchWritingPersonStore', () => {
     let mockIngestionWarningsOutputs: jest.Mocked<
         ReturnType<
             typeof createMockIngestionOutputs<
-                PersonsOutput | PersonDistinctIdsOutput | typeof INGESTION_WARNINGS_OUTPUT
+                PersonsOutput | PersonDistinctIdsOutput | typeof INGESTION_WARNINGS_OUTPUT | PersonMergeEventsOutput
             >
         >
     >
@@ -85,7 +85,7 @@ describe('BatchWritingPersonStore', () => {
         } as unknown as PostgresRouter
 
         mockIngestionWarningsOutputs = createMockIngestionOutputs<
-            PersonsOutput | PersonDistinctIdsOutput | typeof INGESTION_WARNINGS_OUTPUT
+            PersonsOutput | PersonDistinctIdsOutput | typeof INGESTION_WARNINGS_OUTPUT | PersonMergeEventsOutput
         >()
 
         mockRepo = createMockRepository()
