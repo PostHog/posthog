@@ -102,7 +102,7 @@ You can't trigger a synchronous run as a user — scouts fire on their schedule.
 loop is **emit + inspect**: ship the scout live (`emit=true` is the default), let it emit,
 and calibrate against what actually lands.
 
-1. Ship with the default `emit=true` and a short `run_interval_minutes` (e.g. 10) so it
+1. Ship with the default `emit=true` and a short `run_interval_minutes` (e.g. 30) so it
    fires soon — set both at creation via `posthog:signals-scout-config-create`.
 2. After a tick, inspect:
    - `posthog:inbox-reports-list` — the findings it actually emitted.
