@@ -133,7 +133,7 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
             },
         ],
         saving: [
-            false,
+            { createdCount: 0, failedCount: 0, totalCount: 0 } as SaveAllResult,
             {
                 saveAll: async (): Promise<SaveAllResult> => {
                     const rows = values.savableRows
