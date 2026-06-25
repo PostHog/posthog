@@ -14,6 +14,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04',
+        testOptions: { viewport: { height: 2000 } },
     },
 }
 export default meta
