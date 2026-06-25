@@ -1018,7 +1018,7 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("working provider API key", str(response.data))
 
-    def test_rejects_re_enable_when_model_not_found_without_new_model(self):
+    def test_allows_re_enable_when_model_not_found_with_existing_model_config(self):
         eval_obj = self._create_errored_eval(status_reason="model_not_found")
 
         response = self.client.patch(
@@ -1027,8 +1027,10 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Choose an available model", str(response.data))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+        self.assertIsNone(eval_obj.status_reason)
 
     def test_allows_re_enable_when_model_not_found_with_new_model(self):
         eval_obj = self._create_errored_eval(status_reason="model_not_found", model="missing-model")

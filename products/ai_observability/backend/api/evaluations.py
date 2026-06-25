@@ -373,7 +373,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
                     {"enabled": "Attach a working provider API key before re-enabling this evaluation."}
                 )
 
-        if status_reason == "model_not_found" and not data.get("model_configuration"):
+        if status_reason == "model_not_found" and not self._has_model_configuration_after_update(data):
             raise serializers.ValidationError(
                 {"enabled": "Choose an available model before re-enabling this evaluation."}
             )
@@ -381,15 +381,15 @@ class EvaluationSerializer(serializers.ModelSerializer):
         # No default model: the team's active key is for a provider we have no default model for, and
         # the eval left its model unset. Require an explicit model so it can't immediately re-disable.
         if status_reason == "no_default_model":
-            has_model_configuration = bool(data.get("model_configuration")) or bool(
-                self.instance and self.instance.model_configuration_id
-            )
-            if not has_model_configuration:
+            if not self._has_model_configuration_after_update(data):
                 raise serializers.ValidationError(
                     {
                         "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before re-enabling."
                     }
                 )
+
+    def _has_model_configuration_after_update(self, data: dict) -> bool:
+        return bool(data.get("model_configuration")) or bool(self.instance and self.instance.model_configuration_id)
 
     def _effective_provider_key(self, data: dict) -> LLMProviderKey | None:
         """Return the provider key the evaluation will use after this update."""
