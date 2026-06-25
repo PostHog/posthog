@@ -52,7 +52,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 // TODO - tuples, dates, datetimes, errors are all just duck-typed "objects" or "arrays", but we should
                 // still support them I guess
                 match arg {
-                    HogLiteral::Number(_) => Ok(HogLiteral::String("number".to_string()).into()),
+                    // The reference distinguishes integer/float, not a single "number".
+                    HogLiteral::Number(n) => {
+                        let t = if n.is_float() { "float" } else { "integer" };
+                        Ok(HogLiteral::String(t.to_string()).into())
+                    }
                     HogLiteral::Boolean(_) => Ok(HogLiteral::String("boolean".to_string()).into()),
                     HogLiteral::String(_) => Ok(HogLiteral::String("string".to_string()).into()),
                     HogLiteral::Array(_) => Ok(HogLiteral::String("array".to_string()).into()),
