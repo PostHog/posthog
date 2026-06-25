@@ -65,8 +65,7 @@ def shadow_compare_remote_config(request: Request, django_response: Response, *,
     try:
         # Rebuild the canonical /api/projects path Rust serves (not request.get_full_path(), which can
         # be an /api/environments or legacy alias). Rust resolves the project from ?token= when present,
-        # else from this segment — both give the same flag. Target the definitions fleet, which is the
-        # only one that registers the remote_config route (the eval fleet 404s it).
+        # else from this segment — both give the same flag.
         url = f"{settings.FEATURE_FLAGS_DEFINITIONS_SERVICE_URL}/api/projects/{project_id}/feature_flags/{key}/remote_config"
         rust = _SHADOW_SESSION.get(
             url,
