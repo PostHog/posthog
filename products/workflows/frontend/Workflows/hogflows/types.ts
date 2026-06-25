@@ -113,3 +113,30 @@ export interface HogFlowSchedule {
     created_at?: string
     updated_at?: string
 }
+
+// A rendered email snapshot captured when a workflow sent it. Mirrors
+// MessageAssetSerializer in products/workflows/backend/api/message_assets.py.
+export interface MessageAsset {
+    invocation_id: string
+    action_id: string
+    /** HogFlowBatchJob id for batch-triggered sends; empty for event-triggered runs. */
+    parent_run_id: string
+    kind: string
+    distinct_id: string
+    person_id: string
+    recipient: string
+    subject: string
+    status: string
+    sent_at: string
+}
+
+export interface MessageAssetsParams {
+    parent_run_id?: string
+    action_id?: string
+    distinct_id?: string
+    search?: string
+    after?: string
+    before?: string
+    limit?: number
+    offset?: number
+}

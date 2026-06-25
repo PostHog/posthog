@@ -15,6 +15,7 @@ import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tr
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 const sesThrottleResponsesTotal = new Counter({
@@ -108,7 +109,8 @@ export class EmailService {
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
         siteUrl: string,
-        private trackingCodeSigner: EmailTrackingCodeSigner
+        private trackingCodeSigner: EmailTrackingCodeSigner,
+        private messageAssetsService?: MessageAssetsService
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -213,6 +215,13 @@ export class EmailService {
                 metric_name: success ? 'email_sent' : 'email_failed',
                 count: 1,
             })
+
+            // Snapshot the rendered email so it shows up in the workflow Assets tab.
+            // Best-effort and only for real, successful sends — captureSentEmail
+            // never throws, so it can't disrupt an email that already went out.
+            if (success && this.messageAssetsService) {
+                await this.messageAssetsService.captureSentEmail(invocation, params)
+            }
         }
 
         const distinctId = resolveEmailEngagementDistinctId(invocation)

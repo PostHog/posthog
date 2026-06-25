@@ -6,6 +6,7 @@ import {
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
+    KAFKA_MESSAGE_ASSETS,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
 } from '~/common/config/kafka-topics'
 import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
@@ -105,6 +106,20 @@ export type CdpConfig = ClickhouseConfig & {
     HOG_INVOCATION_RESULTS_TOPIC: string
     HOG_INVOCATION_RESULTS_PRODUCER: CdpProducerName
     HOG_INVOCATION_RESULTS_ENABLED: boolean
+    // Message assets: rendered emails snapshotted to object storage + a metadata
+    // row in the message_assets ClickHouse table, surfaced in the workflow
+    // "Assets" tab. Capture is a global ops kill-switch, not a per-team toggle.
+    MESSAGE_ASSETS_TOPIC: string
+    MESSAGE_ASSETS_PRODUCER: CdpProducerName
+    MESSAGE_ASSETS_CAPTURE_ENABLED: boolean
+    // Object storage the rendered HTML is written to — must point at the same
+    // S3-compatible store the Django assets API reads from (OBJECT_STORAGE_*).
+    MESSAGE_ASSETS_OBJECT_STORAGE_ENDPOINT: string
+    MESSAGE_ASSETS_OBJECT_STORAGE_REGION: string
+    MESSAGE_ASSETS_OBJECT_STORAGE_BUCKET: string
+    MESSAGE_ASSETS_OBJECT_STORAGE_ACCESS_KEY_ID: string
+    MESSAGE_ASSETS_OBJECT_STORAGE_SECRET_ACCESS_KEY: string
+    MESSAGE_ASSETS_OBJECT_STORAGE_FOLDER: string
     HOG_INVOCATION_RERUN_MAX_COUNT: number
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
@@ -240,6 +255,23 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Off by default — flip to true once the table is migrated and we want to start writing.
         // Per-team rollout still happens at the call site.
         HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
+        MESSAGE_ASSETS_TOPIC: KAFKA_MESSAGE_ASSETS,
+        // Same cyclotron Warpstream cluster as hog_invocation_results — ClickHouse
+        // consumes message_assets from the warpstream_cyclotron named collection.
+        MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        // Global kill-switch. Dev-on so the feature works locally; graduates to
+        // true in prod once the ClickHouse table + bucket lifecycle are provisioned.
+        MESSAGE_ASSETS_CAPTURE_ENABLED: isDevEnv() ? true : false,
+        // Default to the shared OBJECT_STORAGE_* store the Django side reads from,
+        // so the writer and the assets API agree without extra deployment config.
+        MESSAGE_ASSETS_OBJECT_STORAGE_ENDPOINT: process.env.OBJECT_STORAGE_ENDPOINT || 'http://objectstorage:19000',
+        MESSAGE_ASSETS_OBJECT_STORAGE_REGION: process.env.OBJECT_STORAGE_REGION || 'us-east-1',
+        MESSAGE_ASSETS_OBJECT_STORAGE_BUCKET: process.env.OBJECT_STORAGE_BUCKET || 'posthog',
+        MESSAGE_ASSETS_OBJECT_STORAGE_ACCESS_KEY_ID:
+            process.env.OBJECT_STORAGE_ACCESS_KEY_ID || 'object_storage_root_user',
+        MESSAGE_ASSETS_OBJECT_STORAGE_SECRET_ACCESS_KEY:
+            process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY || 'object_storage_root_password',
+        MESSAGE_ASSETS_OBJECT_STORAGE_FOLDER: 'message_assets',
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,

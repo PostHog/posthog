@@ -267,6 +267,8 @@ import type {
     HogFlowBatchJob,
     HogFlowSchedule,
     HogFlowTemplate,
+    MessageAsset,
+    MessageAssetsParams,
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
@@ -6639,6 +6641,27 @@ const api = {
         },
         async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<HogFlowBatchJob[]> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
+        },
+        async getMessageAssets(hogFlowId: HogFlow['id'], params: MessageAssetsParams = {}): Promise<MessageAsset[]> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('assets').withQueryString(params).get()
+        },
+        // Same-origin URL for an asset's rendered HTML (served via redirect to a presigned URL).
+        // Used directly as an <iframe src>; the browser carries session auth and follows the redirect.
+        getMessageAssetContentUrl(hogFlowId: HogFlow['id'], invocationId: string, actionId: string): string {
+            return new ApiRequest()
+                .hogFlow(hogFlowId)
+                .withAction('assets/content')
+                .withQueryString({ invocation_id: invocationId, action_id: actionId })
+                .assembleFullUrl(true)
+        },
+        async getMessageAssetPdf(hogFlowId: HogFlow['id'], invocationId: string, actionId: string): Promise<Blob> {
+            const url = new ApiRequest()
+                .hogFlow(hogFlowId)
+                .withAction('assets/pdf')
+                .withQueryString({ invocation_id: invocationId, action_id: actionId })
+                .assembleFullUrl(true)
+            const response = await api.getResponse(url)
+            return await response.blob()
         },
         async getHogFlowSchedules(hogFlowId: HogFlow['id']): Promise<HogFlowSchedule[]> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').get()

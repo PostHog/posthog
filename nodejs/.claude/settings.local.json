@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/meikelratz/Desktop/code/posthog/**)",
+      "Bash(gh pr *)",
+      "Bash(find posthog/hogql -name \"lazy_tables.py\")",
+      "Bash(grep -n \"def references_table\\\\|def find_field_chains\" posthog/hogql/transforms/lazy_tables.py)",
+      "mcp__grafana-us__get_dashboard_panel_queries",
+      "mcp__grafana-us__query_prometheus",
+      "mcp__grafana-us__list_prometheus_label_values",
+      "mcp__claude_ai_Claude_Code_Remote__add_repo",
+      "Read(//Users/meikelratz/Desktop/code/**)",
+      "Read(//Users/meikelratz/Desktop/**)",
+      "Bash(grep -l \"resources:\" apps/cdp-events-consumer/*.yaml)",
+      "Bash(grep -A 8 \"resources:\" apps/cdp-events-consumer/values.prod-us.yaml apps/cdp-events-consumer/values.yaml)",
+      "Bash([ -f \"apps/$app/values.prod-us.yaml\" ])",
+      "Bash(awk '/^resources:/{flag=1} flag{print; if\\(/^[a-zA-Z]/ && NR>1 && !/^resources:/\\){flag=0}}' apps/__TRACKED_VAR__/values.prod-us.yaml)",
+      "Bash(awk '/^resources:/{flag=1} flag{print; if\\(/^[a-zA-Z]/ && NR>1 && !/^resources:/\\){flag=0}}' apps/__TRACKED_VAR__/values.yaml)",
+      "Bash(gh repo *)",
+      "mcp__grafana-eu__list_prometheus_label_values",
+      "mcp__grafana-eu__query_prometheus",
+      "mcp__grafana-dev__list_prometheus_label_values",
+      "mcp__grafana-dev__query_prometheus",
+      "mcp__grafana-us__list_prometheus_metric_names",
+      "Bash(date -ur 1782744000 +\"%Y-%m-%dT%H:%M:%SZ\")",
+      "Bash(date -ur 1782745020 +\"%Y-%m-%dT%H:%M:%SZ\")",
+      "Bash(awk '/^autoscaling:/{flag=1} flag{print; if\\(/^[a-zA-Z]/ && NR>1 && !/^autoscaling:/\\){flag=0}}' apps/__TRACKED_VAR__/values.yaml)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "phrocs",
+    "traffic-sim",
+    "posthog-local"
+  ]
+}

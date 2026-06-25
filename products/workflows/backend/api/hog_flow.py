@@ -7,6 +7,7 @@ from typing import Optional, cast
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import QuerySet
+from django.http import HttpResponse, HttpResponseRedirect
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -14,7 +15,8 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -66,9 +68,22 @@ from products.feature_flags.backend.user_blast_radius import (
     get_user_blast_radius_persons,
 )
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.workflows.backend.api.assets_storage import (
+    BrowserlessUnavailable,
+    presigned_content_url,
+    read_html,
+    render_html_to_pdf,
+)
 from products.workflows.backend.api.graph_operations import apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
+from products.workflows.backend.api.message_assets import (
+    MessageAssetContentRequestSerializer,
+    MessageAssetSerializer,
+    MessageAssetsRequestSerializer,
+    fetch_message_asset,
+    fetch_message_assets,
+)
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
@@ -1180,6 +1195,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "metrics_totals",
         "metrics_global",
         "user_blast_radius",
+        "assets",
+        "asset_content",
+        "asset_pdf",
     ]
     scope_object_write_actions = [
         "create",
@@ -1217,6 +1235,11 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
         # able to enumerate who a workflow ran for.
         if self.action in ("invocation_results", "invocation_result"):
+            return ["hog_flow:read", "person:read"]
+        # Asset listing/serving returns recipient/distinct_id/person_id and the rendered email a
+        # person received — person-data access. Require person:read on top of workflow read so a
+        # hog_flow:read-only token can't enumerate who a workflow emailed or read their messages.
+        if self.action in ("assets", "asset_content", "asset_pdf"):
             return ["hog_flow:read", "person:read"]
         # A test invocation resolves the event's $groups into real group properties server-side, so a
         # hog_flow:write-only token could branch on group_0.properties and read the returned logs/variables
@@ -1580,6 +1603,100 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         if data is None:
             raise exceptions.NotFound("Invocation not found.")
         return Response(HogInvocationResultDetailSerializer(data).data)
+
+    @extend_schema(
+        operation_id="hog_flows_assets_retrieve",
+        parameters=[MessageAssetsRequestSerializer],
+        responses=MessageAssetSerializer(many=True),
+    )
+    @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
+    def assets(self, request: Request, *args, **kwargs):
+        # The sent emails captured for this workflow, newest first. Batch-triggered runs group by
+        # parent_run_id (the HogFlowBatchJob); event-triggered runs have an empty parent_run_id.
+        obj = self.get_object()
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        param_serializer = MessageAssetsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        before_date = None
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        data = fetch_message_assets(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            limit=params["limit"],
+            offset=params["offset"],
+            parent_run_id=params.get("parent_run_id"),
+            action_id=params.get("action_id"),
+            distinct_id=params.get("distinct_id"),
+            search=params.get("search"),
+            after=after_date,
+            before=before_date,
+        )
+        return Response(MessageAssetSerializer(data, many=True).data)
+
+    @extend_schema(
+        operation_id="hog_flows_asset_content_retrieve",
+        parameters=[MessageAssetContentRequestSerializer],
+        responses={302: OpenApiResponse(description="Redirect to a short-lived presigned URL for the email HTML.")},
+    )
+    @action(detail=True, methods=["GET"], url_path="assets/content", pagination_class=None, filter_backends=[])
+    def asset_content(self, request: Request, *args, **kwargs):
+        # Resolve the asset for this team+workflow, then redirect to a presigned URL for its HTML.
+        # We validate ownership before presigning so the storage key can't be used as an oracle.
+        obj = self.get_object()
+        asset = self._get_asset_for_request(request, obj)
+
+        url = presigned_content_url(asset.s3_key)
+        if not url:
+            raise exceptions.NotFound("Asset content is no longer available.")
+        return HttpResponseRedirect(url)
+
+    @extend_schema(
+        operation_id="hog_flows_asset_pdf_retrieve",
+        parameters=[MessageAssetContentRequestSerializer],
+        responses={(200, "application/pdf"): OpenApiTypes.BINARY},
+    )
+    @action(detail=True, methods=["GET"], url_path="assets/pdf", pagination_class=None, filter_backends=[])
+    def asset_pdf(self, request: Request, *args, **kwargs):
+        # On-demand PDF render of the stored HTML snapshot. We never render at send time.
+        obj = self.get_object()
+        asset = self._get_asset_for_request(request, obj)
+
+        html = read_html(asset.s3_key)
+        if html is None:
+            raise exceptions.NotFound("Asset content is no longer available.")
+
+        try:
+            pdf = render_html_to_pdf(html)
+        except BrowserlessUnavailable as e:
+            return Response({"error": str(e)}, status=503)
+
+        response = HttpResponse(pdf, content_type="application/pdf")
+        filename = f"email-{asset.invocation_id}.pdf"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    def _get_asset_for_request(self, request: Request, hog_flow: HogFlow):
+        param_serializer = MessageAssetContentRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        asset = fetch_message_asset(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(hog_flow.id),
+            invocation_id=params["invocation_id"],
+            action_id=params.get("action_id", ""),
+        )
+        if asset is None:
+            raise exceptions.NotFound("Asset not found.")
+        return asset
 
     @extend_schema(
         operation_id="hog_flows_metrics_global_retrieve",

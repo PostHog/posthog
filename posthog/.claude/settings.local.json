@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fetch *)",
+      "Bash(git checkout *)",
+      "Bash(git pull *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('isolated:', 'backend:contract-check' in d.get\\('scripts',{}\\)\\)\")",
+      "Bash(git *)",
+      "Bash(grep -rn '$exception_message\\\\|exception_message\\\\|$exception_type' /Users/meikelratz/Desktop/code/posthog/products/error_tracking/backend '--include=*.py')"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "phrocs",
+    "posthog-local"
+  ]
+}

@@ -34,6 +34,7 @@ import { RecipientsManagerService } from './services/managers/recipients-manager
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailService } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
+import { MessageAssetsService } from './services/messaging/message-assets.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
@@ -154,6 +155,15 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_INVOCATION_RESULTS_TOPIC'
         | 'HOG_INVOCATION_RESULTS_PRODUCER'
         | 'HOG_INVOCATION_RESULTS_ENABLED'
+        | 'MESSAGE_ASSETS_TOPIC'
+        | 'MESSAGE_ASSETS_PRODUCER'
+        | 'MESSAGE_ASSETS_CAPTURE_ENABLED'
+        | 'MESSAGE_ASSETS_OBJECT_STORAGE_ENDPOINT'
+        | 'MESSAGE_ASSETS_OBJECT_STORAGE_REGION'
+        | 'MESSAGE_ASSETS_OBJECT_STORAGE_BUCKET'
+        | 'MESSAGE_ASSETS_OBJECT_STORAGE_ACCESS_KEY_ID'
+        | 'MESSAGE_ASSETS_OBJECT_STORAGE_SECRET_ACCESS_KEY'
+        | 'MESSAGE_ASSETS_OBJECT_STORAGE_FOLDER'
         | 'CDP_PREFILTERED_EVENTS_TOPIC'
         | 'CDP_PREFILTERED_EVENTS_PRODUCER'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
@@ -382,6 +392,8 @@ export function createCdpCoreServices(
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
+    const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
+    const messageAssetsService = new MessageAssetsService(outputs, config)
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -393,7 +405,8 @@ export function createCdpCoreServices(
         teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
         config.SITE_URL,
-        trackingCodeSigner
+        trackingCodeSigner,
+        messageAssetsService
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
 
@@ -428,8 +441,6 @@ export function createCdpCoreServices(
         recipientPreferencesService,
         hogFlowDuplicateObserver
     )
-
-    const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
     const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
