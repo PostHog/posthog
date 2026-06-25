@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { LemonSkeleton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import { AccountOpportunity, accountOpportunitiesLogic, NOT_LOADED } from './accountOpportunitiesLogic'
+import { AccountsEvents, SALESFORCE_ORIGIN } from './constants'
 
 function OpportunitiesEmptyState({ title, detail }: { title: string; detail: string }): JSX.Element {
     return (
@@ -30,7 +32,16 @@ const columns: LemonTableColumns<AccountOpportunity> = [
     {
         title: 'Name',
         key: 'name',
-        render: (_, opportunity) => opportunity.name || <span className="text-muted italic">Unnamed</span>,
+        render: (_, opportunity) => (
+            <Link
+                to={`${SALESFORCE_ORIGIN}/${opportunity.id}`}
+                target="_blank"
+                className={opportunity.name ? undefined : 'italic'}
+                onClick={() => posthog.capture(AccountsEvents.OpportunityClicked)}
+            >
+                {opportunity.name || 'Unnamed'}
+            </Link>
+        ),
         sorter: (a, b) => (a.name ?? '').localeCompare(b.name ?? ''),
     },
     {
