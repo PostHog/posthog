@@ -277,6 +277,10 @@ class TestConversionGoalPrecomputeDedup(ClickhouseTestMixin, APIBaseTest):
         self._materialize(preagg_processor)
 
         conversions_table = SHARDED_MARKETING_CONVERSIONS_TABLE()
+        conversion_rows_before_dup = sync_execute(
+            f"SELECT count() FROM {conversions_table} WHERE team_id = %(team_id)s",
+            {"team_id": self.team.pk},
+        )[0][0]
         self._duplicate_under_new_job_id(conversions_table, copies=2)
         self._duplicate_under_new_job_id(SHARDED_MARKETING_TOUCHPOINTS_TABLE(), copies=2)
 
@@ -293,7 +297,7 @@ class TestConversionGoalPrecomputeDedup(ClickhouseTestMixin, APIBaseTest):
             f"SELECT count() FROM {conversions_table} WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )[0][0]
-        assert raw_conversion_rows == ground_truth_conversions * 3, (
+        assert raw_conversion_rows == conversion_rows_before_dup * 3, (
             "test setup must produce 3x raw duplication to demonstrate the inflation it guards against"
         )
 
@@ -313,5 +317,8 @@ def _round_rows(rows: list[tuple]) -> list[tuple]:
 
 
 def _conversions_in_row(row: tuple) -> float:
-    """Sum the numeric (conversion-count) columns of a CTE result row, ignoring the UTM key strings."""
+    """Sum the numeric columns of a CTE result row, ignoring the UTM key strings. This equals the
+    conversion count only under math=TOTAL (each event contributes 1.0), which is what this suite uses;
+    it's only compared like-for-like (deduped vs fallback, both attributed) so the math cancels out.
+    """
     return sum(v for v in row if isinstance(v, (int, float)) and not isinstance(v, bool))
