@@ -10,27 +10,43 @@ export interface ScrubResult {
 // A "word" is a maximal run of word chars: Unicode letters/numbers, `_`, `'`, `’`.
 const WORD_RE = /[\p{L}\p{N}_'’]+/gu
 
-export function scrubText(ctx: ScrubContext, input: string): ScrubResult {
-    const forceRedactAll = exceedsWordLimit(input, ctx.maxWordsLen)
+// Guaranteed email-PII pass, run over all text
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
+
+/** Redact any email addresses in `input` (length-preserving). Safe to run anywhere. */
+export function redactEmails(input: string): ScrubResult {
     let changed = false
+    const value = input.replace(EMAIL_RE, (m) => {
+        changed = true
+        return REDACT_CHAR.repeat(codePointLength(m))
+    })
+    return { value, changed }
+}
+
+export function scrubText(ctx: ScrubContext, input: string): ScrubResult {
+    // Nuke whole email addresses first; the tokenizer then runs over what's left.
+    const emails = redactEmails(input)
+    const text = emails.value
+    const forceRedactAll = exceedsWordLimit(text, ctx.maxWordsLen)
+    let changed = emails.changed
     let out = ''
     let lastIndex = 0
 
     WORD_RE.lastIndex = 0
     let match: RegExpExecArray | null
-    while ((match = WORD_RE.exec(input)) !== null) {
+    while ((match = WORD_RE.exec(text)) !== null) {
         const word = match[0]
         const start = match.index
         if (start > lastIndex) {
-            out += input.slice(lastIndex, start)
+            out += text.slice(lastIndex, start)
         }
         const emitted = emitWord(word, ctx.allow, forceRedactAll)
         out += emitted.value
         changed = changed || emitted.changed
         lastIndex = WORD_RE.lastIndex
     }
-    if (lastIndex < input.length) {
-        out += input.slice(lastIndex)
+    if (lastIndex < text.length) {
+        out += text.slice(lastIndex)
     }
 
     return { value: out, changed }

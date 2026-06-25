@@ -81,8 +81,19 @@ function routeEvent(ctx: ScrubContext, event: Record<string, unknown>): boolean 
             return false
         }
 
-        case RRWebEventType.Meta:
-            return isObject(data) ? scrubStringField(ctx, data, 'href', 'url') : false
+        case RRWebEventType.Meta: {
+            // Meta `href` is the page URL — also strip the authority and rewrite the host to
+            // example.com (Meta only for now).
+            if (!isObject(data) || typeof data.href !== 'string') {
+                return false
+            }
+            const r = scrubUrl(ctx, data.href, { scrubAuthority: true })
+            if (r.changed) {
+                data.href = r.value
+                return true
+            }
+            return false
+        }
 
         case RRWebEventType.Custom:
             return isObject(data) ? scrubGenericField(ctx, data, 'payload') : false

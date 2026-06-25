@@ -52,4 +52,10 @@ describe('anonymize/text', () => {
         // must produce 2 mark chars, not 4.
         expect(scrub('𠀀𠀀')).toBe('**')
     })
+
+    it('redacts whole email addresses via the regex pass (even allow-listed fragments)', () => {
+        // `to`/`in` are stop-words the tokenizer would keep, but the email pass nukes the address first.
+        expect(scrub('to jane.doe@in.example.com')).toBe('to ' + '*'.repeat('jane.doe@in.example.com'.length))
+        expect(scrub('email a@b.co')).not.toContain('a@b.co')
+    })
 })

@@ -8,7 +8,8 @@ import {
     isMediaTag,
 } from './assets'
 import { ScrubContext, isObject } from './config'
-import { scrubText } from './text'
+import { scrubCssImages } from './css'
+import { redactEmails, scrubText } from './text'
 import { scrubUrl } from './url'
 
 export enum NodeType {
@@ -100,10 +101,12 @@ function walkNode(ctx: ScrubContext, node: AnyNode, parent: ParentKind): boolean
             break
         }
         case NodeType.Text: {
-            // Script and style are code/CSS, not user PII; redacting them would corrupt replay
-            // (and break far more than it saves), so they pass through untouched.
-            if (parent === 'script' || parent === 'style' || node.isStyle === true) {
+            // Script is code — never touch it.
+            if (parent === 'script') {
                 return false
+            }
+            if (parent === 'style' || node.isStyle === true) {
+                return scrubCssImages(ctx, node, 'textContent')
             }
             changed = scrubTextContent(ctx, node) || changed
             break
@@ -165,10 +168,13 @@ function scrubAttrs(ctx: ScrubContext, attrs: Record<string, unknown>, kind: Tag
         let result
         if (isUrlAttr(name)) {
             result = scrubUrl(ctx, value)
-        } else if (isUserTextAttr(name) || isDataAttr(name)) {
-            // Deny-by-default for author-controlled `data-*` (data-email, data-user-id, …); `data-original-*`
-            // are blur stashes we already URL-scrubbed, so leave them alone.
+        } else if (name === 'style') {
+            changed = scrubCssImages(ctx, attrs, name) || changed
+            continue
+        } else if (isUserTextAttr(name)) {
             result = scrubText(ctx, value)
+        } else if (isDataAttr(name)) {
+            result = dataAttrLooksSensitive(value) ? scrubText(ctx, value) : redactEmails(value)
         } else {
             continue
         }
@@ -207,6 +213,11 @@ function isUserTextAttr(name: string): boolean {
 
 function isDataAttr(name: string): boolean {
     return name.startsWith('data-') && !name.startsWith('data-original-')
+}
+
+function dataAttrLooksSensitive(value: string): boolean {
+    // Free text (whitespace) or an email-ish token — not a single enum/state/id token.
+    return value.includes('@') || /\s/.test(value)
 }
 
 function isUrlAttr(name: string): boolean {

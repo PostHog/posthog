@@ -183,15 +183,20 @@ describe('anonymize/dom', () => {
         expect('data-original-src' in img.attributes).toBe(true)
     })
 
-    it('text-scrubs string data-* attributes but leaves data-original-* blur stashes alone', () => {
+    it('keeps state-token data-* (so styling survives) but redacts PII-looking values and emails', () => {
         const attrs: Record<string, unknown> = {
-            'data-customer': 'Smithson',
-            'data-original-src': 'https://example.com/u/abc.png',
+            'data-state': 'active', // enum/state token → kept (CSS selectors depend on it)
+            'data-scheme': 'primary', // ditto
+            'data-tooltip': 'Logged in as Smithson', // free text (whitespace) → redacted
+            'data-contact': 'jane@example.com', // email → redacted regardless
+            'data-original-src': 'https://example.com/u/abc.png', // our blur stash → left intact
         }
         scrubMutation(ctx, { source: 0, attributes: [{ id: 2, attributes: attrs }] })
-        // Author-controlled data-* is now scrubbed (was passed through verbatim before)...
-        expect(attrs['data-customer']).not.toContain('Smithson')
-        // ...but our own URL-scrubbed blur stash is left intact.
+        expect(attrs['data-state']).toBe('active')
+        expect(attrs['data-scheme']).toBe('primary')
+        expect(attrs['data-tooltip']).not.toContain('Smithson')
+        expect(attrs['data-contact']).not.toContain('jane')
+        expect(attrs['data-contact']).not.toContain('example.com')
         expect(attrs['data-original-src']).toBe('https://example.com/u/abc.png')
     })
 
