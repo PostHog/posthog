@@ -133,6 +133,7 @@ layer = "modules"
 path = "products.agent_platform"
 depends_on = [
     "posthog",
+    "products.skills",
 ]
 layer = "modules"
 
@@ -229,10 +230,15 @@ layer = "modules"
 [[modules]]
 path = "products.warehouse_sources"
 depends_on = [
+    "ee",
     "posthog",
+    "products.cdp",
     "products.data_modeling",
     "products.data_tools",
     "products.data_warehouse",
+    "products.posthog_ai",
+    "products.warehouse_sources_queue",
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -282,6 +288,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.notifications",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -522,8 +529,10 @@ path = "products.replay_vision"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
     "products.exports",
     "products.signals",
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -545,6 +554,7 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.cdp",
+    "products.conversations",
     "products.dashboards",
     "products.data_warehouse",
     "products.error_tracking",
@@ -697,7 +707,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review)",
+    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -766,6 +776,22 @@ expose = [
 ]
 from = [
     "products.mcp_store",
+]
+
+# warehouse_sources — facade landed (Phase 1 merge base); core (posthog/ee), sibling
+# products, and data_warehouse still import its models, shared types, and temporal
+# internals directly. Shrinks as the team-sliced read sweeps land and the deferred
+# temporal couplings (HogQL direct-SQL, Google Search Console, the salesforce migration)
+# move behind the facade; data_warehouse's usage clears in Phase 2. Keeps
+# backend:contract-check off package.json until empty.
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+    "backend\\.types.*",
+    "backend\\.temporal.*",
+]
+from = [
+    "products.warehouse_sources",
 ]
 
 # legal_documents has a non-standard public surface — posthog/urls registers its pandadoc

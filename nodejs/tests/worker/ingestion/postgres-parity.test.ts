@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
@@ -10,20 +12,18 @@ import {
     fetchDistinctIds,
     fetchPersons,
 } from '~/common/persons/repositories/test-helpers'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT, castTimestampOrNow } from '~/common/utils/utils'
 
-import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../../src/config/kafka-topics'
-import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { IngestionGeneralServer } from '../../../src/servers/ingestion-general-server'
 import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '../../../src/types'
-import { PostgresRouter, PostgresUse } from '../../../src/utils/db/postgres'
-import { parseJSON } from '../../../src/utils/json-parse'
-import { UUIDT, castTimestampOrNow } from '../../../src/utils/utils'
 import { Clickhouse } from '../../helpers/clickhouse'
 import { waitForExpect } from '../../helpers/expectations'
 import { ensureKafkaTopics } from '../../helpers/kafka'
 import { createUserTeamAndOrganization } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/logger')
+jest.mock('~/common/utils/logger')
 
 function createPersonOutputs(kafkaProducer: KafkaProducerWrapper) {
     return new IngestionOutputs({

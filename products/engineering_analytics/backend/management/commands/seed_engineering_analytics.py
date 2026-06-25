@@ -40,7 +40,6 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.logic.sources import PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
@@ -51,6 +50,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import validate_source_prefix
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 FIXTURE_DIR = Path(__file__).parents[3] / "fixtures"
 

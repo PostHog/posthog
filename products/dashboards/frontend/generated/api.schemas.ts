@@ -511,6 +511,8 @@ export interface ActivityEventsListWidgetConfigApi {
      * @maximum 50
      */
     limit?: number
+    /** Limit the feed to a single event name. Omit or null for all events. */
+    eventName?: string | null
 }
 
 /**
@@ -629,8 +631,10 @@ export interface SessionReplayListWidgetConfigApi {
     orderBy?: SessionReplayListWidgetConfigApiOrderBy
     /** Sort direction for orderBy. */
     orderDirection?: SessionReplayListWidgetConfigApiOrderDirection
-    /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. */
+    /** short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection. */
     savedFilterId?: string | null
+    /** short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply. */
+    collectionId?: string | null
 }
 
 /**
@@ -4514,6 +4518,26 @@ export const AIEventTypeApi = {
     AiGenerationClusters: '$ai_generation_clusters',
 } as const
 
+export type LLMSentimentMessageApiScores = { [key: string]: number } | null
+
+export interface LLMSentimentMessageApi {
+    label: string
+    score: number
+    scores?: LLMSentimentMessageApiScores
+}
+
+export type LLMSentimentResultApiMessages = { [key: string]: LLMSentimentMessageApi } | null
+
+export type LLMSentimentResultApiScores = { [key: string]: number } | null
+
+export interface LLMSentimentResultApi {
+    label: string
+    message_count?: number | null
+    messages?: LLMSentimentResultApiMessages
+    score: number
+    scores?: LLMSentimentResultApiScores
+}
+
 export type LLMTraceEventApiProperties = { [key: string]: unknown }
 
 export interface LLMTraceEventApi {
@@ -4521,6 +4545,7 @@ export interface LLMTraceEventApi {
     event: AIEventTypeApi | string
     id: string
     properties: LLMTraceEventApiProperties
+    sentiment?: LLMSentimentResultApi | null
 }
 
 export type LLMTracePersonApiProperties = { [key: string]: unknown }
@@ -4548,6 +4573,7 @@ export interface LLMTraceApi {
     outputTokens?: number | null
     person?: LLMTracePersonApi | null
     requestCost?: number | null
+    sentiment?: LLMSentimentResultApi | null
     tools?: string[] | null
     totalCost?: number | null
     totalLatency?: number | null
@@ -7162,6 +7188,8 @@ export interface TracesQueryApi {
     filterTestAccounts?: boolean | null
     groupKey?: string | null
     groupTypeIndex?: number | null
+    /** Include stored sentiment evaluation results for returned traces and direct generation events. */
+    includeSentiment?: boolean | null
     kind?: 'TracesQuery'
     limit?: number | null
     /** Modifiers used when performing the query */
@@ -7229,6 +7257,8 @@ export interface TraceQueryResponseApi {
 
 export interface TraceQueryApi {
     dateRange?: DateRangeApi | null
+    /** Include stored sentiment evaluation results for the trace and its generations. */
+    includeSentiment?: boolean | null
     kind?: 'TraceQuery'
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -8236,6 +8266,145 @@ export interface AddDashboardWidgetsBatchResponseApi {
     tiles: DashboardTileApi[]
 }
 
+export type ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType = {
+    ActivityEventsList: 'activity_events_list',
+} as const
+
+export interface ActivityEventsListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the recent events widget. Omit to leave unchanged. */
+    config?: ActivityEventsListWidgetConfigApi
+}
+
+export type ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType = {
+    ErrorTrackingList: 'error_tracking_list',
+} as const
+
+export interface ErrorTrackingListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the top issues widget. Omit to leave unchanged. */
+    config?: ErrorTrackingListWidgetConfigApi
+}
+
+export type SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType = {
+    SessionReplayList: 'session_replay_list',
+} as const
+
+export interface SessionReplayListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the recent recordings widget. Omit to leave unchanged. */
+    config?: SessionReplayListWidgetConfigApi
+}
+
+export type ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType = {
+    ExperimentsList: 'experiments_list',
+} as const
+
+export interface ExperimentsListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the experiments list widget. Omit to leave unchanged. */
+    config?: ExperimentsListWidgetConfigApi
+}
+
+export type ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType = {
+    ExperimentResults: 'experiment_results',
+} as const
+
+export interface ExperimentResultsWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the experiment results widget. Omit to leave unchanged. */
+    config?: ExperimentResultsWidgetConfigApi
+}
+
+export type UpdateDashboardWidgetRequestApi =
+    | ActivityEventsListWidgetUpdateRequestOpenApiApi
+    | ErrorTrackingListWidgetUpdateRequestOpenApiApi
+    | SessionReplayListWidgetUpdateRequestOpenApiApi
+    | ExperimentsListWidgetUpdateRequestOpenApiApi
+    | ExperimentResultsWidgetUpdateRequestOpenApiApi
+
+/**
+ * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
+ */
+export interface PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi {
+    /**
+     * Widget tiles to update atomically, each identified by its tile_id. config shape is per widget_type; see dashboard-widget-catalog-list for per-type config_schema (1–10 per request).
+     * @minItems 1
+     * @maxItems 10
+     */
+    widgets?: UpdateDashboardWidgetRequestApi[]
+}
+
+export interface UpdateDashboardWidgetsBatchResponseApi {
+    /** Updated dashboard widget tiles in request order. */
+    tiles: DashboardTileApi[]
+}
+
 /**
  * * `add` - add
  * * `remove` - remove
@@ -8775,6 +8944,18 @@ export type DashboardsWidgetsBatchCreateFormat =
     (typeof DashboardsWidgetsBatchCreateFormat)[keyof typeof DashboardsWidgetsBatchCreateFormat]
 
 export const DashboardsWidgetsBatchCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsUpdateWidgetsBatchParams = {
+    format?: DashboardsUpdateWidgetsBatchFormat
+}
+
+export type DashboardsUpdateWidgetsBatchFormat =
+    (typeof DashboardsUpdateWidgetsBatchFormat)[keyof typeof DashboardsUpdateWidgetsBatchFormat]
+
+export const DashboardsUpdateWidgetsBatchFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

@@ -29,7 +29,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.github_callback.personal_finish import github_link_complete
+from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
@@ -451,7 +451,10 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     # GitHub account linking (identity-only, separate from the login pipeline).
     # Must precede `social_django.urls` so the latter's `complete/<str:backend>/` doesn't swallow it.
-    path("complete/github-link/", github_link_complete, name="github_link_complete"),
+    path("complete/github-link/", github_oauth_callback, name="github_link_complete"),
+    opt_slash_path(
+        "integrations/github/callback", github_setup_callback, name="github_team_integration_setup_callback"
+    ),
     # Slack user-identity linking — mirrors the GitHub per-user pattern above,
     # and likewise must precede `social_django.urls` for the same reason.
     path("complete/slack-link/start/", slack_user_link_authorize, name="slack_link_start"),

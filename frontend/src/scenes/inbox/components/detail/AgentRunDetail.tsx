@@ -190,9 +190,9 @@ function TaskLogBody({
 
     if (task && runId) {
         return (
-            <div className="h-[calc(100vh-22rem)] min-h-[420px] w-full overflow-y-auto rounded border border-primary bg-surface-primary">
+            <div className="h-[calc(100dvh-22rem)] min-h-[420px] w-full overflow-hidden rounded border border-primary bg-surface-primary">
                 {/* In-progress runs stream live; terminal runs show the static replay. */}
-                <SandboxRunViewer taskId={task.id} runId={runId} replayOnly={replayOnly} />
+                <SandboxRunViewer taskId={task.id} runId={runId} interaction={replayOnly ? 'read-only' : 'live'} />
             </div>
         )
     }
@@ -218,13 +218,13 @@ function TaskLogBody({
  * open a new tab, carrying the bind via the `bind_task` URL param. Gated to a terminal run — the live
  * Task log already covers an in-progress run, and taking over a running automation run is out of scope.
  */
-function OpenTaskButton({ taskId, runStatus }: { taskId: string; runStatus?: TaskRunStatus }): JSX.Element {
+export function OpenTaskButton({ taskId, runStatus }: { taskId: string; runStatus?: TaskRunStatus }): JSX.Element {
     const { openSidePanelMaxWithTaskBind } = useActions(maxGlobalLogic)
     const isTerminal = isTerminalRunStatus(runStatus)
 
     return (
         <LemonButton
-            size="xsmall"
+            size="small"
             type="secondary"
             to={combineUrl(urls.ai(), { [SANDBOX_BIND_TASK_PARAM]: taskId }).url}
             onClick={(e) => {

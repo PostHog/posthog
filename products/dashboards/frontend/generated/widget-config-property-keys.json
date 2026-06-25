@@ -1,6 +1,6 @@
 {
     "configPropertyKeys": {
-        "activity_events_list": ["dateRange", "filterTestAccounts", "limit", "widgetFilters"],
+        "activity_events_list": ["dateRange", "eventName", "filterTestAccounts", "limit", "widgetFilters"],
         "error_tracking_list": [
             "assignee",
             "dateRange",
@@ -12,6 +12,7 @@
             "widgetFilters"
         ],
         "session_replay_list": [
+            "collectionId",
             "dateRange",
             "filterTestAccounts",
             "limit",
@@ -89,6 +90,9 @@
             },
             "limit": {
                 "$type": "integer"
+            },
+            "eventName": {
+                "$type": "string"
             }
         },
         "error_tracking_list": {
@@ -255,6 +259,9 @@
                 "$enum": ["ASC", "DESC"]
             },
             "savedFilterId": {
+                "$type": "string"
+            },
+            "collectionId": {
                 "$type": "string"
             }
         },

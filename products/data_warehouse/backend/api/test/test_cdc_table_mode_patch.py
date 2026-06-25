@@ -18,10 +18,10 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 pytestmark = [pytest.mark.django_db]
 
@@ -31,7 +31,7 @@ _PATCH_TARGETS = {
     # Single private method backing both add_table/remove_table on the adapter — patching it
     # no-ops the engine-side ALTER PUBLICATION without touching parse_cdc_config gating.
     "alter_cdc_publication": (
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter._alter_publication_membership"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter._alter_publication_membership"
     ),
     "external_data_workflow_exists": (
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists"

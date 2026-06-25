@@ -81,6 +81,7 @@ import {
     TabularStore,
     ToolContext,
     toolSpanId,
+    WebSearchProvider,
 } from '@posthog/agent-shared'
 
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
@@ -164,25 +165,29 @@ export interface RunSessionDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /** Web-search provider chain for @posthog/web-search; empty → tool gated out. */
+    webSearchProviders?: readonly WebSearchProvider[]
     /**
      * Per-session static HTTP headers stamped on every outbound model call.
      * On the ai-gateway path this carries `X-PostHog-Distinct-Id`,
      * `X-PostHog-Trace-Id`, and `X-PostHog-Properties` (the `$agent_*`
      * attribution) so the gateway-emitted `$ai_generation` events attribute to
      * the right user, trace, and agent application. The `gatewayMetadataStreamFn`
-     * wrapper merges these with a per-turn `Idempotency-Key` + `X-Request-Id` of
-     * the form `agent:<session>:<turn>` and forwards them to pi-ai's per-call
-     * `options.headers`. Presence also signals `errorContext()` to mark
-     * failures as `source: ai_gateway`.
+     * wrapper merges these with a per-turn `Idempotency-Key` of the form
+     * `agent:<session>:<turn>:<nonce>` and forwards them to pi-ai's per-call
+     * `options.headers` (it does NOT send `X-Request-Id` — the gateway mints its
+     * own and returns it in the response header). Presence also signals
+     * `errorContext()` to mark failures as `source: ai_gateway`.
      */
     gatewayHeaders?: Record<string, string>
     /**
      * Gateway read client + the team's `phc_` bearer. When set, after every
      * pi-ai turn the runner fetches `GET /v1/usage/<request_id>` (using the
-     * id stamped by `gatewayMetadataStreamFn`) and merges the
-     * gateway-computed cost into `usage_total.cost_total`. Best-effort: a
-     * transient fetch failure or NaN body is logged + skipped so a gateway
-     * blip can't strand the turn.
+     * gateway's settlement id captured from the response by
+     * `gatewayMetadataStreamFn`) and merges the gateway-computed cost into
+     * `usage_total.cost_total`. Best-effort: a transient fetch failure, a
+     * missing id, or a NaN body is logged/skipped so a gateway blip can't
+     * strand the turn.
      */
     gatewayUsage?: {
         client: GatewayClient
@@ -248,14 +253,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // much so it replies in natural language instead of forcing everything
     // through the slack-post-message tool.
     //
-    // Preview-mode isolation: when the session was created via the preview
-    // ingress path, the relay is disabled — author iteration must not post
-    // into the real Slack channel attached to the live revision. The
-    // system-prompt suppression below also drops the slack-relay guidance so
-    // the model isn't told to "just reply in natural language" while the
-    // platform is actually noop'ing the relay underneath it.
-    const slackReply =
-        !session.is_preview && isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
+    // Slack-triggered sessions relay the model's reply back into the originating
+    // thread (the system prompt below tells the model to answer in natural
+    // language instead of calling a slack tool).
+    const slackReply = isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
             id: f.ref.id,
@@ -443,6 +444,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             log,
             memoryStore: deps.memoryStore,
             tabularStore: deps.tabularStore,
+            webSearchProviders: deps.webSearchProviders,
             dispatchClientTool,
             emitClientToolCall: async (callId, toolId, args) => {
                 await emit('client_tool_call', { call_id: callId, tool_id: toolId, args })
@@ -692,7 +694,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 latency_ms: started ? Date.now() - started.t0 : 0,
                                 is_error: event.isError,
                                 error: errorText,
-                                is_preview: session.is_preview,
                             },
                         ])
                     }
@@ -822,7 +823,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 stop_reason: msg.stopReason,
                                 is_error: msg.stopReason === 'error',
                                 error: msg.stopReason === 'error' ? msg.errorMessage : undefined,
-                                is_preview: session.is_preview,
                             },
                         ])
                     }
@@ -1092,7 +1092,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                             latency_ms: Date.now() - t0,
                                             is_error: d.isError,
                                             error: d.error,
-                                            is_preview: session.is_preview,
                                         },
                                     ])
                                 } catch (obsErr) {
@@ -1188,7 +1187,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     trace_name: deps.applicationName ?? `agent:${session.application_id}`,
                     input_state: traceInput,
                     output_state: lastOutput,
-                    is_preview: session.is_preview,
                 },
             ])
         }
@@ -1312,23 +1310,30 @@ export function translateAssistantNamesBack(
 }
 
 /**
- * Stamp `Idempotency-Key` + `X-Request-Id` on every outbound model call,
- * plus any caller-supplied gateway headers (`X-PostHog-Distinct-Id`,
- * `X-PostHog-Trace-Id`). The id is recorded in `turnRequestIds` keyed by the
- * loop's outbound-call counter so the sink can fetch settled cost via
- * `GET /v1/usage/<request_id>` after `turn_end`.
+ * Stamp `Idempotency-Key` + any caller-supplied gateway headers
+ * (`X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`) on every outbound model call,
+ * and capture the gateway's settlement reference into `turnRequestIds` (keyed
+ * by the outbound-call counter) so the sink can fetch settled cost via
+ * `GET /v1/usage/<id>` after `turn_end`.
  *
- * The id MUST be globally unique per outbound call. `outboundTurn` is a
+ * Idempotency-Key MUST be unique per outbound call. `outboundTurn` is a
  * per-`runSession` counter that resets to 0 on every resume, so a key of just
- * `agent:<session>:<turn>` collides across turns: the first model call of
- * every follow-up reuses `agent:<session>:1`, which the gateway already has
- * cached under its 24h Idempotency-Key window from the session's first turn.
- * The gateway then replays that stale response instead of calling the model,
- * so the follow-up turn ends instantly with no output (0 tokens). The
- * per-call `randomUUID()` nonce keeps the id unique across resumes while
- * staying stable within a single call — pi-ai's SDK-level retries on
- * transient 5xx reuse these same headers, so the gateway still collapses one
- * call's retries onto a single billed usage row.
+ * `agent:<session>:<turn>` collides across turns: the first call of every
+ * follow-up reuses `agent:<session>:1`, which the gateway already has cached
+ * under its 24h Idempotency-Key window from the session's first turn, so the
+ * follow-up replays that stale response with no output (0 tokens). The per-call
+ * `randomUUID()` nonce keeps it unique across resumes yet stable within a call,
+ * so pi-ai's SDK-level retries on transient 5xx still collapse onto one billed
+ * row.
+ *
+ * The usage lookup keys off the GATEWAY's id, not ours. The gateway mints its
+ * own settlement reference server-side — a client-chosen id would let a caller
+ * collapse every debit as a duplicate — and returns it in the `X-Request-ID`
+ * response header; it ignores any inbound `X-Request-Id`. We read it back via
+ * pi-ai's `onResponse` (header keys are lowercased). Keying off the
+ * runner-chosen id never matched the ledger → `getUsage` 404'd every turn and
+ * cost stayed $0. A missing header (no `onResponse`, gateway misroute) just
+ * leaves the turn's entry unset → cost merge is skipped (fail-open).
  */
 function gatewayMetadataStreamFn(
     base: StreamFn,
@@ -1339,15 +1344,20 @@ function gatewayMetadataStreamFn(
     let outboundTurn = 0
     return async (model, context, options) => {
         outboundTurn++
-        const requestId = `agent:${sessionId}:${outboundTurn}:${randomUUID()}`
-        turnRequestIds.set(outboundTurn, requestId)
-        const headers = {
-            ...gatewayHeaders,
-            ...options?.headers,
-            'Idempotency-Key': requestId,
-            'X-Request-Id': requestId,
-        }
-        return base(model, context, { ...options, headers })
+        const turnIndex = outboundTurn
+        const idempotencyKey = `agent:${sessionId}:${turnIndex}:${randomUUID()}`
+        const priorOnResponse = options?.onResponse
+        return base(model, context, {
+            ...options,
+            headers: { ...gatewayHeaders, ...options?.headers, 'Idempotency-Key': idempotencyKey },
+            onResponse: async (response, m) => {
+                const id = response.headers['x-request-id']
+                if (id) {
+                    turnRequestIds.set(turnIndex, id)
+                }
+                await priorOnResponse?.(response, m)
+            },
+        })
     }
 }
 

@@ -1,10 +1,10 @@
-import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import pagination, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.ph_client import feature_enabled_or_false
 
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobEngine
 
@@ -51,7 +51,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
 
     def _is_duckgres_shadow_enabled(self) -> bool:
         try:
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 DUCKGRES_SHADOW_FLAG,
                 str(self.team.pk),
                 groups={

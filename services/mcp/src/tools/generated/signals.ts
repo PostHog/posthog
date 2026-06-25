@@ -769,6 +769,8 @@ const signalsScoutScratchpadSearch = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
             query: {
                 content_max_chars: params.content_max_chars,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 keys_only: params.keys_only,
                 limit: params.limit,
                 text: params.text,
