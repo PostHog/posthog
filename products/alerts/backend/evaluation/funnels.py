@@ -31,7 +31,9 @@ class FunnelsExtractor:
     A breakdown funnel yields one series per breakdown value and fires if ANY breaches (matching trends).
     """
 
-    def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
+    def extract(
+        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+    ) -> ExtractionResult:
         funnels_query = FunnelsQuery.model_validate(query)
         viz = funnels_query.funnelsFilter.funnelVizType if funnels_query.funnelsFilter else None
         if viz not in (None, FunnelVizType.STEPS):
@@ -51,7 +53,7 @@ class FunnelsExtractor:
         calculation_result = calculate_for_query_based_insight(
             insight,
             team=alert.team,
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            execution_mode=execution_mode,
             user=alert.created_by,
             analytics_props={"source": EventSource.ALERT},
         )

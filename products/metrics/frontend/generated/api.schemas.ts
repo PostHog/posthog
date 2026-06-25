@@ -85,7 +85,10 @@ export interface _MetricFilterApi {
      * * `regex` - regex
      * * `not_regex` - not_regex */
     op?: OpEnumApi
-    /** Value to compare against. For regex operators this is the pattern. */
+    /**
+     * Value to compare against. For regex operators this is the pattern.
+     * @maxLength 1024
+     */
     value: string
     /** Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.
      *
@@ -145,10 +148,10 @@ export interface _MetricAnomalyRequestApi {
  * * `down` - down
  * * `flat` - flat
  */
-export type _MetricAnomalyReportDirectionEnumApi =
-    (typeof _MetricAnomalyReportDirectionEnumApi)[keyof typeof _MetricAnomalyReportDirectionEnumApi]
+export type MetricAnomalyDirectionEnumApi =
+    (typeof MetricAnomalyDirectionEnumApi)[keyof typeof MetricAnomalyDirectionEnumApi]
 
-export const _MetricAnomalyReportDirectionEnumApi = {
+export const MetricAnomalyDirectionEnumApi = {
     Up: 'up',
     Down: 'down',
     Flat: 'flat',
@@ -226,7 +229,7 @@ export interface _MetricAnomalyReportApi {
      * * `up` - up
      * * `down` - down
      * * `flat` - flat */
-    direction: _MetricAnomalyReportDirectionEnumApi
+    direction: MetricAnomalyDirectionEnumApi
     /**
      * First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.
      * @nullable
@@ -347,7 +350,7 @@ export interface _MetricQueryBodyApi {
      * * `day` - day
      * * `week` - week */
     interval?: MetricQueryIntervalEnumApi | null
-    /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'. */
+    /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid (maximum 10). Mutually exclusive with 'metricName'. */
     clauses?: _MetricClauseApi[]
     /**
      * Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.
@@ -387,7 +390,7 @@ export type MetricsHasMetricsRetrieve200 = { [key: string]: unknown }
 
 export type MetricsValuesRetrieveParams = {
     /**
-     * Max number of names to return. Defaults to 100, capped at 1000.
+     * Max number of names to return. Defaults to 100; maximum 1000.
      */
     limit?: number
     /**

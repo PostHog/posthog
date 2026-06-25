@@ -24,6 +24,13 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.hogql_queries.ai.sentiment_evaluations import (
+    EMPTY_SENTIMENT_EVALUATION_LOOKUP,
+    SentimentEvaluationLookup,
+    get_generation_sentiment_lookup_ids,
+    get_sentiment_for_generation,
+    load_trace_sentiment_evaluations,
+)
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -192,7 +199,23 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             )
 
         columns: list[str] = query_result.columns or []
-        results = self._map_results(columns, query_result.results)
+        sentiment_lookup = EMPTY_SENTIMENT_EVALUATION_LOOKUP
+        if self.query.includeSentiment and query_result.results and columns:
+            id_index = columns.index("id") if "id" in columns else -1
+            result_trace_ids = [str(row[id_index]) for row in query_result.results if id_index >= 0 and row[id_index]]
+            sentiment_lookup = SentimentEvaluationLookup(
+                by_trace_id=load_trace_sentiment_evaluations(
+                    team=self.team,
+                    trace_ids=result_trace_ids,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                    query_type="TracesQuerySentimentEvaluations",
+                ),
+                by_generation_id={},
+            )
+
+        results = self._map_results(columns, query_result.results, sentiment_lookup)
 
         return TracesQueryResponse(
             columns=columns,
@@ -350,7 +373,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 6,
+            "schema_version": 10,
         }
 
     @cached_property
@@ -377,7 +400,9 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
         return narrowed_range
 
-    def _map_results(self, columns: list[str], query_results: list):
+    def _map_results(
+        self, columns: list[str], query_results: list, sentiment_lookup: SentimentEvaluationLookup
+    ) -> list[LLMTrace]:
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         traces = []
 
@@ -392,11 +417,13 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             if first_timestamp > date_to or last_timestamp < date_from:
                 continue
 
-            traces.append(self._map_trace(result, first_timestamp))
+            traces.append(self._map_trace(result, first_timestamp, sentiment_lookup))
 
         return traces
 
-    def _map_trace(self, result: dict[str, Any], created_at: datetime) -> LLMTrace:
+    def _map_trace(
+        self, result: dict[str, Any], created_at: datetime, sentiment_lookup: SentimentEvaluationLookup
+    ) -> LLMTrace:
         TRACE_FIELDS_MAPPING = {
             "id": "id",
             "ai_session_id": "aiSessionId",
@@ -417,17 +444,21 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "error_count": "errorCount",
             "is_support_trace": "isSupportTrace",
             "tools": "tools",
+            "sentiment": "sentiment",
         }
 
         generations = []
         for uuid, event_name, timestamp, properties in result["events"]:
-            generations.append(self._map_event(uuid, event_name, timestamp, properties))
+            generations.append(self._map_event(uuid, event_name, timestamp, properties, sentiment_lookup))
 
         trace_dict = {
             **result,
             "created_at": created_at.isoformat(),
             "events": generations,
         }
+        sentiment = sentiment_lookup.by_trace_id.get(str(result["id"]))
+        if sentiment is not None:
+            trace_dict["sentiment"] = sentiment
         for raw_key, parsed_key in [("input_state", "input_state_parsed"), ("output_state", "output_state_parsed")]:
             raw = trace_dict.get(raw_key)
             if raw is not None:
@@ -442,14 +473,25 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return trace
 
     def _map_event(
-        self, event_uuid: UUID, event_name: str, event_timestamp: datetime, event_properties: str
+        self,
+        event_uuid: UUID,
+        event_name: str,
+        event_timestamp: datetime,
+        event_properties: str,
+        sentiment_lookup: SentimentEvaluationLookup,
     ) -> LLMTraceEvent:
+        event_id = str(event_uuid)
+        properties = orjson.loads(event_properties)
         generation: dict[str, Any] = {
-            "id": str(event_uuid),
+            "id": event_id,
             "event": event_name,
             "createdAt": event_timestamp.isoformat(),
-            "properties": orjson.loads(event_properties),
+            "properties": properties,
         }
+        sentiment_lookup_ids = get_generation_sentiment_lookup_ids(event_id, event_name, properties)
+        sentiment = get_sentiment_for_generation(sentiment_lookup, sentiment_lookup_ids)
+        if sentiment is not None:
+            generation["sentiment"] = sentiment
         return LLMTraceEvent.model_validate(generation)
 
     def _get_subquery_filter(self) -> ast.Expr:

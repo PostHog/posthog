@@ -22,7 +22,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTMode
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
-from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 logger = structlog.get_logger(__name__)
 

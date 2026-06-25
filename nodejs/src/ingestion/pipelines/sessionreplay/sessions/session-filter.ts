@@ -1,9 +1,9 @@
 import { LRUCache } from 'lru-cache'
 
+import { logger } from '~/common/utils/logger'
+import { Limiter } from '~/common/utils/token-bucket'
 import { SESSION_FILTER_REDIS_TTL_SECONDS } from '~/ingestion/pipelines/sessionreplay/constants'
 import { RedisPool } from '~/types'
-import { logger } from '~/utils/logger'
-import { Limiter } from '~/utils/token-bucket'
 
 import { SessionBatchMetrics } from './metrics'
 

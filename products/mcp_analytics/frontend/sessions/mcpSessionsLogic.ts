@@ -1,8 +1,10 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
     mcpAnalyticsSessionsGenerateIntent,
@@ -19,6 +21,15 @@ export interface MCPSessionsFilters {
 const DEFAULT_FILTERS: MCPSessionsFilters = {
     search: '',
 }
+
+export interface MCPSessionsDateFilter {
+    dateFrom: string | null
+    dateTo: string | null
+}
+
+// Matches the dashboard default (mcpDashboardOverviewLogic) so both tabs show the
+// same window out of the box and the shared date_from/date_to URL params line up.
+const DEFAULT_DATE_FILTER: MCPSessionsDateFilter = { dateFrom: '-7d', dateTo: null }
 
 const SEARCH_DEBOUNCE_MS = 300
 
@@ -60,6 +71,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         loadSessions: true,
         loadMoreSessions: true,
         setFilters: (filters: Partial<MCPSessionsFilters>) => ({ filters }),
+        setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSorting: (sorting: MCPSessionSorting | null) => ({ sorting }),
         setHasNext: (hasNext: boolean) => ({ hasNext }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
@@ -79,6 +91,8 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
                         search: values.filters.search || undefined,
                         order_by: orderByParam(values.sorting),
+                        date_from: values.dateFilter.dateFrom || undefined,
+                        date_to: values.dateFilter.dateTo || undefined,
                         limit: SESSIONS_PAGE_SIZE,
                         offset: 0,
                     })
@@ -98,13 +112,22 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     const baseSessions = values.sessions
                     const search = values.filters.search
                     const orderBy = orderByParam(values.sorting)
+                    const dateFrom = values.dateFilter.dateFrom
+                    const dateTo = values.dateFilter.dateTo
                     const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
                         search: search || undefined,
                         order_by: orderBy,
+                        date_from: dateFrom || undefined,
+                        date_to: dateTo || undefined,
                         limit: SESSIONS_PAGE_SIZE,
                         offset: baseSessions.length,
                     })
-                    if (search !== values.filters.search || orderBy !== orderByParam(values.sorting)) {
+                    if (
+                        search !== values.filters.search ||
+                        orderBy !== orderByParam(values.sorting) ||
+                        dateFrom !== values.dateFilter.dateFrom ||
+                        dateTo !== values.dateFilter.dateTo
+                    ) {
                         return values.sessions
                     }
                     actions.setHasNext(response.has_next ?? false)
@@ -121,9 +144,13 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     }
                     // session_id comes from untrusted event properties — encode it so path/query
                     // delimiters can't redirect this request to another same-origin endpoint.
+                    // Pass the session's start as the scan bound so sessions older than the
+                    // backend's default lookback still return their tool calls.
+                    const session = values.sessions.find((s) => s.session_id === sessionId)
                     const response = await mcpAnalyticsSessionsToolCalls(
                         String(values.currentProjectId),
-                        encodeURIComponent(sessionId)
+                        encodeURIComponent(sessionId),
+                        { date_from: session?.session_start || undefined }
                     )
                     breakpoint()
                     return [...(response.results ?? [])]
@@ -138,10 +165,13 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                         return null
                     }
                     // session_id comes from untrusted event properties — encode it so path/query
-                    // delimiters can't redirect this POST to another same-origin endpoint.
+                    // delimiters can't redirect this POST to another same-origin endpoint. Bound the
+                    // intent scan by the session's start so older sessions resolve, mirroring loadToolCalls.
+                    const session = values.sessions.find((s) => s.session_id === sessionId)
                     return await mcpAnalyticsSessionsGenerateIntent(
                         String(values.currentProjectId),
-                        encodeURIComponent(sessionId)
+                        encodeURIComponent(sessionId),
+                        { date_from: session?.session_start || undefined }
                     )
                 },
             },
@@ -152,6 +182,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             DEFAULT_FILTERS,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
+        dateFilter: [
+            DEFAULT_DATE_FILTER,
+            {
+                setDateFilter: (_, { dateFrom, dateTo }): MCPSessionsDateFilter => ({ dateFrom, dateTo }),
             },
         ],
         selectedSessionId: [
@@ -225,6 +261,9 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         setFilters: () => {
             actions.loadSessions()
         },
+        setDateFilter: () => {
+            actions.loadSessions()
+        },
         setSorting: () => {
             actions.loadSessions()
         },
@@ -255,7 +294,52 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadSessions()
+    // date_from / date_to are shared with the dashboard via the URL: the scene's tab links
+    // carry searchParams across tabs, so a range picked on either tab follows to the other.
+    actionToUrl(({ values }) => {
+        const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
+            const { currentLocation } = router.values
+            const searchParams = { ...currentLocation.searchParams }
+            if (values.dateFilter.dateFrom) {
+                searchParams.date_from = values.dateFilter.dateFrom
+            } else {
+                delete searchParams.date_from
+            }
+            if (values.dateFilter.dateTo) {
+                searchParams.date_to = values.dateFilter.dateTo
+            } else {
+                delete searchParams.date_to
+            }
+            return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
+        }
+        return {
+            setDateFilter: syncUrl,
+        }
+    }),
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.mcpAnalyticsSessions()]: (_, searchParams) => {
+            const dateFrom =
+                typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
+            const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
+            const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
+            // setDateFilter reloads via its listener; only load directly when nothing changed.
+            if (dateChanged) {
+                actions.setDateFilter(dateFrom, dateTo)
+            } else if (!cache.hasLoaded) {
+                actions.loadSessions()
+            }
+            cache.hasLoaded = true
+        },
+    })),
+    afterMount(({ actions, cache }) => {
+        // urlToAction owns the initial load when the sessions URL carries date params; this is the
+        // fallback for a param-less mount (and off-route mounts in tests, where urlToAction never
+        // fires). The cache.hasLoaded guard keeps a deep-linked load from firing twice.
+        const { searchParams } = router.values
+        const hasUrlDates = typeof searchParams.date_from === 'string' || typeof searchParams.date_to === 'string'
+        if (!hasUrlDates && !cache.hasLoaded) {
+            cache.hasLoaded = true
+            actions.loadSessions()
+        }
     }),
 ])

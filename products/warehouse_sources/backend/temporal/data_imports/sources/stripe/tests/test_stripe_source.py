@@ -11,13 +11,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
+    RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
     StripeNestedResource,
     StripeResource,
+    _all_known_webhook_events,
     get_rows,
 )
 
@@ -109,16 +112,17 @@ class TestStripeSource:
         assert message.startswith("Stripe rejected the API key.")
 
 
-def _run_nested_get_rows(nested_method):
-    parent = StripeResource(
-        method=lambda **kwargs: _list_object([{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}])
-    )
+def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None):
+    if parent_objects is None:
+        parent_objects = [{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}]
+    parent = StripeResource(method=lambda **kwargs: _list_object(parent_objects))
     resource = StripeNestedResource(
         method=nested_method,
         nested_parent_param="customer",
         parent_id="id",
         parent=parent,
         parent_name=CUSTOMER_RESOURCE_NAME,
+        parent_has_nested=parent_has_nested,
     )
 
     resumable_source_manager = MagicMock()
@@ -165,3 +169,74 @@ class TestStripeNestedResourceGetRows:
 
         with pytest.raises(stripe_lib.InvalidRequestError):
             _run_nested_get_rows(nested_method)
+
+    def test_parent_has_nested_skips_filtered_parents_without_calling(self):
+        called_for: list[str] = []
+
+        def nested_method(customer=None, params=None):
+            called_for.append(customer)
+            return _list_object([{"id": f"cbt_{customer}", "amount": 100}])
+
+        # Only customers with a non-zero balance should trigger the nested call.
+        rows = _run_nested_get_rows(
+            nested_method,
+            parent_objects=[
+                {"id": "cus_zero", "balance": 0},
+                {"id": "cus_credit", "balance": -500},
+                {"id": "cus_owed", "balance": 1500},
+            ],
+            parent_has_nested=stripe_module._customer_might_have_balance_transactions,
+        )
+
+        # cus_zero is skipped entirely — no API call, no rows.
+        assert called_for == ["cus_credit", "cus_owed"]
+        assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
+
+
+class TestCustomerMightHaveBalanceTransactions:
+    @pytest.mark.parametrize(
+        "customer,expected",
+        [
+            ({"balance": 0}, False),
+            ({"balance": -500}, True),
+            ({"balance": 1500}, True),
+            # Missing balance is an unexpected payload shape — fetch rather than silently drop data.
+            ({}, True),
+            ({"balance": None}, True),
+        ],
+    )
+    def test_predicate(self, customer, expected):
+        assert stripe_module._customer_might_have_balance_transactions(customer) is expected
+
+
+class TestWebhookEventMapping:
+    def test_customer_balance_transaction_has_no_webhook_event(self):
+        # Customer balance transactions have no Stripe webhook event, so the resource must not be in
+        # the event map — otherwise we'd subscribe the source webhook to unrelated events.
+        assert CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME not in RESOURCE_TO_STRIPE_WEBHOOK_EVENT
+
+    def test_no_billing_events_subscribed(self):
+        # The removed "billing" mapping was the only thing pulling in billing.* events (credit
+        # grants, meters, alerts) — none of which can populate any table we sync.
+        assert not any(e.startswith("billing.") or e.startswith("billing_") for e in _all_known_webhook_events())
+
+    def test_payment_method_events_still_subscribed(self):
+        # CustomerPaymentMethod keeps its mapping, so payment_method.* events stay subscribed.
+        assert RESOURCE_TO_STRIPE_WEBHOOK_EVENT[CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME] == "payment_method"
+        assert any(e.startswith("payment_method.") for e in _all_known_webhook_events())
+
+
+class TestSchemaWebhookCapability:
+    def setup_method(self):
+        self.source = StripeSource()
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test_123")
+        )
+        self.by_name = {s.name: s for s in self.source.get_schemas(config, team_id=1)}
+
+    def test_webhook_capability_matches_event_map(self):
+        # supports_webhooks must track the webhook-event map exactly (plus webhook-only tables),
+        # so the capability and the actual event subscription never drift apart.
+        for name, schema in self.by_name.items():
+            expected = name in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or schema.webhook_only
+            assert schema.supports_webhooks is expected, name
