@@ -260,7 +260,7 @@ void hogqlparserParserInitialize() {
   	1,77,1,77,1,77,1,77,1,77,1,77,1,77,3,77,1548,8,77,1,77,1,77,3,77,1552,
   	8,77,1,77,3,77,1555,8,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,3,77,1564,
   	8,77,1,77,1,77,1,77,1,77,3,77,1570,8,77,1,77,1,77,1,77,1,77,1,77,1,77,
-  	1,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,3,77,1589,8,77,
+  	1,77,1,77,1,77,1,77,1,77,3,77,1583,8,77,1,77,1,77,1,77,1,77,1,77,1,77,
   	1,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,1,77,
   	1,77,1,77,1,77,1,77,1,77,3,77,1610,8,77,1,77,1,77,1,77,1,77,1,77,1,77,
   	1,77,1,77,1,77,3,77,1621,8,77,1,77,1,77,3,77,1625,8,77,1,77,1,77,1,77,
@@ -758,12 +758,12 @@ void hogqlparserParserInitialize() {
   	1569,1568,1,0,0,0,1569,1570,1,0,0,0,1570,1571,1,0,0,0,1571,1572,5,25,
   	0,0,1572,1573,5,39,0,0,1573,1664,3,154,77,21,1574,1575,10,19,0,0,1575,
   	1576,5,166,0,0,1576,1664,3,154,77,20,1577,1578,10,18,0,0,1578,1579,5,
-  	174,0,0,1579,1664,3,154,77,19,1580,1581,10,16,0,0,1581,1582,5,2,0,0,1582,
-  	1664,3,154,77,17,1583,1584,10,15,0,0,1584,1585,5,78,0,0,1585,1664,3,154,
-  	77,16,1586,1588,10,14,0,0,1587,1589,5,73,0,0,1588,1587,1,0,0,0,1588,1589,
-  	1,0,0,0,1589,1590,1,0,0,0,1590,1591,5,9,0,0,1591,1592,3,154,77,0,1592,
-  	1593,5,2,0,0,1593,1594,3,154,77,15,1594,1664,1,0,0,0,1595,1596,10,13,
-  	0,0,1596,1597,5,177,0,0,1597,1598,3,154,77,0,1598,1599,5,150,0,0,1599,
+  	174,0,0,1579,1664,3,154,77,19,1580,1582,10,16,0,0,1581,1583,5,73,0,0,
+  	1582,1581,1,0,0,0,1582,1583,1,0,0,0,1583,1584,1,0,0,0,1584,1585,5,9,0,
+  	0,1585,1586,3,154,77,0,1586,1587,5,2,0,0,1587,1588,3,154,77,17,1588,1664,
+  	1,0,0,0,1589,1590,10,15,0,0,1590,1591,5,2,0,0,1591,1664,3,154,77,16,1592,
+  	1593,10,14,0,0,1593,1594,5,78,0,0,1594,1664,3,154,77,15,1595,1596,10,
+  	13,0,0,1596,1597,5,177,0,0,1597,1598,3,154,77,0,1598,1599,5,150,0,0,1599,
   	1600,3,154,77,13,1600,1664,1,0,0,0,1601,1602,10,39,0,0,1602,1603,5,165,
   	0,0,1603,1604,3,48,24,0,1604,1605,5,186,0,0,1605,1664,1,0,0,0,1606,1607,
   	10,38,0,0,1607,1609,5,165,0,0,1608,1610,3,146,73,0,1609,1608,1,0,0,0,
@@ -784,8 +784,8 @@ void hogqlparserParserInitialize() {
   	5,74,0,0,1657,1658,10,12,0,0,1658,1661,5,6,0,0,1659,1662,3,220,110,0,
   	1660,1662,5,143,0,0,1661,1659,1,0,0,0,1661,1660,1,0,0,0,1662,1664,1,0,
   	0,0,1663,1524,1,0,0,0,1663,1531,1,0,0,0,1663,1538,1,0,0,0,1663,1566,1,
-  	0,0,0,1663,1574,1,0,0,0,1663,1577,1,0,0,0,1663,1580,1,0,0,0,1663,1583,
-  	1,0,0,0,1663,1586,1,0,0,0,1663,1595,1,0,0,0,1663,1601,1,0,0,0,1663,1606,
+  	0,0,0,1663,1574,1,0,0,0,1663,1577,1,0,0,0,1663,1580,1,0,0,0,1663,1589,
+  	1,0,0,0,1663,1592,1,0,0,0,1663,1595,1,0,0,0,1663,1601,1,0,0,0,1663,1606,
   	1,0,0,0,1663,1612,1,0,0,0,1663,1617,1,0,0,0,1663,1627,1,0,0,0,1663,1630,
   	1,0,0,0,1663,1633,1,0,0,0,1663,1639,1,0,0,0,1663,1642,1,0,0,0,1663,1645,
   	1,0,0,0,1663,1648,1,0,0,0,1663,1651,1,0,0,0,1663,1657,1,0,0,0,1664,1667,
@@ -934,7 +934,7 @@ void hogqlparserParserInitialize() {
   	1110,1116,1122,1131,1135,1142,1148,1155,1159,1171,1176,1185,1189,1222,
   	1270,1298,1362,1370,1376,1379,1382,1390,1400,1406,1409,1412,1420,1428,
   	1431,1435,1438,1443,1452,1464,1472,1480,1484,1502,1506,1511,1522,1528,
-  	1535,1547,1551,1554,1563,1569,1588,1609,1620,1624,1654,1661,1663,1665,
+  	1535,1547,1551,1554,1563,1569,1582,1609,1620,1624,1654,1661,1663,1665,
   	1674,1678,1687,1691,1695,1700,1708,1712,1717,1724,1737,1746,1756,1763,
   	1770,1783,1790,1794,1798,1803,1807,1810,1820,1828,1837,1840,1847,1863,
   	1873,1881,1891,1894,1896,1898,1905,1918,1922,1939,1947,1955,1963,1970,
@@ -12923,55 +12923,55 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
         }
 
         case 7: {
-          auto newContext = _tracker.createInstance<ColumnExprAndContext>(_tracker.createInstance<ColumnExprContext>(parentContext, parentState));
+          auto newContext = _tracker.createInstance<ColumnExprBetweenContext>(_tracker.createInstance<ColumnExprContext>(parentContext, parentState));
           _localctx = newContext;
           pushNewRecursionContext(newContext, startState, RuleColumnExpr);
           setState(1580);
 
           if (!(precpred(_ctx, 16))) throw FailedPredicateException(this, "precpred(_ctx, 16)");
-          setState(1581);
-          match(HogQLParser::AND);
           setState(1582);
+          _errHandler->sync(this);
+
+          _la = _input->LA(1);
+          if (_la == HogQLParser::NOT) {
+            setState(1581);
+            match(HogQLParser::NOT);
+          }
+          setState(1584);
+          match(HogQLParser::BETWEEN);
+          setState(1585);
+          columnExpr(0);
+          setState(1586);
+          match(HogQLParser::AND);
+          setState(1587);
           columnExpr(17);
           break;
         }
 
         case 8: {
-          auto newContext = _tracker.createInstance<ColumnExprOrContext>(_tracker.createInstance<ColumnExprContext>(parentContext, parentState));
+          auto newContext = _tracker.createInstance<ColumnExprAndContext>(_tracker.createInstance<ColumnExprContext>(parentContext, parentState));
           _localctx = newContext;
           pushNewRecursionContext(newContext, startState, RuleColumnExpr);
-          setState(1583);
+          setState(1589);
 
           if (!(precpred(_ctx, 15))) throw FailedPredicateException(this, "precpred(_ctx, 15)");
-          setState(1584);
-          match(HogQLParser::OR);
-          setState(1585);
+          setState(1590);
+          match(HogQLParser::AND);
+          setState(1591);
           columnExpr(16);
           break;
         }
 
         case 9: {
-          auto newContext = _tracker.createInstance<ColumnExprBetweenContext>(_tracker.createInstance<ColumnExprContext>(parentContext, parentState));
+          auto newContext = _tracker.createInstance<ColumnExprOrContext>(_tracker.createInstance<ColumnExprContext>(parentContext, parentState));
           _localctx = newContext;
           pushNewRecursionContext(newContext, startState, RuleColumnExpr);
-          setState(1586);
+          setState(1592);
 
           if (!(precpred(_ctx, 14))) throw FailedPredicateException(this, "precpred(_ctx, 14)");
-          setState(1588);
-          _errHandler->sync(this);
-
-          _la = _input->LA(1);
-          if (_la == HogQLParser::NOT) {
-            setState(1587);
-            match(HogQLParser::NOT);
-          }
-          setState(1590);
-          match(HogQLParser::BETWEEN);
-          setState(1591);
-          columnExpr(0);
-          setState(1592);
-          match(HogQLParser::AND);
           setState(1593);
+          match(HogQLParser::OR);
+          setState(1594);
           columnExpr(15);
           break;
         }

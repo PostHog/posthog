@@ -13,8 +13,9 @@ use super::{
     build_infix, fold_call_or_exprcall, identifier_text, infix_bp, interval_call_name,
     interval_call_name_case_sensitive, is_reserved_alias_name, kw_acts_as_ident_in_primary,
     kw_valid_as_identifier, kw_valid_type_cast_ident, parse_number_literal, postfix_bp,
-    unquote_single_string, Parser, BP_ADDITIVE, BP_ALIAS, BP_BETWEEN, BP_COMPARE, BP_IGNORE_NULLS,
-    BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_NOT, BP_OR, BP_POSTFIX, BP_TERNARY, BP_UNARY_MINUS,
+    unquote_single_string, Parser, BP_ADDITIVE, BP_ALIAS, BP_AND, BP_BETWEEN, BP_COMPARE,
+    BP_IGNORE_NULLS, BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_NOT, BP_OR, BP_POSTFIX, BP_TERNARY,
+    BP_UNARY_MINUS,
 };
 use crate::emit::Emitter;
 use crate::error::ParseError;
@@ -5443,7 +5444,115 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             &|p| Self::parse_between_body_arm(p, floored[2]),
         ]);
         self.between_body_depth -= 1;
-        result
+        let (low, high, hoisted) = result?;
+        Ok(self.reassociate_between_body(low, high, hoisted))
+    }
+
+    /// Re-associate a raw `(low, high, hoisted)` split to ClickHouse precedence.
+    /// ANTLR's precedence-0 `low` middle operand over-absorbs the trailing
+    /// conjuncts of `a BETWEEN b AND c AND d` (and a trailing nested BETWEEN);
+    /// peel them so the BetweenExpr keeps only its first two bound operands and
+    /// the rest wrap OUTSIDE as hoists.
+    fn reassociate_between_body(
+        &self,
+        low: E::Value,
+        high: E::Value,
+        mut hoisted: Vec<HoistWithEnd<E::Value>>,
+    ) -> BetweenSplit<E::Value> {
+        // C: `… AND b BETWEEN c AND d` greedily parses high as a BetweenExpr;
+        // peel it so high = its expr and the outer BETWEEN wraps via a hoist
+        // (cpp's left-recursive `a BETWEEN b AND c BETWEEN d AND e`). An
+        // explicitly parenthesised `(b BETWEEN c AND d)` high stays intact.
+        let mut high = high;
+        while self.emit.node_kind(&high).as_deref() == Some("BetweenExpr")
+            && !(self.is_ascii_src && is_wholly_parenthesized(self, &high))
+        {
+            let inner = self.emit.get_field(&high, "expr");
+            let b_low = self.emit.get_field(&high, "low");
+            let b_high = self.emit.get_field(&high, "high");
+            match (inner, b_low, b_high) {
+                (Some(inner), Some(b_low), Some(b_high)) => {
+                    let negated = self
+                        .emit
+                        .get_field(&high, "negated")
+                        .and_then(|v| self.emit.as_bool(&v))
+                        .unwrap_or(false);
+                    let end = self.emit.get_field(&high, "end");
+                    hoisted.push((
+                        BetweenHoist::Between {
+                            low: b_low,
+                            high: b_high,
+                            negated,
+                        },
+                        end,
+                    ));
+                    high = inner;
+                }
+                _ => break,
+            }
+        }
+        // A: split the low operand's top-level AND chain into units, append the
+        // high, keep the first two as the bounds, and AND the rest around the
+        // BETWEEN via an innermost TrailingAnd hoist.
+        let mut units = self.between_low_units(low);
+        units.push(high);
+        let new_low = units.remove(0);
+        let new_high = units.remove(0);
+        if !units.is_empty() {
+            let end = self.emit.get_field(units.last().unwrap(), "end");
+            hoisted.insert(0, (BetweenHoist::TrailingAnd { conjuncts: units }, end));
+        }
+        (new_low, new_high, hoisted)
+    }
+
+    /// Top-level AND units of a BETWEEN low operand. A wholly-parenthesised low,
+    /// or one whose top node isn't an And, is a single unit. Otherwise the And's
+    /// flattened children are split at the top-level (base paren-depth) junctions:
+    /// a parenthesised run like `(a AND b)` in `(a AND b) AND c` flattens to
+    /// `And([a,b,c])`, but only the `b…c` junction is at base depth, so the units
+    /// are `[(a AND b), c]` — matching cpp's parse-tree walk over `ctx.columnExpr`.
+    fn between_low_units(&self, low: E::Value) -> Vec<E::Value> {
+        if self.emit.node_kind(&low).as_deref() != Some("And")
+            || (self.is_ascii_src && is_wholly_parenthesized(self, &low))
+        {
+            return vec![low];
+        }
+        let exprs = match self
+            .emit
+            .get_field(&low, "exprs")
+            .and_then(|v| self.emit.as_list(&v))
+        {
+            Some(e) => e,
+            None => return vec![low],
+        };
+        let jmin = match junction_min_depths(self, &low, &exprs) {
+            Some(j) => j,
+            None => return exprs, // non-ASCII / no positions: each child is a unit
+        };
+        let base = *jmin.iter().min().unwrap();
+        let mut units = Vec::new();
+        let mut start = 0usize;
+        for (k, d) in jmin.iter().enumerate() {
+            if *d == base {
+                units.push(self.build_and_unit(&exprs, start, k + 1));
+                start = k + 1;
+            }
+        }
+        units.push(self.build_and_unit(&exprs, start, exprs.len()));
+        units
+    }
+
+    /// Rebuild a contiguous run of And children as one unit: a single child is
+    /// itself; multiple children re-wrap into an And spanning the run (the run's
+    /// own wrapping parens belong to the enclosing grammar, so the span comes
+    /// from the children, paren-stripped — matching cpp).
+    fn build_and_unit(&self, exprs: &[E::Value], lo: usize, hi: usize) -> E::Value {
+        let group: Vec<E::Value> = exprs[lo..hi].to_vec();
+        if group.len() == 1 {
+            return group.into_iter().next().unwrap();
+        }
+        let n = self.emit.and_(group.clone());
+        stamp_span_from_children(self, n, &group)
     }
 
     /// Wide-arm wrapper: parses at the unfloored BP, then post-filters
@@ -5726,6 +5835,15 @@ fn peek_can_start_clause_body(tok: TokenKind) -> bool {
 #[derive(Debug, Clone)]
 pub(crate) enum BetweenHoist<V> {
     Alias(String),
+    /// `And(<expr>, conjuncts...)` — the conjuncts trailing BETWEEN's second
+    /// bound. ANTLR's precedence-0 `low` middle operand over-absorbs them
+    /// (`a BETWEEN b AND c AND d` parses `low` as `b AND c`); we peel the AND
+    /// chain into units, keep the first two as the bounds, and AND the rest
+    /// around the BetweenExpr — matching ClickHouse's `(a BETWEEN b AND c) AND d`.
+    /// Innermost hoist, so a following alias/ternary/OR wraps OUTSIDE the AND.
+    TrailingAnd {
+        conjuncts: Vec<V>,
+    },
     Between {
         low: V,
         high: V,
@@ -5836,6 +5954,7 @@ type BetweenSplit<V> = (V, V, Vec<HoistWithEnd<V>>);
 fn hoist_min_bp<V>(hoist: &BetweenHoist<V>) -> u8 {
     match hoist {
         BetweenHoist::Alias(_) => BP_ALIAS,
+        BetweenHoist::TrailingAnd { .. } => BP_AND,
         BetweenHoist::Ternary { .. } => BP_TERNARY,
         BetweenHoist::Between { .. } => BP_BETWEEN,
         BetweenHoist::Or { .. } => BP_OR,
@@ -5863,6 +5982,22 @@ fn apply_between_hoist<E: Emitter>(
 ) -> E::Value {
     match hoist {
         BetweenHoist::Alias(name) => emit.alias(expr, &name),
+        BetweenHoist::TrailingAnd { conjuncts } => {
+            // Flatten any And conjunct (e.g. a parenthesised `(d and e)` unit),
+            // mirroring cpp's And visitor splicing trailing And children.
+            let mut all = vec![expr];
+            for c in conjuncts {
+                if emit.node_kind(&c).as_deref() == Some("And") {
+                    if let Some(inner) = emit.get_field(&c, "exprs").and_then(|v| emit.as_list(&v))
+                    {
+                        all.extend(inner);
+                        continue;
+                    }
+                }
+                all.push(c);
+            }
+            emit.and_(all)
+        }
         BetweenHoist::Between { low, high, negated } => emit.between(expr, low, high, negated),
         BetweenHoist::Ternary {
             then_branch,
@@ -6208,23 +6343,19 @@ fn high_operand_paren_end<'a, E: Emitter + Clone>(
     extended.then(|| parser.pos_obj(e))
 }
 
-/// `a and (b and c)` flattens to `And([a,b,c])` (cpp does the same for a
-/// standalone expr), but in a BETWEEN body cpp keeps `(b and c)` as one high
-/// operand because the rightmost AND at paren-depth 0 is the one BEFORE the
-/// parens. The flattened node erases the grouping from its structure, so
-/// recover it from spans: scan from the node's start tracking paren-depth and
-/// split at the rightmost operand still at the node's base depth — the trailing
-/// deeper-nested operands are the parenthesized group (the high). Returns
-/// `(low, high)` only when such a trailing group exists (caller's normal split
-/// handles the rest). The group node gets the INNER span (its wrapping parens
-/// belong to the enclosing grammar, not the And/Or). ASCII-gated.
-fn try_trailing_paren_group_split<'a, E: Emitter + Clone>(
+/// For a flattened And/Or `node` whose `exprs` lost their parenthesisation, the
+/// minimum paren-depth in each junction gap (between operand k and k+1). The
+/// AND/OR keyword sits at its gap's MINIMUM depth — after any `)` closes, before
+/// any `(` opens — so a junction at the node's base (overall minimum) depth is a
+/// real top-level separator and deeper ones sit inside parens. One scan from the
+/// node's start; string / quoted-ident bodies and block comments are skipped so
+/// their parens don't miscount. ASCII-gated; `None` if positions are missing.
+fn junction_min_depths<'a, E: Emitter + Clone>(
     parser: &Parser<'a, E>,
     node: &E::Value,
     exprs: &[E::Value],
-    is_or: bool,
-) -> Option<(E::Value, E::Value)> {
-    if !parser.is_ascii_src || exprs.len() < 3 {
+) -> Option<Vec<i32>> {
+    if !parser.is_ascii_src || exprs.len() < 2 {
         return None;
     }
     let node_start = pos_offset(&parser.emit, parser.emit.get_field(node, "start").as_ref())?;
@@ -6241,12 +6372,6 @@ fn try_trailing_paren_group_split<'a, E: Emitter + Clone>(
     if node_start > starts[0] || last_start >= bytes.len() {
         return None;
     }
-    // For each junction k (gap between operand k and k+1) the AND/OR keyword sits
-    // at the gap's MINIMUM paren-depth — after any `)` closes, before any `(`
-    // opens. A junction at the node's base depth is a real top-level separator;
-    // deeper ones are inside parens. Scan once, sampling the running depth across
-    // each gap. (String / quoted-ident bodies and block comments are skipped so
-    // their parens don't miscount.)
     let mut jmin = vec![i32::MAX; exprs.len() - 1];
     let mut depth = 0i32;
     let mut k_op = 0usize;
@@ -6302,6 +6427,29 @@ fn try_trailing_paren_group_split<'a, E: Emitter + Clone>(
         }
         i += 1;
     }
+    Some(jmin)
+}
+
+/// `a and (b and c)` flattens to `And([a,b,c])` (cpp does the same for a
+/// standalone expr), but in a BETWEEN body cpp keeps `(b and c)` as one high
+/// operand because the rightmost AND at paren-depth 0 is the one BEFORE the
+/// parens. The flattened node erases the grouping from its structure, so
+/// recover it from spans via `junction_min_depths`: split at the rightmost
+/// operand still at the node's base depth — the trailing deeper-nested operands
+/// are the parenthesized group (the high). Returns `(low, high)` only when such
+/// a trailing group exists (caller's normal split handles the rest). The group
+/// node gets the INNER span (its wrapping parens belong to the enclosing
+/// grammar, not the And/Or). ASCII-gated.
+fn try_trailing_paren_group_split<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    node: &E::Value,
+    exprs: &[E::Value],
+    is_or: bool,
+) -> Option<(E::Value, E::Value)> {
+    if exprs.len() < 3 {
+        return None;
+    }
+    let jmin = junction_min_depths(parser, node, exprs)?;
     let base = *jmin.iter().min().unwrap();
     let mut split_idx = 0usize;
     for (k, d) in jmin.iter().enumerate() {
@@ -6405,12 +6553,12 @@ fn split_at_rightmost_and<'a, E: Emitter + Clone>(
                 split_at_rightmost_and(parser, &exprs[i])
             {
                 if hoisted.is_empty() {
-                    // AND was found directly inside the Or's child (no
-                    // looser-wrapper between them). cpp's grammar lets
-                    // BETWEEN's high absorb the OR, so left/right
-                    // children flow into the high alongside the descent
-                    // result. `x BETWEEN low AND high OR rest` →
-                    // BETWEEN(x, low, Or(high, rest)).
+                    // AND found directly inside the Or's child. OR siblings to
+                    // the LEFT of that child sit BEFORE the BETWEEN-separator
+                    // AND, so they stay part of LOW. Siblings to the RIGHT come
+                    // AFTER the high, so (BETWEEN now binding tighter than OR)
+                    // they hoist OUTSIDE as a trailing OR: `x BETWEEN low AND
+                    // high OR rest` → Or(BETWEEN(x, low, high), rest).
                     let mut left_children: Vec<E::Value> = exprs[..i].to_vec();
                     left_children.push(left_in);
                     let left = if left_children.len() == 1 {
@@ -6419,16 +6567,17 @@ fn split_at_rightmost_and<'a, E: Emitter + Clone>(
                         let synthetic = parser.emit.or_(left_children.clone());
                         stamp_span_from_children(parser, synthetic, &left_children)
                     };
-                    let mut right_children: Vec<E::Value> = Vec::with_capacity(exprs.len() - i);
-                    right_children.push(right_in);
-                    right_children.extend_from_slice(&exprs[i + 1..]);
-                    let right = if right_children.len() == 1 {
-                        right_children.pop().unwrap()
-                    } else {
-                        let synthetic = parser.emit.or_(right_children.clone());
-                        stamp_span_from_children(parser, synthetic, &right_children)
-                    };
-                    return Some((left, right, hoisted));
+                    let right_siblings: Vec<E::Value> = exprs[i + 1..].to_vec();
+                    if !right_siblings.is_empty() {
+                        hoisted.push((
+                            BetweenHoist::Or {
+                                left_siblings: vec![],
+                                right_siblings,
+                            },
+                            node_end,
+                        ));
+                    }
+                    return Some((left, right_in, hoisted));
                 }
                 // The descent passed THROUGH a looser wrapper (Alias /
                 // Lambda / NamedArg / Ternary). cpp treats the wrapper

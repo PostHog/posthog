@@ -5381,6 +5381,52 @@ def parser_test_factory(backend: HogQLParserBackend):
             for src in ("0 between 0 and (0)", "0 between 0 and 5 as x"):
                 self._assert_ast(src, "expr")
 
+        def test_between_binds_tighter_than_and_or(self):
+            # BETWEEN binds tighter than AND/OR (ClickHouse/SQL precedence), so a
+            # trailing conjunct is ANDed AROUND the BETWEEN, not absorbed into a
+            # bound. Regression for `… BETWEEN x AND y AND <pred>` mis-parsing as
+            # `BETWEEN x AND (y AND <pred>)` and erroring in ClickHouse.
+            self.assertEqual(
+                self._expr("a between 1 and 2 and 3"),
+                ast.And(
+                    exprs=[
+                        ast.BetweenExpr(
+                            expr=ast.Field(chain=["a"]),
+                            low=ast.Constant(value=1),
+                            high=ast.Constant(value=2),
+                            negated=False,
+                        ),
+                        ast.Constant(value=3),
+                    ]
+                ),
+            )
+            # A predicate to the LEFT binds outside too: `pred AND col BETWEEN x AND y`.
+            self.assertEqual(
+                self._expr("a and b between 1 and 2"),
+                ast.And(
+                    exprs=[
+                        ast.Field(chain=["a"]),
+                        ast.BetweenExpr(
+                            expr=ast.Field(chain=["b"]),
+                            low=ast.Constant(value=1),
+                            high=ast.Constant(value=2),
+                            negated=False,
+                        ),
+                    ]
+                ),
+            )
+            # Positioned, cross-backend coverage of the precedence neighbourhood,
+            # incl. trailing OR, the explicit-paren-bound escape hatch, NOT BETWEEN,
+            # and a nested left-associative BETWEEN.
+            for src in (
+                "a between 1 and 2 and b and c",
+                "a between 1 and 2 or b",
+                "a not between 1 and 2 and b",
+                "a between (1 and 2) and b and c",
+                "a between 1 and 2 and b as al",
+            ):
+                self._assert_ast(src, "expr")
+
         def test_bare_asterisk_clause_body_after_comma(self):
             # `select a, where *` opens the WHERE clause with a bare `*` body; later LIMIT / GROUP BY / etc. is a normal subsequent clause.
             cases = (

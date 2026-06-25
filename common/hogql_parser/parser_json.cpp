@@ -2048,14 +2048,60 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return Json(to_lower_copy(result));
   }
 
+  // Top-level conjuncts of a BETWEEN low operand, not descending into parens.
+  void collectBetweenAndUnits(
+      HogQLParser::ColumnExprContext* ctx, std::vector<HogQLParser::ColumnExprContext*>& out
+  ) {
+    if (auto* and_ctx = dynamic_cast<HogQLParser::ColumnExprAndContext*>(ctx)) {
+      collectBetweenAndUnits(and_ctx->columnExpr(0), out);
+      collectBetweenAndUnits(and_ctx->columnExpr(1), out);
+    } else {
+      out.push_back(ctx);
+    }
+  }
+
   VISIT(ColumnExprBetween) {
+    // ANTLR forces BETWEEN's middle (`low`) operand to precedence 0, so for
+    // `a BETWEEN b AND c AND d` it over-greedily absorbs the trailing conjuncts
+    // (`low` parses as `b AND c`, `high` as `d`). Re-associate to ClickHouse/SQL
+    // precedence — `(a BETWEEN b AND c) AND d` — by splitting the low operand's
+    // top-level AND chain into units, appending high, using the first two as the
+    // bounds and ANDing the rest around the BETWEEN. Parenthesised groups stay a
+    // single opaque unit, so `BETWEEN (b AND c) AND d` keeps `b AND c` as the bound.
+    std::vector<HogQLParser::ColumnExprContext*> units;
+    collectBetweenAndUnits(ctx->columnExpr(1), units);
+    units.push_back(ctx->columnExpr(2));
+
+    Json between = Json::object();
+    between["node"] = "BetweenExpr";
+    between["expr"] = visitAsJSON(ctx->columnExpr(0));
+    between["low"] = visitAsJSON(units[0]);
+    between["high"] = visitAsJSON(units[1]);
+    between["negated"] = ctx->NOT() != nullptr;
+    if (units.size() == 2) {
+      if (!is_internal) addPositionInfo(between, ctx);
+      return between;
+    }
+    if (!is_internal) {
+      addPositionInfo(between, "start", ctx->columnExpr(0)->getStart());
+      addEndPositionInfo(between, units[1]->getStop());
+    }
+    Json exprs = Json::array();
+    exprs.pushBack(between);
+    for (size_t i = 2; i < units.size(); i++) {
+      Json trailing = visitAsJSON(units[i]);
+      if (isNodeOfType(trailing, "And")) {
+        for (const auto& item : trailing["exprs"].getArray()) {
+          exprs.pushBack(item);
+        }
+      } else {
+        exprs.pushBack(trailing);
+      }
+    }
     Json json = Json::object();
-    json["node"] = "BetweenExpr";
+    json["node"] = "And";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = visitAsJSON(ctx->columnExpr(0));
-    json["low"] = visitAsJSON(ctx->columnExpr(1));
-    json["high"] = visitAsJSON(ctx->columnExpr(2));
-    json["negated"] = ctx->NOT() != nullptr;
+    json["exprs"] = exprs;
     return json;
   }
 

@@ -11,9 +11,12 @@ use crate::lex::{Kw, TokenKind};
 
 pub(super) const BP_ALIAS: u8 = 10;
 pub(super) const BP_TERNARY: u8 = 20;
-pub(super) const BP_BETWEEN: u8 = 30;
 pub(super) const BP_OR: u8 = 40;
 pub(super) const BP_AND: u8 = 50;
+// BETWEEN binds tighter than AND/OR (matching ClickHouse/SQL) but looser than
+// NOT, so `a BETWEEN b AND c AND d` is `(a BETWEEN b AND c) AND d`. The body
+// parse re-associates the over-greedy `low` operand; see `parse_between_body`.
+pub(super) const BP_BETWEEN: u8 = 55;
 pub(super) const BP_NOT: u8 = 60;
 pub(super) const BP_NULLISH: u8 = 70;
 /// `<=>` (MySQL null-safe equality) — declared *after* `IS [NOT]

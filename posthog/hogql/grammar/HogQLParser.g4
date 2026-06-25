@@ -281,10 +281,12 @@ columnExpr
     | columnExpr NULL_SAFE_EQ columnExpr                                                  # ColumnExprNullSafeEq  // MySQL `a <=> b` ≡ `a IS NOT DISTINCT FROM b`
     | columnExpr NULLISH columnExpr                                                       # ColumnExprNullish
     | NOT columnExpr                                                                      # ColumnExprNot
+    // BETWEEN binds tighter than AND/OR (matching ClickHouse/SQL), so `a BETWEEN b AND c AND d`
+    // is `(a BETWEEN b AND c) AND d`. ANTLR forces the middle `low` operand to precedence 0, so it
+    // still over-greedily absorbs a trailing AND (`low` becomes `b AND c`); the visitor re-associates.
+    | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | columnExpr AND columnExpr                                                           # ColumnExprAnd
     | columnExpr OR columnExpr                                                            # ColumnExprOr
-    // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
-    | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
     | columnExpr AS (identifier | STRING_LITERAL)                                         # ColumnExprAlias
     | (tableIdentifier DOT)? ASTERISK (EXCLUDE LPAREN identifierList RPAREN)?             # ColumnExprAsterisk  // single-column only

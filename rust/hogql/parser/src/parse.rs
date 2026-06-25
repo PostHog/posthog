@@ -27,9 +27,9 @@ mod select;
 mod template;
 
 use bp::{
-    build_infix, fold_call_or_exprcall, infix_bp, postfix_bp, BP_ADDITIVE, BP_ALIAS, BP_BETWEEN,
-    BP_COMPARE, BP_IGNORE_NULLS, BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_MULT, BP_NOT, BP_OR,
-    BP_POSTFIX, BP_TERNARY, BP_UNARY_MINUS,
+    build_infix, fold_call_or_exprcall, infix_bp, postfix_bp, BP_ADDITIVE, BP_ALIAS, BP_AND,
+    BP_BETWEEN, BP_COMPARE, BP_IGNORE_NULLS, BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_MULT, BP_NOT,
+    BP_OR, BP_POSTFIX, BP_TERNARY, BP_UNARY_MINUS,
 };
 use template::parse_template_body;
 
