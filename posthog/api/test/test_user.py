@@ -12,6 +12,8 @@ from unittest.mock import ANY, patch
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -130,6 +132,37 @@ class TestUserAPI(APIBaseTest):
                 },
             ],
         )
+
+    def test_me_membership_queries_do_not_scale_with_org_count(self):
+        def membership_query_count(user: User) -> int:
+            self.client.force_login(user)
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.get("/api/users/@me/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            return sum(
+                1
+                for q in ctx.captured_queries
+                if "posthog_organizationmembership" in q["sql"] and q["sql"].lstrip()[:6].upper() == "SELECT"
+            )
+
+        user_in_one_org = create_user(
+            "one-org@example.com", self.CONFIG_PASSWORD, Organization.objects.create(name="Solo Org")
+        )
+
+        user_in_many_orgs = create_user(
+            "many-orgs@example.com", self.CONFIG_PASSWORD, Organization.objects.create(name="Org 0")
+        )
+        for i in range(1, 6):
+            OrganizationMembership.objects.create(
+                organization=Organization.objects.create(name=f"Org {i}"),
+                user=user_in_many_orgs,
+                level=OrganizationMembership.Level.MEMBER,
+            )
+
+        few = membership_query_count(user_in_one_org)
+        many = membership_query_count(user_in_many_orgs)
+
+        assert many == few, f"membership_level is N+1: {many} membership queries for 6 orgs vs {few} for 1 org"
 
     def test_current_user_includes_pending_invites(self):
         from posthog.models import OrganizationInvite
