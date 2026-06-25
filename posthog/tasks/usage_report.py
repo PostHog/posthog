@@ -1140,13 +1140,15 @@ def get_teams_with_ai_event_count_in_period(
             -- required so one without it stays billable.
             SELECT
                 team_id,
-                COUNT() - uniqExactIf(
-                    JSONExtractString(properties, '$ai_gateway_request_id'),
-                    JSONExtractBool(properties, '$ai_gateway_verified')
-                        AND JSONExtractString(properties, '$ai_gateway_request_id') != ''
-                ) as count
-            FROM events
-            WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+                COUNT() - uniqExactIf(request_id, verified AND request_id != '') as count
+            FROM (
+                SELECT
+                    team_id,
+                    JSONExtractString(properties, '$ai_gateway_request_id') as request_id,
+                    JSONExtractBool(properties, '$ai_gateway_verified') as verified
+                FROM events
+                WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+            )
             GROUP BY team_id
         """,
             {"begin": begin, "end": end, "ai_events": AI_EVENTS},
