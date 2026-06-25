@@ -318,9 +318,13 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "match",
             native_func(|vm, args| {
                 assert_argc(&args, 2, "match")?;
-                let value = args[0].deref(&vm.heap)?.try_as::<str>()?;
-                let regex = args[1].deref(&vm.heap)?.try_as::<str>()?;
-                Ok(HogLiteral::Boolean(regex_match(value, regex, true)?).into())
+                let value = args[0].deref(&vm.heap)?;
+                let regex = args[1].deref(&vm.heap)?;
+                // The reference returns false when either arg is falsy (null/empty) rather than matching.
+                if !value.truthy() || !regex.truthy() {
+                    return Ok(HogLiteral::Boolean(false).into());
+                }
+                Ok(HogLiteral::Boolean(regex_match(value.try_as::<str>()?, regex.try_as::<str>()?, true)?).into())
             }),
         ),
         (
@@ -1066,8 +1070,12 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "isIPAddressInRange",
             native_func(|vm, args| {
                 assert_argc(&args, 2, "isIPAddressInRange")?;
-                let address: &str = args[0].deref(&vm.heap)?.try_as()?;
-                let prefix: &str = args[1].deref(&vm.heap)?.try_as()?;
+                // Reference: `!address || !prefix => false`, so non-string (incl. null) args are false.
+                let (HogLiteral::String(address), HogLiteral::String(prefix)) =
+                    (args[0].deref(&vm.heap)?, args[1].deref(&vm.heap)?)
+                else {
+                    return Ok(HogLiteral::Boolean(false).into());
+                };
                 Ok(HogLiteral::Boolean(is_ip_address_in_range(address, prefix)).into())
             }),
         ),

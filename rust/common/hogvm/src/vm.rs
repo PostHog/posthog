@@ -274,22 +274,10 @@ impl<'a> HogVM<'a> {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
                 self.push_stack(haystack.contains(&needle, &self.heap)?.not()?)?;
             }
-            Operation::Regex => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(regex_match(val, pat, true)?)?;
-            }
-            Operation::NotRegex => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(!regex_match(val, pat, true)?)?;
-            }
-            Operation::Iregex => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(regex_match(val, pat, false)?)?;
-            }
-            Operation::NotIregex => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(!regex_match(val, pat, false)?)?;
-            }
+            Operation::Regex => self.regex_op(true, false)?,
+            Operation::NotRegex => self.regex_op(true, true)?,
+            Operation::Iregex => self.regex_op(false, false)?,
+            Operation::NotIregex => self.regex_op(false, true)?,
             Operation::InCohort => return Err(VmError::NotImplemented("InCohort".to_string())),
             Operation::NotInCohort => {
                 return Err(VmError::NotImplemented("NotInCohort".to_string()))
@@ -743,6 +731,24 @@ impl<'a> HogVM<'a> {
     /// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons))
     /// does a non-`Number` operand reach [`compare_values`]' coercion instead of erroring. `a` is the
     /// top of the stack.
+    // `=~`/`!~` (and the case-insensitive variants). The stack holds the pattern below the value;
+    // either operand being null never matches (the reference's external matcher returns false), so
+    // `=~` is false and `!~` is true.
+    fn regex_op(&mut self, case_sensitive: bool, negate: bool) -> Result<(), VmError> {
+        let val = self.pop_stack()?;
+        let pat = self.pop_stack()?;
+        let matched = {
+            let val_lit = val.deref(&self.heap)?;
+            let pat_lit = pat.deref(&self.heap)?;
+            if matches!(val_lit, HogLiteral::Null) || matches!(pat_lit, HogLiteral::Null) {
+                false
+            } else {
+                regex_match(val_lit.try_as::<str>()?, pat_lit.try_as::<str>()?, case_sensitive)?
+            }
+        };
+        self.push_stack(HogLiteral::Boolean(matched ^ negate))
+    }
+
     fn compare_op(&mut self, op: NumOp) -> Result<(), VmError> {
         if !self.context.coerce_comparisons {
             // Legacy/reference path: both operands must be `Number` or this errors.
