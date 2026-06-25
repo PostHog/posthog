@@ -10,15 +10,14 @@
 # my change actually do?". Read-only. UNSAFE (recreate) changes are flagged by hclexp.
 #
 # Usage (from repo root):
-#   posthog/clickhouse/hcl/ops/diff.sh                 # working tree vs HEAD, all nodes
-#   posthog/clickhouse/hcl/ops/diff.sh <ref>           # working tree vs an arbitrary ref
-#   posthog/clickhouse/hcl/ops/diff.sh <ref> ops       # filter to one role
+#   posthog/clickhouse/hcl/diff.sh                 # working tree vs HEAD, all nodes
+#   posthog/clickhouse/hcl/diff.sh <ref>           # working tree vs an arbitrary ref
+#   posthog/clickhouse/hcl/diff.sh <ref> ops       # filter to one role
 set -euo pipefail
 
 HCL=posthog/clickhouse/hcl
 HCLEXP="$HCL/bin/hclexp"
-OPS_DIR="$HCL/ops"
-MANIFEST="$OPS_DIR/nodes"
+MANIFEST="$HCL/nodes"
 
 REF="HEAD"
 ROLE_FILTER=""
@@ -29,14 +28,14 @@ for arg in "$@"; do
   esac
 done
 
-if git diff --quiet "$REF" -- "$OPS_DIR" 2>/dev/null; then
-  echo "no HCL changes under $OPS_DIR (vs $REF)"
+if git diff --quiet "$REF" -- "$HCL" 2>/dev/null; then
+  echo "no HCL changes under $HCL (vs $REF)"
   exit 0
 fi
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-git archive "$REF" "$OPS_DIR" | tar -x -C "$TMP"
+git archive "$REF" "$HCL" | tar -x -C "$TMP"
 
 rc=0
 while read -r env role layers; do
@@ -46,8 +45,8 @@ while read -r env role layers; do
 
   working=""; committed=""
   for l in $layers; do
-    working="${working:+$working,}$OPS_DIR/$l"
-    committed="${committed:+$committed,}$TMP/$OPS_DIR/$l"
+    working="${working:+$working,}$HCL/$l"
+    committed="${committed:+$committed,}$TMP/$HCL/$l"
   done
 
   echo "=============================================================="

@@ -17,9 +17,8 @@ set -euo pipefail
 
 HCL=posthog/clickhouse/hcl
 HCLEXP="$HCL/bin/hclexp"
-OPS_DIR="$HCL/ops"
-GOLDEN="$OPS_DIR/golden"
-MANIFEST="$OPS_DIR/nodes"
+GOLDEN="$HCL/golden"
+MANIFEST="$HCL/nodes"
 
 # Objects whose source/target lives outside a composed set by design:
 #   - custom_metrics* read the `system` database
@@ -36,7 +35,7 @@ while read -r env role layers; do
 
   # Build comma-separated layer dirs rooted at the ops dir.
   stack=""
-  for l in $layers; do stack="${stack:+$stack,}$OPS_DIR/$l"; done
+  for l in $layers; do stack="${stack:+$stack,}$HCL/$l"; done
 
   echo "== $env/$role: validate =="
   if ! "$HCLEXP" validate -layer "$stack" -skip-validation "$SKIP" >/dev/null; then
@@ -62,9 +61,9 @@ done < "$MANIFEST"
 # The committed build-from-scratch SQL (sql/<env>-<role>.sql) must match the HCL.
 echo "== sql: freshness =="
 tmp_sql="$(mktemp -d)"
-bash "$OPS_DIR/gen-sql.sh" "$tmp_sql" >/dev/null
-if ! diff -r "$OPS_DIR/sql" "$tmp_sql" >/dev/null 2>&1; then
-  echo "FAIL: sql/ is stale — run ops/gen-sql.sh and commit"; diff -r "$OPS_DIR/sql" "$tmp_sql" | head; rc=1
+bash "$HCL/gen-sql.sh" "$tmp_sql" >/dev/null
+if ! diff -r "$HCL/sql" "$tmp_sql" >/dev/null 2>&1; then
+  echo "FAIL: sql/ is stale — run ops/gen-sql.sh and commit"; diff -r "$HCL/sql" "$tmp_sql" | head; rc=1
 else
   echo "sql up to date"
 fi

@@ -16,21 +16,20 @@ declared once in the manifest — there is no object→roles side-table.
 
 ```text
 hcl/
-  bin/hclexp                 # wrapper: $HCLEXP_BIN local binary, or pinned container image
-  ops/
-    nodes                    # composition manifest: (env, role) -> ordered layer list  ← placement
-    shared/                  # objects identical on every role (query_log_archive path + custom_metrics_* sub-views)
-    roles/ops/, roles/ops-prod/   # OPS-only objects (ops-prod = prod envs only)
-    roles/logs/              # LOGS objects identical across all cloud envs
-    env/<env>/ops.hcl        # per-env OPS overlays (sharded_tophog zoo_path, prod-us ProfileEvents2, dev prom_metrics)
-    env-logs/<env>/          # per-env LOGS overlays (kafka/zoo_path/distributed variants; traces on prod only)
-    golden/<env>-<role>.hcl  # resolved composition per node (the desired schema); check.sh diffs against it
-    sql/<env>-<role>.sql     # generated build-from-scratch CREATE schema per node (apply to a fresh ClickHouse)
-    check.sh                 # CI guard: validate + diff every node vs golden + verify golden/ & sql/ are fresh
-    diff.sh                  # preview the DDL your uncommitted edits produce, per node
-    gen-golden.sh            # (re)generate golden/  — hclexp load per node
-    gen-sql.sh               # (re)generate sql/
-    codegen/gen_migration.py # turn an edit into run_sql_with_exceptions(...) operations
+  bin/hclexp               # wrapper: $HCLEXP_BIN local binary, or pinned container image
+  nodes                    # composition manifest: (env, role) -> ordered layer list  ← placement
+  shared/                  # objects identical on every role (query_log_archive path + custom_metrics_* sub-views)
+  roles/ops/, roles/ops-prod/   # OPS-only objects (ops-prod = prod envs only)
+  roles/logs/              # LOGS objects identical across all cloud envs
+  env/<env>/ops.hcl        # per-env OPS overlays (sharded_tophog zoo_path, prod-us ProfileEvents2, dev prom_metrics)
+  env-logs/<env>/          # per-env LOGS overlays (kafka/zoo_path/distributed variants; traces on prod only)
+  golden/<env>-<role>.hcl  # resolved composition per node (the desired schema); check.sh diffs against it
+  sql/<env>-<role>.sql     # generated build-from-scratch CREATE schema per node (apply to a fresh ClickHouse)
+  check.sh                 # CI guard: validate + diff every node vs golden + verify golden/ & sql/ are fresh
+  diff.sh                  # preview the DDL your uncommitted edits produce, per node
+  gen-golden.sh            # (re)generate golden/  — hclexp load per node
+  gen-sql.sh               # (re)generate sql/
+  codegen/gen_migration.py # turn an edit into run_sql_with_exceptions(...) operations
 ```
 
 `node_roles` is **derived**: an object in `shared/` appears in every node's composition →
@@ -44,13 +43,13 @@ qla MV → `system.query_log`, distributed proxies → other clusters) and are l
 
 ## Making a change (edit HCL → migration)
 
-Run from the repo root. All the scripts below call `hclexp` through `ops/bin/hclexp`,
+Run from the repo root. All the scripts below call `hclexp` through `bin/hclexp`,
 which runs the pinned container image — **no install needed, just have Docker running**:
 
 ```bash
-OPS=posthog/clickhouse/hcl/ops
+HCL=posthog/clickhouse/hcl
 # the wrapper used by every script (for running hclexp directly), e.g.:
-$OPS/bin/hclexp -help
+$HCL/bin/hclexp -help
 # it is equivalent to:
 docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
   ghcr.io/posthog/chschema:sha-f9490b7 -help
@@ -68,12 +67,12 @@ docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
 
 2. **Preview the DDL** the change produces, per node:
    ```bash
-   bash $OPS/diff.sh            # committed HEAD -> working tree, per (env, role); flags UNSAFE
+   bash $HCL/diff.sh            # committed HEAD -> working tree, per (env, role); flags UNSAFE
    ```
 
 3. **Generate the migration** — `--auto` writes the next numbered migration and bumps `max_migration.txt`:
    ```bash
-   python $OPS/codegen/gen_migration.py --name <slug> --auto
+   python $HCL/codegen/gen_migration.py --name <slug> --auto
    ```
    It derives `node_roles` from composition and `sharded`/`is_alter_on_replicated_table` from the engine.
    Review the generated `posthog/clickhouse/migrations/NNNN_<slug>.py`: add `settings.CLOUD_DEPLOYMENT`
@@ -82,15 +81,15 @@ docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
 
 4. **Refresh the generated artifacts** so the guard passes:
    ```bash
-   bash $OPS/gen-golden.sh      # rebuild golden/ (resolved compositions); optional [env] [role] filter
-   bash $OPS/gen-sql.sh         # rebuild sql/
+   bash $HCL/gen-golden.sh      # rebuild golden/ (resolved compositions); optional [env] [role] filter
+   bash $HCL/gen-sql.sh         # rebuild sql/
    ```
    (Golden = the desired post-apply schema; the dump pipeline re-introspects after deploy to confirm
    the real cluster converged to it.)
 
 5. **Verify**:
    ```bash
-   bash $OPS/check.sh          # validate + diff every node vs golden + sql freshness; must exit 0
+   bash $HCL/check.sh          # validate + diff every node vs golden + sql freshness; must exit 0
    ```
 
 The committed migration is the apply + history record; the HCL/golden/sql are the source of truth and

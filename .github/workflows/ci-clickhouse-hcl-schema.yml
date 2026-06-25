@@ -51,5 +51,5 @@ jobs:
             - name: Pull hclexp image
               run: docker pull "$HCLEXP_IMAGE"
 
-            - name: OPS schema guard (validate + drift)
-              run: bash posthog/clickhouse/hcl/ops/check.sh
+            - name: HCL schema guard (validate + drift)
+              run: bash posthog/clickhouse/hcl/check.sh

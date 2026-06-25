@@ -30,10 +30,10 @@ source of truth for placement.
 
 ## Usage
 
-Runs `hclexp` via `ops/bin/hclexp` (the pinned ghcr.io image) — just have Docker running:
+Runs `hclexp` via `bin/hclexp` (the pinned ghcr.io image) — just have Docker running:
 
 ```bash
-python posthog/clickhouse/hcl/ops/codegen/gen_migration.py --name add_foo_column --auto
+python posthog/clickhouse/hcl/codegen/gen_migration.py --name add_foo_column --auto
 #   --auto            write the next posthog/clickhouse/migrations/NNNN_<name>.py and bump max_migration.txt
 #   --ref <git-ref>   diff the working tree against this ref (default HEAD)
 #   --out <path|->    without --auto: write here, or stdout (default)

@@ -16,7 +16,7 @@ Output is the `operations = [...]` body for a numbered migration.
 
 Usage (from the repo root):
   HCLEXP_BIN=../python-clickhouse-schema/hclexp \
-    python posthog/clickhouse/hcl/ops/codegen/gen_migration.py --name add_foo
+    python posthog/clickhouse/hcl/codegen/gen_migration.py --name add_foo
   # --ref <git-ref> (default HEAD), --out <path|-> (default stdout)
 """
 
@@ -29,13 +29,13 @@ import subprocess
 import sys
 import tempfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-OPS_DIR = os.path.dirname(HERE)  # .../hcl/ops
-REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", "..", ".."))
-OPS_REL = os.path.relpath(OPS_DIR, REPO_ROOT)  # posthog/clickhouse/hcl/ops
-MANIFEST = os.path.join(OPS_DIR, "nodes")
+HERE = os.path.dirname(os.path.abspath(__file__))  # .../posthog/clickhouse/hcl/codegen
+HCL_DIR = os.path.dirname(HERE)  # .../posthog/clickhouse/hcl
+REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
+HCL_REL = os.path.relpath(HCL_DIR, REPO_ROOT)  # posthog/clickhouse/hcl
+MANIFEST = os.path.join(HCL_DIR, "nodes")
 # absolute path to the wrapper (lives at hcl/bin/hclexp); subprocess won't resolve a relative exec via cwd
-HCLEXP = os.path.join(os.path.dirname(OPS_DIR), "bin", "hclexp")
+HCLEXP = os.path.join(HCL_DIR, "bin", "hclexp")
 
 # Canonical role order for emitted node_roles (mirrors ALL_ROLES in migration 0273).
 # Only roles present in the manifest appear; the rest are listed for stable ordering
@@ -74,7 +74,7 @@ def run(cmd: list[str], **kw) -> str:
 
 
 def stack(root: str, layers: list[str]) -> str:
-    return ",".join(os.path.join(root, OPS_REL, l) for l in layers)
+    return ",".join(os.path.join(root, HCL_REL, l) for l in layers)
 
 
 def engine_map(working_root: str) -> dict[str, str]:
@@ -146,7 +146,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         # Materialize the committed OPS tree so the left side resolves the reference layers.
         tar = subprocess.run(
-            ["git", "archive", args.ref, OPS_REL], cwd=REPO_ROOT, capture_output=True, check=True
+            ["git", "archive", args.ref, HCL_REL], cwd=REPO_ROOT, capture_output=True, check=True
         ).stdout
         subprocess.run(["tar", "-x", "-C", tmp], input=tar, check=True)
 
@@ -193,7 +193,7 @@ def main() -> None:
 
     body = (
         '"""AUTO-GENERATED from the OPS declarative HCL by '
-        "posthog/clickhouse/hcl/ops/codegen/gen_migration.py.\n"
+        "posthog/clickhouse/hcl/codegen/gen_migration.py.\n"
         "Placement (node_roles) is derived from the node composition manifest; review before committing.\n"
         '"""\n'
         "from posthog.clickhouse.client.connection import NodeRole\n"

@@ -2,7 +2,7 @@
 #
 # A node's schema = compose(its layers, in order). Each line is:
 #     <env>  <role>  <layer> [<layer> ...]
-# layers are directories relative to this file (posthog/clickhouse/hcl/ops/).
+# layers are directories relative to this file (posthog/clickhouse/hcl/).
 #
 # node_roles for an object is DERIVED, not declared: it is the set of roles whose
 # composition includes the layer that defines the object. check.sh, diff.sh, and the

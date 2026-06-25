@@ -11,9 +11,8 @@ set -euo pipefail
 
 HCL=posthog/clickhouse/hcl
 HCLEXP="$HCL/bin/hclexp"
-OPS_DIR="$HCL/ops"
-MANIFEST="$OPS_DIR/nodes"
-SQL_DIR="${1:-$OPS_DIR/sql}"  # optional override (check.sh writes to a temp dir to verify freshness)
+MANIFEST="$HCL/nodes"
+SQL_DIR="${1:-$HCL/sql}"  # optional override (check.sh writes to a temp dir to verify freshness)
 
 mkdir -p "$SQL_DIR"
 EMPTY="$(mktemp)"; printf 'database "posthog" {\n}\n' > "$EMPTY"
@@ -24,7 +23,7 @@ while read -r env role layers; do
   case "$env" in \#*) continue ;; esac
 
   stack=""
-  for l in $layers; do stack="${stack:+$stack,}$OPS_DIR/$l"; done
+  for l in $layers; do stack="${stack:+$stack,}$HCL/$l"; done
 
   out="$SQL_DIR/$env-$role.sql"
   {
