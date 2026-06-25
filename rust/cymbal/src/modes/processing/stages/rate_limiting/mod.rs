@@ -22,7 +22,7 @@ use crate::{
     },
 };
 
-pub use limiter::{RateLimitDecision, RateLimiter, RedisRateLimiter, RATE_LIMIT_LUA};
+pub use limiter::{RateLimitDecision, RedisRateLimiter, RATE_LIMIT_LUA};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum LimitKind {

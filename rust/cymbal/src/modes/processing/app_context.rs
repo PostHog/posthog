@@ -15,7 +15,7 @@ use crate::{
     error::UnhandledError,
     modes::processing::config::{init_global_state, ProcessingConfig},
     signals::{MaybeSignalClient, SignalClient},
-    stages::rate_limiting::{RateLimiter, RedisRateLimiter},
+    stages::rate_limiting::RedisRateLimiter,
     stages::resolution::remote::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
         RemoteResolutionConfig,
@@ -49,7 +49,7 @@ pub struct AppContext {
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
     // Error-tracking rate limiter. `None` when disabled (the default), in which
     // case `RateLimitingStage` is a pass-through no-op.
-    pub rate_limiter: Option<Arc<dyn RateLimiter>>,
+    pub rate_limiter: Option<Arc<RedisRateLimiter>>,
     pub signal_client: MaybeSignalClient,
     // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
     // it persists across requests — only the stable mapping is cached, never the Issue
@@ -194,7 +194,7 @@ impl AppContext {
 
 async fn build_rate_limiter(
     config: &ProcessingConfig,
-) -> Result<Option<Arc<dyn RateLimiter>>, UnhandledError> {
+) -> Result<Option<Arc<RedisRateLimiter>>, UnhandledError> {
     if !config.error_tracking_rate_limiter_enabled {
         return Ok(None);
     }

@@ -124,7 +124,7 @@ pub struct ProcessingConfig {
     pub error_tracking_rate_limiter_redis_url: String,
 
     /// Key prefix for the token buckets. Kept distinct from Node's prefix so
-    /// the shadow phase can't interfere with Node's live buckets.
+    /// cymbal never reads or writes the buckets Node is actively enforcing on.
     #[envconfig(
         from = "ERROR_TRACKING_RATE_LIMITER_KEY_PREFIX",
         default = "@posthog/et-rate-limiter"

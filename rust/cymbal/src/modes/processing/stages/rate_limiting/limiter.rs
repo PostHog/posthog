@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use chrono::Utc;
 use common_redis::{CustomRedisError, RedisClient};
 use uuid::Uuid;
@@ -14,22 +13,6 @@ use crate::modes::processing::rules::rate_limit::BucketParams;
 pub struct RateLimitDecision {
     pub issue_admitted: u32,
     pub team_admitted: u32,
-}
-
-/// Position-independent rate-limit primitive: given a team, an (optional) issue,
-/// and the configured limit params, charge `n` events and report how many each
-/// limit admitted. Lives behind a trait so the pipeline stage can be tested with
-/// a fake, and so a future pre-resolution early-drop can reuse the same buckets.
-#[async_trait]
-pub trait RateLimiter: Send + Sync {
-    async fn admit(
-        &self,
-        team_id: i32,
-        issue_id: Option<Uuid>,
-        per_issue: Option<BucketParams>,
-        project: Option<BucketParams>,
-        n: u32,
-    ) -> Result<RateLimitDecision, CustomRedisError>;
 }
 
 /// Fused per-issue → per-team token bucket. Both keys carry a `{team_id}` hash
@@ -56,7 +39,16 @@ local function take(key, want, max, rate, ttl, now)
   local admit = math.floor(tokens)
   if admit > want then admit = want end
 
-  redis.call('hset', key, 'ts', now, 'pool', tokens - admit)
+  -- Never regress `ts`. `now` is each pod's wall clock, so a pod with a lagging
+  -- clock (now < stored ts) must not drag the timestamp backward, or the next
+  -- forward call would compute an inflated `elapsed` and over-refill the bucket.
+  -- Matches the non-regression guard in the Node.js token-bucket scripts.
+  local ts_to_write = now
+  if cur[1] ~= false and now < tonumber(cur[1]) then
+    ts_to_write = tonumber(cur[1])
+  end
+
+  redis.call('hset', key, 'ts', ts_to_write, 'pool', tokens - admit)
   redis.call('expire', key, ttl)
   return admit
 end
@@ -97,9 +89,10 @@ impl RedisRateLimiter {
     }
 }
 
-#[async_trait]
-impl RateLimiter for RedisRateLimiter {
-    async fn admit(
+impl RedisRateLimiter {
+    /// Charge `n` events for a team's (optional) issue against the configured
+    /// per-issue and project limits, and report how many each limit admitted.
+    pub async fn admit(
         &self,
         team_id: i32,
         issue_id: Option<Uuid>,

@@ -43,10 +43,6 @@ impl RateLimitSettings {
         Self::to_bucket_params(self.project_value, self.project_bucket_minutes)
     }
 
-    pub fn any_enabled(&self) -> bool {
-        self.per_issue().is_some() || self.project().is_some()
-    }
-
     pub async fn load_for_team<'c, E>(conn: E, team_id: i32) -> Result<Option<Self>, sqlx::Error>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
@@ -81,7 +77,6 @@ mod tests {
         let s = RateLimitSettings::default();
         assert!(s.per_issue().is_none());
         assert!(s.project().is_none());
-        assert!(!s.any_enabled());
 
         let s = RateLimitSettings {
             project_value: Some(0),
@@ -106,6 +101,5 @@ mod tests {
         let per_issue = s.per_issue().unwrap();
         assert_eq!(per_issue.max, 60.0);
         assert!((per_issue.rate - (60.0 / 3600.0)).abs() < 1e-9);
-        assert!(s.any_enabled());
     }
 }
