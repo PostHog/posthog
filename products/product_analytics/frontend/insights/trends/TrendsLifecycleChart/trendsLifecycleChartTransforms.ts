@@ -32,8 +32,8 @@ export interface LifecycleValueLabelOptions {
 
 // Sum of the active segments in a band — new/resurrecting/returning are stacked as positives;
 // dormant is the lone negative series, so positives-only gives the active total for that period.
-function activeBandTotal(bandValues: number[]): number {
-    return bandValues.reduce((sum, v) => (v > 0 ? sum + v : sum), 0)
+function activeBandTotal(bandValues: number[] | undefined): number {
+    return (bandValues ?? []).reduce((sum, v) => (v > 0 ? sum + v : sum), 0)
 }
 
 // A segment's percentage is its share of the active orgs that period — *not* of every status, so
