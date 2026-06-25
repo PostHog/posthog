@@ -4,9 +4,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.run_wizard import (
     WIZARD_PACKAGE,
     _build_wizard_command,
+    _format_wizard_output,
     _wizard_region,
 )
 
@@ -34,3 +36,12 @@ class TestBuildWizardCommand(SimpleTestCase):
         ):
             assert _wizard_region() == expected
             assert f"--region {expected}" in _build_wizard_command("/tmp/workspace/repos/a/b", 1, WIZARD_PACKAGE)
+
+    def test_format_wizard_output_captures_exit_code_stdout_and_stderr(self) -> None:
+        # The agent reads this file to understand what the wizard did; dropping stderr (where wizard
+        # errors land) or the exit code would blind it on failed runs.
+        output = _format_wizard_output(ExecutionResult(stdout="installed sdk", stderr="a warning", exit_code=1))
+
+        assert "exit code 1" in output
+        assert "installed sdk" in output
+        assert "a warning" in output

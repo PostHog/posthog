@@ -7,7 +7,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 
 from .get_task_processing_context import TaskProcessingContext
@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 # Published npm package, pinned to @latest so cloud runs exercise the same build users install.
 WIZARD_PACKAGE = "@posthog/wizard@latest"
 WIZARD_RUN_TIMEOUT_SECONDS = 25 * 60
+
+# The wizard's console output is written here in the repo so the downstream agent can read what the
+# wizard did (and why it failed). Local reference only — the agent prompt instructs not to commit it.
+WIZARD_OUTPUT_FILENAME = ".posthog-wizard-output.log"
 
 
 @dataclass
@@ -28,6 +32,15 @@ class RunWizardInput:
 
 def _wizard_region() -> str:
     return "eu" if get_instance_region() == "EU" else "us"
+
+
+def _format_wizard_output(result: ExecutionResult) -> str:
+    sections = [f"PostHog setup wizard output (exit code {result.exit_code})"]
+    if result.stdout:
+        sections += ["", "=== stdout ===", result.stdout]
+    if result.stderr:
+        sections += ["", "=== stderr ===", result.stderr]
+    return "\n".join(sections) + "\n"
 
 
 def _build_wizard_command(repo_path: str, project_id: int, package: str) -> str:
@@ -73,6 +86,10 @@ def run_wizard(input: RunWizardInput) -> None:
         command = _build_wizard_command(repo_path, ctx.team_id, package)
 
         result = sandbox.execute(command, timeout_seconds=WIZARD_RUN_TIMEOUT_SECONDS)
+
+        # Persist the wizard's output in the repo so the agent can consult what happened. Written
+        # before the exit-code check so a failed run still leaves a record on disk for post-mortems.
+        sandbox.write_file(f"{repo_path}/{WIZARD_OUTPUT_FILENAME}", _format_wizard_output(result).encode("utf-8"))
 
         if result.stdout:
             emit_agent_log(ctx.run_id, "debug", result.stdout)
