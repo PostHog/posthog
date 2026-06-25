@@ -7,7 +7,6 @@ import {
     LemonButton,
     LemonInput,
     LemonSkeleton,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
     LemonTagType,
@@ -25,13 +24,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { BillableBadge } from '../components/BillableBadge'
-import { RunJobsTable, StatusDot, formatCost } from '../components/runTables'
+import { RunJobsTable, RunsTable, formatCost } from '../components/runTables'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
-import type { PRCostSummaryApi, PullRequestApi, WorkflowJobApi } from '../generated/api.schemas'
+import type { PRCostSummaryApi, PullRequestApi } from '../generated/api.schemas'
 import { githubCommitUrl, githubPrUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
-import { verdictTag } from '../lib/runStatus'
 import {
     PrCommitRuns,
     PrRunRow,
@@ -484,34 +481,11 @@ function PrSummaryCards({
     )
 }
 
-interface RunsTableProps {
-    runs: PrRunRow[]
-    repoOwner: string
-    repoName: string
-    loading: boolean
-    runJobs: Record<string, WorkflowJobApi[]>
-    runJobsLoading: boolean
-    expandedRunKeys: string[]
-    setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
-    // Per-run cost keyed by jobCacheKey(run_id, run_attempt); show the cost column only when the job source is synced.
-    runCostByKey: Record<string, { minutes: number | null; cost: number | null }>
-    showCost: boolean
-}
-
-/** One workflow's runs on the PR: commit (which push) + attempt, verdict, duration; expand a row for its jobs. */
-function RunsTable({
-    runs,
-    repoOwner,
-    repoName,
-    loading,
-    runJobs,
-    runJobsLoading,
-    expandedRunKeys,
-    setRunExpanded,
-    runCostByKey,
-    showCost,
-}: RunsTableProps): JSX.Element {
-    // Re-runs share a runId; number each multi-attempt run by start order to label "attempt N".
+/**
+ * Lead columns for the PR runs table: the commit (which push) + re-run attempt. Re-runs share a runId,
+ * so attempts are numbered by start order. The shared RunsTable appends verdict / duration / started / cost.
+ */
+function commitLeadColumns(runs: PrRunRow[], repoOwner: string, repoName: string): LemonTableColumns<PrRunRow> {
     const attemptIndexByKey = new Map<string, number>()
     const runsByRunId = new Map<number, PrRunRow[]>()
     runs.forEach((run) => {
@@ -528,8 +502,7 @@ function RunsTable({
                 .forEach((run, index) => attemptIndexByKey.set(runRowKey(run), index + 1))
         }
     })
-
-    const columns: LemonTableColumns<PrRunRow> = [
+    return [
         {
             // The workflow is already the parent row, so lead with the commit (which push) + attempt.
             title: 'Commit',
@@ -557,104 +530,7 @@ function RunsTable({
                 )
             },
         },
-        {
-            title: 'Verdict',
-            key: 'verdict',
-            width: 110,
-            sorter: (a, b) => verdictTag(a.conclusion).label.localeCompare(verdictTag(b.conclusion).label),
-            render: (_, run) => <StatusDot conclusion={run.conclusion} />,
-        },
-        {
-            title: 'Duration',
-            key: 'duration',
-            width: 90,
-            align: 'right',
-            sorter: (a, b) => (a.durationSeconds ?? -1) - (b.durationSeconds ?? -1),
-            render: (_, run) => (
-                <span className="text-xs tabular-nums whitespace-nowrap">
-                    {run.durationSeconds == null ? '—' : humanFriendlyDuration(run.durationSeconds)}
-                </span>
-            ),
-        },
-        {
-            title: 'Started',
-            key: 'started',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''),
-            render: (_, run) =>
-                run.startedAt ? (
-                    <span className="text-xs whitespace-nowrap">
-                        <TZLabel time={run.startedAt} />
-                    </span>
-                ) : (
-                    <span className="text-xs text-secondary">—</span>
-                ),
-        },
-        // Per-run cost, trailing + right-aligned to match the job table below it — cost reads in the same
-        // spot at every depth (workflow → run → job) instead of jumping across the row as you drill in.
-        ...((showCost
-            ? [
-                  {
-                      title: 'Cost',
-                      key: 'cost',
-                      width: 110,
-                      align: 'right',
-                      render: (_: unknown, run: PrRunRow) => {
-                          const cost = run.runId != null ? runCostByKey[jobCacheKey(run.runId, run.runAttempt)] : null
-                          return <BillableBadge minutes={cost?.minutes ?? null} costUsd={cost?.cost ?? null} />
-                      },
-                  },
-              ]
-            : []) as LemonTableColumns<PrRunRow>),
     ]
-
-    return (
-        <LemonTable
-            data-attr="engineering-analytics-pr-runs-table"
-            size="small"
-            columns={columns}
-            dataSource={runs}
-            rowKey={runRowKey}
-            loading={loading}
-            useURLForSorting={false}
-            // Oldest push first so the rows read in the same order as the sparkline (left → right),
-            // making each bar map to its commit row.
-            defaultSorting={{ columnKey: 'started', order: 1 }}
-            // Whole-row click toggles the job breakdown (the logs-viewer pattern); in-row links
-            // stopPropagation so they still navigate.
-            onRow={(run) =>
-                run.runId != null
-                    ? {
-                          className: 'cursor-pointer',
-                          onClick: () =>
-                              setRunExpanded(
-                                  runRowKey(run),
-                                  !expandedRunKeys.includes(runRowKey(run)),
-                                  run.runId,
-                                  run.runAttempt
-                              ),
-                      }
-                    : {}
-            }
-            expandable={{
-                // Built-in compact toggle (chevron icon) + whole-row click. No onRowExpand/onRowCollapse
-                // so the toggle click just bubbles to onRow — one toggle, not two.
-                noIndent: true,
-                rowExpandable: (run) => run.runId != null,
-                isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
-                expandedRowRender: (run) => (
-                    <RunJobsTable
-                        jobs={run.runId != null ? runJobs[jobCacheKey(run.runId, run.runAttempt)] : undefined}
-                        loading={runJobsLoading}
-                        embedded
-                    />
-                ),
-            }}
-            emptyState="No CI runs match."
-            nouns={['workflow run', 'workflow runs']}
-        />
-    )
 }
 
 export function PullRequestDetailScene(): JSX.Element {
@@ -836,15 +712,18 @@ export function PullRequestDetailScene(): JSX.Element {
                                 return (
                                     <RunsTable
                                         runs={wfRuns}
-                                        repoOwner={repoOwner}
-                                        repoName={repoName}
+                                        rowKey={runRowKey}
+                                        leadColumns={commitLeadColumns(wfRuns, repoOwner, repoName)}
                                         loading={prRunsLoading}
                                         runJobs={runJobs}
                                         runJobsLoading={runJobsLoading}
-                                        expandedRunKeys={expandedRunKeys}
-                                        setRunExpanded={setRunExpanded}
+                                        expandedKeys={expandedRunKeys}
+                                        setExpanded={setRunExpanded}
                                         runCostByKey={runCostByKey}
                                         showCost={prCost?.jobs_available ?? false}
+                                        // Oldest push first so rows read in the same order as the sparkline.
+                                        defaultSorting={{ columnKey: 'started', order: 1 }}
+                                        dataAttr="engineering-analytics-pr-runs-table"
                                     />
                                 )
                             },

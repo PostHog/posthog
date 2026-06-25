@@ -4,8 +4,6 @@ import { combineUrl } from 'kea-router'
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyDuration } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,29 +11,49 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { BillableBadge } from '../components/BillableBadge'
-import { RunnerBadge } from '../components/runTables'
-import type { WorkflowRunDetailApi, WorkflowRunnerCostApi } from '../generated/api.schemas'
+import { RunnerBadge, RunsTable } from '../components/runTables'
+import type { WorkflowRunnerCostApi } from '../generated/api.schemas'
 import { githubWorkflowUrl } from '../lib/github'
-import { verdictTag } from '../lib/runStatus'
-import { WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
+import { WorkflowRunRow, WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
 
-/** Where a workflow's CI spend goes, split by runner tier (self-hosted tiers + free GitHub-hosted). */
-function RunnerCostBreakdown({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Element {
+/** Where a workflow's CI spend goes, split by runner tier — a small table (not bespoke chips) so it reads
+ *  like every other table in the product. */
+function RunnerCostTable({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Element {
+    const columns: LemonTableColumns<WorkflowRunnerCostApi> = [
+        {
+            title: 'Runner',
+            key: 'runner',
+            render: (_, cost) => <RunnerBadge provider={cost.provider} label={cost.runner_label} />,
+        },
+        {
+            title: 'Jobs',
+            key: 'jobs',
+            width: 90,
+            align: 'right',
+            render: (_, cost) => <span className="text-xs tabular-nums">{cost.job_count}</span>,
+        },
+        {
+            title: 'Cost',
+            key: 'cost',
+            width: 140,
+            align: 'right',
+            render: (_, cost) => <BillableBadge minutes={cost.billable_minutes} costUsd={cost.estimated_cost_usd} />,
+        },
+    ]
     return (
         <div className="flex flex-col gap-2">
-            <span className="text-xs text-secondary">Cost by runner</span>
-            <div className="flex flex-wrap gap-2">
-                {costs.map((cost) => (
-                    <div
-                        key={`${cost.provider}:${cost.runner_label}`}
-                        className="flex items-center gap-2 rounded-lg border bg-surface-primary px-3 py-2"
-                    >
-                        <RunnerBadge provider={cost.provider} label={cost.runner_label} />
-                        <BillableBadge minutes={cost.billable_minutes} costUsd={cost.estimated_cost_usd} />
-                        <span className="text-xs text-tertiary">{cost.job_count} jobs</span>
-                    </div>
-                ))}
+            <div className="flex flex-wrap items-baseline gap-2">
+                <h3 className="mb-0">Cost by runner</h3>
+                <LemonTag type="warning">estimate · wall-clock × reference rate</LemonTag>
             </div>
+            <LemonTable
+                data-attr="engineering-analytics-workflow-runner-costs"
+                size="small"
+                columns={columns}
+                dataSource={costs}
+                rowKey={(cost) => `${cost.provider}:${cost.runner_label}`}
+                nouns={['runner tier', 'runner tiers']}
+            />
         </div>
     )
 }
@@ -52,13 +70,26 @@ export const scene: SceneExport<WorkflowRunsLogicProps> = {
 }
 
 export function WorkflowRunsScene(): JSX.Element {
-    const { runs, runsLoading, runnerCosts, loadFailed, sourceId, repoOwner, repoName, workflowName } =
-        useValues(workflowRunsLogic)
-    const { loadRuns } = useActions(workflowRunsLogic)
+    const {
+        runRows,
+        runsLoading,
+        runnerCosts,
+        runJobs,
+        runJobsLoading,
+        expandedRunKeys,
+        loadFailed,
+        sourceId,
+        repoOwner,
+        repoName,
+        workflowName,
+    } = useValues(workflowRunsLogic)
+    const { loadRuns, setRunExpanded } = useActions(workflowRunsLogic)
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
 
-    const columns: LemonTableColumns<WorkflowRunDetailApi> = [
+    // Run id (→ the single-run page) + attempt, branch, attributed PR. The shared RunsTable appends
+    // verdict / duration / started and the expand-to-jobs behavior.
+    const leadColumns: LemonTableColumns<WorkflowRunRow> = [
         {
             title: 'Run',
             key: 'run',
@@ -66,34 +97,26 @@ export function WorkflowRunsScene(): JSX.Element {
                 <Link
                     to={
                         combineUrl(
-                            urls.engineeringAnalyticsWorkflowRun(run.repo.owner, run.repo.name, run.id),
+                            urls.engineeringAnalyticsWorkflowRun(run.repoOwner, run.repoName, run.id),
                             sourceId ? { source: sourceId } : {}
                         ).url
                     }
                     className="font-medium tabular-nums"
+                    onClick={(e) => e.stopPropagation()}
                 >
                     #{run.id}
-                    {run.run_attempt > 1 && (
-                        <span className="ml-1 text-xs text-secondary">· attempt {run.run_attempt}</span>
+                    {(run.runAttempt ?? 1) > 1 && (
+                        <span className="ml-1 text-xs text-secondary">· attempt {run.runAttempt}</span>
                     )}
                 </Link>
             ),
         },
         {
-            title: 'Status',
-            key: 'status',
-            width: 120,
-            render: (_, run) => {
-                const tag = verdictTag(run.conclusion)
-                return <LemonTag type={tag.type}>{tag.label}</LemonTag>
-            },
-        },
-        {
             title: 'Branch',
             key: 'branch',
             render: (_, run) =>
-                run.head_branch ? (
-                    <span className="font-mono text-xs">{run.head_branch}</span>
+                run.headBranch ? (
+                    <span className="font-mono text-xs">{run.headBranch}</span>
                 ) : (
                     <span className="text-xs text-secondary">—</span>
                 ),
@@ -103,43 +126,18 @@ export function WorkflowRunsScene(): JSX.Element {
             key: 'pr',
             width: 80,
             render: (_, run) =>
-                run.pr_number > 0 ? (
+                run.prNumber > 0 ? (
                     <Link
                         to={
                             combineUrl(
-                                urls.engineeringAnalyticsPullRequest(run.repo.owner, run.repo.name, run.pr_number),
+                                urls.engineeringAnalyticsPullRequest(run.repoOwner, run.repoName, run.prNumber),
                                 sourceId ? { source: sourceId } : {}
                             ).url
                         }
+                        onClick={(e) => e.stopPropagation()}
                     >
-                        #{run.pr_number}
+                        #{run.prNumber}
                     </Link>
-                ) : (
-                    <span className="text-xs text-secondary">—</span>
-                ),
-        },
-        {
-            title: 'Duration',
-            key: 'duration',
-            width: 120,
-            align: 'right',
-            sorter: (a, b) => (a.duration_seconds ?? -1) - (b.duration_seconds ?? -1),
-            render: (_, run) => (
-                <span className="text-xs whitespace-nowrap tabular-nums">
-                    {run.duration_seconds == null ? '—' : humanFriendlyDuration(run.duration_seconds)}
-                </span>
-            ),
-        },
-        {
-            title: 'Started',
-            key: 'started',
-            width: 140,
-            align: 'right',
-            render: (_, run) =>
-                run.run_started_at ? (
-                    <span className="text-xs whitespace-nowrap">
-                        <TZLabel time={run.run_started_at} />
-                    </span>
                 ) : (
                     <span className="text-xs text-secondary">—</span>
                 ),
@@ -173,19 +171,24 @@ export function WorkflowRunsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            {runnerCosts.length > 0 && <RunnerCostBreakdown costs={runnerCosts} />}
-            <LemonTable
-                data-attr="engineering-analytics-workflow-runs-table"
-                size="small"
-                columns={columns}
-                dataSource={runs}
-                rowKey={(run) => `${run.id}-${run.run_attempt}`}
-                loading={runsLoading}
-                useURLForSorting={false}
-                pagination={{ pageSize: 50 }}
-                emptyState="No runs for this workflow in the connected source."
-                nouns={['run', 'runs']}
-            />
+            {runnerCosts.length > 0 && <RunnerCostTable costs={runnerCosts} />}
+            <div className="flex flex-col gap-2">
+                <h3 className="mb-0">Runs</h3>
+                <RunsTable
+                    runs={runRows}
+                    rowKey={(run) => `${run.id}-${run.runAttempt}`}
+                    leadColumns={leadColumns}
+                    loading={runsLoading}
+                    runJobs={runJobs}
+                    runJobsLoading={runJobsLoading}
+                    expandedKeys={expandedRunKeys}
+                    setExpanded={setRunExpanded}
+                    // Newest run first on the workflow page.
+                    defaultSorting={{ columnKey: 'started', order: -1 }}
+                    dataAttr="engineering-analytics-workflow-runs-table"
+                    emptyState="No runs for this workflow in the connected source."
+                />
+            </div>
         </SceneContent>
     )
 }

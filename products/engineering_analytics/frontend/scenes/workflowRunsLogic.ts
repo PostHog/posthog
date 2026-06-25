@@ -1,4 +1,4 @@
-import { afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
@@ -6,11 +6,31 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { engineeringAnalyticsWorkflowRunnerCosts, engineeringAnalyticsWorkflowRuns } from '../generated/api'
-import type { WorkflowRunDetailApi, WorkflowRunnerCostApi } from '../generated/api.schemas'
+import {
+    engineeringAnalyticsWorkflowJobs,
+    engineeringAnalyticsWorkflowRunnerCosts,
+    engineeringAnalyticsWorkflowRuns,
+} from '../generated/api'
+import type { WorkflowJobApi, WorkflowRunDetailApi, WorkflowRunnerCostApi } from '../generated/api.schemas'
+import { jobCacheKey } from '../lib/jobs'
 import type { workflowRunsLogicType } from './workflowRunsLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
+
+/** A workflow run mapped to the shared RunsTable shape: the RunRowBase fields the table needs, plus the
+ *  lead-column data this page shows (run id, branch, attributed PR). */
+export interface WorkflowRunRow {
+    runId: number | null
+    runAttempt: number | null
+    conclusion: string | null
+    durationSeconds: number | null
+    startedAt: string | null
+    id: number
+    headBranch: string | null
+    prNumber: number
+    repoOwner: string
+    repoName: string
+}
 
 export interface WorkflowRunsLogicProps {
     repoOwner: string
@@ -29,7 +49,17 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             `${props.tabId ?? 'default'}/${props.repoOwner}/${props.repoName}/${props.workflowName}@${props.sourceId ?? ''}`
     ),
 
-    loaders(({ props }) => ({
+    actions({
+        // Row expansion is keyed by a per-row key (re-runs share a run_id); jobs are fetched per run+attempt.
+        setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => ({
+            rowKey,
+            expanded,
+            runId,
+            runAttempt,
+        }),
+    }),
+
+    loaders(({ props, values }) => ({
         runs: [
             [] as WorkflowRunDetailApi[],
             {
@@ -53,6 +83,27 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     }),
             },
         ],
+        runJobs: [
+            {} as Record<string, WorkflowJobApi[]>,
+            {
+                // Lazy: fetched only when a run row is first expanded. Keyed by run+attempt; reads the
+                // post-await values.runJobs so two near-simultaneous first-expands don't clobber each other.
+                loadJobs: async ({
+                    runId,
+                    runAttempt,
+                }: {
+                    runId: number
+                    runAttempt: number | null
+                }): Promise<Record<string, WorkflowJobApi[]>> => {
+                    const jobs = await engineeringAnalyticsWorkflowJobs(projectId(), {
+                        run_id: runId,
+                        run_attempt: runAttempt ?? undefined,
+                        source_id: props.sourceId ?? undefined,
+                    })
+                    return { ...values.runJobs, [jobCacheKey(runId, runAttempt)]: jobs }
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -62,6 +113,13 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                 loadRuns: () => false,
                 loadRunsSuccess: () => false,
                 loadRunsFailure: () => true,
+            },
+        ],
+        expandedRunKeys: [
+            [] as string[],
+            {
+                setRunExpanded: (state, { rowKey, expanded }) =>
+                    expanded ? Array.from(new Set([...state, rowKey])) : state.filter((key) => key !== rowKey),
             },
         ],
     }),
@@ -75,6 +133,24 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         workflowName: [
             () => [(_, p: WorkflowRunsLogicProps) => p.workflowName],
             (workflowName): string => workflowName,
+        ],
+        // Runs mapped to the shared RunsTable row shape so this page reuses the same runs → jobs table the
+        // PR detail page uses.
+        runRows: [
+            (s) => [s.runs],
+            (runs: WorkflowRunDetailApi[]): WorkflowRunRow[] =>
+                runs.map((run) => ({
+                    runId: run.id,
+                    runAttempt: run.run_attempt,
+                    conclusion: run.conclusion,
+                    durationSeconds: run.duration_seconds,
+                    startedAt: run.run_started_at,
+                    id: run.id,
+                    headBranch: run.head_branch,
+                    prNumber: run.pr_number,
+                    repoOwner: run.repo.owner,
+                    repoName: run.repo.name,
+                })),
         ],
         breadcrumbs: [
             (_, p) => [p.repoOwner, p.repoName, p.workflowName],
@@ -99,6 +175,15 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             ],
         ],
     }),
+
+    listeners(({ actions, values }) => ({
+        setRunExpanded: ({ expanded, runId, runAttempt }) => {
+            // Fetch a run+attempt's jobs once, on first expand.
+            if (expanded && runId != null && !(jobCacheKey(runId, runAttempt) in values.runJobs)) {
+                actions.loadJobs({ runId, runAttempt })
+            }
+        },
+    })),
 
     afterMount(({ actions }) => {
         actions.loadRuns()

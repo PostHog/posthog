@@ -3,14 +3,19 @@
 // the two surfaces read identically — a job row looks the same whether it's expanded under a run or
 // shown on the run's own page.
 
+import { ReactNode } from 'react'
+
 import { LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import type { WorkflowJobApi } from '../generated/api.schemas'
+import { jobCacheKey } from '../lib/jobs'
 import { verdictTag } from '../lib/runStatus'
+import { BillableBadge } from './BillableBadge'
 
 // A short item still shows next to a long one (durations span seconds → minutes).
 const MIN_BAR_PCT = 4
@@ -205,6 +210,150 @@ export function RunJobsTable({
             dataSource={jobs}
             rowKey={(job) => job.id}
             nouns={['job', 'jobs']}
+        />
+    )
+}
+
+// The minimum a run row needs to drive the shared columns + job expansion. Callers add their own lead
+// columns (the PR page leads with the commit; the workflow page leads with run id / branch / PR).
+export interface RunRowBase {
+    runId: number | null
+    runAttempt: number | null
+    conclusion: string | null
+    durationSeconds: number | null
+    startedAt: string | null
+}
+
+export interface RunsTableProps<T extends RunRowBase> {
+    runs: T[]
+    rowKey: (row: T) => string
+    /** Columns shown before the shared Verdict / Duration / Started / Cost columns. */
+    leadColumns: LemonTableColumns<T>
+    loading: boolean
+    // null/undefined per key = that run's jobs aren't loaded yet; lazily fetched on first expand.
+    runJobs: Record<string, WorkflowJobApi[]>
+    runJobsLoading: boolean
+    expandedKeys: string[]
+    setExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
+    /** Per-run cost keyed by jobCacheKey; pass with showCost to add the trailing Cost column. */
+    runCostByKey?: Record<string, { minutes: number | null; cost: number | null }>
+    showCost?: boolean
+    defaultSorting?: { columnKey: string; order: 1 | -1 }
+    emptyState?: ReactNode
+    dataAttr?: string
+}
+
+/**
+ * A list of workflow runs, each expandable to its jobs (RunJobsTable) — the same row → jobs drill-down
+ * on the PR detail page and the single-workflow page. The trailing columns (verdict, duration, started,
+ * optional cost) and the expand-to-jobs behavior are shared; only the leading columns differ per caller.
+ */
+export function RunsTable<T extends RunRowBase>({
+    runs,
+    rowKey,
+    leadColumns,
+    loading,
+    runJobs,
+    runJobsLoading,
+    expandedKeys,
+    setExpanded,
+    runCostByKey,
+    showCost = false,
+    defaultSorting = { columnKey: 'started', order: 1 },
+    emptyState = 'No CI runs match.',
+    dataAttr = 'engineering-analytics-runs-table',
+}: RunsTableProps<T>): JSX.Element {
+    const columns: LemonTableColumns<T> = [
+        ...leadColumns,
+        {
+            title: 'Verdict',
+            key: 'verdict',
+            width: 110,
+            sorter: (a, b) => verdictTag(a.conclusion).label.localeCompare(verdictTag(b.conclusion).label),
+            render: (_, run) => <StatusDot conclusion={run.conclusion} />,
+        },
+        {
+            title: 'Duration',
+            key: 'duration',
+            width: 90,
+            align: 'right',
+            sorter: (a, b) => (a.durationSeconds ?? -1) - (b.durationSeconds ?? -1),
+            render: (_, run) => (
+                <span className="text-xs tabular-nums whitespace-nowrap">
+                    {run.durationSeconds == null ? '—' : humanFriendlyDuration(run.durationSeconds)}
+                </span>
+            ),
+        },
+        {
+            title: 'Started',
+            key: 'started',
+            width: 130,
+            align: 'right',
+            sorter: (a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''),
+            render: (_, run) =>
+                run.startedAt ? (
+                    <span className="text-xs whitespace-nowrap">
+                        <TZLabel time={run.startedAt} />
+                    </span>
+                ) : (
+                    <span className="text-xs text-secondary">—</span>
+                ),
+        },
+        // Per-run cost, trailing + right-aligned so it lines up with the job table below it — cost reads in
+        // the same spot at every depth instead of jumping across the row as you drill in.
+        ...((showCost
+            ? [
+                  {
+                      title: 'Cost',
+                      key: 'cost',
+                      width: 110,
+                      align: 'right',
+                      render: (_: unknown, run: T) => {
+                          const cost = run.runId != null ? runCostByKey?.[jobCacheKey(run.runId, run.runAttempt)] : null
+                          return <BillableBadge minutes={cost?.minutes ?? null} costUsd={cost?.cost ?? null} />
+                      },
+                  },
+              ]
+            : []) as LemonTableColumns<T>),
+    ]
+
+    return (
+        <LemonTable
+            data-attr={dataAttr}
+            size="small"
+            columns={columns}
+            dataSource={runs}
+            rowKey={rowKey}
+            loading={loading}
+            useURLForSorting={false}
+            defaultSorting={defaultSorting}
+            // Whole-row click toggles the job breakdown (the logs-viewer pattern); in-row links
+            // stopPropagation so they still navigate.
+            onRow={(run) =>
+                run.runId != null
+                    ? {
+                          className: 'cursor-pointer',
+                          onClick: () =>
+                              setExpanded(rowKey(run), !expandedKeys.includes(rowKey(run)), run.runId, run.runAttempt),
+                      }
+                    : {}
+            }
+            expandable={{
+                // Built-in compact toggle (chevron) + whole-row click. No onRowExpand/onRowCollapse so the
+                // toggle click just bubbles to onRow — one toggle, not two.
+                noIndent: true,
+                rowExpandable: (run) => run.runId != null,
+                isRowExpanded: (run) => expandedKeys.includes(rowKey(run)),
+                expandedRowRender: (run) => (
+                    <RunJobsTable
+                        jobs={run.runId != null ? runJobs[jobCacheKey(run.runId, run.runAttempt)] : undefined}
+                        loading={runJobsLoading}
+                        embedded
+                    />
+                ),
+            }}
+            emptyState={emptyState}
+            nouns={['workflow run', 'workflow runs']}
         />
     )
 }

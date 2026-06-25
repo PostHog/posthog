@@ -13,6 +13,7 @@ import {
     engineeringAnalyticsWorkflowJobs,
 } from '../generated/api'
 import type { PRCostSummaryApi, PRLifecycleApi, WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
+import { jobCacheKey } from '../lib/jobs'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion, summarizeLifecycle } from '../lib/lifecycle'
 import type { WorkflowHealthBucket, WorkflowHealthRow } from './engineeringAnalyticsLogic'
 import type { pullRequestDetailLogicType } from './pullRequestDetailLogicType'
@@ -73,10 +74,9 @@ function toWorkflowRun(run: WorkflowRunDetailApi): WorkflowRun {
     }
 }
 
-/** Cache key for a run's jobs — keyed by attempt so a re-run's attempts don't overwrite each other. */
-export function jobCacheKey(runId: number, runAttempt: number | null): string {
-    return `${runId}:${runAttempt ?? 'latest'}`
-}
+// Re-exported for existing importers (the PR detail scene); defined in lib/jobs so the shared RunsTable
+// can read the cache without importing scene logic.
+export { jobCacheKey }
 
 /** Group a PR's runs by commit, newest push first — so the detail shows CI across all pushes. */
 export function groupRunsByCommit(prRuns: WorkflowRunDetailApi[]): PrCommitRuns[] {
