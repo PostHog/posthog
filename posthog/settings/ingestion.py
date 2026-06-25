@@ -53,6 +53,13 @@ REPLAY_CAPTURE_ENDPOINT = os.getenv("REPLAY_CAPTURE_ENDPOINT", "/s/")
 
 CAPTURE_INTERNAL_URL = os.getenv("CAPTURE_INTERNAL_URL", "http://localhost:8010")
 CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://localhost:8010")
+
+# Internal OTLP/HTTP endpoint for first-party log emission into the Logs product. Logs are ingested
+# by the dedicated `capture-logs` service (path `/i/v1/logs`), separate from analytics capture. The
+# project token sent as the OTLP Bearer routes records to a team's Logs. Local dev default points at
+# the capture proxy; prod is set per-region via charts to the in-cluster capture-logs address. Empty
+# disables emission (callers no-op).
+OTLP_LOGS_INGEST_ENDPOINT = os.getenv("OTLP_LOGS_INGEST_ENDPOINT", "http://localhost:8010/i/v1/logs")
 # Thread-pool size for capture_internal batch chunk fan-out (default 8, was per-event fan-out pre-v1).
 CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=8)
 
