@@ -189,20 +189,18 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         return
                     }
 
-                    // A 5xx/no-response failure may still have created the account server-side
-                    // (the write commits but the response is lost). Probe the invite: if it's been
-                    // consumed, the account exists — route to login instead of surfacing a
-                    // misleading "could not complete signup" error.
-                    if ((error.status >= 500 || error.status === 0) && values.invite) {
+                    // A 5xx or lost-response (undefined status) submit can still have committed the
+                    // account server-side. The invite is deleted in that same transaction, so probe the
+                    // email instead (it survives). Reaching this form means prevalidate found no account,
+                    // so one existing now was created by this submit — send them to login, not a
+                    // misleading signup error.
+                    const targetEmail = values.invite?.target_email
+                    if ((error.status === undefined || error.status >= 500) && targetEmail) {
                         try {
-                            await api.get(`api/signup/${values.invite.id}/`)
+                            await api.create('api/signup/precheck', { email: targetEmail })
                         } catch (probeError) {
                             const probe = probeError as Record<string, any>
-                            if (probe.code === 'account_exists') {
-                                location.href = probe.detail
-                                return
-                            }
-                            if (['invalid_invite', 'invalid_recipient', 'user_already_member'].includes(probe.code)) {
+                            if (probe.status === 409 || probe.code === 'account_exists') {
                                 location.href = '/login'
                                 return
                             }
