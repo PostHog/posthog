@@ -1510,6 +1510,11 @@ class IP2WhoisSourceConfig(config.Config):
 
 
 @config.config
+class IkasSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class IlluminaBasespaceSourceConfig(config.Config):
     pass
 
@@ -1720,6 +1725,11 @@ class LeexiSourceConfig(config.Config):
 @config.config
 class LemlistSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class LemonSqueezySourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3815,6 +3825,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.HUMANITIX: HumanitixSourceConfig,
         ExternalDataSourceType.HUNTR: HuntrSourceConfig,
         ExternalDataSourceType.IP2WHOIS: IP2WhoisSourceConfig,
+        ExternalDataSourceType.IKAS: IkasSourceConfig,
         ExternalDataSourceType.ILLUMINABASESPACE: IlluminaBasespaceSourceConfig,
         ExternalDataSourceType.IMAGGA: ImaggaSourceConfig,
         ExternalDataSourceType.INCIDENTIO: IncidentIoSourceConfig,
@@ -3856,6 +3867,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.LEADFEEDER: LeadfeederSourceConfig,
         ExternalDataSourceType.LEEXI: LeexiSourceConfig,
         ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
+        ExternalDataSourceType.LEMONSQUEEZY: LemonSqueezySourceConfig,
         ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
         ExternalDataSourceType.LEVER: LeverSourceConfig,
         ExternalDataSourceType.LIANA: LianaSourceConfig,

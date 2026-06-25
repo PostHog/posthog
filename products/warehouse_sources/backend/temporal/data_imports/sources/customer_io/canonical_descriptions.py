@@ -26,6 +26,8 @@ _WEBHOOK_COLUMNS = {
     "metric": "The specific metric for the event (e.g. sent, delivered, opened, clicked, bounced).",
     "object_type": "Type of object the event is about (customer, email, push, sms, in_app, slack, webhook).",
     "delivery_id": "Identifier of the message delivery the event relates to.",
+    "action_id": "Identifier of the specific action (message) within the campaign or journey that produced the event.",
+    "parent_action_id": "Identifier of the parent action in the journey, for actions nested inside another action.",
     "customer_id": "Identifier of the customer the event relates to.",
     "campaign_id": "Identifier of the campaign that triggered the message, if any.",
     "newsletter_id": "Identifier of the newsletter that triggered the message, if any.",

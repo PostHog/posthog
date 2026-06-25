@@ -2698,6 +2698,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
+      total_median_conversion_time?: number | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -16114,6 +16116,8 @@ export namespace Schemas {
      * * `Liana` - Liana
      * * `TawkTo` - TawkTo
      * * `Hightouch` - Hightouch
+     * * `LemonSqueezy` - LemonSqueezy
+     * * `Ikas` - Ikas
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16762,6 +16766,8 @@ export namespace Schemas {
       Liana: 'Liana',
       TawkTo: 'TawkTo',
       Hightouch: 'Hightouch',
+      LemonSqueezy: 'LemonSqueezy',
+      Ikas: 'Ikas',
     } as const;
 
     /**
@@ -17423,7 +17429,9 @@ export namespace Schemas {
        * * `Superwall` - Superwall
        * * `Liana` - Liana
        * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch */
+       * * `Hightouch` - Hightouch
+       * * `LemonSqueezy` - LemonSqueezy
+       * * `Ikas` - Ikas */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22639,7 +22647,9 @@ export namespace Schemas {
        * * `Superwall` - Superwall
        * * `Liana` - Liana
        * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch */
+       * * `Hightouch` - Hightouch
+       * * `LemonSqueezy` - LemonSqueezy
+       * * `Ikas` - Ikas */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -30167,6 +30177,60 @@ export namespace Schemas {
       Healthy: 'healthy',
       NeedsAttention: 'needs_attention',
     } as const;
+
+    export interface WorkflowCost {
+      /** GitHub Actions workflow name this cost is for. */
+      workflow_name: string;
+      /** Billable (self-hosted) minutes for this workflow within the scope. */
+      billable_minutes: number;
+      /**
+         * Estimated dollar cost for this workflow, or null when nothing was costable.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+      /** Costed jobs for this workflow (billable Linux runner, finished). */
+      costed_jobs: number;
+      /** Billable Linux jobs still queued/running for this workflow. */
+      unsettled_jobs: number;
+      /** Provider-hosted/non-Linux jobs for this workflow, outside the estimate. */
+      excluded_jobs: number;
+    }
+
+    export interface RunCost {
+      /** GitHub Actions run id this cost is for. */
+      run_id: number;
+      /** Re-run attempt number; 1 for the first attempt. */
+      run_attempt: number;
+      /** Billable (self-hosted) minutes for this run attempt. */
+      billable_minutes: number;
+      /**
+         * Estimated dollar cost for this run attempt, or null when nothing was costable.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+    }
+
+    export interface PRCostSummary {
+      /** Same spend broken down per workflow. */
+      by_workflow: WorkflowCost[];
+      /** Same spend broken down per workflow run, keyed by (run_id, run_attempt). */
+      by_run: RunCost[];
+      /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
+      jobs_available: boolean;
+      /** Wall-clock minutes consumed on billable (self-hosted) runners, summed across costed jobs. */
+      billable_minutes: number;
+      /**
+         * Estimated dollar cost (sum of per-job estimates: elapsed x tier multiplier x reference rate). Null when no job was costable.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+      /** Jobs counted in the estimate (billable Linux runner, finished). */
+      costed_jobs: number;
+      /** Billable Linux jobs still queued/running (no elapsed) — excluded from the estimate. */
+      unsettled_jobs: number;
+      /** Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners — outside the estimate. */
+      excluded_jobs: number;
+    }
 
     export interface RepoRef {
       /** Code host provider, e.g. 'github'. */
@@ -43597,10 +43661,15 @@ export namespace Schemas {
       /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
       rerun_cycles: number;
       /**
-         * Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.
+         * Estimated CI cost in USD summed over this PR's jobs (billable runners only). Null when nothing was costable or the job-level source isn't synced.
          * @nullable
          */
       estimated_cost_usd?: number | null;
+      /**
+         * Billable (self-hosted) minutes summed over this PR's jobs. Null when the job source isn't synced.
+         * @nullable
+         */
+      billable_minutes?: number | null;
     }
 
     export interface PullRequestList {
@@ -45381,6 +45450,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
+      total_median_conversion_time?: number | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -48279,7 +48350,9 @@ export namespace Schemas {
        * * `Superwall` - Superwall
        * * `Liana` - Liana
        * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch */
+       * * `Hightouch` - Hightouch
+       * * `LemonSqueezy` - LemonSqueezy
+       * * `Ikas` - Ikas */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -48967,7 +49040,9 @@ export namespace Schemas {
        * * `Superwall` - Superwall
        * * `Liana` - Liana
        * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch */
+       * * `Hightouch` - Hightouch
+       * * `LemonSqueezy` - LemonSqueezy
+       * * `Ikas` - Ikas */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -49647,7 +49722,9 @@ export namespace Schemas {
        * * `Superwall` - Superwall
        * * `Liana` - Liana
        * * `TawkTo` - TawkTo
-       * * `Hightouch` - Hightouch */
+       * * `Hightouch` - Hightouch
+       * * `LemonSqueezy` - LemonSqueezy
+       * * `Ikas` - Ikas */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -52143,24 +52220,24 @@ export namespace Schemas {
       results: WidgetCatalogEntry[];
     }
 
-    export interface WorkflowHealthDay {
-      /** UTC calendar day. */
-      day: string;
-      /** Runs started that day. */
+    export interface WorkflowHealthBucket {
+      /** Bucket start, aligned to the item's granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /** Runs started in this bucket. */
       run_count: number;
-      /** Runs that completed that day. */
+      /** Runs that completed in this bucket. */
       completed: number;
-      /** Completed runs with conclusion 'success' that day. */
+      /** Completed runs with conclusion 'success' in this bucket. */
       successes: number;
-      /** Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+      /** Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
       failures: number;
     }
 
     export interface WorkflowHealthItem {
       /** Repository the workflow runs in. */
       repo: RepoRef;
-      /** Daily run history across the whole window, oldest first, zero-filled. */
-      daily: WorkflowHealthDay[];
+      /** Run history across the whole window, oldest first, zero-filled, bucketed by granularity. */
+      buckets: WorkflowHealthBucket[];
       /** GitHub Actions workflow name. */
       workflow_name: string;
       /** Total runs started in the window. */
@@ -52185,6 +52262,123 @@ export namespace Schemas {
          * @nullable
          */
       last_failure_at: string | null;
+      /**
+         * Whether the most recent completed run was a decisive failure (conclusion 'failure' or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.
+         * @nullable
+         */
+      latest_run_failed: boolean | null;
+      /**
+         * Raw conclusion of the most recent completed run ('success', 'cancelled', 'skipped', ...), so a real pass can be told from a non-failure non-success. Null when none completed.
+         * @nullable
+         */
+      latest_run_conclusion: string | null;
+      /** Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'. */
+      granularity: string;
+      /**
+         * Billable (self-hosted) minutes over this workflow's jobs in the window. Null when the job-level source isn't synced.
+         * @nullable
+         */
+      billable_minutes?: number | null;
+      /**
+         * Estimated cost in USD over this workflow's jobs in the window. Null when nothing was costable or the job source isn't synced.
+         * @nullable
+         */
+      estimated_cost_usd?: number | null;
+    }
+
+    export interface WorkflowJob {
+      /** GitHub Actions job id. */
+      id: number;
+      /** The workflow run id this job belongs to. */
+      run_id: number;
+      /** Job name. */
+      name: string;
+      /** Raw job status: 'queued', 'in_progress', 'completed', etc. */
+      status: string;
+      /**
+         * Job conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null while running.
+         * @nullable
+         */
+      conclusion: string | null;
+      /**
+         * When the job started, or null while still queued.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * When the job completed, or null while still running.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * Wall-clock duration in seconds; null until the job completes.
+         * @nullable
+         */
+      duration_seconds: number | null;
+      /** Where the job ran: 'github_hosted' (free for open source), 'self_hosted' (billable), or 'unknown'. */
+      runner_provider: string;
+      /** Runner tier the job ran on (e.g. '16-core' or 'ubuntu-latest'), or '' when unknown. */
+      runner_label: string;
+      /**
+         * Estimated cost in USD from runner tier + elapsed time; null when the tier is unknown or the job hasn't finished.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowRunDetail {
+      /** Repository the run belongs to. */
+      repo: RepoRef;
+      /** GitHub Actions run id. */
+      id: number;
+      /** GitHub Actions workflow name. */
+      workflow_name: string;
+      /** Commit SHA the run was triggered on. */
+      head_sha: string;
+      /** Git branch the run was triggered on. */
+      head_branch: string;
+      /** Raw run status: 'queued', 'in_progress', 'completed', etc. */
+      status: string;
+      /**
+         * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', 'action_required', ...), or null while still in progress.
+         * @nullable
+         */
+      conclusion: string | null;
+      /**
+         * When the run started, or null for a queued/barely-started run.
+         * @nullable
+         */
+      run_started_at: string | null;
+      /**
+         * When the run was last updated (its finish time once completed), or null when unstarted.
+         * @nullable
+         */
+      updated_at: string | null;
+      /**
+         * Wall-clock duration in seconds; null until the run completes.
+         * @nullable
+         */
+      duration_seconds: number | null;
+      /** Re-run attempt number; 1 for the first attempt. */
+      run_attempt: number;
+      /** Attributed pull request number, or 0 when unattributed. */
+      pr_number: number;
+    }
+
+    export interface WorkflowRunnerCost {
+      /** 'self_hosted' (billable), 'github_hosted' (free), or 'unknown'. */
+      provider: string;
+      /** Runner tier, e.g. '16-core' or 'ubuntu-latest'. */
+      runner_label: string;
+      /** Jobs that ran on this tier for the workflow. */
+      job_count: number;
+      /** Billable minutes on this tier. */
+      billable_minutes: number;
+      /**
+         * Estimated cost in USD on this tier; null for non-billable (github-hosted/non-Linux).
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
     }
 
     export interface WorkflowStatsRow {
@@ -60107,6 +60301,21 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsPrCostParams = {
+    /**
+     * Pull request number to estimate cost for.
+     */
+    pr_number: number;
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
@@ -60122,7 +60331,26 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsPrRunsParams = {
+    /**
+     * Pull request number whose runs to list.
+     */
+    pr_number: number;
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPullRequestsParams = {
+    /**
+     * Optional GitHub login to scope the list to one author's pull requests.
+     */
+    author?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
@@ -60150,7 +60378,7 @@ export namespace Schemas {
      */
     branch?: string;
     /**
-     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     * Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
      */
     date_from?: string;
     /**
@@ -60161,6 +60389,78 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowJobsParams = {
+    /**
+     * Which re-run attempt to scope jobs to. Omit to use the run's latest attempt; pass an explicit attempt to avoid mixing jobs across a re-run's attempts.
+     */
+    run_attempt?: number;
+    /**
+     * Workflow run id to list jobs for.
+     */
+    run_id: number;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowRunParams = {
+    /**
+     * GitHub Actions run id to inspect.
+     */
+    run_id: number;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository the workflow belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Workflow name to break down cost for.
+     */
+    workflow_name: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository the workflow belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Workflow name to list runs for.
+     */
+    workflow_name: string;
     };
 
     export type EnvironmentsListParams = {

@@ -448,6 +448,7 @@ doesn't conflict with concurrent PRs.
 - hugging_face
 - humanitix
 - huntr
+- ikas
 - illumina_basespace
 - imagga
 - incident_io
@@ -480,6 +481,7 @@ doesn't conflict with concurrent PRs.
 - kyve
 - leadfeeder
 - leexi
+- lemon_squeezy
 - less_annoying_crm
 - lever
 - liana
