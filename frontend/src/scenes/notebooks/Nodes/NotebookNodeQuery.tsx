@@ -55,8 +55,13 @@ const Component = ({
     const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded, nodeId: resolvedNodeId, notebookLogic } = useValues(nodeLogic)
-    const { isShared, getSharedCachedInsight, getSharedCachedInlineQueryResults, canvasFiltersOverride } =
-        useValues(notebookLogic)
+    const {
+        editingNodeIds,
+        isShared,
+        getSharedCachedInsight,
+        getSharedCachedInlineQueryResults,
+        canvasFiltersOverride,
+    } = useValues(notebookLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
     const sharedCachedInsight = query.kind === NodeKind.SavedInsightNode ? getSharedCachedInsight(query.shortId) : null
@@ -184,7 +189,7 @@ const Component = ({
                 <NotebookSQLEditorOutput
                     attributes={attributes}
                     updateAttributes={updateAttributes}
-                    showOutputToolbar={!!attributes.showSettings}
+                    showOutputToolbar={!!editingNodeIds[resolvedNodeId]}
                 />
             </div>
         )
