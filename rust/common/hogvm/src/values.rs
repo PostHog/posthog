@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr};
+use std::{cell::RefCell, cmp::Ordering, collections::HashMap, fmt::Display, rc::Rc, str::FromStr};
 
 use chrono::NaiveDate;
 use indexmap::IndexMap;
@@ -10,6 +10,20 @@ use crate::{
     memory::{HeapReference, VmHeap},
     vm::MAX_JSON_SERDE_DEPTH,
 };
+
+/// A closure upvalue, Lua-style. While **open** it is a view onto a live stack slot at `location`
+/// (reads/writes go through `stack[location]`); when the slot leaves scope it is **closed** —
+/// `value` is snapshotted from the slot and the upvalue owns it thereafter. Shared via
+/// [`UpvalueCell`] so several closures (and the VM's open-upvalue list) reference the same cell and
+/// all observe the close.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Upvalue {
+    pub location: usize,
+    pub closed: bool,
+    pub value: Option<HogValue>,
+}
+
+pub type UpvalueCell = Rc<RefCell<Upvalue>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Num {
@@ -27,7 +41,7 @@ pub enum Callable {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Closure {
-    pub captures: Vec<HeapReference>,
+    pub captures: Vec<UpvalueCell>,
     pub callable: Callable,
 }
 
@@ -230,7 +244,7 @@ impl HogLiteral {
             HogLiteral::Callable(_) => std::mem::size_of::<Callable>(),
             HogLiteral::Closure(c) => {
                 std::mem::size_of::<Closure>()
-                    + (c.captures.len() * std::mem::size_of::<HeapReference>())
+                    + (c.captures.len() * std::mem::size_of::<UpvalueCell>())
             }
         }
     }

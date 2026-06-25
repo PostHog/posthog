@@ -1,4 +1,6 @@
 use std::any::Any;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use indexmap::IndexMap;
 use serde::de::DeserializeOwned;
@@ -12,7 +14,7 @@ use crate::{
     util::{get_json_nested, like, regex_match},
     values::{
         compare_values, Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable,
-        Num, NumOp,
+        Num, NumOp, Upvalue, UpvalueCell,
     },
 };
 
@@ -48,6 +50,10 @@ pub struct HogVM<'a> {
 
     stack_frames: Vec<CallFrame>,
     throw_frames: Vec<ThrowFrame>,
+    // Upvalues still open (viewing a live stack slot). Closures created in this scope share these
+    // cells; when a slot leaves scope (stack truncation) the matching upvalue is closed (snapshotted)
+    // and removed from here. See `capture_upvalue` / `close_upvalues`.
+    open_upvalues: Vec<UpvalueCell>,
     ip: usize,
 
     context: &'a ExecutionContext,
@@ -58,10 +64,10 @@ pub struct HogVM<'a> {
 }
 
 struct CallFrame {
-    ret_ptr: usize,               // Where to jump back to when we're done
-    ret_symbol: Option<Symbol>,   // The module to return to when we're done
-    stack_start: usize,           // Point in the stack the frame values start
-    captures: Vec<HeapReference>, // Values captured from the parent scope/frame
+    ret_ptr: usize,             // Where to jump back to when we're done
+    ret_symbol: Option<Symbol>, // The module to return to when we're done
+    stack_start: usize,         // Point in the stack the frame values start
+    captures: Vec<UpvalueCell>, // Upvalues captured from the parent scope/frame
 }
 
 struct ThrowFrame {
@@ -77,6 +83,7 @@ impl<'a> HogVM<'a> {
             stack: Vec::new(),
             stack_frames: Vec::new(),
             throw_frames: Vec::new(),
+            open_upvalues: Vec::new(),
             ip: 0,
             current_symbol: None,
             context,
@@ -591,19 +598,19 @@ impl<'a> HogVM<'a> {
                 }
                 let mut captures = Vec::with_capacity(capture_count);
                 for _ in 0..capture_count {
-                    // Indicates whether this captured argument is to a stack variable in this
-                    // frames stack, or a captured argument in this frames captured arguments list
+                    // Indicates whether this captured value is a local in this frame's stack, or an
+                    // upvalue already captured by this frame's closure.
                     let is_local: bool = self.next()?;
-                    // usize as closures can only capture stack variables in the current scope
                     let offset: usize = self.next()?;
                     if is_local {
-                        let index = self
+                        let location = self
                             .current_frame_base()
                             .checked_add(offset)
                             .ok_or(VmError::IntegerOverflow)?;
-                        captures.push(self.hoist(index)?);
+                        captures.push(self.capture_upvalue(location));
                     } else {
-                        captures.push(self.get_capture(offset)?);
+                        // Nested closure: share the parent frame's upvalue cell.
+                        captures.push(self.frame_capture(offset)?);
                     }
                 }
 
@@ -654,35 +661,41 @@ impl<'a> HogVM<'a> {
             }
             Operation::GetUpvalue => {
                 let index: usize = self.next()?;
-                let ptr = self.get_capture(index)?;
-                self.push_stack(ptr)?;
+                let cell = self.frame_capture(index)?;
+                // Open: read through to the live stack slot. Closed: read the snapshot it owns.
+                let val = {
+                    let uv = cell.borrow();
+                    if uv.closed {
+                        uv.value.clone().unwrap_or_else(|| HogLiteral::Null.into())
+                    } else {
+                        self.stack
+                            .get(uv.location)
+                            .cloned()
+                            .ok_or(VmError::StackIndexOutOfBounds)?
+                    }
+                };
+                self.push_stack(val)?;
             }
             Operation::SetUpvalue => {
                 let index: usize = self.next()?;
-                let ptr = self.get_capture(index)?;
-                // If the top of the stack was a reference, we write that reference to the capture,
-                // but if it was a literal, we write the literal to the heap location the capture points
-                // to.
+                let cell = self.frame_capture(index)?;
                 let val = self.pop_stack()?;
-                let new_size = val.size();
-                match val {
-                    HogValue::Lit(hog_literal) => {
-                        let target = self.heap.get_mut(ptr)?;
-                        let old_size = target.size();
-                        *target = hog_literal;
-                        // This doesn't assert the allocation is possible - the next one will fail, which is good enough
-                        self.heap.current_bytes = self
-                            .heap
-                            .current_bytes
-                            .saturating_sub(old_size)
-                            .saturating_add(new_size)
-                    }
-                    HogValue::Ref(heap_reference) => self.set_capture(index, heap_reference)?,
+                // Open: write through to the live stack slot. Closed: store into the snapshot.
+                let (closed, location) = {
+                    let uv = cell.borrow();
+                    (uv.closed, uv.location)
+                };
+                if closed {
+                    cell.borrow_mut().value = Some(val);
+                } else {
+                    self.set_stack_val(location, val)?;
                 }
             }
             Operation::CloseUpvalue => {
-                // The TS impl just pops here - I don't really understand why
-                self.pop_stack()?;
+                // Reference: `stackKeepFirstElements(stack.length - 1)` — close any upvalue viewing
+                // the top slot (snapshot it), then drop the slot.
+                let new_len = self.stack.len().saturating_sub(1);
+                self.truncate_stack(new_len)?;
             }
         }
 
@@ -698,9 +711,8 @@ impl<'a> HogVM<'a> {
         }
     }
 
-    // Returns a ptr to the captured value in this frames scope, if there is one,
-    // or an error if the index is out of bounds
-    fn get_capture(&self, index: usize) -> Result<HeapReference, VmError> {
+    // The upvalue cell captured at `index` by the currently-executing closure.
+    fn frame_capture(&self, index: usize) -> Result<UpvalueCell, VmError> {
         let Some(frame) = self.stack_frames.last() else {
             return Err(VmError::NoFrame);
         };
@@ -711,18 +723,53 @@ impl<'a> HogVM<'a> {
             .ok_or(VmError::CaptureOutOfBounds(index))
     }
 
-    // Changes the location on the heap a capture points to, as distinct from changing the
-    // value on the heap the capture points to. Think of this like storing a new pointer into
-    // a variable name, vs. writing a new value into the variable itself
-    fn set_capture(&mut self, index: usize, value: HeapReference) -> Result<(), VmError> {
-        let Some(frame) = self.stack_frames.last_mut() else {
-            return Err(VmError::NoFrame);
-        };
-        frame
-            .captures
-            .get_mut(index)
-            .ok_or(VmError::CaptureOutOfBounds(index))
-            .map(|capture| *capture = value)
+    // Capture the stack slot at `location` as an open upvalue, deduplicating so all closures that
+    // capture the same live slot share one cell (and therefore observe the same close). Matches the
+    // reference's `captureUpValue`.
+    fn capture_upvalue(&mut self, location: usize) -> UpvalueCell {
+        if let Some(existing) = self
+            .open_upvalues
+            .iter()
+            .find(|cell| cell.borrow().location == location)
+            .cloned()
+        {
+            return existing;
+        }
+        let cell = Rc::new(RefCell::new(Upvalue {
+            location,
+            closed: false,
+            value: None,
+        }));
+        self.open_upvalues.push(cell.clone());
+        cell
+    }
+
+    // Close every open upvalue whose slot is at or above `from` (i.e. about to leave scope):
+    // snapshot the current stack value into the cell and drop it from the open list. The closures
+    // holding the cell keep the snapshot. Matches the reference's `stackKeepFirstElements` close loop.
+    fn close_upvalues(&mut self, from: usize) {
+        if self.open_upvalues.is_empty() {
+            return;
+        }
+        let mut i = 0;
+        while i < self.open_upvalues.len() {
+            let location = self.open_upvalues[i].borrow().location;
+            if location >= from {
+                let snapshot = self
+                    .stack
+                    .get(location)
+                    .cloned()
+                    .unwrap_or_else(|| HogLiteral::Null.into());
+                {
+                    let mut uv = self.open_upvalues[i].borrow_mut();
+                    uv.closed = true;
+                    uv.value = Some(snapshot);
+                }
+                self.open_upvalues.swap_remove(i);
+            } else {
+                i += 1;
+            }
+        }
     }
 
     fn next<T>(&mut self) -> Result<T, VmError>
@@ -844,6 +891,9 @@ impl<'a> HogVM<'a> {
         if new_len > self.stack.len() {
             return Err(VmError::StackIndexOutOfBounds);
         }
+        // Any upvalue viewing a slot that's about to disappear must be closed (snapshotted) first,
+        // so closures that captured it keep the value rather than a dangling stack index.
+        self.close_upvalues(new_len);
         self.stack.truncate(new_len);
         Ok(())
     }
