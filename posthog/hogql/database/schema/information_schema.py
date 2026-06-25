@@ -399,10 +399,57 @@ class _Introspection:
         self, database: "Database", context: "HogQLContext", allowed_tables: Optional[frozenset[str]] = None
     ) -> None:
         self.database = database
+        self.context = context
         self.allowed_tables = allowed_tables
         self.warehouse = set(database.get_warehouse_table_names())
         self.views = set(database.get_view_names())
         self.descriptions, self.row_counts, self.view_row_counts = _warehouse_metadata(context.team_id)
+        # Resolved `SELECT * FROM <table>` scope per table, so expression columns can be typed without
+        # re-resolving the table once per expression.
+        self._table_scope_cache: dict[str, Optional[ast.SelectQueryType]] = {}
+
+    def _data_type(self, table_name: str, field: DatabaseField) -> str:
+        if isinstance(field, ExpressionField):
+            return self._expression_data_type(table_name, field)
+        return _field_type_name(field)
+
+    def _table_scope(self, table_name: str) -> Optional["ast.SelectQueryType"]:
+        if table_name not in self._table_scope_cache:
+            # Deferred: resolver imports the schema package, so a module-level import would cycle.
+            from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
+
+            scope: Optional[ast.SelectQueryType] = None
+            try:
+                chain = table_name.replace("`", "").split(".")
+                if self.database.has_table(chain):
+                    select = ast.SelectQuery(
+                        select=[ast.Field(chain=["*"])],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=chain)),
+                    )
+                    scope = resolve_types(select, self.context, "hogql").type
+            except Exception:
+                scope = None
+            self._table_scope_cache[table_name] = scope
+        return self._table_scope_cache[table_name]
+
+    def _expression_data_type(self, table_name: str, field: ExpressionField) -> str:
+        """Type an expression column by the value it evaluates to, like the HogQL autocomplete does;
+        fall back to the generic "Expression" if it can't be resolved."""
+        scope = self._table_scope(table_name)
+        if scope is None:
+            return "Expression"
+        # Deferred: see `_table_scope`.
+        from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
+        from posthog.hogql.visitor import clone_expr  # noqa: PLC0415
+
+        try:
+            # Clone so resolution never mutates the shared schema field's expression.
+            resolved = resolve_types(clone_expr(field.expr, clear_locations=True), self.context, "hogql", [scope])
+            if resolved.type is None:
+                return "Expression"
+            return resolved.type.resolve_constant_type(self.context).print_type()
+        except Exception:
+            return "Expression"
 
     def _row_count(self, name: str, table: Table, table_type: str) -> Optional[int]:
         if table_type == "data_warehouse" and table.name:
@@ -482,7 +529,7 @@ class _Introspection:
                         table_name,
                         qualified,
                         ordinal,
-                        _field_type_name(field),
+                        self._data_type(table_name, field),
                         bool(field.is_nullable()),
                         bool(field.array),
                         kind,
