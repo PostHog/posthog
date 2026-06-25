@@ -1142,11 +1142,15 @@ def get_teams_with_ai_event_count_in_period(
             -- single exemption and the replayed copies stay billable.
             -- $ai_gateway_verified/$ai_gateway_request_id are ingestion-stamped, not
             -- client-settable, so they can't be forged to dodge AIO billing.
+            -- Require a non-empty request_id: capture treats an empty one as
+            -- untrusted, so a verified event without one stays billable rather than
+            -- collapsing a whole empty-string bucket into a single exemption.
             SELECT
                 team_id,
                 COUNT() - uniqExactIf(
                     JSONExtractString(properties, '$ai_gateway_request_id'),
                     JSONExtractBool(properties, '$ai_gateway_verified')
+                        AND JSONExtractString(properties, '$ai_gateway_request_id') != ''
                 ) as count
             FROM events
             WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s

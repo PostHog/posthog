@@ -5492,6 +5492,23 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "a replayed request_id earns one exemption; the other two replays stay billable",
         )
 
+        # Verified but no request_id: can't be deduped, so they stay billable
+        # rather than collapsing the empty-string bucket into one exemption.
+        for i in range(2):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"no_req_id_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 1),
+                properties={"$ai_model": "claude-3", "$ai_gateway_verified": True},
+            )
+        flush_persons_and_events()
+        self.assertEqual(
+            ai_count(),
+            baseline_count + 8,
+            "verified events with no request_id are not blanket-deduped; both stay counted",
+        )
+
     def test_conversations_events_excluded_from_billable_count(self) -> None:
         """Test that Conversations widget events are excluded from billable event counts."""
         from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
