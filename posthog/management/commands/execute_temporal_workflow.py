@@ -12,7 +12,6 @@ from posthog.temporal.ai import AI_WORKFLOWS
 from posthog.temporal.ai_observability import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
 from posthog.temporal.backfill_group_type_created_at import WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
 from posthog.temporal.common.client import connect
-from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
 from posthog.temporal.dlq_replay import WORKFLOWS as DLQ_REPLAY_WORKFLOWS
@@ -32,6 +31,7 @@ from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
+from products.warehouse_sources.backend.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from products.web_analytics.backend.temporal import WORKFLOWS as WA_DIGEST_WORKFLOWS
 
 

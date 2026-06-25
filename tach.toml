@@ -229,10 +229,15 @@ layer = "modules"
 [[modules]]
 path = "products.warehouse_sources"
 depends_on = [
+    "ee",
     "posthog",
+    "products.cdp",
     "products.data_modeling",
     "products.data_tools",
     "products.data_warehouse",
+    "products.posthog_ai",
+    "products.warehouse_sources_queue",
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -282,6 +287,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.notifications",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -547,6 +553,7 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.cdp",
+    "products.conversations",
     "products.dashboards",
     "products.data_warehouse",
     "products.error_tracking",
