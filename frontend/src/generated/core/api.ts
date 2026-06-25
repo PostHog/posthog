@@ -19,7 +19,6 @@ import type {
     DesktopFileSystemInstructionsVersionsListParams,
     DesktopFileSystemListParams,
     DesktopFileSystemShortcutListParams,
-    DesktopPersistedFolderListParams,
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
     ExportedAssetApi,
@@ -50,7 +49,6 @@ import type {
     PaginatedOrganizationDomainListApi,
     PaginatedOrganizationInviteListApi,
     PaginatedOrganizationOAuthApplicationListApi,
-    PaginatedPersistedFolderListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
@@ -61,16 +59,12 @@ import type {
     PatchedFileSystemShortcutApi,
     PatchedFolderInstructionsPublishApi,
     PatchedOrganizationDomainApi,
-    PatchedPersistedFolderApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
-    PersistedFolderApi,
-    PersistedFolderListParams,
     ProjectBackwardCompatApi,
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
-    PromotedProductIntentApi,
     PropertyDefinitionsListParams,
     RevokeOtherSessionsResponseApi,
     SharingConfigurationApi,
@@ -1029,27 +1023,6 @@ export const organizationsProjectsLogsConfigPartialUpdate = async (
     )
 }
 
-export const getOrganizationsProjectsPromotedProductIntentRetrieveUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/promoted_product_intent/`
-}
-
-/**
- * Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` record (the one carrying the `onboarding product selected - primary` context) — not from the `user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no primary onboarding product intent has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
- */
-export const organizationsProjectsPromotedProductIntentRetrieve = async (
-    organizationId: string,
-    id: number,
-    options?: RequestInit
-): Promise<PromotedProductIntentApi> => {
-    return apiMutator<PromotedProductIntentApi>(
-        getOrganizationsProjectsPromotedProductIntentRetrieveUrl(organizationId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
 export const getOrganizationsProjectsResetTokenPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/reset_token/`
 }
@@ -1847,146 +1820,6 @@ export const desktopFileSystemShortcutReorderCreate = async (
     })
 }
 
-export const getDesktopPersistedFolderListUrl = (projectId: string, params?: DesktopPersistedFolderListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/desktop_persisted_folder/?${stringifiedParams}`
-        : `/api/projects/${projectId}/desktop_persisted_folder/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderList = async (
-    projectId: string,
-    params?: DesktopPersistedFolderListParams,
-    options?: RequestInit
-): Promise<PaginatedPersistedFolderListApi> => {
-    return apiMutator<PaginatedPersistedFolderListApi>(getDesktopPersistedFolderListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopPersistedFolderCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/desktop_persisted_folder/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderCreate = async (
-    projectId: string,
-    persistedFolderApi: NonReadonly<PersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getDesktopPersistedFolderCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(persistedFolderApi),
-    })
-}
-
-export const getDesktopPersistedFolderRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_persisted_folder/${id}/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getDesktopPersistedFolderRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopPersistedFolderUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_persisted_folder/${id}/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderUpdate = async (
-    projectId: string,
-    id: string,
-    persistedFolderApi: NonReadonly<PersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getDesktopPersistedFolderUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(persistedFolderApi),
-    })
-}
-
-export const getDesktopPersistedFolderPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_persisted_folder/${id}/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedPersistedFolderApi?: NonReadonly<PatchedPersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getDesktopPersistedFolderPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedPersistedFolderApi),
-    })
-}
-
-export const getDesktopPersistedFolderDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/desktop_persisted_folder/${id}/`
-}
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDesktopPersistedFolderDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
 export const getExportsListUrl = (projectId: string, params?: ExportsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -2569,112 +2402,6 @@ export const notebooksSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
-    })
-}
-
-export const getPersistedFolderListUrl = (projectId: string, params?: PersistedFolderListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persisted_folder/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persisted_folder/`
-}
-
-export const persistedFolderList = async (
-    projectId: string,
-    params?: PersistedFolderListParams,
-    options?: RequestInit
-): Promise<PaginatedPersistedFolderListApi> => {
-    return apiMutator<PaginatedPersistedFolderListApi>(getPersistedFolderListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getPersistedFolderCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/persisted_folder/`
-}
-
-export const persistedFolderCreate = async (
-    projectId: string,
-    persistedFolderApi: NonReadonly<PersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getPersistedFolderCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(persistedFolderApi),
-    })
-}
-
-export const getPersistedFolderRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/persisted_folder/${id}/`
-}
-
-export const persistedFolderRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getPersistedFolderRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getPersistedFolderUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/persisted_folder/${id}/`
-}
-
-export const persistedFolderUpdate = async (
-    projectId: string,
-    id: string,
-    persistedFolderApi: NonReadonly<PersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getPersistedFolderUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(persistedFolderApi),
-    })
-}
-
-export const getPersistedFolderPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/persisted_folder/${id}/`
-}
-
-export const persistedFolderPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedPersistedFolderApi?: NonReadonly<PatchedPersistedFolderApi>,
-    options?: RequestInit
-): Promise<PersistedFolderApi> => {
-    return apiMutator<PersistedFolderApi>(getPersistedFolderPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedPersistedFolderApi),
-    })
-}
-
-export const getPersistedFolderDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/persisted_folder/${id}/`
-}
-
-export const persistedFolderDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getPersistedFolderDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
     })
 }
 

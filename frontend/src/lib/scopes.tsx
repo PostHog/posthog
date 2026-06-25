@@ -108,7 +108,6 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
-    { key: 'persisted_folder', objectName: 'Persisted folder', objectPlural: 'persisted folders' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
     { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
@@ -171,7 +170,7 @@ export const API_SCOPES: APIScope[] = [
 ]
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
-export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read'] as const
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read', 'feature_flag:read'] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
 
@@ -264,6 +263,7 @@ export type ProjectSecretAPIKeyScopePreset = {
 
 export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePreset[] = [
     { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
+    { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
 ]
 
