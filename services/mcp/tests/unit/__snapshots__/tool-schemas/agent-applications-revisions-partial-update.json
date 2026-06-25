@@ -309,6 +309,7 @@
                                             "model": {
                                                 "description": "Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).",
                                                 "minLength": 1,
+                                                "pattern": "^[a-z0-9_-]+\\/[a-zA-Z0-9._:-]+$",
                                                 "type": "string"
                                             },
                                             "reasoning": {
