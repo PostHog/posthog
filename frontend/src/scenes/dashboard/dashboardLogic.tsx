@@ -48,7 +48,12 @@ import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
-import { calculateDuplicateLayout, calculateInsertionLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import {
+    calculateDuplicateLayout,
+    calculateInsertionLayout,
+    calculateLayouts,
+    DEFAULT_INSERTED_TILE_SIZE,
+} from 'scenes/dashboard/tileLayouts'
 import {
     chunkTileIds,
     fetchRunWidgets,
@@ -1109,8 +1114,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as number | null,
             {
                 setPendingInsertionY: (_, { pendingInsertionY }) => pendingInsertionY,
-                // Clear if the dashboard mode changes before the new tile arrives, to avoid a stale insert.
-                setDashboardMode: () => null,
+                // Abandon a pending insert when the user switches into a real mode (Edit/Sharing/Fullscreen).
+                // Not on `mode === null`: the text/button add flow navigates through a route that sets the
+                // mode back to null, and clearing there would drop the target before the tile is created.
+                setDashboardMode: (state, { mode }) => (mode != null ? null : state),
                 // Insight always opens (and navigates away via) this modal; cancelling it must not leave a
                 // stale target that later hijacks an unrelated tile. Safe because the insight flow never
                 // relies on the target surviving the modal — it appends after returning from the editor.
@@ -1981,6 +1988,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         beforeUnmount: () => {
             cache.widgetTileRefreshScheduler?.cancelAll()
             actions.abortAnyRunningQuery()
+            // Bound the inline-insertion target's lifetime to this mount, so a never-consumed target
+            // (e.g. an add flow abandoned by navigating away) can't reposition a tile on a later visit.
+            cache.tileIdsBeforeInsertion = undefined
         },
     })),
     sharedListeners(({ values, props, actions }) => ({
@@ -2131,6 +2141,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
+            // Load-bearing assumption: exactly one unknown tile appeared since the snapshot and it is the
+            // one the add flow just created. A concurrent arrival (background refresh, a collaborator's add)
+            // in this window could be mis-targeted — blast radius is one tile's layout, which we accept.
             const newTile = (values.tiles || []).find((tile) => !tile.deleted && !previousTileIds.has(tile.id))
             if (!newTile) {
                 // The appended tile hasn't reached state yet; a later arrival signal will retry.
@@ -2142,8 +2155,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const smLayout = values.layouts?.sm
             const newTileLayoutEntry = smLayout?.find((l) => String(l.i) === String(newTile.id))
-            const w = newTileLayoutEntry?.w ?? 6
-            const h = newTileLayoutEntry?.h ?? 5
+            const w = newTileLayoutEntry?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
+            const h = newTileLayoutEntry?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
 
             const { newTileLayout, tilesToUpdate } = calculateInsertionLayout(smLayout, newTile.id, targetY, w, h)
 
@@ -2707,8 +2720,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         widgetType in DASHBOARD_WIDGET_CATALOG
                             ? getDashboardWidgetCatalogEntry(widgetType).defaultLayout
                             : undefined
-                    const w = defaultLayout?.w ?? 6
-                    const h = defaultLayout?.h ?? 5
+                    const w = defaultLayout?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
+                    const h = defaultLayout?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
                     return { widget_type: widgetType, config, layouts: { sm: { x: 0, y: insertAtY, w, h } } }
                 })
 

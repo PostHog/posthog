@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 
 import { IconPlusSmall } from '@posthog/icons'
@@ -75,6 +75,8 @@ export function InsertTileOverlay({
 // centered on the row boundary). Larger than the inter-row gap, so it bleeds a little into the
 // adjacent tiles — that's the intended trade-off for a comfortable hit area.
 const HOVER_HIT_HEIGHT = 28
+// Keep the "+" fully on the strip when the cursor is near either end.
+const BUTTON_EDGE_PADDING = 16
 
 function InsertionStrip({
     targetY,
@@ -87,15 +89,33 @@ function InsertionStrip({
     gridWidth: number
     getMenuItems: (targetY: number) => LemonMenuItem[]
 }): JSX.Element {
+    const stripRef = useRef<HTMLDivElement>(null)
     const [menuOpen, setMenuOpen] = useState(false)
+    // Where the "+" sits along the strip — follows the cursor, frozen while the menu is open so it
+    // stays anchored under the popover. Null until first hover, where it falls back to the left edge.
+    const [buttonX, setButtonX] = useState<number | null>(null)
 
     const revealClass = menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
 
+    // Map a viewport cursor X to a clamped position along the strip, keeping the "+" fully on screen.
+    const clampButtonX = (clientX: number): number => {
+        const rect = stripRef.current?.getBoundingClientRect()
+        if (!rect) {
+            return buttonX ?? BUTTON_EDGE_PADDING
+        }
+        const x = clientX - rect.left
+        return Math.min(Math.max(x, BUTTON_EDGE_PADDING), gridWidth - BUTTON_EDGE_PADDING)
+    }
+
     return (
         <div
+            ref={stripRef}
             className="group absolute pointer-events-auto"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ left: 0, width: gridWidth, top: topPx - HOVER_HIT_HEIGHT / 2, height: HOVER_HIT_HEIGHT }}
+            // Seed on enter so the "+" appears under the cursor instead of sliding in from the left.
+            onMouseEnter={(e) => !menuOpen && setButtonX(clampButtonX(e.clientX))}
+            onMouseMove={(e) => !menuOpen && setButtonX(clampButtonX(e.clientX))}
         >
             <div
                 className={clsx(
@@ -103,7 +123,11 @@ function InsertionStrip({
                     revealClass
                 )}
             />
-            <div className={clsx('absolute left-0 top-1/2 -translate-y-1/2 transition-opacity', revealClass)}>
+            <div
+                className={clsx('absolute top-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity', revealClass)}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ left: buttonX ?? BUTTON_EDGE_PADDING }}
+            >
                 <LemonMenu items={getMenuItems(targetY)} onVisibilityChange={setMenuOpen}>
                     <LemonButton
                         size="xsmall"
