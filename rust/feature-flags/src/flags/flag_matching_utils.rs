@@ -1660,6 +1660,7 @@ mod tests {
                 evaluation_runtime: None,
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                has_experiment: false,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1776,6 +1777,7 @@ mod tests {
                 evaluation_runtime: None,
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                has_experiment: false,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1897,6 +1899,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         let inactive_flag = FeatureFlagRow {
@@ -1912,6 +1915,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         let deleted_flag = FeatureFlagRow {
@@ -1927,6 +1931,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         let no_continuity_flag = FeatureFlagRow {
@@ -1942,6 +1947,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         context
@@ -2034,6 +2040,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
         context
             .insert_flag(team.id, Some(flag_row))
@@ -2116,6 +2123,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
         context
             .insert_flag(team.id, Some(flag_row))

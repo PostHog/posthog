@@ -57,17 +57,20 @@ def _assemble_series(
         key = tuple(sorted(row["labels"].items()))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
 
-    series = [
+    # Rank and truncate on the sparse values BEFORE zero-filling, so a
+    # high-cardinality group-by never materializes label_sets x grid points
+    # only to throw most of them away. Zero-filled points contribute nothing
+    # to the magnitude, so the ranking is identical either way.
+    ranked = sorted(by_labels.items(), key=lambda item: (-sum(abs(v) for v in item[1].values()), item[0]))
+    return [
         MetricSeries(
             labels=dict(key),
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
             metric_name=metric_name,
             clause=clause_name,
         )
-        for key, values in by_labels.items()
+        for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
-    series.sort(key=lambda s: (-sum(abs(p.value) for p in s.points), tuple(sorted(s.labels.items()))))
-    return series[:MAX_SERIES_PER_CLAUSE]
 
 
 def _resolve_runner_aggregation(clause: MetricQueryClause) -> str:
