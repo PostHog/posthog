@@ -84,6 +84,7 @@ jobs:
                   # Guard a mis-set variable: a non-integer would make the `-ge` test below error
                   # out (never breaking the loop) and silently average every candidate run.
                   [[ "$N" =~ ^[1-9][0-9]*$ ]] || N=5
+                  found=0  # counts qualifying runs inside the loop below
 
                   # Calculate date 14 days ago in ISO 8601 format
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)

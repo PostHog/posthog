@@ -620,7 +620,7 @@ def main():
         return
 
     if args.artifacts_dir is None:
-        parser.error("artifacts_dir is required unless --merge-files is given")
+        parser.error("artifacts_dir is required unless --merge-files or --average-files is given")
 
     # Load per-shard timing data
     logger.info("Loading timing artifacts from %s...", args.artifacts_dir)
