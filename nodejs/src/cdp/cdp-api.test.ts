@@ -911,7 +911,7 @@ describe('CDP API', () => {
             })
         })
 
-        it('routes to the cyclotron resolver when CDP_BATCH_RESOLVER_USE_CYCLOTRON is on', async () => {
+        it('routes to the cyclotron resolver when CDP_BATCH_RESOLVER_ROUTING matches the team', async () => {
             // Stub a producer in place of the real CyclotronV2Manager; assert
             // it gets the right createJob payload (queue name, parentRunId,
             // serialized state) without standing up a real cyclotron pool.
@@ -920,8 +920,8 @@ describe('CDP API', () => {
                 createJob: createJobMock,
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
-            const originalFlag = hub.CDP_BATCH_RESOLVER_USE_CYCLOTRON
-            hub.CDP_BATCH_RESOLVER_USE_CYCLOTRON = true
+            const originalMatcher = api['batchResolverRoutingMatcher']
+            api['batchResolverRoutingMatcher'] = () => true
 
             try {
                 const res = await supertest(app)
@@ -961,7 +961,7 @@ describe('CDP API', () => {
                     pagesProcessed: 0,
                 })
             } finally {
-                hub.CDP_BATCH_RESOLVER_USE_CYCLOTRON = originalFlag
+                api['batchResolverRoutingMatcher'] = originalMatcher
                 api['batchResolverProducer'] = null
             }
         })

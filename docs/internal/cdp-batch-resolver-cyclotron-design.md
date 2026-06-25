@@ -269,9 +269,11 @@ These were the open questions in the first draft of this doc, now resolved with 
 - Add new cyclotron primitive `bulkCreateAndCheckIn`.
 - Add new Django endpoint `PUT /api/projects/<id>/internal/hog_flows/batch_jobs/<id>/status` (idempotent).
 - Reuse `HogFlowBatchPersonQueryService` unchanged.
-- Gate dispatch path with `CDP_BATCH_RESOLVER_USE_CYCLOTRON` env flag in `cdp-api.ts`:
-  - Flag off → Kafka path (today)
-  - Flag on → cyclotron path (new)
+- Gate dispatch path with `CDP_BATCH_RESOLVER_ROUTING` per-team routing string in `cdp-api.ts` (parsed via `buildIntegerMatcherWithPercentage`, same shape as `CDP_EMAIL_QUEUE_ROUTING`):
+  - `''` (default) → all teams stay on Kafka path
+  - `'<id>,<id>'` → listed teams go to cyclotron resolver, rest stay on Kafka
+  - `'*'` → all teams go to cyclotron resolver
+  - `'*:0.1'` → 10% of teams to cyclotron (random per call)
 
 **Phase 3 — canary:** Enable on low-volume teams. Monitor `pagesProcessed` advances, no stalled jobs, child invocation counts match.
 

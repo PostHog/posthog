@@ -136,12 +136,14 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
     CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: number
 
-    // When true, postHogFlowBatchInvocation dispatches batch runs to a
-    // cyclotron resolver job (queue=hogflow_batch_resolve) instead of
-    // producing to the cdp_batch_hogflow_requests Kafka topic. Flag-gated for
-    // canary; the Kafka consumer path stays alive in parallel until this
-    // defaults on across all envs and the legacy path is removed.
-    CDP_BATCH_RESOLVER_USE_CYCLOTRON: boolean
+    // Per-team routing for postHogFlowBatchInvocation: teams matched here
+    // dispatch to a cyclotron resolver job (queue=hogflow_batch_resolve)
+    // instead of producing to the cdp_batch_hogflow_requests Kafka topic.
+    // Same string format as CDP_EMAIL_QUEUE_ROUTING — '' / '*' / '1,2' /
+    // '*:0.1' for percentage. The Kafka consumer path stays alive in
+    // parallel until this defaults to '*' everywhere and the legacy path
+    // is removed.
+    CDP_BATCH_RESOLVER_ROUTING: string
 
     // Cyclotron Node (node postgres job queue)
     CYCLOTRON_NODE_MAX_CONNECTIONS: number
@@ -277,7 +279,7 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: 1,
         CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 5000,
-        CDP_BATCH_RESOLVER_USE_CYCLOTRON: false,
+        CDP_BATCH_RESOLVER_ROUTING: '',
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,
