@@ -1,7 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition
+from products.async_migrations.backend.definition import AsyncMigrationDefinition
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 
 
@@ -102,7 +102,7 @@ class TestAsyncMigration(APIBaseTest):
         # didn't change
         self.assertEqual(sm1.status, MigrationStatus.RolledBack)
 
-    @patch("posthog.async_migrations.runner.get_async_migration_definition")
+    @patch("products.async_migrations.backend.runner.get_async_migration_definition")
     def test_force_rollback_endpoint(self, mock_get_migration_definition):
         mock_get_migration_definition.return_value = AsyncMigrationDefinition(name="foo")
         sm1 = create_async_migration(status=MigrationStatus.CompletedSuccessfully)

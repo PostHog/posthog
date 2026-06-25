@@ -4,16 +4,17 @@ import pytest
 
 from django.db import connection
 
-from posthog.async_migrations.examples.test_migration import Migration
-from posthog.async_migrations.runner import (
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.models.utils import UUIDT
+
+from products.async_migrations.backend.examples.test_migration import Migration
+from products.async_migrations.backend.runner import (
     attempt_migration_rollback,
     run_async_migration_next_op,
     start_async_migration,
 )
-from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
-from posthog.async_migrations.utils import update_async_migration
-from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
-from posthog.models.utils import UUIDT
+from products.async_migrations.backend.test.util import AsyncMigrationBaseTest, create_async_migration
+from products.async_migrations.backend.utils import update_async_migration
 
 pytestmark = pytest.mark.async_migrations
 

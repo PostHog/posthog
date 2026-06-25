@@ -5,9 +5,12 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
-from posthog.async_migrations.definition import AsyncMigrationOperationSQL
-from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
-from posthog.async_migrations.utils import (
+from posthog.constants import AnalyticsDBMS
+from posthog.models.async_migration import AsyncMigrationError, MigrationStatus
+
+from products.async_migrations.backend.definition import AsyncMigrationOperationSQL
+from products.async_migrations.backend.test.util import AsyncMigrationBaseTest, create_async_migration
+from products.async_migrations.backend.utils import (
     complete_migration,
     execute_on_each_shard,
     execute_op,
@@ -15,8 +18,6 @@ from posthog.async_migrations.utils import (
     process_error,
     trigger_migration,
 )
-from posthog.constants import AnalyticsDBMS
-from posthog.models.async_migration import AsyncMigrationError, MigrationStatus
 
 pytestmark = pytest.mark.async_migrations
 
@@ -42,7 +43,7 @@ class TestUtils(AsyncMigrationBaseTest):
         # correctly routes to postgres
         mock_cursor.assert_called_once()
 
-    @patch("posthog.async_migrations.runner.attempt_migration_rollback")
+    @patch("products.async_migrations.backend.runner.attempt_migration_rollback")
     def test_process_error(self, _):
         sm = create_async_migration()
         process_error(sm, "some error")

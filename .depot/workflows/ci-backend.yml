@@ -1593,5 +1593,5 @@ jobs:
             - name: Run async migrations tests
               run: |
                   # Scope async migration tests directly and reuse the primed test database.
-                  pytest posthog/async_migrations/test -m "async_migrations" --reuse-db --reruns 2 --reruns-delay 1 --durations=100 --durations-min=1.0 --junitxml=junit.xml
+                  pytest products/async_migrations/backend/test -m "async_migrations" --reuse-db --reruns 2 --reruns-delay 1 --durations=100 --durations-min=1.0 --junitxml=junit.xml
     # Shadow trial: calculate-running-time job stripped (would poison trial metrics).

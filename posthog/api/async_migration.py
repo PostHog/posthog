@@ -4,9 +4,6 @@ from rest_framework.permissions import IsAuthenticated
 from semantic_version.base import Version
 
 from posthog.api.utils import action
-from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
-from posthog.async_migrations.setup import get_async_migration_definition
-from posthog.async_migrations.utils import force_stop_migration, rollback_migration, trigger_migration
 from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.async_migration import (
     AsyncMigration,
@@ -16,6 +13,10 @@ from posthog.models.async_migration import (
 )
 from posthog.models.instance_setting import get_instance_setting
 from posthog.permissions import IsStaffUser
+
+from products.async_migrations.backend.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
+from products.async_migrations.backend.setup import get_async_migration_definition
+from products.async_migrations.backend.utils import force_stop_migration, rollback_migration, trigger_migration
 
 logger = structlog.get_logger(__name__)
 

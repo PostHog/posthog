@@ -12,7 +12,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
-from posthog.async_migrations.status import async_migrations_ok
 from posthog.cloud_utils import is_cloud
 from posthog.git import get_git_commit_short
 from posthog.permissions import SingleTenancyOrAdmin
@@ -27,6 +26,8 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
+
+from products.async_migrations.backend.status import async_migrations_ok
 
 
 class InstanceStatusViewSet(viewsets.ViewSet):

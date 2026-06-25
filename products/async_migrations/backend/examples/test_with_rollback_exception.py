@@ -1,4 +1,4 @@
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from products.async_migrations.backend.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 
 # For testing purposes
 

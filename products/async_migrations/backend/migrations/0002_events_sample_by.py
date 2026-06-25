@@ -2,19 +2,20 @@ from functools import cached_property
 
 from django.conf import settings
 
-from posthog.async_migrations.definition import (
-    AsyncMigrationDefinition,
-    AsyncMigrationOperation,
-    AsyncMigrationOperationSQL,
-)
-from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_for_table
-from posthog.async_migrations.utils import run_optimize_table
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AnalyticsDBMS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.version_requirement import ServiceVersionRequirement
+
+from products.async_migrations.backend.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+    AsyncMigrationOperationSQL,
+)
+from products.async_migrations.backend.disk_util import analyze_enough_disk_space_free_for_table
+from products.async_migrations.backend.utils import run_optimize_table
 
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
 EVENTS_TABLE = "events"

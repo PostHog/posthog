@@ -5,16 +5,17 @@ from django.conf import settings
 
 import structlog
 
-from posthog.async_migrations.definition import (
+from posthog.clickhouse.client import sync_execute
+from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.utils import str_to_bool
+
+from products.async_migrations.backend.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
 )
-from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_for_table
-from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table, sleep_until_finished
-from posthog.clickhouse.client import sync_execute
-from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.utils import str_to_bool
+from products.async_migrations.backend.disk_util import analyze_enough_disk_space_free_for_table
+from products.async_migrations.backend.utils import execute_op_clickhouse, run_optimize_table, sleep_until_finished
 
 logger = structlog.get_logger(__name__)
 

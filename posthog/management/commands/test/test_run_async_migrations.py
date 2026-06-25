@@ -6,7 +6,7 @@ from django.core.management import call_command
 
 from semantic_version.base import Version
 
-from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
+from products.async_migrations.backend.setup import ALL_ASYNC_MIGRATIONS
 from posthog.constants import FROZEN_POSTHOG_VERSION
 
 pytestmark = pytest.mark.django_db

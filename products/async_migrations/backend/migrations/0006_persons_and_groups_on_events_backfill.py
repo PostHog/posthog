@@ -1,4 +1,4 @@
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from products.async_migrations.backend.definition import AsyncMigrationDefinition, AsyncMigrationOperation
 
 """
 Nooping this migration for future compatibility. Superseded by 0007_persons_and_groups_on_events_backfill.

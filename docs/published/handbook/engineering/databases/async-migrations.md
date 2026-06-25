@@ -8,7 +8,7 @@ Also see: user-facing documentation under [in the runbook](https://posthog.com/d
 
 ### Writing an async migration
 
-To write an async migration, you should create a migration file inside [`posthog/async_migrations/migrations`](https://github.com/PostHog/posthog/tree/master/posthog/async_migrations/migrations). The name should follow the convention we use for Django and EE migrations (e.g. `0005_update_events_schema`). Check out the existing migrations or [examples](https://github.com/PostHog/posthog/tree/master/posthog/async_migrations/examples).
+To write an async migration, you should create a migration file inside [`products/async_migrations/backend/migrations`](https://github.com/PostHog/posthog/tree/master/products/async_migrations/backend/migrations). The name should follow the convention we use for Django and EE migrations (e.g. `0005_update_events_schema`). Check out the existing migrations or [examples](https://github.com/PostHog/posthog/tree/master/products/async_migrations/backend/examples).
 
 ### Workflow and architecture
 
@@ -99,18 +99,18 @@ Celery tasks for dealing with async migrations. These are:
 1. `run_async_migration`: Explicitly triggered to run a migration
 2. `check_async_migration_health`: Runs every 30 minutes to perform a healthcheck
 
-#### posthog/async_migrations/definition.py
+#### products/async_migrations/backend/definition.py
 
 Classes to be used when writing an async migration, outlining the necessary components of a migration.
 
-#### posthog/async_migrations/setup.py
+#### products/async_migrations/backend/setup.py
 
 Code that runs when the Django server boots to setup the necessary scaffolding for async migrations.
 
-#### posthog/async_migrations/runner.py
+#### products/async_migrations/backend/runner.py
 
 Code related to running an async migration, from executing operations in sequence to attempting rollbacks.
 
-#### posthog/async_migrations/utils.py
+#### products/async_migrations/backend/utils.py
 
 Code to support the runner in tasks that do not depend on the availability of the migration definition (module).

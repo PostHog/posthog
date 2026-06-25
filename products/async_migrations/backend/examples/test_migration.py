@@ -1,9 +1,10 @@
-from posthog.async_migrations.definition import (
+from posthog.constants import AnalyticsDBMS
+
+from products.async_migrations.backend.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
 )
-from posthog.constants import AnalyticsDBMS
 
 # For testing purposes
 

@@ -1,0 +1,3 @@
+name: Async migrations
+owners:
+    - clickhouse

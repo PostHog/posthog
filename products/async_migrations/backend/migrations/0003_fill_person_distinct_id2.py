@@ -1,13 +1,14 @@
 from functools import cached_property
 
-from posthog.async_migrations.definition import (
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import AnalyticsDBMS
+from posthog.settings import CLICKHOUSE_DATABASE
+
+from products.async_migrations.backend.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
 )
-from posthog.clickhouse.client import sync_execute
-from posthog.constants import AnalyticsDBMS
-from posthog.settings import CLICKHOUSE_DATABASE
 
 """
 Migration summary:

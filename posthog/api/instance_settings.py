@@ -169,7 +169,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
                     send_canary_email.apply_async(kwargs={"user_email": request.user.email})
 
         if instance.key.startswith("ASYNC_MIGRATION") and not SKIP_ASYNC_MIGRATIONS_SETUP:
-            from posthog.async_migrations.setup import setup_async_migrations
+            from products.async_migrations.backend.setup import setup_async_migrations
 
             setup_async_migrations()
 

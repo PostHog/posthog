@@ -1,10 +1,5 @@
 from django.conf import settings
 
-from posthog.async_migrations.definition import (
-    AsyncMigrationDefinition,
-    AsyncMigrationOperation,
-    AsyncMigrationOperationSQL,
-)
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.models.person.sql import (
@@ -14,6 +9,12 @@ from posthog.models.person.sql import (
     PERSONS_DISTINCT_ID_TABLE_SQL,
 )
 from posthog.version_requirement import ServiceVersionRequirement
+
+from products.async_migrations.backend.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+    AsyncMigrationOperationSQL,
+)
 
 ONE_DAY = 60 * 60 * 24
 

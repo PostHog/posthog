@@ -3,13 +3,13 @@ import importlib
 import pytest
 from unittest.mock import patch
 
-from posthog.async_migrations.setup import get_async_migration_definition
-from posthog.async_migrations.test.util import AsyncMigrationBaseTest
+from products.async_migrations.backend.setup import get_async_migration_definition
+from products.async_migrations.backend.test.util import AsyncMigrationBaseTest
 
 pytestmark = pytest.mark.async_migrations
 
 MIGRATION_NAME = "0010_move_old_partitions"
-migration_module = importlib.import_module(f"posthog.async_migrations.migrations.{MIGRATION_NAME}")
+migration_module = importlib.import_module(f"products.async_migrations.backend.migrations.{MIGRATION_NAME}")
 
 
 class Test0010MoveOldPartitions(AsyncMigrationBaseTest):

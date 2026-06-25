@@ -6,12 +6,6 @@ from django.utils.timezone import now
 
 import structlog
 
-from posthog.async_migrations.definition import (
-    AsyncMigrationDefinition,
-    AsyncMigrationOperation,
-    AsyncMigrationOperationSQL,
-)
-from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import STORAGE_POLICY
 from posthog.clickhouse.table_engines import ReplacingMergeTree
@@ -21,6 +15,13 @@ from posthog.models.async_migration import AsyncMigration
 from posthog.models.person.person import Person
 from posthog.models.person.sql import PERSONS_TABLE_MV_SQL
 from posthog.redis import get_client
+
+from products.async_migrations.backend.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+    AsyncMigrationOperationSQL,
+)
+from products.async_migrations.backend.utils import execute_op_clickhouse, run_optimize_table
 
 logger = structlog.get_logger(__name__)
 
@@ -52,7 +53,7 @@ Constraints:
     roll everything back.
 """
 
-REDIS_HIGHWATERMARK_KEY = "posthog.async_migrations.0005.highwatermark"
+REDIS_HIGHWATERMARK_KEY = "products.async_migrations.backend.0005.highwatermark"
 
 TEMPORARY_TABLE_NAME = f"{settings.CLICKHOUSE_DATABASE}.tmp_person_0005_person_replacing_by_version"
 TEMPORARY_PERSON_MV = f"{settings.CLICKHOUSE_DATABASE}.tmp_person_mv_0005_person_replacing_by_version"

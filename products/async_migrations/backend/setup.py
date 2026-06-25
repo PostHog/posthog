@@ -5,11 +5,12 @@ from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import TEST
+
+from products.async_migrations.backend.definition import AsyncMigrationDefinition
 
 
 def reload_migration_definitions():
@@ -24,8 +25,8 @@ ASYNC_MIGRATION_TO_DEPENDENCY: dict[str, Optional[str]] = {}
 # inverted mapping of ASYNC_MIGRATION_TO_DEPENDENCY
 DEPENDENCY_TO_ASYNC_MIGRATION: dict[Optional[str], str] = {}
 
-ASYNC_MIGRATIONS_MODULE_PATH = "posthog.async_migrations.migrations"
-ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
+ASYNC_MIGRATIONS_MODULE_PATH = "products.async_migrations.backend.migrations"
+ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "products.async_migrations.backend.examples"
 
 all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
 reload_migration_definitions()
@@ -83,7 +84,7 @@ def kickstart_migration_if_possible(migration_name: str, applied_migrations: set
         if not migration_name:
             return
 
-    from posthog.async_migrations.runner import run_next_migration
+    from products.async_migrations.backend.runner import run_next_migration
 
     # start running 30 minutes from now
     run_next_migration(migration_name)

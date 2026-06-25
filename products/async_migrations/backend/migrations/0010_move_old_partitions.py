@@ -2,15 +2,16 @@ from datetime import datetime
 
 import structlog
 
-from posthog.async_migrations.definition import (
-    AsyncMigrationDefinition,
-    AsyncMigrationOperation,
-    AsyncMigrationOperationSQL,
-)
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AnalyticsDBMS
 from posthog.version_requirement import ServiceVersionRequirement
+
+from products.async_migrations.backend.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+    AsyncMigrationOperationSQL,
+)
 
 logger = structlog.get_logger(__name__)
 

@@ -3,13 +3,19 @@ from typing import Optional
 import structlog
 from semantic_version.base import SimpleSpec
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition
-from posthog.async_migrations.setup import (
+from posthog.exceptions_capture import capture_exception
+from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
+from posthog.models.instance_setting import get_instance_setting
+from posthog.models.utils import UUIDT
+from posthog.version_requirement import ServiceVersionRequirement
+
+from products.async_migrations.backend.definition import AsyncMigrationDefinition
+from products.async_migrations.backend.setup import (
     FROZEN_POSTHOG_VERSION,
     get_async_migration_definition,
     get_async_migration_dependency,
 )
-from posthog.async_migrations.utils import (
+from products.async_migrations.backend.utils import (
     complete_migration,
     execute_op,
     mark_async_migration_as_running,
@@ -18,11 +24,6 @@ from posthog.async_migrations.utils import (
     trigger_migration,
     update_async_migration,
 )
-from posthog.exceptions_capture import capture_exception
-from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
-from posthog.models.instance_setting import get_instance_setting
-from posthog.models.utils import UUIDT
-from posthog.version_requirement import ServiceVersionRequirement
 
 """
 Important to prevent us taking up too many celery workers and also to enable running migrations sequentially

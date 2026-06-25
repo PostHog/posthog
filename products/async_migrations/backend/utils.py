@@ -10,8 +10,6 @@ from django.utils.timezone import now
 import structlog
 import posthoganalytics
 
-from posthog.async_migrations.definition import AsyncMigrationOperation
-from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import make_ch_pool
@@ -27,6 +25,9 @@ from posthog.settings import (
     TEST,
 )
 from posthog.utils import get_machine_id
+
+from products.async_migrations.backend.definition import AsyncMigrationOperation
+from products.async_migrations.backend.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 
 logger = structlog.get_logger(__name__)
 
@@ -239,7 +240,7 @@ def process_error(
     ):
         return
 
-    from posthog.async_migrations.runner import attempt_migration_rollback
+    from products.async_migrations.backend.runner import attempt_migration_rollback
 
     attempt_migration_rollback(migration_instance)
 
@@ -277,7 +278,7 @@ def force_stop_migration(
 
 
 def rollback_migration(migration_instance: AsyncMigration):
-    from posthog.async_migrations.runner import attempt_migration_rollback
+    from products.async_migrations.backend.runner import attempt_migration_rollback
 
     attempt_migration_rollback(migration_instance)
 
@@ -308,7 +309,7 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
     if get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"):
         next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
         if next_migration:
-            from posthog.async_migrations.runner import run_next_migration
+            from products.async_migrations.backend.runner import run_next_migration
 
             run_next_migration(next_migration)
 
