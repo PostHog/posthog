@@ -156,12 +156,18 @@ A key efficiency point baked into the Rust paths — build the STL once per work
 
 **Results (4-core sandbox, 10k events / 2k batches):**
 
-| mode | initial | after perf fixes | vs Node |
-|---|---|---|---|
-| Node (single, V8) | 13.6k | 13.1k | 1.00× |
-| Rust single-thread | 10.3k | **21.1k** | **1.61×** |
-| Rust-from-Node (napi FFI, parallel) | 23.6k | **34.5k** | **2.63×** |
-| Rust parallel (in-process, 4 cores) | 39.9k | **80.5k** | **6.14×** |
+| mode | initial | after perf fixes | final (full corpus) | vs Node |
+|---|---|---|---|---|
+| Node (single, V8) | 13.6k | 13.1k | ~14.9k | 1.00× |
+| Rust single-thread | 10.3k | **21.1k** | ~20k | **1.3×** |
+| Rust-from-Node (napi FFI, parallel) | 23.6k | **34.5k** | ~35.6k | **2.4×** |
+| Rust parallel (in-process, 4 cores) | 39.9k | **80.5k** | ~77k | **5.2×** |
+
+The "final" column re-measures after the full correctness pass (corpus 13→32, STL 92→124):
+the small single-thread dip vs the perf-fix peak is the cost of the new value-model features
+(the `Tuple` variant, truthiness coercion, untyped-literal handling) and run-to-run noise; the
+goal holds — Rust beats Node in every mode (1.3× single, 2.4× FFI, 5.2× parallel). All three
+modes run the *same* current, reference-verified code.
 
 #### Perf investigation (why Rust started out *slower* than Node, and the fix)
 Initially Rust single-thread lost to V8 (0.76×) — suspicious for an interpreter. A `callgrind`
