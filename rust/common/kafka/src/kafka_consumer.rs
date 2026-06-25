@@ -86,12 +86,8 @@ impl SingleTopicConsumer {
                 .set("enable.ssl.certificate.verification", "false");
         };
 
-        client_config.set(
-            "enable.auto.commit",
-            consumer_config.kafka_consumer_auto_commit.to_string(),
-        );
         if consumer_config.kafka_consumer_auto_commit {
-            client_config.set(
+            client_config.set("enable.auto.commit", "true").set(
                 "auto.commit.interval.ms",
                 consumer_config
                     .kafka_consumer_auto_commit_interval_ms
