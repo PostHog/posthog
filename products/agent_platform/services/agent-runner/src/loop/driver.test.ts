@@ -851,6 +851,26 @@ describe('driver runSession', () => {
             expect(last.role).toBe('assistant')
         })
 
+        it('tags the direct-path $ai_generation with the fallback attempt + fallback_from', async () => {
+            // The observability contract for the feature: after a fallover the
+            // emitted generation must carry which attempt answered (>0) and the
+            // primary it fell back from, so AI observability can answer "did it
+            // fall back, and off which model".
+            const events: AnalyticsEvent[] = []
+            const out = await run(makeRev(), makeSession(), {
+                models: [{ model: fauxModel([stop('x')]) }, { model: fauxModel([stop('y')]) }].map((m, i) => ({
+                    model: { ...m.model, id: i === 0 ? 'a' : 'b' },
+                })),
+                streamFn: fallbackStreamFn(),
+                analytics: { write: async (batch) => void events.push(...batch) },
+            })
+            expect(out.state).toBe('completed')
+            const gens = events.filter((e): e is AnalyticsGenerationEvent => e.kind === 'generation')
+            expect(gens).toHaveLength(1)
+            expect(gens[0].model_attempt).toBe(1)
+            expect(gens[0].fallback_from).toBe('a')
+        })
+
         // Regression: a real provider echoes the PROVIDER-SAFE tool name
         // (`posthog_meta-end-turn`), not the `@posthog/...` original. The
         // sanitizing wrapper must translate it back, and on the multi-model path

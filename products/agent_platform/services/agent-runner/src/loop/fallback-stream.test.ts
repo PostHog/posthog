@@ -207,4 +207,37 @@ describe('fallbackStreamFn', () => {
         await drive(fn(fakeModel('a'), { messages: [] } as never, { reasoning: 'medium' } as never))
         expect(seen).toEqual(['low', 'high'])
     })
+
+    // The contract says `base` shouldn't throw, but the wrapper defends against
+    // it (a throw before commit is indistinguishable from a pre-commit failure).
+    it('falls over when the base THROWS an eligible error before committing', async () => {
+        const base: StreamFn = (model) => {
+            if (model.id === 'a') {
+                throw new Error('503 boom')
+            }
+            return scriptedBase({ b: success('recovered') })(model, { messages: [] } as never, undefined)
+        }
+        const onFallback = vi.fn()
+        const fn = fallbackStreamFn(base, models(['a', 'b']), { onFallback })
+        const { result } = await drive(fn(fakeModel('a'), { messages: [] } as never, undefined))
+        expect(result.stopReason).toBe('stop')
+        expect(result.content).toEqual([{ type: 'text', text: 'recovered' }])
+        expect(onFallback).toHaveBeenCalledWith(0, expect.objectContaining({ id: 'a' }), '503 boom')
+    })
+
+    it('synthesizes an error message when the base THROWS a non-eligible error (no fallover)', async () => {
+        const calls: string[] = []
+        const base: StreamFn = (model) => {
+            calls.push(model.id)
+            throw new Error('400 nope')
+        }
+        const onFallback = vi.fn()
+        const fn = fallbackStreamFn(base, models(['a', 'b']), { onFallback })
+        const { result } = await drive(fn(fakeModel('a'), { messages: [] } as never, undefined))
+        expect(result.stopReason).toBe('error')
+        expect(result.errorMessage).toBe('400 nope')
+        // Permanent → surfaced from the primary, second model never tried.
+        expect(calls).toEqual(['a'])
+        expect(onFallback).not.toHaveBeenCalled()
+    })
 })

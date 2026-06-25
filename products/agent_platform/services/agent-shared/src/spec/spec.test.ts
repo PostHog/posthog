@@ -3,6 +3,8 @@ import {
     AgentSpecSchema,
     AuthConfigSchema,
     getSecretAllowedHosts,
+    MODEL_POLICY_LEVELS,
+    modelPolicyToList,
     principalsMatch,
     secretHostMatches,
 } from './spec'
@@ -770,5 +772,58 @@ describe('AgentSpecSchema', () => {
                 })
             ).toThrow()
         })
+    })
+})
+
+describe('modelPolicyToList', () => {
+    it('expands an auto level to its priority list, order preserved, no reasoning by default', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'low' } })
+        expect(modelPolicyToList(spec)).toEqual(
+            MODEL_POLICY_LEVELS.low.map((model) => ({ model, reasoning: undefined }))
+        )
+    })
+
+    it('defaults to the auto/medium list when models is omitted', () => {
+        const spec = AgentSpecSchema.parse({})
+        expect(modelPolicyToList(spec).map((e) => e.model)).toEqual([...MODEL_POLICY_LEVELS.medium])
+    })
+
+    it('auto: policy.reasoning applies to every resolved entry', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', reasoning: 'high' } })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'high')).toBe(true)
+    })
+
+    it('auto: falls back to spec.reasoning when the policy declares none', () => {
+        const spec = AgentSpecSchema.parse({ models: { mode: 'auto', level: 'medium' }, reasoning: 'low' })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'low')).toBe(true)
+    })
+
+    it('auto: policy.reasoning wins over spec.reasoning', () => {
+        const spec = AgentSpecSchema.parse({
+            models: { mode: 'auto', level: 'medium', reasoning: 'xhigh' },
+            reasoning: 'low',
+        })
+        expect(modelPolicyToList(spec).every((e) => e.reasoning === 'xhigh')).toBe(true)
+    })
+
+    it('manual: passes the explicit list through in order, per-entry reasoning preserved', () => {
+        const spec = AgentSpecSchema.parse({
+            models: {
+                mode: 'manual',
+                models: [{ model: 'anthropic/claude-opus-4-7', reasoning: 'high' }, { model: 'openai/gpt-5' }],
+            },
+        })
+        expect(modelPolicyToList(spec)).toEqual([
+            { model: 'anthropic/claude-opus-4-7', reasoning: 'high' },
+            { model: 'openai/gpt-5', reasoning: undefined },
+        ])
+    })
+
+    it('manual: an entry without its own reasoning inherits spec.reasoning', () => {
+        const spec = AgentSpecSchema.parse({
+            models: { mode: 'manual', models: [{ model: 'openai/gpt-5' }] },
+            reasoning: 'medium',
+        })
+        expect(modelPolicyToList(spec)).toEqual([{ model: 'openai/gpt-5', reasoning: 'medium' }])
     })
 })
