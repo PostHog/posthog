@@ -28,6 +28,12 @@ type HmacSha256 = Hmac<Sha256>;
 const GATEWAY_PREFIX: &str = "$ai_gateway";
 const VERIFIED_PROPERTY: &str = "$ai_gateway_verified";
 
+/// Property holding the signature-bound request_id. Stamped from the signed
+/// header value (not the client property) so downstream billing can dedup
+/// exemptions by it: a captured signature replayed onto extra events all carry
+/// the same request_id, so they collapse to a single exemption.
+const REQUEST_ID_PROPERTY: &str = "$ai_gateway_request_id";
+
 /// Counter for every provenance decision that mutates an event, labelled by
 /// `reason` (`verified`, `stale`, `forged`, …). Lets us alert on forgery
 /// attempts (`forged`) and gateway/capture clock skew (`stale`).
@@ -148,11 +154,15 @@ fn is_fresh(signed_at: &str, now: DateTime<Utc>) -> bool {
     }
 }
 
-/// Stamps the trusted billing marker, overwriting any client-supplied value. The
-/// other `$ai_gateway*` props are now trusted (they rode a valid signature), so
-/// they survive.
-pub fn stamp_verified(props: &mut Map<String, Value>) {
+/// Stamps the trusted billing marker and the signature-bound request_id, each
+/// overwriting any client-supplied value. The other `$ai_gateway*` props are now
+/// trusted (they rode a valid signature), so they survive.
+pub fn stamp_verified(props: &mut Map<String, Value>, request_id: &str) {
     props.insert(VERIFIED_PROPERTY.to_string(), Value::Bool(true));
+    props.insert(
+        REQUEST_ID_PROPERTY.to_string(),
+        Value::String(request_id.to_owned()),
+    );
 }
 
 /// Removes the whole `$ai_gateway*` namespace, including any forged
@@ -285,9 +295,9 @@ pub fn strip_gateway_raw(properties: &RawValue) -> Option<Box<RawValue>> {
 /// Stamps the trusted marker onto raw properties. Returns `None` if the
 /// properties don't parse (a genuine gateway event always emits valid JSON, so
 /// the caller treats this as a non-stamp and the event stays counted).
-pub fn stamp_verified_raw(properties: &RawValue) -> Option<Box<RawValue>> {
+pub fn stamp_verified_raw(properties: &RawValue, request_id: &str) -> Option<Box<RawValue>> {
     let mut map: Map<String, Value> = serde_json::from_str(properties.get()).ok()?;
-    stamp_verified(&mut map);
+    stamp_verified(&mut map, request_id);
     reserialize(map)
 }
 
@@ -296,9 +306,9 @@ fn reserialize(map: Map<String, Value>) -> Option<Box<RawValue>> {
 }
 
 /// Test-only signer: produces the hex HMAC the gateway would emit for this tuple,
-/// so other modules' tests can build signatures that `verify` accepts.
-#[cfg(test)]
-pub(crate) fn sign_for_test(
+/// so other modules' (and integration) tests can build signatures `verify` accepts.
+#[cfg(any(test, feature = "test-utils"))]
+pub fn sign_for_test(
     secret: &[u8],
     token: &str,
     distinct_id: &str,
@@ -516,11 +526,16 @@ mod tests {
     #[test]
     fn stamp_verified_overwrites_a_client_value_and_keeps_other_props() {
         let mut props: Map<String, Value> = serde_json::from_str(
-            r#"{"$ai_gateway": true, "$ai_gateway_verified": false, "$ai_model": "claude"}"#,
+            r#"{"$ai_gateway": true, "$ai_gateway_verified": false, "$ai_gateway_request_id": "client-fake", "$ai_model": "claude"}"#,
         )
         .unwrap();
-        stamp_verified(&mut props);
+        stamp_verified(&mut props, "signed-req");
         assert_eq!(props["$ai_gateway_verified"], Value::Bool(true));
+        // request_id is overwritten with the signed value, not the client's.
+        assert_eq!(
+            props["$ai_gateway_request_id"],
+            Value::String("signed-req".to_string())
+        );
         assert_eq!(props["$ai_gateway"], Value::Bool(true));
         assert_eq!(props["$ai_model"], Value::String("claude".to_string()));
     }
@@ -609,9 +624,13 @@ mod tests {
 
     #[test]
     fn stamp_verified_raw_adds_the_marker() {
-        let stamped = stamp_verified_raw(&raw(r#"{"$ai_gateway": true}"#)).unwrap();
+        let stamped = stamp_verified_raw(&raw(r#"{"$ai_gateway": true}"#), "req-1").unwrap();
         let map: Map<String, Value> = serde_json::from_str(stamped.get()).unwrap();
         assert_eq!(map["$ai_gateway_verified"], Value::Bool(true));
+        assert_eq!(
+            map["$ai_gateway_request_id"],
+            Value::String("req-1".to_string())
+        );
         assert_eq!(map["$ai_gateway"], Value::Bool(true));
     }
 

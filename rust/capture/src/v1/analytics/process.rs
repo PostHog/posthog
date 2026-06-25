@@ -149,7 +149,8 @@ fn apply_gateway_provenance(state: &router::State, context: &Context, events: &m
             continue;
         }
 
-        let outcome = match (secret, context.gateway_signature.as_ref()) {
+        let sig = context.gateway_signature.as_ref();
+        let outcome = match (secret, sig) {
             (Some(secret), Some(sig)) => gp::verify(
                 secret.as_bytes(),
                 &context.api_token,
@@ -161,8 +162,13 @@ fn apply_gateway_provenance(state: &router::State, context: &Context, events: &m
             _ => gp::Provenance::Invalid,
         };
 
-        if outcome == gp::Provenance::Verified {
-            if let Some(props) = gp::stamp_verified_raw(&ev.event.properties) {
+        // Trust needs a non-empty request_id: billing dedups exemptions by it, so
+        // an undedup-able empty nonce isn't trusted.
+        let request_id = sig.map(|s| s.request_id.as_str()).unwrap_or_default();
+        let trusted = outcome == gp::Provenance::Verified && !request_id.is_empty();
+
+        if trusted {
+            if let Some(props) = gp::stamp_verified_raw(&ev.event.properties, request_id) {
                 ev.event.properties = props;
                 ev.is_gateway_verified = true;
                 metrics::counter!(gp::PROVENANCE_METRIC, "reason" => "verified").increment(1);
@@ -2432,13 +2438,22 @@ mod tests {
         };
         let ctx = gateway_context(token, now, Some(sig));
 
-        let mut events = vec![ai_event(distinct_id, r#"{"$ai_model": "claude"}"#)];
+        // Client supplies its own request_id — the signed one must win.
+        let mut events = vec![ai_event(
+            distinct_id,
+            r#"{"$ai_model": "claude", "$ai_gateway_request_id": "client-fake"}"#,
+        )];
         apply_gateway_provenance(&state, &ctx, &mut events);
 
         assert!(events[0].is_gateway_verified);
         let props: serde_json::Value =
             serde_json::from_str(events[0].event.properties.get()).unwrap();
         assert_eq!(props["$ai_gateway_verified"], serde_json::Value::Bool(true));
+        assert_eq!(
+            props["$ai_gateway_request_id"],
+            serde_json::Value::String("req-1".to_string()),
+            "the signed request_id must overwrite the client value"
+        );
     }
 
     #[tokio::test]
@@ -2467,6 +2482,48 @@ mod tests {
             "gateway props must be stripped"
         );
         assert!(raw.contains("$ai_model"), "non-gateway props must survive");
+    }
+
+    /// The signature binds `distinct_id`, so in a batch where it's signed for only
+    /// one event, only that event is verified — the other's forged marker is
+    /// stripped, even sharing one request-level signature.
+    #[tokio::test]
+    async fn gateway_provenance_verifies_only_the_signed_distinct_id_in_a_batch() {
+        let token = "phc_test_token";
+        let signed_id = "user-signed";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        let signed_at = now.to_rfc3339();
+        let sig = GatewaySignature {
+            signature: sign_for_test(GW_SECRET.as_bytes(), token, signed_id, "req-1", &signed_at),
+            signed_at,
+            request_id: "req-1".to_string(),
+        };
+        let ctx = gateway_context(token, now, Some(sig));
+
+        let mut events = vec![
+            ai_event(signed_id, r#"{"$ai_model": "claude"}"#),
+            // Different distinct_id, riding the same request signature, with a
+            // forged marker — must not verify against a sig bound to `signed_id`.
+            ai_event(
+                "user-other",
+                r#"{"$ai_gateway_verified": true, "$ai_model": "gpt"}"#,
+            ),
+        ];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert!(events[0].is_gateway_verified, "signed distinct_id verifies");
+        assert!(
+            !events[1].is_gateway_verified,
+            "unsigned distinct_id must not verify"
+        );
+        assert!(
+            !events[1].event.properties.get().contains("$ai_gateway"),
+            "the other event's forged marker must be stripped"
+        );
     }
 
     /// process_batch wiring: a valid signature is verified ahead of the limiter
