@@ -1,4 +1,5 @@
 import decimal
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -26,7 +27,7 @@ def _make_event(
     position: str = "0/100",
     columns: dict | None = None,
     timestamp: datetime | None = None,
-    column_types: dict[str, pa.DataType] | None = None,
+    column_types: Mapping[str, pa.DataType] | None = None,
 ) -> ChangeEvent:
     return ChangeEvent(
         operation=op,
