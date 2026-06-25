@@ -104,7 +104,24 @@ impl<'a> HogVM<'a> {
 
     /// Step the virtual machine one cycle.
     pub fn step(&mut self) -> Result<StepOutcome, VmError> {
-        let op: Operation = self.next()?;
+        let op: Operation = match self.next() {
+            Ok(op) => op,
+            // The reference VMs halt gracefully when the instruction pointer runs off the
+            // end of the top-level program (it has no trailing RETURN), yielding the top of
+            // stack or null. Only do this at the top level — running off the end inside a
+            // function/module is still malformed bytecode.
+            Err(VmError::EndOfProgram(_))
+                if self.stack_frames.is_empty() && self.current_symbol.is_none() =>
+            {
+                let result = if self.stack.is_empty() {
+                    HogLiteral::Null.into()
+                } else {
+                    self.pop_stack()?
+                };
+                return Ok(StepOutcome::Finished(self.hog_to_json(&result)?));
+            }
+            Err(e) => return Err(e),
+        };
 
         match op {
             Operation::GetGlobal => {

@@ -2,6 +2,7 @@ mod context;
 mod error;
 mod memory;
 mod ops;
+mod print;
 mod program;
 mod stl;
 mod util;
@@ -21,6 +22,11 @@ pub use vm::sync_execute;
 pub use vm::HogVM;
 pub use vm::StepOutcome;
 pub use vm::VmFailure;
+
+// Canonical value printing (the `print(...)` oracle), used by the parity harness
+pub use print::escape_string;
+pub use print::print_hog_string_output;
+pub use print::print_hog_value;
 
 // STL - again, we expose a lot, because we want to make it easy to extend this
 pub use stl::hog_stl;
