@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
-import { useState } from 'react'
+import { ComponentType, useState } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -90,7 +90,21 @@ function Stage({ children }: { children: React.ReactNode }): JSX.Element {
     )
 }
 
-function renderTrendsBarChart(insightFixture: any): JSX.Element {
+// Uses the real TrendsInsight CSS classes so the snapshot exercises the max-height removal
+// on ActionsBarValue. Reverting that CSS would clip bars and diff the snapshot.
+function BarValueStage({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ width: 720 }}>
+            <div className="TrendsInsight TrendsInsight--ActionsBarValue">{children}</div>
+        </div>
+    )
+}
+
+function renderTrendsBarChart(
+    insightFixture: any,
+    StageComponent: ComponentType<{ children: React.ReactNode }> = Stage
+): JSX.Element {
     const [dashboardItemId] = useState(() => `TrendsBarChartStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
@@ -105,9 +119,9 @@ function renderTrendsBarChart(insightFixture: any): JSX.Element {
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <Stage>
+                <StageComponent>
                     <TrendsBarChart />
-                </Stage>
+                </StageComponent>
             </BindLogic>
         </BindLogic>
     )
@@ -452,4 +466,63 @@ const PERCENT_STACK_BREAKDOWN_INSIGHT = {
 
 export const PercentStackBreakdown: Story = {
     render: () => renderTrendsBarChart(PERCENT_STACK_BREAKDOWN_INSIGHT),
+}
+
+// 50 breakdown rows — verifies all bars are visible and the container grows rather than clipping.
+// If TrendsInsight--ActionsBarValue loses its max-height:none override, only ~20 rows show up.
+const BAR_VALUE_50_BREAKDOWNS = Array.from({ length: 50 }, (_, i) => ({
+    action: ACTION,
+    label: `/blog/post-${String(i + 1).padStart(2, '0')}`,
+    count: 0,
+    aggregated_value: Math.max(5, Math.round(9000 / (i + 1))),
+    data: [],
+    labels: [],
+    days: [],
+    breakdown_value: `/blog/post-${String(i + 1).padStart(2, '0')}`,
+    filter: {
+        date_from: '2023-07-04T00:00:00Z',
+        date_to: '2023-07-10T23:59:59Z',
+        display: 'ActionsBarValue',
+        insight: 'TRENDS',
+        interval: 'day',
+    },
+}))
+
+const BAR_VALUE_50_BREAKDOWNS_INSIGHT = {
+    id: 203,
+    short_id: 'barValue50',
+    name: 'Page views by URL (50 breakdowns)',
+    derived_name: 'Pageview count',
+    filters: {},
+    last_refresh: '2023-07-11T12:00:00Z',
+    refreshing: false,
+    saved: true,
+    is_sample: false,
+    description: '',
+    tags: [],
+    favorited: false,
+    created_at: '2023-07-11T12:00:00Z',
+    updated_at: '2023-07-11T12:00:00Z',
+    last_modified_at: '2023-07-11T12:00:00Z',
+    dashboards: [],
+    dashboard_tiles: [],
+    result: BAR_VALUE_50_BREAKDOWNS,
+    query: {
+        kind: 'InsightVizNode',
+        source: {
+            dateRange: { date_from: '2023-07-04', date_to: '2023-07-10' },
+            filterTestAccounts: false,
+            interval: 'day',
+            kind: 'TrendsQuery',
+            series: [{ event: '$pageview', kind: 'EventsNode', math: 'total', name: '$pageview' }],
+            trendsFilter: { display: 'ActionsBarValue' },
+            breakdownFilter: { breakdown: '$current_url', breakdown_type: 'event' },
+            version: 2,
+        },
+        full: true,
+    },
+}
+
+export const BarValue50Breakdowns: Story = {
+    render: () => renderTrendsBarChart(BAR_VALUE_50_BREAKDOWNS_INSIGHT, BarValueStage),
 }
