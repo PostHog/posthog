@@ -1,10 +1,9 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { isUUIDLike } from 'lib/utils/guards'
-import { urls } from 'scenes/urls'
 
 import { phDebugQueryParams } from '../lib/ph-debug'
 import { TaskRun } from '../types'
@@ -14,13 +13,30 @@ import { tasksLogic } from './tasksLogic'
 
 export type TaskDetailSceneLogicProps = TaskLogicProps
 
+function isApiNotFound(errorObject: unknown): boolean {
+    return errorObject instanceof ApiError && errorObject.status === 404
+}
+
+function loadErrorMessage(error: string, errorObject: unknown): string {
+    if (error) {
+        return error
+    }
+    if (errorObject instanceof ApiError && (errorObject.detail || errorObject.statusText)) {
+        return errorObject.detail || errorObject.statusText || 'Something went wrong.'
+    }
+    if (errorObject instanceof Error && errorObject.message) {
+        return errorObject.message
+    }
+    return 'Something went wrong.'
+}
+
 export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     path(['products', 'tasks', 'taskDetailSceneLogic']),
     props({} as TaskDetailSceneLogicProps),
     key((props) => props.taskId),
 
     connect((props: TaskDetailSceneLogicProps) => ({
-        values: [taskLogic(props), ['task', 'taskLoading']],
+        values: [taskLogic(props), ['task', 'taskLoading', 'taskNotFound', 'taskError']],
         actions: [
             taskLogic(props),
             ['loadTask', 'loadTaskSuccess', 'runTask', 'runTaskSuccess', 'deleteTask', 'updateTask'],
@@ -29,8 +45,6 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
 
     actions({
         setSelectedRunId: (runId: TaskRun['id'] | null, taskId: string) => ({ runId, taskId }),
-        selectLatestRun: true,
-        clearShouldSelectLatestRun: true,
         updateRun: (run: TaskRun) => ({ run }),
     }),
 
@@ -41,41 +55,70 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 setSelectedRunId: (state, { runId, taskId }) => (taskId === props.taskId ? runId : state),
             },
         ],
-        shouldSelectLatestRun: [
-            false,
-            {
-                selectLatestRun: () => true,
-                clearShouldSelectLatestRun: () => false,
-            },
-        ],
         runs: [
             [] as TaskRun[],
             {
                 updateRun: (state: TaskRun[], { run }: { run: TaskRun }) =>
-                    state.map((r) => (r.id === run.id ? run : r)),
+                    state.some((existingRun) => existingRun.id === run.id)
+                        ? state.map((existingRun) => (existingRun.id === run.id ? run : existingRun))
+                        : [run, ...state],
+            },
+        ],
+        runsError: [
+            null as string | null,
+            {
+                loadTaskRuns: () => null,
+                loadTaskRunsFailure: (_, { error, errorObject }) => loadErrorMessage(error, errorObject),
+            },
+        ],
+        selectedRunNotFound: [
+            false,
+            {
+                setSelectedRunId: () => false,
+                loadSelectedTaskRun: () => false,
+                loadSelectedTaskRunFailure: (_, { errorObject }) => isApiNotFound(errorObject),
+            },
+        ],
+        selectedRunError: [
+            null as string | null,
+            {
+                setSelectedRunId: () => null,
+                loadSelectedTaskRun: () => null,
+                loadSelectedTaskRunFailure: (_, { error, errorObject }) =>
+                    isApiNotFound(errorObject) ? null : loadErrorMessage(error, errorObject),
             },
         ],
     })),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         runs: [
             [] as TaskRun[],
             {
-                loadRuns: async () => {
-                    const response = await api.tasks.runs.list(props.taskId, phDebugQueryParams())
-                    return response.results
+                loadTaskRuns: async () => {
+                    try {
+                        const response = await api.tasks.runs.list(props.taskId, phDebugQueryParams())
+                        return response.results
+                    } catch (errorObject) {
+                        actions.loadTaskRunsFailure(loadErrorMessage('', errorObject), errorObject)
+                        return values.runs
+                    }
                 },
             },
         ],
         selectedRunData: [
             null as TaskRun | null,
             {
-                loadSelectedRun: async () => {
+                loadSelectedTaskRun: async () => {
                     if (!values.selectedRunId) {
                         return null
                     }
-                    const run = await api.tasks.runs.get(props.taskId, values.selectedRunId, phDebugQueryParams())
-                    return run ?? null
+                    try {
+                        const run = await api.tasks.runs.get(props.taskId, values.selectedRunId, phDebugQueryParams())
+                        return run ?? null
+                    } catch (errorObject) {
+                        actions.loadSelectedTaskRunFailure(loadErrorMessage('', errorObject), errorObject)
+                        return values.selectedRunData
+                    }
                 },
             },
         ],
@@ -86,7 +129,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         selectedRun: [
             (s) => [s.selectedRunData, s.runs, s.selectedRunId],
             (selectedRunData, runs, selectedRunId): TaskRun | null => {
-                if (selectedRunData) {
+                if (selectedRunData && selectedRunData.id === selectedRunId) {
                     return selectedRunData
                 }
                 if (!selectedRunId) {
@@ -110,37 +153,43 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        setSelectedRunId: ({ taskId }) => {
-            if (taskId !== props.taskId) {
+        setSelectedRunId: ({ runId, taskId }) => {
+            if (taskId !== props.taskId || !runId) {
                 return
             }
-            actions.loadSelectedRun()
+            if (values.runs.some((run) => run.id === runId)) {
+                return
+            }
+            actions.loadSelectedTaskRun()
         },
         runTaskSuccess: ({ task }) => {
             if (task?.id !== props.taskId) {
                 return
             }
             if (task?.latest_run) {
+                actions.updateRun(task.latest_run)
                 actions.setSelectedRunId(task.latest_run.id, props.taskId)
             }
-            actions.loadRuns()
+            actions.loadTaskRuns()
         },
-        loadRunsSuccess: ({ runs }) => {
-            const shouldSelect = values.shouldSelectLatestRun
-            if (shouldSelect) {
-                actions.clearShouldSelectLatestRun()
+        loadTaskRunsSuccess: ({ runs }) => {
+            // Default to the latest run. An explicit ?runId deep-link (e.g. from an Inbox signal report)
+            // still wins so those links land on the run they reference; we just never write it ourselves.
+            const runIdFromUrl = router.values.searchParams.runId
+            const targetRunId = runIdFromUrl && isUUIDLike(runIdFromUrl) ? runIdFromUrl : runs[0]?.id
+            if (!targetRunId) {
+                return
             }
-            if (shouldSelect && runs.length > 0) {
-                actions.setSelectedRunId(runs[0].id, props.taskId)
-            } else if (values.selectedRunId) {
-                actions.loadSelectedRun()
+            if (targetRunId !== values.selectedRunId) {
+                actions.setSelectedRunId(targetRunId, props.taskId)
+            } else if (!runs.some((run) => run.id === targetRunId)) {
+                actions.loadSelectedTaskRun()
             }
         },
-        loadSelectedRunSuccess: ({ selectedRunData }) => {
+        loadSelectedTaskRunSuccess: ({ selectedRunData }) => {
             if (selectedRunData) {
                 actions.updateRun(selectedRunData)
             }
-            actions.loadTask()
         },
         loadTaskSuccess: ({ task }) => {
             if (task?.id !== props.taskId) {
@@ -152,41 +201,13 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadTask()
-        actions.loadRuns()
+        actions.loadTaskRuns()
     }),
 
     propsChanged(({ actions, props }, oldProps) => {
         if (props.taskId !== oldProps.taskId) {
             actions.loadTask()
-            actions.loadRuns()
+            actions.loadTaskRuns()
         }
     }),
-
-    urlToAction(({ actions, values, props }) => ({
-        [urls.taskDetail(':taskId')]: (params, searchParams) => {
-            const { taskId: urlTaskId } = params
-            if (urlTaskId !== props.taskId) {
-                return
-            }
-            const runIdFromUrl = searchParams.runId
-            if (runIdFromUrl && isUUIDLike(runIdFromUrl) && runIdFromUrl !== values.selectedRunId) {
-                actions.setSelectedRunId(runIdFromUrl, props.taskId)
-            }
-        },
-    })),
-
-    actionToUrl(({ props }) => ({
-        setSelectedRunId: ({ runId }) => {
-            if (runId) {
-                return [urls.taskDetail(props.taskId), { runId }, router.values.hashParams]
-            }
-            return [urls.taskDetail(props.taskId), {}, router.values.hashParams]
-        },
-        loadRunsSuccess: ({ runs }) => {
-            if (runs.length > 0 && !router.values.searchParams.runId) {
-                return [urls.taskDetail(props.taskId), { runId: runs[0].id }, router.values.hashParams]
-            }
-            return undefined
-        },
-    })),
 ])

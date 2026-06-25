@@ -12,6 +12,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { IngestionLane } from '~/ingestion/config'
 import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { MainLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
@@ -20,7 +21,7 @@ import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/ove
 import { RedisOverflowRepository } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
 import { PluginEvent } from '~/plugin-scaffold'
-import { HealthCheckResult, IngestionLane, PluginServerService } from '~/types'
+import { HealthCheckResult, PluginServerService } from '~/types'
 import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import {
     EventIngestionRestrictionManager,

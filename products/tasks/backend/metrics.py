@@ -22,7 +22,7 @@ _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
 TASK_RUN_CREATED_TOTAL = Counter(
     "posthog_tasks_task_run_created_total",
     "TaskRun rows created by the Tasks product",
-    labelnames=["origin_product", "run_environment", "mode", "run_source", "runtime_adapter"],
+    labelnames=["origin_product", "run_environment", "mode", "run_source", "runtime_adapter", "prewarmed"],
 )
 
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
@@ -34,9 +34,16 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
         "mode",
         "run_source",
         "runtime_adapter",
+        "prewarmed",
         "outcome",
         "reason",
     ],
+)
+
+PREWARMED_ACTIVATED_TOTAL = Counter(
+    "posthog_tasks_prewarmed_activated_total",
+    "Pre-warmed Runs that received their first user message (the warm sandbox got used, not reaped)",
+    labelnames=["origin_product"],
 )
 
 TASK_RUN_FAILED_TOTAL = Counter(
@@ -146,6 +153,7 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
             "mode": "unknown",
             "run_source": "unknown",
             "runtime_adapter": "unknown",
+            "prewarmed": "unknown",
         }
 
     state = task_run.state if isinstance(task_run.state, dict) else {}
@@ -155,6 +163,7 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
         "mode": _bounded_metric_label(state.get("mode"), _ALLOWED_MODES),
         "run_source": _bounded_metric_label(state.get("run_source"), _ALLOWED_RUN_SOURCES),
         "runtime_adapter": _bounded_metric_label(state.get("runtime_adapter"), _ALLOWED_RUNTIME_ADAPTERS),
+        "prewarmed": "true" if state.get("prewarmed") else "false",
     }
 
 
@@ -173,6 +182,10 @@ def observe_task_run_workflow_start(
         outcome=outcome,
         reason=reason,
     ).inc()
+
+
+def observe_prewarmed_activated(task_run: "TaskRun") -> None:
+    PREWARMED_ACTIVATED_TOTAL.labels(origin_product=origin_product_label(task_run)).inc()
 
 
 def origin_product_label(task_run: "TaskRun | None") -> str:

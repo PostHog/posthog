@@ -491,6 +491,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return null
                 },
                 saveEditModeChanges: async (_, breakpoint) => {
+                    cache.dashboardChangesPersisted = false
                     try {
                         // Only persist sm layouts; xs layouts are derived on the fly
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
@@ -558,6 +559,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (shouldRefreshTilesAfterSave) {
                             cache.shouldRefreshTilesAfterSave = true
                         }
+                        cache.dashboardChangesPersisted = true
                         return getQueryBasedDashboard(updatedDashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
@@ -2667,6 +2669,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Sync the saved dashboard (including any name/description changes) to
                 // dashboardsModel so the sidebar and other global views stay up to date
                 dashboardsModel.actions.updateDashboardSuccess(dashboard)
+            }
+            // Only toast when changes were actually persisted — the no-op exit path skips the PATCH.
+            if (cache.dashboardChangesPersisted) {
+                cache.dashboardChangesPersisted = false
+                lemonToast.success('Dashboard saved')
             }
             if (cache.shouldRefreshTilesAfterSave) {
                 cache.shouldRefreshTilesAfterSave = false

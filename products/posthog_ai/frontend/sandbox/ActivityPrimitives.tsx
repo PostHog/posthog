@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import React, { useLayoutEffect, useState } from 'react'
 
-import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronDown, IconChevronRight, IconX } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { MarkdownMessage } from './MarkdownMessage'
@@ -122,7 +122,7 @@ export function ActivityHeader({
     return (
         <div
             className={clsx(
-                'transition-all duration-500 flex select-none min-w-0',
+                'group/activity-header transition-all duration-500 flex select-none min-w-0',
                 (isPending || isFailed) && 'text-muted',
                 !isInProgress && !isPending && !isFailed && 'text-default',
                 hasDetails ? 'cursor-pointer' : 'cursor-default',
@@ -130,21 +130,44 @@ export function ActivityHeader({
                 hasDetails && isDetailsExpanded && 'bg-fill-button-tertiary-active'
             )}
             onClick={hasDetails ? onToggleDetails : undefined}
+            onKeyDown={
+                hasDetails
+                    ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              onToggleDetails()
+                          }
+                      }
+                    : undefined
+            }
+            role={hasDetails ? 'button' : undefined}
+            tabIndex={hasDetails ? 0 : undefined}
+            aria-expanded={hasDetails ? isDetailsExpanded : undefined}
             aria-label={hasDetails ? (isDetailsExpanded ? 'Collapse history' : 'Expand history') : undefined}
         >
             {icon && (
-                <div className="flex items-center justify-center size-5">
-                    {isInProgress && animate ? (
-                        <ShimmeringContent>{icon}</ShimmeringContent>
-                    ) : (
-                        <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{icon}</span>
+                <div className="relative flex items-center justify-center size-5 shrink-0 overflow-hidden">
+                    <span
+                        className={clsx(
+                            'inline-flex transition-all duration-200 ease-out',
+                            isInProgress && 'text-muted',
+                            hasDetails &&
+                                'group-hover/activity-header:-translate-x-1 group-hover/activity-header:scale-90 group-hover/activity-header:opacity-0 group-focus-within/activity-header:-translate-x-1 group-focus-within/activity-header:scale-90 group-focus-within/activity-header:opacity-0'
+                        )}
+                    >
+                        {isInProgress && animate ? <ShimmeringContent>{icon}</ShimmeringContent> : icon}
+                    </span>
+                    {hasDetails && (
+                        <span className="absolute inline-flex translate-x-1 scale-90 text-tertiary opacity-0 transition-all duration-200 ease-out group-hover/activity-header:translate-x-0 group-hover/activity-header:scale-100 group-hover/activity-header:text-primary group-hover/activity-header:opacity-100 group-focus-within/activity-header:translate-x-0 group-focus-within/activity-header:scale-100 group-focus-within/activity-header:text-primary group-focus-within/activity-header:opacity-100">
+                            <IconChevronDown className="size-5" />
+                        </span>
                     )}
                 </div>
             )}
             <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
                 {children ? (
                     // The title/subtitle column grows to fill the row, so the subtitle (second line) gets the
-                    // full available width before it truncates and the chevron stays pinned to the right.
+                    // full available width before it truncates.
                     <div className="flex flex-col flex-1 min-w-0">
                         {/* Status icon rides the first line with the title; the second line is the subtitle. */}
                         <div className="flex items-center gap-1 min-w-0">
@@ -155,15 +178,6 @@ export function ActivityHeader({
                     </div>
                 ) : (
                     <div className="min-w-0">{titleNode}</div>
-                )}
-                {hasDetails && (
-                    <div className="relative shrink-0 flex flex-col items-start justify-center h-full">
-                        <button className="inline-flex items-center hover:opacity-70 transition-opacity shrink-0 cursor-pointer">
-                            <span className={clsx('transform transition-transform', isDetailsExpanded && 'rotate-90')}>
-                                <IconChevronRight />
-                            </span>
-                        </button>
-                    </div>
                 )}
                 {!children && statusIcon}
             </div>
