@@ -235,6 +235,47 @@ describe('insightDataLogic', () => {
                 }).mount()
             }).toMatchValues({ query: updatedCachedQuery })
         })
+
+        // On a dashboard tile, `setQuery` is shared with insightVizDataLogic, whose listener calls
+        // props.setQuery (persistDisplayOptions). If a tile re-render re-syncs the incoming cached
+        // query via setQuery, it loops back into a PATCH of that (stale) query, reverting a display
+        // option the user just saved. propsChanged must use syncQueryFromProps on dashboard tiles.
+        it('syncs a changed cached query via syncQueryFromProps, not setQuery, on a dashboard tile', async () => {
+            const localUpdatedQuery = buildLocalUpdatedQuery()
+            const staleCachedQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    dateRange: {
+                        ...baseQuery.source.dateRange,
+                        date_from: '-14d',
+                    },
+                },
+            }
+
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                dashboardId: 99,
+                cachedInsight: { short_id: Insight123, query: baseQuery } as any,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(localUpdatedQuery)
+            }).toMatchValues({ query: localUpdatedQuery })
+
+            await expectLogic(logic, () => {
+                insightDataLogic({
+                    dashboardItemId: Insight123,
+                    dashboardId: 99,
+                    cachedInsight: { short_id: Insight123, query: staleCachedQuery } as any,
+                    loadPriority: 1,
+                }).mount()
+            })
+                .toDispatchActions(['syncQueryFromProps'])
+                .toNotHaveDispatchedActions(['setQuery'])
+                .toMatchValues({ query: staleCachedQuery })
+        })
     })
 
     describe('reacts when the insight changes', () => {
