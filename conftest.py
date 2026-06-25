@@ -54,13 +54,33 @@ def _activate_personhog_fake(request):
     """Force all person/group reads through the personhog fake for every test.
 
     The fake is seeded explicitly by the test helpers in posthog.test.persons
-    (create_person, create_group, etc.) — no signals are used.  Tests in
-    personhog_client/ manage their own client and are excluded.
+    (create_person, create_group, etc.).  While the fake is active, ORM access to
+    persons-DB models raises (PersonsDBORMBlockedError) so nothing can silently
+    fall back to the persons DB.
+
+    Excluded paths manage their own client or genuinely exercise the persons DB
+    layer itself (the gRPC client/gate's own tests, and the temporal/dagster/
+    schema tests that read & write the persons DB directly to verify sync,
+    backfill, and orphan-cleanup plumbing).  Those keep direct persons-DB access.
     """
-    if "personhog_client" in str(request.node.path):
+    node_path = str(request.node.path)
+    if any(excluded in node_path for excluded in _PERSONS_DB_DIRECT_TEST_PATHS):
         yield
         return
     from posthog.test.personhog_fake import activate_personhog_fake  # noqa: PLC0415, I001 — lazy import avoids connecting signals before Django is ready
 
     with activate_personhog_fake():
         yield
+
+
+# Tests that operate on the persons DB directly (not as person-data consumers) and
+# so must NOT have the personhog fake / ORM block active.
+_PERSONS_DB_DIRECT_TEST_PATHS = (
+    "personhog_client",
+    "sync_person_distinct_ids",
+    "backfill_group_type_created_at",
+    "test_person_schema",
+    "dags/tests/test_detach_distinct_id",
+    "dags/tests/test_person_property_reconciliation",
+    "dags/tests/max_ai/test_snapshot_team_data",
+)

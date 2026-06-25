@@ -3,14 +3,11 @@ from __future__ import annotations
 import json
 import datetime
 from collections.abc import Callable
-from contextlib import ExitStack
 from typing import TYPE_CHECKING, Optional, TypeVar, Union
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db.models.signals import post_delete, post_save
-from django.dispatch import receiver
 from django.utils.timezone import now
 
 import structlog
@@ -19,14 +16,13 @@ from dateutil.parser import isoparse
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID
-from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person import Person
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_BULK_SQL,
     INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_SQL,
 )
-from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_TOTAL, PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
@@ -141,73 +137,34 @@ def _batched_get_distinct_ids_for_persons(
 
 
 if TEST:
-    # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
-
-    @mutable_receiver(post_save, sender=Person)
-    def person_created(sender, instance: Person, created, **kwargs):
-        create_person(
-            team_id=instance.team_id,
-            properties=instance.properties,
-            uuid=str(instance.uuid),
-            is_identified=instance.is_identified,
-            version=instance.version or 0,
-        )
-
-    @mutable_receiver(post_save, sender=PersonDistinctId)
-    def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-        create_person_distinct_id(
-            instance.team_id,
-            instance.distinct_id,
-            str(instance.person.uuid),
-            version=instance.version or 0,
-        )
-
-    @receiver(post_delete, sender=Person)
-    def person_deleted(sender, instance: Person, **kwargs):
-        _delete_person(
-            instance.team_id,
-            instance.uuid,
-            int(instance.version or 0),
-            instance.created_at,
-        )
-
-    @receiver(post_delete, sender=PersonDistinctId)
-    def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
-        _delete_ch_distinct_id(
-            instance.team_id,
-            instance.person.uuid,
-            instance.distinct_id,
-            instance.version or 0,
-        )
-
-    try:
-        from freezegun import freeze_time
-    except:
-        pass
 
     def bulk_create_persons(persons_list: list[dict]):
-        persons = []
-        person_mapping = {}
-        for _person in persons_list:
-            with ExitStack() as stack:
-                if _person.get("created_at"):
-                    stack.enter_context(freeze_time(_person["created_at"]))
-                persons.append(Person(**{key: value for key, value in _person.items() if key != "distinct_ids"}))
+        """Bulk-create persons in ClickHouse and return the distinct_id → Person mapping.
 
-        inserted = Person.objects.bulk_create(persons)
+        Test-only.  Builds in-memory Person instances with synthetic primary keys
+        and uuids (no persons DB write) and inserts the rows into ClickHouse.  The
+        personhog fake is seeded by the caller (posthog.test.persons).
+        """
+        from posthog.test.persons import _next_synthetic_pk  # noqa: PLC0415
+
+        person_mapping: dict[str, Person] = {}
+        staged: list[tuple[Person, list]] = []
+        for _person in persons_list:
+            person = Person(**{key: value for key, value in _person.items() if key != "distinct_ids"})
+            person.id = _next_synthetic_pk()
+            if not person.uuid:
+                person.uuid = UUIDT()
+            if person.created_at is None:
+                person.created_at = now()
+            if person.version is None:
+                person.version = 0
+            person._state.adding = False
+            staged.append((person, _person["distinct_ids"]))
 
         person_inserts = []
-        distinct_ids = []
         distinct_id_inserts = []
-        for index, person in enumerate(inserted):
-            for distinct_id in persons_list[index]["distinct_ids"]:
-                distinct_ids.append(
-                    PersonDistinctId(
-                        person_id=person.pk,
-                        distinct_id=distinct_id,
-                        team_id=person.team_id,
-                    )
-                )
+        for person, person_distinct_ids in staged:
+            for distinct_id in person_distinct_ids:
                 distinct_id_inserts.append(f"('{distinct_id}', '{person.uuid}', {person.team_id}, 0, 0, now(), 0, 0)")
                 person_mapping[distinct_id] = person
 
@@ -220,7 +177,6 @@ if TEST:
                 f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0, '{last_seen_at}')"
             )
 
-        PersonDistinctId.objects.bulk_create(distinct_ids)
         sync_execute(INSERT_PERSON_BULK_SQL + ", ".join(person_inserts), flush=False)
         sync_execute(
             BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts),

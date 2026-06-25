@@ -1,6 +1,40 @@
 # posthog/person_db_router.py
 
+import threading
+
 from django.conf import settings
+
+
+class PersonsDBORMBlockedError(RuntimeError):
+    """Raised when the Django ORM attempts to touch a persons-DB model while ORM
+    access is blocked.
+
+    personhog is the sole source of truth for person/group/cohort data. The test
+    suite activates this block (via the personhog fake) so that any code path that
+    still reaches for the persons DB through the ORM fails loudly instead of
+    silently reading stale/empty rows. Use the personhog helpers
+    (``posthog/models/person/util.py``, ``posthog/models/group_type_mapping.py``)
+    for production reads and ``posthog/test/persons.py`` for test data.
+    """
+
+
+# Thread-local toggle. Off by default so production, migrations, management
+# commands and the e2e/demo data paths route to the persons DB as before; the
+# test fixture flips it on for the duration of each test.
+_orm_block = threading.local()
+
+
+def block_persons_orm() -> None:
+    _orm_block.enabled = True
+
+
+def unblock_persons_orm() -> None:
+    _orm_block.enabled = False
+
+
+def persons_orm_blocked() -> bool:
+    return getattr(_orm_block, "enabled", False)
+
 
 # Set of models (lowercase) that should live in the persons_db
 # Add other models from the plan here as needed.
@@ -54,6 +88,7 @@ class PersonDBRouter:
         Attempts to read person models go to persons_db (writer in tests, reader in production).
         """
         if self.is_persons_model(model._meta.app_label, model._meta.model_name):
+            self._raise_if_blocked(model)
             return PERSONS_DB_FOR_READ
         return None  # Allow default db selection
 
@@ -62,8 +97,19 @@ class PersonDBRouter:
         Attempts to write person models go to persons_db_writer.
         """
         if self.is_persons_model(model._meta.app_label, model._meta.model_name):
+            self._raise_if_blocked(model)
             return PERSONS_DB_FOR_WRITE
         return None  # Allow default db selection
+
+    @staticmethod
+    def _raise_if_blocked(model) -> None:
+        if persons_orm_blocked():
+            raise PersonsDBORMBlockedError(
+                f"Direct ORM access to persons-DB model {model._meta.label} is blocked. "
+                f"personhog is the sole source of truth — read via the helpers in "
+                f"posthog/models/person/util.py or posthog/models/group_type_mapping.py, "
+                f"and create test data via posthog/test/persons.py."
+            )
 
     def allow_relation(self, obj1, obj2, **hints):
         """

@@ -1,49 +1,71 @@
 """Centralized test helpers for person, group, and cohort data creation.
 
-Every test that needs person/group/cohort data should use these helpers
-rather than calling ORM methods directly.  Each helper writes to the ORM
-(Postgres) and seeds the active personhog fake so both read paths see the data.
+Every test that needs person/group/cohort data should use these helpers rather
+than calling ORM methods directly.  personhog is the sole source of truth, so
+these helpers seed the active personhog fake (and, for persons, ClickHouse) —
+they do NOT write to the persons DB.  Person/group rows are returned as unsaved
+Django instances carrying synthetic primary keys so attribute access and
+serializers keep working without a database round-trip.
 
-Transitional: when the ORM fallback and persons DB connection are removed,
-the ORM writes in these helpers can be deleted — only the fake-seeding remains.
-That's the single place to change.
+The persons DB router raises on any ORM access to persons-DB models while a
+test's personhog fake is active, so a direct `Person.objects.create(...)` in a
+test will fail loudly — route through these helpers instead.
 """
 
 from __future__ import annotations
 
-import uuid
 import datetime as dt
 from typing import TYPE_CHECKING, Any
+
+from django.utils.timezone import now
 
 from posthog.models.group.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person.util import (
+    create_person as _ch_create_person,
+    create_person_distinct_id as _ch_create_person_distinct_id,
+)
+from posthog.models.utils import UUIDT
 
 if TYPE_CHECKING:
+    import uuid
+
     from posthog.models.team import Team
 
     from products.cohorts.backend.models.cohort import Cohort
 
 
-# ── Internal state for deferred (batched) creation ───────────────────
+# ── Internal state for deferred (batched) creation + synthetic ids ────
 
 _persons_cache: list[dict[str, Any]] = []
 _persons_ordering_int: int = 0
+_next_pk: int = 0
+
+
+def _next_synthetic_pk() -> int:
+    """Synthetic primary key for in-memory person/group rows (reset per test)."""
+    global _next_pk
+    _next_pk += 1
+    return _next_pk
 
 
 def _next_deterministic_uuid() -> uuid.UUID:
     """Generate a deterministic UUID for consistent test ordering."""
+    import uuid as _uuid  # noqa: PLC0415
+
     global _persons_ordering_int
-    result = uuid.UUID(int=_persons_ordering_int, version=4)
+    result = _uuid.UUID(int=_persons_ordering_int, version=4)
     _persons_ordering_int += 1
     return result
 
 
 def reset_persons_state() -> None:
-    """Reset deferred persons cache and UUID counter.  Called from BaseTest.tearDown."""
-    global _persons_ordering_int
+    """Reset deferred persons cache, UUID counter, and pk counter.  Called from BaseTest.tearDown."""
+    global _persons_ordering_int, _next_pk
     _persons_cache.clear()
     _persons_ordering_int = 0
+    _next_pk = 0
 
 
 def has_unflushed_persons() -> bool:
@@ -69,7 +91,13 @@ def _datetime_to_ms(val: dt.datetime | None) -> int:
     return int(val.timestamp() * 1000)
 
 
-def _seed_person_into_fake(person: Person, distinct_ids: list[str], *, created_at_ms: int | None = None) -> None:
+def _seed_person_into_fake(
+    person: Person,
+    distinct_ids: list[str],
+    *,
+    created_at_ms: int | None = None,
+    distinct_id_versions: dict[str, int] | None = None,
+) -> None:
     """Seed a person + distinct IDs into the active fake.  No-op if no fake is active."""
     fake = _get_active_fake()
     if fake is None:
@@ -77,13 +105,6 @@ def _seed_person_into_fake(person: Person, distinct_ids: list[str], *, created_a
 
     existing_dids = {d.distinct_id for d in fake._distinct_ids.get((person.team_id, person.pk), [])}
     new_dids = [str(did) for did in distinct_ids if str(did) not in existing_dids]
-
-    distinct_id_versions: dict[str, int] = {}
-    if new_dids:
-        for pdi in PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            team_id=person.team_id, person_id=person.pk, distinct_id__in=new_dids
-        ):
-            distinct_id_versions[pdi.distinct_id] = pdi.version or 0
 
     person_proto = fake.add_person(
         team_id=person.team_id,
@@ -94,7 +115,7 @@ def _seed_person_into_fake(person: Person, distinct_ids: list[str], *, created_a
         version=person.version or 0,
         is_identified=person.is_identified,
         distinct_ids=new_dids,
-        distinct_id_versions=distinct_id_versions,
+        distinct_id_versions=distinct_id_versions or {},
     )
 
     for did_with_ver in fake._distinct_ids.get((person.team_id, person.pk), []):
@@ -206,28 +227,63 @@ def _remove_cohort_member_from_fake(cohort_id: int, person_id: int) -> None:
         fake._cohort_memberships[person_id] = [m for m in memberships if m.cohort_id != cohort_id]
 
 
+# ── ClickHouse sync (replaces the post_save/post_delete signal mirror) ─
+
+
+def _ch_sync_person(person: Person, distinct_ids: list[str]) -> None:
+    """Mirror a person + its distinct ids into ClickHouse, matching the old
+    post_save signal behavior that fired on ORM creation."""
+    _ch_create_person(
+        team_id=person.team_id,
+        properties=person.properties or {},
+        uuid=str(person.uuid),
+        is_identified=person.is_identified,
+        version=person.version or 0,
+        created_at=person.created_at,
+    )
+    for distinct_id in distinct_ids:
+        _ch_create_person_distinct_id(person.team_id, str(distinct_id), str(person.uuid), version=0)
+
+
+# ── Person instance construction (unsaved, synthetic pk) ──────────────
+
+
+def _build_person(create_kwargs: dict[str, Any]) -> Person:
+    if not create_kwargs.get("uuid"):
+        create_kwargs["uuid"] = UUIDT()
+    person = Person(**create_kwargs)
+    person.id = _next_synthetic_pk()
+    if person.created_at is None:
+        person.created_at = now()
+    if person.version is None:
+        person.version = 0
+    person._state.adding = False
+    return person
+
+
 # ── Public helpers: Person ───────────────────────────────────────────
 
 
 def create_person(*, team: Team | None = None, distinct_ids: list[str] | None = None, **kwargs: Any) -> Person:
-    """Create a person immediately in Postgres and seed the personhog fake."""
+    """Create a person in ClickHouse + the personhog fake (no persons DB write)."""
     if team is None and "team_id" not in kwargs:
         raise TypeError("create_person() requires 'team' or 'team_id'")
     create_kwargs: dict[str, Any] = {**kwargs}
     if team is not None:
         create_kwargs["team"] = team
-    if distinct_ids:
-        create_kwargs["distinct_ids"] = distinct_ids
-    person = Person.objects.create(**create_kwargs)  # nosemgrep: no-direct-persons-db-orm
-    _seed_person_into_fake(person, distinct_ids or [])
+
+    dids = [str(d) for d in (distinct_ids or [])]
+    person = _build_person(create_kwargs)
+    person._distinct_ids = list(dids)
+    _ch_sync_person(person, dids)
+    _seed_person_into_fake(person, dids)
     return person
 
 
 def delete_person(person: Person) -> None:
-    """Delete a person via the personhog fake (unseeds) and from Postgres."""
+    """Delete a person from the personhog fake."""
     fake = _get_active_fake()
     if fake is None:
-        person.delete()  # nosemgrep: no-direct-persons-db-orm
         return
     from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2  # noqa: PLC0415
 
@@ -235,29 +291,32 @@ def delete_person(person: Person) -> None:
 
 
 def update_person(person: Person) -> None:
-    """Save a person to Postgres and re-seed the personhog fake."""
-    person.save()  # nosemgrep: no-direct-persons-db-orm
+    """Re-sync a mutated person into ClickHouse and the personhog fake."""
+    _ch_create_person(
+        team_id=person.team_id,
+        properties=person.properties or {},
+        uuid=str(person.uuid),
+        is_identified=person.is_identified,
+        version=person.version or 0,
+        created_at=person.created_at,
+    )
     _reseed_person_into_fake(person)
 
 
 def add_distinct_id(*, person: Person, distinct_id: str, version: int = 0) -> PersonDistinctId:
-    """Create a PersonDistinctId in Postgres and seed it into the personhog fake."""
-    pdi = PersonDistinctId.objects.create(  # nosemgrep: no-direct-persons-db-orm
-        team_id=person.team_id,
-        person=person,
-        distinct_id=distinct_id,
-        version=version,
-    )
+    """Add a distinct ID to a person in ClickHouse + the personhog fake."""
+    _ch_create_person_distinct_id(person.team_id, str(distinct_id), str(person.uuid), version=version)
     _seed_distinct_id_into_fake(person.team_id, person.pk, distinct_id, version=version)
-    return pdi
+    if getattr(person, "_distinct_ids", None) is not None and distinct_id not in person._distinct_ids:
+        person._distinct_ids.append(distinct_id)
+    return PersonDistinctId(team_id=person.team_id, person=person, distinct_id=distinct_id, version=version)
 
 
 def stage_person_for_bulk_create(*args: Any, **kwargs: Any) -> Person:
     """Stage a person for deferred bulk creation.
 
-    Does NOT write to Postgres or ClickHouse immediately.  Call
-    flush_persons_and_events() to bulk-insert all staged persons into
-    Postgres + ClickHouse + personhog fake.
+    Does NOT write immediately.  Call flush_persons_and_events() to bulk-insert
+    all staged persons into ClickHouse + the personhog fake.
 
     Returns an unsaved Person instance (no pk).  The pk is only available
     after flush.
@@ -281,7 +340,7 @@ def stage_person_for_bulk_create(*args: Any, **kwargs: Any) -> Person:
 
 
 def flush_persons_to_db_and_clickhouse() -> dict[str, Person]:
-    """Bulk-insert all staged persons into Postgres + ClickHouse + personhog fake.
+    """Bulk-insert all staged persons into ClickHouse + the personhog fake.
 
     Returns the person_mapping (distinct_id → Person) for event flushing.
     Called by flush_persons_and_events() in base.py.
@@ -320,20 +379,25 @@ def _seed_persons_from_bulk_mapping(person_mapping: dict[str, Person]) -> None:
 
 
 def create_group(*, team: Team | None = None, group_type_index: int, group_key: str, **kwargs: Any) -> Group:
-    """Create a group in Postgres and seed the personhog fake."""
+    """Create a group in the personhog fake (no persons DB write)."""
     if team is None and "team_id" not in kwargs:
         raise TypeError("create_group() requires 'team' or 'team_id'")
     create_kwargs: dict[str, Any] = {"group_type_index": group_type_index, "group_key": group_key, **kwargs}
     if team is not None:
         create_kwargs["team"] = team
-    group = Group.objects.create(**create_kwargs)  # nosemgrep: no-direct-persons-db-orm
+    group = Group(**create_kwargs)
+    group.id = _next_synthetic_pk()
+    if group.created_at is None:
+        group.created_at = now()
+    if group.version is None:
+        group.version = 0
+    group._state.adding = False
     _seed_group_into_fake(group)
     return group
 
 
 def update_group(group: Group) -> None:
-    """Save a group to Postgres and re-seed the personhog fake."""
-    group.save()  # nosemgrep: no-direct-persons-db-orm
+    """Re-seed a mutated group into the personhog fake."""
     _seed_group_into_fake(group)
 
 
@@ -341,17 +405,20 @@ def update_group(group: Group) -> None:
 
 
 def create_group_type_mapping(*, team: Team | None = None, **kwargs: Any) -> GroupTypeMapping:
-    """Create a group type mapping in Postgres and seed the personhog fake."""
+    """Create a group type mapping in the personhog fake (no persons DB write)."""
     if team is not None:
         kwargs["team"] = team
-    mapping = GroupTypeMapping.objects.create(**kwargs)  # nosemgrep: no-direct-persons-db-orm
+    mapping = GroupTypeMapping(**kwargs)
+    mapping.id = _next_synthetic_pk()
+    if mapping.created_at is None:
+        mapping.created_at = now()
+    mapping._state.adding = False
     _seed_group_type_mapping_into_fake(mapping)
     return mapping
 
 
 def update_group_type_mapping(mapping: GroupTypeMapping) -> None:
-    """Save a group type mapping to Postgres and re-seed the personhog fake."""
-    mapping.save()  # nosemgrep: no-direct-persons-db-orm
+    """Re-seed a mutated group type mapping into the personhog fake."""
     _seed_group_type_mapping_into_fake(mapping)
 
 
@@ -359,24 +426,12 @@ def update_group_type_mapping(mapping: GroupTypeMapping) -> None:
 
 
 def add_cohort_members(cohort: Cohort, persons: list[Person]) -> None:
-    """Add persons to a cohort in Postgres and seed the personhog fake."""
-    from products.cohorts.backend.models.cohort import CohortPeople  # noqa: PLC0415
-
+    """Add persons to a cohort in the personhog fake."""
     for person in persons:
-        CohortPeople.objects.get_or_create(  # nosemgrep: no-direct-persons-db-orm
-            cohort_id=cohort.pk,
-            person_id=person.pk,
-            defaults={"version": 0},
-        )
         _seed_cohort_member_into_fake(cohort.pk, person.pk)
 
 
 def remove_cohort_members(cohort: Cohort, persons: list[Person]) -> None:
-    """Remove persons from a cohort in Postgres and the personhog fake."""
-    from products.cohorts.backend.models.cohort import CohortPeople  # noqa: PLC0415
-
+    """Remove persons from a cohort in the personhog fake."""
     for person in persons:
-        CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            cohort_id=cohort.pk, person_id=person.pk
-        ).delete()
         _remove_cohort_member_from_fake(cohort.pk, person.pk)
