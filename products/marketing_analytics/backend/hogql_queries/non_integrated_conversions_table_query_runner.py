@@ -201,6 +201,9 @@ class NonIntegratedConversionsTableQueryRunner(
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
+        # Share the prebuilt HogQL database across both periods so the compare query pays the ~1s
+        # Database.create_for once, not twice. Pre-populates the previous runner's cached_property.
+        previous_runner.__dict__["_shared_hogql_database"] = self._shared_hogql_database
 
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
