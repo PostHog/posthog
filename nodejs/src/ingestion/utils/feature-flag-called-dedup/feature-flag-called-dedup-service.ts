@@ -141,14 +141,13 @@ export type FeatureFlagCalledDedupEnvConfig = Pick<
 >
 
 /**
- * Lanes that may dedup: the real-time lanes plus `team2`, plus `null` for local
- * dev, where no lane is set. Derived from REALTIME_INGESTION_LANES so a new
- * real-time lane is covered automatically; delayed lanes are excluded by
- * construction. `team2` is added explicitly because it is a real-time lane that
- * is not part of REALTIME_INGESTION_LANES. See
- * `createFeatureFlagCalledDedupService` for why delayed lanes must never dedup.
+ * Lanes that may dedup: the real-time lanes plus `null` for local dev, where
+ * no lane is set. Derived from REALTIME_INGESTION_LANES so a new real-time
+ * lane is covered automatically; delayed lanes are excluded by construction.
+ * See `createFeatureFlagCalledDedupService` for why delayed lanes must never
+ * dedup.
  */
-const DEDUP_ALLOWED_LANES: readonly (IngestionLane | null)[] = [...REALTIME_INGESTION_LANES, 'team2', null]
+const DEDUP_ALLOWED_LANES: readonly (IngestionLane | null)[] = [...REALTIME_INGESTION_LANES, null]
 
 /**
  * Builds the dedup service from ingestion config, or undefined when the dedup

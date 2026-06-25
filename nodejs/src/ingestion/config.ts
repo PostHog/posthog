@@ -84,13 +84,10 @@ export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
  * distinction is load-bearing for processing-time logic like dedup, so the lane
  * type is derived from these two sets to keep the categorization in one place.
  */
-export const REALTIME_INGESTION_LANES = ['main', 'overflow', 'turbo'] as const
+export const REALTIME_INGESTION_LANES = ['main', 'overflow', 'turbo', 'team2'] as const
 export const DELAYED_INGESTION_LANES = ['historical', 'async'] as const
 
-export type IngestionLane =
-    | (typeof REALTIME_INGESTION_LANES)[number]
-    | (typeof DELAYED_INGESTION_LANES)[number]
-    | 'team2'
+export type IngestionLane = (typeof REALTIME_INGESTION_LANES)[number] | (typeof DELAYED_INGESTION_LANES)[number]
 
 export type IngestionConsumerConfig = {
     INGESTION_LANE: IngestionLane | null
