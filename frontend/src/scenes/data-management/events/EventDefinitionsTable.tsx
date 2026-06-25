@@ -166,6 +166,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 <div className="flex items-center gap-2 flex-shrink-0">
                     <span>Tags:</span>
                     <TagSelect
+                        logicKey="event-definitions-tags"
                         defaultLabel="Any tags"
                         value={filters.tags || []}
                         onChange={(tags) => {

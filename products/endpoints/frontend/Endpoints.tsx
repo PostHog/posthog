@@ -230,6 +230,7 @@ export const EndpointsTable = (): JSX.Element => {
                         <b>Tags</b>
                     </span>
                     <TagSelect
+                        logicKey="endpoints-tags"
                         defaultLabel="Any tags"
                         value={filters.tags}
                         onChange={(tags) => setFilters({ tags })}

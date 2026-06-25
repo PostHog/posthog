@@ -60,6 +60,7 @@ export function SavedInsightsFilters({
                     )}
                     {quickFilterSet.has('tags') && (
                         <TagSelect
+                            logicKey="saved-insights-tags"
                             value={tags || []}
                             onChange={(tags) => {
                                 setFilters({ tags: tags.length > 0 ? tags : [] })

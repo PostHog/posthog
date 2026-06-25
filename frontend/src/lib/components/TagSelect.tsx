@@ -5,6 +5,8 @@ import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps, Lemon
 import { tagSelectLogic } from './tagSelectLogic'
 
 export type TagSelectProps = {
+    /** Unique key so each TagSelect instance gets its own popover state */
+    logicKey: string
     defaultLabel?: string
     value: string[]
     onChange: (value: string[]) => void
@@ -12,14 +14,15 @@ export type TagSelectProps = {
 }
 
 export function TagSelect({
+    logicKey,
     defaultLabel = 'Any tags',
     value,
     onChange,
     children,
     ...buttonProps
 }: TagSelectProps & Pick<LemonButtonProps, 'type' | 'size'>): JSX.Element {
-    const { filteredTags, search, showPopover } = useValues(tagSelectLogic)
-    const { setSearch, setShowPopover } = useActions(tagSelectLogic)
+    const { filteredTags, search, showPopover } = useValues(tagSelectLogic({ logicKey }))
+    const { setSearch, setShowPopover } = useActions(tagSelectLogic({ logicKey }))
 
     const _onChange = (newTags: string[]): void => {
         onChange(newTags)
