@@ -190,7 +190,7 @@ class TestConversionGoalPrecomputeDedup(ClickhouseTestMixin, APIBaseTest):
         ]
         job_id_idx = column_names.index("job_id")
 
-        original_rows = sync_execute(
+        original_rows = sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — test helper; sharded_table is a hardcoded preagg table, column_names come from system.columns, team_id parameterized
             f"SELECT {', '.join(column_names)} FROM {sharded_table} WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )
@@ -201,13 +201,13 @@ class TestConversionGoalPrecomputeDedup(ClickhouseTestMixin, APIBaseTest):
                 row_list = list(row)
                 row_list[job_id_idx] = new_job_id
                 new_rows.append(tuple(row_list))
-            sync_execute(
+            sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — test helper; sharded_table + column_names (from system.columns) are not user input
                 f"INSERT INTO {sharded_table} ({', '.join(column_names)}) VALUES",
                 new_rows,
             )
 
     def _count_and_unique(self, distributed_table: str, ts_column: str) -> tuple[int, int]:
-        rows = sync_execute(
+        rows = sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — test helper; distributed_table + ts_column are hardcoded preagg identifiers, team_id parameterized
             f"""
             SELECT count(), uniqExact((person_id, {ts_column}))
             FROM {distributed_table}
