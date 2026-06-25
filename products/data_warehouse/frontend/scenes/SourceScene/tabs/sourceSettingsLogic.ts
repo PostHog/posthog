@@ -180,6 +180,24 @@ function diffSchemaPayloadFields(
     return changed
 }
 
+// When a flush fails while a newer edit for the same schema is already queued, the pending update
+// only carries the fields that changed since the (optimistically applied) in-flight edit — so its
+// changedFields omit the fields the failed request was sending. Fold the failed update back in so
+// the retry re-sends everything the user intended; the pending (newer) edit wins on field overlap.
+function foldFailedUpdateIntoPending(failed: PendingSchemaUpdate, pending: PendingSchemaUpdate): PendingSchemaUpdate {
+    const mergedSchema = { ...failed.schema }
+    const assign = mergedSchema as Record<SchemaPayloadField, unknown>
+    for (const field of pending.changedFields) {
+        assign[field] = pending.schema[field]
+    }
+
+    return {
+        schema: mergedSchema,
+        revision: pending.revision,
+        changedFields: new Set([...failed.changedFields, ...pending.changedFields]),
+    }
+}
+
 function getSchemaUpdateCache(cache: SchemaUpdateCache): Required<SchemaUpdateCache> {
     cache.pendingSchemaUpdates ??= {}
     cache.inFlightSchemaUpdates ??= {}
@@ -764,8 +782,16 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             scheduleSchemaUpdateFlush()
                         }
                     } catch (error: any) {
-                        for (const pendingUpdate of batchSchemaUpdates) {
-                            delete schemaUpdateCache.inFlightSchemaUpdates[pendingUpdate.schema.id]
+                        for (const failedUpdate of batchSchemaUpdates) {
+                            delete schemaUpdateCache.inFlightSchemaUpdates[failedUpdate.schema.id]
+
+                            // If a newer edit for this schema is queued, fold the failed fields into it
+                            // so the retry doesn't silently drop what this request was carrying.
+                            const pending = schemaUpdateCache.pendingSchemaUpdates[failedUpdate.schema.id]
+                            if (pending) {
+                                schemaUpdateCache.pendingSchemaUpdates[failedUpdate.schema.id] =
+                                    foldFailedUpdateIntoPending(failedUpdate, pending)
+                            }
                         }
 
                         if (Object.keys(schemaUpdateCache.pendingSchemaUpdates).length > 0) {

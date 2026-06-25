@@ -58,7 +58,8 @@ describe('sourceSettingsLogic', () => {
     it('debounces schema saves and only sends the latest queued change', async () => {
         const bulkUpdateSchemasSpy = jest
             .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
-            .mockImplementation(async (_id, schemas) => schemas as ExternalDataSourceSchema[])
+            // Mirror the backend: merge the partial payload onto the stored row, return full schemas.
+            .mockImplementation(async (_id, schemas) => schemas.map((partial) => ({ ...makeSchema(), ...partial })))
 
         logic = sourceSettingsLogic({ id: 'source-1' })
         logic.mount()
@@ -90,7 +91,7 @@ describe('sourceSettingsLogic', () => {
                         return
                     }
 
-                    resolve(schemas as ExternalDataSourceSchema[])
+                    resolve(schemas.map((partial) => ({ ...makeSchema(), ...partial })))
                 })
         )
 
@@ -156,6 +157,50 @@ describe('sourceSettingsLogic', () => {
         ])
         expect(logic.values.source?.schemas[0].sync_frequency).toBe('24hour')
         expect(logic.values.source?.schemas[0].enabled_columns).toEqual(['id', 'name'])
+    })
+
+    it('re-sends a failed in-flight edit fields when a newer edit for the same schema is queued', async () => {
+        // Minimal-diff payloads must not lose data: if a flush fails while a newer edit for the same
+        // schema is queued, the retry has to re-send the failed edit's fields too — not just the new one.
+        let rejectFirst: (() => void) | null = null
+        let callCount = 0
+        const bulkUpdateSchemasSpy = jest
+            .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
+            .mockImplementation((_id, schemas) => {
+                callCount++
+                if (callCount === 1) {
+                    return new Promise<ExternalDataSourceSchema[]>((_resolve, reject) => {
+                        rejectFirst = () => reject(new Error('boom'))
+                    })
+                }
+                return Promise.resolve(schemas.map((partial) => ({ ...makeSchema(), ...partial })))
+            })
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        // Edit 1 (should_sync) flushes and goes in-flight.
+        logic.actions.updateSchema(makeSchema({ should_sync: true }))
+        await jest.advanceTimersByTimeAsync(500)
+        expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(1)
+
+        // Edit 2 (a different field) is queued while edit 1 is still in-flight.
+        logic.actions.updateSchema(makeSchema({ should_sync: true, sync_frequency: '24hour' }))
+
+        // Edit 1 fails — the retry must carry both should_sync and sync_frequency.
+        const rejectFirstFn = rejectFirst as unknown as (() => void) | null
+        if (!rejectFirstFn) {
+            throw new Error('Expected first request to be pending')
+        }
+        rejectFirstFn()
+        await jest.advanceTimersByTimeAsync(500)
+
+        expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(2)
+        expect(bulkUpdateSchemasSpy).toHaveBeenLastCalledWith('source-1', [
+            { id: 'schema-1', should_sync: true, sync_frequency: '24hour' },
+        ])
     })
 
     it('keys the logic by source id', () => {
