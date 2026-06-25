@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -91,6 +91,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         hasActiveObservationFilters,
         availableTags,
         observationStats,
+        observationStatsApiLoading,
         scanner,
         triggeringOnDemandObservation,
         refreshing,
@@ -253,7 +254,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             </LemonButton>
                         </Tooltip>
                     </div>
-                    {observationStats.total > 0 && (
+                    {observationStats.total > 0 ? (
                         <div className="flex gap-4 text-sm">
                             <Metric label="Total" value={observationStats.total} />
                             {observationStats.successRate !== null && (
@@ -273,7 +274,11 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 <Metric label="In flight" value={observationStats.inFlight} />
                             )}
                         </div>
-                    )}
+                    ) : observationStatsApiLoading ? (
+                        <div className="flex items-center text-muted text-sm">
+                            <Spinner />
+                        </div>
+                    ) : null}
                 </div>
             </div>
             <LemonTable

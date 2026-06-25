@@ -12,9 +12,11 @@ on:
                 required: false
                 type: string
     schedule:
-        # Daily: merge the latest CI timing artifacts and refresh the Actions cache that
-        # ci-backend / ci-dagster restore for sharding. This is the day-to-day freshness.
-        - cron: '0 3 * * *'
+        # Every 6 hours: merge the latest CI timing artifacts and refresh the Actions cache
+        # that ci-backend / ci-dagster restore for sharding. Frequent refresh keeps splits
+        # balanced even after large batches of new tests land mid-day. Cheap (~90s on
+        # depot-ubuntu-latest, no test execution).
+        - cron: '0 3,9,15,21 * * *'
         # Monthly (1st): same merge, but this run also commits the .test_durations fallback
         # via PR. The committed file is only the cold-start / cache-miss floor, so it doesn't
         # need a daily commit. Distinguished from the daily run via github.event.schedule

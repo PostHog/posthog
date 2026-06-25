@@ -29,14 +29,9 @@ import {
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { BatchWritingStore, BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
+import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { Properties } from '~/plugin-scaffold'
-import {
-    InternalPerson,
-    PersonBatchWritingDbWriteMode,
-    PropertiesLastOperation,
-    PropertiesLastUpdatedAt,
-    Team,
-} from '~/types'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/utils/db/db'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { logger } from '~/utils/logger'

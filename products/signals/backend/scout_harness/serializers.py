@@ -289,6 +289,18 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
     )
+    date_from = serializers.DateTimeField(
+        required=False,
+        help_text="ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result "
+            "cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry "
+            "from the prior page)."
+        ),
+    )
     keys_only = serializers.BooleanField(
         required=False,
         help_text=(
@@ -308,8 +320,8 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=100,
-        help_text="Max rows to return (default 20, hard cap 100).",
+        max_value=500,
+        help_text="Max rows to return (default 20, hard cap 500).",
     )
 
 
