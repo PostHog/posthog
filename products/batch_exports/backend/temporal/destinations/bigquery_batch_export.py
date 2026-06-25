@@ -1580,6 +1580,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 use_storage_stream = (
                     str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_STORAGE_STREAM_API_TEAM_IDS
                 )
+                use_storage_stream = True
 
                 if str(inputs.team_id) not in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
                     # This just repeats what's in `run_consumers` to preserve backwards compatibility
@@ -1652,6 +1653,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         consumer=consumer,
                         transformer=transformer,
                         json_columns=(),
+                        records_total=inputs.records_total,
                     )
 
                 else:
