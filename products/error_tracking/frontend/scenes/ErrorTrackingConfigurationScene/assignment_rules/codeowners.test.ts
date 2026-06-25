@@ -137,8 +137,8 @@ describe('codeowners helpers', () => {
             ].join('\n')
 
             expect(findCodeownersErrors(text)).toEqual([
-                { line: 3, reason: '"frontend/**" has no owner' },
-                { line: 4, reason: 'invalid owner not-a-handle' },
+                { line: 3, reason: 'Missing owner' },
+                { line: 4, reason: 'Invalid owner' },
             ])
         })
 

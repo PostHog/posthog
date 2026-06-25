@@ -10,7 +10,7 @@ import { Button, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, T
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { ErrorTrackingIssueAssignee, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../../components/Assignee/AssigneeDisplay'
@@ -59,9 +59,6 @@ export function CodeOwnersConfigureTable(): JSX.Element {
     const { mappingRows } = useValues(codeOwnersModalLogic)
     const { setOwnerAssignee } = useActions(codeOwnersModalLogic)
 
-    const setAssignee = (owner: string, assignee: ErrorTrackingIssueAssignee | null): void =>
-        setOwnerAssignee(owner, assignee)
-
     return (
         <div className="flex flex-col gap-2">
             <Table>
@@ -98,7 +95,7 @@ export function CodeOwnersConfigureTable(): JSX.Element {
                                     <div className="flex justify-end">
                                         <AssigneeSelect
                                             assignee={row.assignee}
-                                            onChange={(assignee) => setAssignee(row.owner, assignee)}
+                                            onChange={(assignee) => setOwnerAssignee(row.owner, assignee)}
                                         >
                                             {(assignee, isOpen) => (
                                                 <ButtonPrimitive

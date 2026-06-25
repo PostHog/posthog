@@ -49,15 +49,15 @@ export function findCodeownersErrors(text: string): CodeownersError[] {
             return
         }
 
-        const [pattern, ...owners] = line.split(/\s+/)
+        const [, ...owners] = line.split(/\s+/)
         if (owners.length === 0) {
-            errors.push({ line: index + 1, reason: `"${pattern}" has no owner` })
+            errors.push({ line: index + 1, reason: 'Missing owner' })
             return
         }
 
         const invalid = owners.filter((owner) => !OWNER_RE.test(owner) && !EMAIL_RE.test(owner))
         if (invalid.length > 0) {
-            errors.push({ line: index + 1, reason: `invalid owner ${invalid.join(', ')}` })
+            errors.push({ line: index + 1, reason: 'Invalid owner' })
         }
     })
     return errors
