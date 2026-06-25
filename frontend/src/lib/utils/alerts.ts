@@ -35,7 +35,7 @@ export const buildAlertFilterConfig = (alertId: string): CyclotronJobFiltersType
 
 // Default inputs the alert wizard pre-fills for a destination, sourced from the shared sub-template
 // (single source of truth with the full destination picker).
-const subTemplateInputs = (templateId: string) =>
+const subTemplateInputs = (templateId: string): NonNullable<HogFunctionType['inputs']> =>
     HOG_FUNCTION_SUB_TEMPLATES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID].find((t) => t.template_id === templateId)
         ?.inputs ?? {}
 
