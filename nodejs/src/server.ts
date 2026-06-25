@@ -9,6 +9,7 @@ import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { InternalCaptureService } from '~/common/services/internal-capture'
+import { InternalFetchService } from '~/common/services/internal-fetch'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -38,8 +39,10 @@ import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculat
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
-import { CyclotronV2JanitorService, CyclotronV2Manager } from './cdp/services/cyclotron-v2'
+import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from './cdp/services/cyclotron-v2'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
+import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
+import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
@@ -386,7 +389,29 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorkerBatchResolve) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpCyclotronWorkerBatchResolve(this.config, cdpDeps!)
+                if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
+                    throw new Error('CYCLOTRON_NODE_DATABASE_URL is required for CdpCyclotronWorkerBatchResolve')
+                }
+                const cyclotronWorker = new CyclotronV2Worker({
+                    pool: {
+                        dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
+                        maxConnections: 10,
+                    },
+                    queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
+                    pollDelayMs: 100,
+                })
+                const internalFetchService = new InternalFetchService(
+                    this.config.INTERNAL_API_BASE_URL,
+                    this.config.INTERNAL_API_SECRET
+                )
+                const hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(internalFetchService)
+                const consumer = new CdpCyclotronWorkerBatchResolve(
+                    this.config,
+                    cdpDeps!,
+                    cyclotronWorker,
+                    hogFlowBatchPersonQueryService,
+                    internalFetchService
+                )
                 await consumer.start()
                 return consumer.service
             })

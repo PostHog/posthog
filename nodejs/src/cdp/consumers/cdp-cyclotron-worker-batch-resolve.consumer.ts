@@ -7,10 +7,9 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Plugins
 import { logger, serializeError } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { UUIDT } from '../../utils/utils'
-import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Worker } from '../services/cyclotron-v2'
+import type { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Worker } from '../services/cyclotron-v2'
 import {
     BatchResolverState,
-    HOGFLOW_BATCH_RESOLVE_QUEUE,
     deserializeResolverState,
     serializeResolverState,
 } from '../services/hogflows/batch-resolver.types'
@@ -40,28 +39,14 @@ const RETRY_BACKOFF_MS = 5_000
 export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServerConfig> {
     protected name = 'CdpCyclotronWorkerBatchResolve'
 
-    private cyclotronWorker: CyclotronV2Worker
-    private internalFetchService: InternalFetchService
-    private hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService
-
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
+    constructor(
+        config: PluginsServerConfig,
+        deps: CdpConsumerBaseDeps,
+        private cyclotronWorker: CyclotronV2Worker,
+        private hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService,
+        private internalFetchService: InternalFetchService
+    ) {
         super(config, deps)
-
-        if (!config.CYCLOTRON_NODE_DATABASE_URL) {
-            throw new Error('CYCLOTRON_NODE_DATABASE_URL is required for CdpCyclotronWorkerBatchResolve')
-        }
-
-        this.cyclotronWorker = new CyclotronV2Worker({
-            pool: {
-                dbUrl: config.CYCLOTRON_NODE_DATABASE_URL,
-                maxConnections: 10,
-            },
-            queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
-            pollDelayMs: 100,
-        })
-
-        this.internalFetchService = new InternalFetchService(config.INTERNAL_API_BASE_URL, config.INTERNAL_API_SECRET)
-        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(this.internalFetchService)
     }
 
     public override async start(): Promise<void> {
