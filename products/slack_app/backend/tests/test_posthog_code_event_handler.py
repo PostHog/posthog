@@ -133,7 +133,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         from django.utils import timezone
 
         return SlackUserProfileCache.objects.create(
-            integration=self.posthog_code_integration,
+            slack_workspace_id=self.posthog_code_integration.integration_id,
             slack_user_id=slack_user_id,
             email=email,
             display_name="Dev",
@@ -940,7 +940,7 @@ class TestChannelApprovalGate(TestCase):
         # channel-approval logic runs. Seed the cache so the gate has something
         # to resolve without calling Slack.
         SlackUserProfileCache.objects.create(
-            integration=self.integration,
+            slack_workspace_id=self.integration.integration_id,
             slack_user_id="U123",
             email="dev@example.com",
             display_name="Dev",

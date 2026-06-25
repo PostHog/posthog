@@ -336,7 +336,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "CodeInvite",  # user-scoped but stores team data
         "CodeInviteRedemption",  # via CodeInvite
         "SandboxSnapshot",  # via Integration
-        "SlackUserProfileCache",  # via Integration
+        "SlackUserProfileCache",  # workspace-public Slack user metadata; shared across integrations on the same workspace
         "SlackSettings",  # via Integration
     }
 

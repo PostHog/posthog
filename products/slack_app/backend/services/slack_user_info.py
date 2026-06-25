@@ -78,7 +78,7 @@ def normalize_slack_response(payload: Any) -> dict[str, Any]:
 def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -> dict[str, Any] | None:
     try:
         profile = SlackUserProfileCache.objects.filter(
-            integration_id=integration.id, slack_user_id=slack_user_id
+            slack_workspace_id=integration.integration_id, slack_user_id=slack_user_id
         ).first()
     except DatabaseError:
         logger.warning("slack_app_slack_user_cache_db_unavailable", integration_id=integration.id)
@@ -101,7 +101,7 @@ def persist_slack_user_info(integration: Integration, slack_user_id: str, user_i
     profile = user.get("profile", {})
     try:
         SlackUserProfileCache.objects.update_or_create(
-            integration_id=integration.id,
+            slack_workspace_id=integration.integration_id,
             slack_user_id=slack_user_id,
             defaults={
                 "email": profile.get("email") or None,
@@ -139,7 +139,7 @@ def is_slack_workspace_admin(slack: SlackIntegration, integration: Integration, 
 def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_email: str) -> str | None:
     try:
         profile = SlackUserProfileCache.objects.filter(
-            integration_id=integration.id,
+            slack_workspace_id=integration.integration_id,
             email__iexact=normalized_email,
         ).first()
     except DatabaseError:
@@ -203,7 +203,7 @@ def _purge_stale_email_rows(integration: Integration, normalized_email: str, kee
     """
     try:
         SlackUserProfileCache.objects.filter(
-            integration_id=integration.id,
+            slack_workspace_id=integration.integration_id,
             email__iexact=normalized_email,
         ).exclude(slack_user_id=keep_slack_user_id).delete()
     except DatabaseError:

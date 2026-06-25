@@ -61,7 +61,6 @@ class TestRelaySlackMessage(TestCase):
         )
         SlackThreadTaskMapping.objects.create(
             team=cls.team,
-            integration=cls.integration,
             slack_workspace_id="T123",
             channel="C123",
             thread_ts="1111.1",
@@ -428,7 +427,6 @@ class TestRelaySlackMessageChunking(TestCase):
         )
         SlackThreadTaskMapping.objects.create(
             team=cls.team,
-            integration=cls.integration,
             slack_workspace_id="T456",
             channel="C456",
             thread_ts="2222.2",

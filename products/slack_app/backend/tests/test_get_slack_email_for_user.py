@@ -45,7 +45,9 @@ class TestGetSlackEmailForUser:
         email = get_slack_email_for_user(integration, "U1")
 
         assert email == "dev@example.com"
-        assert SlackUserProfileCache.objects.filter(integration=integration, slack_user_id="U1").exists()
+        assert SlackUserProfileCache.objects.filter(
+            slack_workspace_id=integration.integration_id, slack_user_id="U1"
+        ).exists()
 
     @patch("posthog.models.integration.WebClient")
     def test_logs_empty_response_when_users_info_returns_blank(self, mock_webclient_class, integration, caplog):

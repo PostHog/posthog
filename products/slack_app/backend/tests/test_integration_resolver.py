@@ -73,7 +73,6 @@ class TestResolveIntegration:
         self,
         *,
         team: Team,
-        integration: Integration,
         channel: str = "C1",
         thread_ts: str = "123.456",
     ) -> SlackThreadTaskMapping:
@@ -83,7 +82,6 @@ class TestResolveIntegration:
         task_run = TaskRun.objects.create(team=team, task=task)
         return SlackThreadTaskMapping.objects.create(
             team=team,
-            integration=integration,
             slack_workspace_id=WORKSPACE,
             channel=channel,
             thread_ts=thread_ts,
@@ -93,7 +91,7 @@ class TestResolveIntegration:
         )
 
     def test_thread_mapping_wins_over_everything(self):
-        self._mk_thread_mapping(team=self.team_b, integration=self.integration_b)
+        self._mk_thread_mapping(team=self.team_b)
         # Even with an unrelated user_default pointing at A, the thread mapping wins.
         SlackSettings.objects.create(
             default_integration=self.integration_a,
@@ -118,7 +116,7 @@ class TestResolveIntegration:
         # (it's in `other_org`). The thread match must be skipped — a user
         # whose access was revoked or who never had access can't drive the
         # thread just by replying to it.
-        self._mk_thread_mapping(team=self.team_c, integration=self.integration_c)
+        self._mk_thread_mapping(team=self.team_c)
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
@@ -135,17 +133,17 @@ class TestResolveIntegration:
         assert {i.id for i in result.candidates} == {self.integration_a.id, self.integration_b.id}
 
     def test_thread_mapping_remaps_to_sibling_when_mapped_integration_out_of_lookup(self):
-        # Older mapping points at a sibling Integration row of a different kind
-        # for the same team in this workspace. The resolver must remap to the
-        # in-set sibling and keep the mapping's task_run linkage rather than
-        # fall back to the picker.
-        legacy_integration = Integration.objects.create(
+        # The mapping carries only ``team_id`` now, so kind drift on the
+        # integration side is no longer observable from the mapping — the
+        # resolver lands on whichever current candidate covers that team in
+        # this workspace. Co-existing sibling rows must not change the outcome.
+        Integration.objects.create(
             team=self.team_b,
             kind="slack-posthog-code",
             integration_id=WORKSPACE,
             sensitive_config={"access_token": "xoxb-legacy"},
         )
-        self._mk_thread_mapping(team=self.team_b, integration=legacy_integration)
+        self._mk_thread_mapping(team=self.team_b)
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
@@ -165,13 +163,13 @@ class TestResolveIntegration:
         # sibling to remap to, the resolver must fall through to the next
         # branch rather than route to a row that isn't in the candidate set.
         self.integration_b.delete()
-        legacy_integration = Integration.objects.create(
+        Integration.objects.create(
             team=self.team_b,
             kind="slack-posthog-code",
             integration_id=WORKSPACE,
             sensitive_config={"access_token": "xoxb-legacy"},
         )
-        self._mk_thread_mapping(team=self.team_b, integration=legacy_integration)
+        self._mk_thread_mapping(team=self.team_b)
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
@@ -376,7 +374,6 @@ class TestResolveIntegration:
         task_run = TaskRun.objects.create(team=self.team_b, task=task)
         SlackThreadTaskMapping.objects.create(
             team=self.team_b,
-            integration=self.integration_b,
             slack_workspace_id=WORKSPACE,
             channel="C1",
             thread_ts="123.456",
@@ -642,7 +639,6 @@ class TestLoadIntegrationsAuthStateFilter:
         task_run = TaskRun.objects.create(team=self.team_old, task=task)
         SlackThreadTaskMapping.objects.create(
             team=self.team_old,
-            integration=self.integration_old,
             slack_workspace_id=WORKSPACE,
             channel="C1",
             thread_ts="123.456",

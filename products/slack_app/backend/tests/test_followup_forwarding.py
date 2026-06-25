@@ -75,7 +75,6 @@ class TestSlackThreadTaskMapping(TestCase):
     def test_create_mapping(self):
         mapping = SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=self.integration,
             slack_workspace_id="T_SLACK",
             channel="C123",
             thread_ts="1234.5678",
@@ -90,7 +89,6 @@ class TestSlackThreadTaskMapping(TestCase):
     def test_update_mapping_to_new_run(self):
         SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=self.integration,
             slack_workspace_id="T_SLACK",
             channel="C123",
             thread_ts="1234.5678",
@@ -104,7 +102,6 @@ class TestSlackThreadTaskMapping(TestCase):
             status=self.TaskRun.Status.QUEUED,
         )
         SlackThreadTaskMapping.objects.update_or_create(
-            integration=self.integration,
             channel="C123",
             thread_ts="1234.5678",
             defaults={
@@ -116,14 +113,13 @@ class TestSlackThreadTaskMapping(TestCase):
             },
         )
         mapping = SlackThreadTaskMapping.objects.get(
-            integration=self.integration, channel="C123", thread_ts="1234.5678"
+            slack_workspace_id="T_SLACK", channel="C123", thread_ts="1234.5678"
         )
         assert mapping.task_run_id == new_run.id
 
     def test_unique_constraint(self):
         SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=self.integration,
             slack_workspace_id="T_SLACK",
             channel="C123",
             thread_ts="1234.5678",
@@ -136,7 +132,6 @@ class TestSlackThreadTaskMapping(TestCase):
         with self.assertRaises(IntegrityError):
             SlackThreadTaskMapping.objects.create(
                 team=self.team,
-                integration=self.integration,
                 slack_workspace_id="T_SLACK",
                 channel="C123",
                 thread_ts="1234.5678",
@@ -205,7 +200,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert call_kwargs["posthog_mcp_scopes"] == "full"
 
         mapping = SlackThreadTaskMapping.objects.get(
-            integration=self.integration, channel="C123", thread_ts="1234.5678"
+            slack_workspace_id="T_SLACK", channel="C123", thread_ts="1234.5678"
         )
         assert mapping.task_id == task.id
         assert mapping.task_run_id == task.latest_run.id
@@ -507,7 +502,6 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     def _create_mapping(self, mentioning_user: str = "U_ALICE") -> SlackThreadTaskMapping:
         return SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=self.integration,
             slack_workspace_id="T_SLACK",
             channel="C123",
             thread_ts="1234.5678",
@@ -570,7 +564,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run_id != str(self.task_run.id)
 
         mapping = SlackThreadTaskMapping.objects.get(
-            integration=self.integration, channel="C123", thread_ts="1234.5678"
+            slack_workspace_id="T_SLACK", channel="C123", thread_ts="1234.5678"
         )
         assert str(mapping.task_run_id) == new_run_id
         assert mapping.task_id == self.task.id
@@ -684,7 +678,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert "internal error" in call_kwargs["text"]
 
         mapping = SlackThreadTaskMapping.objects.get(
-            integration=self.integration, channel="C123", thread_ts="1234.5678"
+            slack_workspace_id="T_SLACK", channel="C123", thread_ts="1234.5678"
         )
         assert mapping.task_run_id == self.task_run.id
 

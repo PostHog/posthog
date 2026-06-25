@@ -32,11 +32,10 @@ class SlackSettingsAdmin(admin.ModelAdmin):
 
 @admin.register(SlackThreadTaskMapping)
 class SlackThreadTaskMappingAdmin(admin.ModelAdmin):
-    list_select_related = ("team", "integration", "task", "task_run")
+    list_select_related = ("team", "task", "task_run")
     list_display = (
         "id",
         "team",
-        "integration",
         "slack_workspace_id",
         "channel",
         "thread_ts",
@@ -58,11 +57,11 @@ class SlackThreadTaskMappingAdmin(admin.ModelAdmin):
         "team__organization__name",
     )
     readonly_fields = ("id", "created_at", "updated_at")
-    autocomplete_fields = ("team", "integration", "task", "task_run")
+    autocomplete_fields = ("team", "task", "task_run")
     ordering = ("-created_at",)
 
     fieldsets = (
-        (None, {"fields": ("id", "team", "integration")}),
+        (None, {"fields": ("id", "team")}),
         (
             "Slack thread",
             {"fields": ("slack_workspace_id", "channel", "thread_ts", "mentioning_slack_user_id")},
@@ -107,10 +106,9 @@ class SlackChannelAdmin(admin.ModelAdmin):
 
 @admin.register(SlackUserProfileCache)
 class SlackUserProfileCacheAdmin(admin.ModelAdmin):
-    list_select_related = ("integration",)
     list_display = (
         "id",
-        "integration",
+        "slack_workspace_id",
         "slack_user_id",
         "email",
         "display_name",
@@ -121,18 +119,18 @@ class SlackUserProfileCacheAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = (
+        "slack_workspace_id",
         "is_admin",
         "is_owner",
         ("refreshed_at", admin.DateFieldListFilter),
         ("updated_at", admin.DateFieldListFilter),
     )
-    search_fields = ("slack_user_id", "email", "display_name", "real_name")
+    search_fields = ("slack_workspace_id", "slack_user_id", "email", "display_name", "real_name")
     readonly_fields = ("id", "created_at", "updated_at", "refreshed_at")
-    autocomplete_fields = ("integration",)
     ordering = ("-refreshed_at",)
 
     fieldsets = (
-        (None, {"fields": ("id", "integration", "slack_user_id")}),
+        (None, {"fields": ("id", "slack_workspace_id", "slack_user_id")}),
         ("Profile", {"fields": ("email", "display_name", "real_name", "is_admin", "is_owner")}),
         ("Dates", {"fields": ("created_at", "updated_at", "refreshed_at")}),
     )

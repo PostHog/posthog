@@ -43,7 +43,7 @@ class TestRouteThreadMessage(TestCase):
             sensitive_config={"access_token": "xoxb-test"},
         )
         SlackUserProfileCache.objects.create(
-            integration=self.integration,
+            slack_workspace_id="T_SLACK",
             slack_user_id="U_ALICE",
             email="alice@example.com",
             display_name="Alice",
@@ -57,7 +57,7 @@ class TestRouteThreadMessage(TestCase):
         self.bob = User.objects.create(email="bob@example.com", distinct_id="user-2")
         OrganizationMembership.objects.create(organization=self.organization, user=self.bob)
         SlackUserProfileCache.objects.create(
-            integration=self.integration,
+            slack_workspace_id="T_SLACK",
             slack_user_id="U_BOB",
             email="bob@example.com",
             display_name="Bob",
@@ -80,7 +80,6 @@ class TestRouteThreadMessage(TestCase):
         )
         self.mapping = SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=self.integration,
             slack_workspace_id="T_SLACK",
             channel="C001",
             thread_ts="1000.0000",
@@ -215,7 +214,7 @@ class TestRouteThreadMessage(TestCase):
             sensitive_config={"access_token": "xoxb-other"},
         )
         SlackUserProfileCache.objects.create(
-            integration=self.integration,
+            slack_workspace_id="T_SLACK",
             slack_user_id="U_CAROL",
             email="carol@example.com",
             display_name="Carol",

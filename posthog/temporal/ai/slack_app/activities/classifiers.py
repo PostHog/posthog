@@ -247,11 +247,13 @@ def classify_untagged_followup_activity(
     ``False`` to drop. Conservative defaults: missing mapping → drop, history
     fetch failure → classify on text alone, classifier failure → drop.
     """
+    from posthog.models.integration import Integration
+
     from products.slack_app.backend.services.slack_messages import cached_collect_thread_messages
 
     try:
-        mapping = SlackThreadTaskMapping.objects.select_related("task", "integration").get(
-            integration_id=inputs.integration_id,
+        mapping = SlackThreadTaskMapping.objects.select_related("task").get(
+            slack_workspace_id=inputs.slack_team_id,
             channel=channel,
             thread_ts=thread_ts,
         )
@@ -264,7 +266,11 @@ def classify_untagged_followup_activity(
         )
         return False
 
-    integration = mapping.integration
+    # The mapping no longer carries the integration FK — re-resolve the live
+    # one from the workflow inputs (its team is the integration's team).
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=inputs.integration_id,
+    )
     slack = SlackIntegration(integration)
 
     try:

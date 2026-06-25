@@ -3509,7 +3509,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=integration,
             slack_workspace_id="T_SLACK",
             channel="C123",
             thread_ts="1234.5678",
@@ -3558,7 +3557,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=integration,
             slack_workspace_id="T_SLACK",
             channel="C123",
             thread_ts="1234.5678",
@@ -3682,10 +3680,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         mock_execute_relay.return_value = "relay-1"
 
-        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=integration,
             slack_workspace_id="T_SLACK",
             channel="C123",
             thread_ts="1234.5678",
@@ -3765,10 +3762,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=integration,
             slack_workspace_id="T_SLACK",
             channel="C123",
             thread_ts="1234.5678",
@@ -3779,7 +3775,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=integration,
             slack_workspace_id="T_SLACK",
             channel="C456",
             thread_ts="5678.1234",

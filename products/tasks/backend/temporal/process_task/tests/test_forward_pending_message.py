@@ -181,7 +181,6 @@ class TestForwardPendingUserMessage(TestCase):
         self.SlackThreadTaskMapping = apps.get_model("slack_app", "SlackThreadTaskMapping")
         self.SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=self.slack_integration,
             slack_workspace_id="T123",
             channel="C123",
             thread_ts="1111.1",
@@ -227,7 +226,6 @@ class TestForwardPendingUserMessage(TestCase):
         self.SlackThreadTaskMapping = apps.get_model("slack_app", "SlackThreadTaskMapping")
         self.SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=self.slack_integration,
             slack_workspace_id="T123",
             channel="C123",
             thread_ts="1111.1",
