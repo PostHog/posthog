@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import json
 import uuid
 import dataclasses
@@ -1407,9 +1406,9 @@ class DraftCustomManifestResponseSerializer(serializers.Serializer):
     )
 
 
-# Local-dev only canned draft (see the `draft_custom_manifest` stub branch). Lets the intro→builder
-# flow be exercised without the LLM gateway, which needs prod-style ingress to route get_llm_client's
-# product path — the bare local gateway 404s it.
+# Local-dev only. `draft_custom_manifest` falls back to this canned draft when the gateway call fails
+# under DEBUG, so the intro→builder flow stays testable without the LLM gateway — which needs
+# prod-style ingress to route get_llm_client's product path, so the bare local gateway 404s it.
 _STUB_CUSTOM_MANIFEST = {
     "client": {"base_url": "https://api.example.com/v1", "auth": {"type": "bearer"}},
     "resources": [
@@ -1425,6 +1424,16 @@ _STUB_CUSTOM_MANIFEST = {
         {"name": "orders", "primary_key": "id", "endpoint": {"path": "/orders", "data_selector": "data"}},
     ],
 }
+
+
+def _stub_custom_manifest_response() -> dict[str, Any]:
+    return {
+        "draft_status": "ok",
+        "manifest_json": json.dumps(_STUB_CUSTOM_MANIFEST, indent=2),
+        "resource_names": [resource["name"] for resource in _STUB_CUSTOM_MANIFEST["resources"]],
+        "attempts": 1,
+        "error": None,
+    }
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -2718,20 +2727,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        # Local-dev shortcut: skip the gateway and return a canned, already-valid manifest so the UI
-        # flow is testable without standing up the LLM gateway. DEBUG + opt-in only; inert in prod.
-        if settings.DEBUG and os.environ.get("CUSTOM_SOURCE_AI_STUB"):
-            return Response(
-                status=status.HTTP_200_OK,
-                data={
-                    "draft_status": "ok",
-                    "manifest_json": json.dumps(_STUB_CUSTOM_MANIFEST, indent=2),
-                    "resource_names": [resource["name"] for resource in _STUB_CUSTOM_MANIFEST["resources"]],
-                    "attempts": 1,
-                    "error": None,
-                },
-            )
-
         if self.team.organization.is_ai_data_processing_approved is not True:
             return Response(
                 status=status.HTTP_403_FORBIDDEN,
@@ -2756,6 +2751,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         except APIConnectionError as e:
             capture_exception(e, {"team_id": self.team_id})
+            if settings.DEBUG:
+                return Response(status=status.HTTP_200_OK, data=_stub_custom_manifest_response())
             return Response(
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 data={
@@ -2764,6 +2761,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         except Exception as e:
             capture_exception(e, {"team_id": self.team_id})
+            if settings.DEBUG:
+                return Response(status=status.HTTP_200_OK, data=_stub_custom_manifest_response())
             return Response(
                 status=status.HTTP_502_BAD_GATEWAY,
                 data={"message": "The manifest drafting service failed. Try again, or author the manifest manually."},
