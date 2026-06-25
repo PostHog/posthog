@@ -1,42 +1,46 @@
 {{CLAUDE_CODE_CONTEXT|safe}}
 
 <pr_issue_deduplication_instructions>
-You are analyzing a list of issues found across multiple review passes for a pull request. Your task is to identify and remove duplicate issues based on file location, line ranges, and issue descriptions.
+You are deduplicating the findings from this pull-request review. You are given:
+- `issues_to_deduplicate`: the fresh findings to prune.
+- `prior_comments`: every inline review comment already on the PR, each tagged with its `user`
+  (the author). They come from other review bots (automated code reviewers), human reviewers, and
+  ReviewHog's own earlier comments. **Use the author to read what a comment is**: a code-review bot's
+  comment is usually a formal finding, so a bot already raising your finding's problem is strong
+  evidence it's a duplicate; a human's comment may be a question, nit, or discussion, so a human
+  remark near your finding is weaker evidence. No reviewer is privileged or excluded (ReviewHog's own
+  comments included) — the test is always whether the *same concrete problem* is already raised.
 
-You also need to check if any of the current issues have already been reported in previous review comments.
+**What makes two things duplicates**
+A fresh finding is a duplicate when it raises the *same concrete problem* — the same underlying defect
+or root cause — as either another fresh finding or a prior comment. Sharing a file or overlapping
+lines is NOT enough on its own:
+- Two findings on the same lines that flag *different* problems are NOT duplicates — keep both.
+- A finding near an unrelated prior comment (a nit, a question, praise, a different concern) is NOT a
+  duplicate — keep it.
 
-**Duplication Criteria (AGGRESSIVE MODE):**
-- Issues targeting the **same file** AND **same or overlapping line ranges** are considered duplicates if they address similar problems
-- Consider issues duplicates even if they have slightly different wording but address the same root cause
-- When multiple passes find similar issues, keep only ONE instance (preferably the most comprehensive one)
-- Issues that match previous review comments should be marked as duplicates
+**Collapse aggressively once the problem matches**
+When findings DO share the same concrete problem, collapse them hard — even if the wording differs or
+the line ranges only partially overlap. Keep only the single most comprehensive, actionable finding
+for that problem and mark the rest as duplicates. A prior comment that already raises the problem
+makes the matching fresh finding a duplicate (we will not re-post it). Fewer, distinct, useful
+findings is the goal.
 
-**Your Task:**
-1. Analyze all issues in the provided list
-2. Check if any issues match the previous review comments
-3. Group issues aggressively - err on the side of deduplication for same-ish issues in same files
-4. For each group of duplicates, select the best representative to keep
-5. Provide clear reasoning for your aggressive deduplication decisions
-
-**Key Guidelines (AGGRESSIVE DEDUPLICATION):**
-- Be aggressive: mark issues as duplicates if they address similar problems in the same file, even with different line ranges
-- When in doubt about same-file issues with similar concerns, DEDUPLICATE them
-- Prefer keeping the most comprehensive and actionable issue from each group
-- Pay attention to file paths and line ranges - issues in different files or significantly different lines are likely NOT duplicates
-- Only keep separate issues if they address completely different categories of problems
-- Consider the completeness and clarity of issue descriptions when choosing which to keep
-- If an issue matches a previous review comment, mark it as a duplicate
-
-Return your analysis as a JSON object that conforms to the provided schema.
+**Your task**
+1. For each fresh finding, decide whether it restates the same concrete problem as another fresh
+   finding or a prior comment.
+2. Within each group that shares a concrete problem, keep the most comprehensive finding and mark the
+   others as duplicates (by id).
+3. A finding whose concrete problem no other finding or prior comment covers is kept.
 </pr_issue_deduplication_instructions>
 
 <pr_context>
 {{PR_CONTEXT|safe}}
 </pr_context>
 
-<previous_issues>
-{{PREVIOUS_ISSUES_JSON|safe}}
-</previous_issues>
+<prior_comments>
+{{PRIOR_COMMENTS_JSON|safe}}
+</prior_comments>
 
 <issues_to_deduplicate>
 {{ISSUES_JSON|safe}}
@@ -47,7 +51,7 @@ Generate your deduplication analysis as a JSON object that conforms to the provi
 
 IMPORTANT:
 - Include all required fields as specified in the schema
-- The "duplicates" list should contain only the issue IDs that should be removed, with clear explanations
+- The "duplicates" list must contain only the ids of the findings to remove
 - Return ONLY the final JSON output (without any additional text or markdown formatting)
 
 JSON Schema:

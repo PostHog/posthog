@@ -28,14 +28,15 @@ def _issue(issue_id: str, file: str, start: int, end: int | None) -> Issue:
     )
 
 
-def _bot_comment(path: str, line: int) -> PRComment:
-    # A prior inline comment from the competing reviewer bot we dedupe against.
+def _prior_comment(path: str, line: int, user: str) -> PRComment:
+    # A prior inline comment. The dedup never branches on the author — it's passed to the LLM as
+    # context only.
     return PRComment(
         path=path,
         line=line,
         body="x",
         diff_hunk="",
-        user="greptile-apps[bot]",
+        user=user,
         created_at="2024-01-01",
     )
 
@@ -160,10 +161,12 @@ async def test_deduplicate_drops_llm_flagged_duplicate_keeps_isolated(pr_metadat
 
 
 @pytest.mark.asyncio
-async def test_deduplicate_prior_bot_comment_makes_issue_a_candidate(pr_metadata: PRMetadata) -> None:
-    # A single issue colliding with a prior greptile comment reaches the LLM, which drops it.
+async def test_deduplicate_prior_comment_makes_issue_a_candidate(pr_metadata: PRMetadata) -> None:
+    # Any prior inline comment overlapping a finding sends it to the LLM, which drops it. The author
+    # is a non-privileged handle on purpose: dedup no longer filters by author (it used to recognize
+    # one hardcoded bot), and nothing in our code branches on who wrote the comment.
     issues = [_issue("1-1", "src/auth.py", 45, 50)]
-    comments = [_bot_comment("src/auth.py", 47)]
+    comments = [_prior_comment("src/auth.py", 47, user="some-reviewer[bot]")]
     dedup = IssueDeduplication(duplicates=[DuplicateIssue(id="1-1")])
 
     with patch(f"{_MODULE}.run_sandbox_review", create_mock_run_sandbox_review(dedup)):

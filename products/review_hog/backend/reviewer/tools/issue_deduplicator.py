@@ -9,17 +9,6 @@ from products.review_hog.backend.reviewer.tools.prompt_helpers import load_templ
 
 logger = logging.getLogger(__name__)
 
-# A competing reviewer whose prior inline comments we dedupe against, so ReviewHog doesn't re-raise
-# issues another bot already flagged on the PR.
-_PRIOR_REVIEWER_BOT = "greptile-apps[bot]"
-
-
-def _previous_bot_issues(pr_comments: list[PRComment]) -> list[PRComment]:
-    """The prior-reviewer bot's inline comments, to dedupe ReviewHog's findings against."""
-    previous = [c for c in pr_comments if c.user == _PRIOR_REVIEWER_BOT]
-    logger.info(f"Found {len(previous)} previous issues from {_PRIOR_REVIEWER_BOT}")
-    return previous
-
 
 def _ranges_overlap(a: list[LineRange], b: list[LineRange]) -> bool:
     """True if any line range in a overlaps any line range in b."""
@@ -64,11 +53,10 @@ def _select_dedup_candidates(
     return candidates, unique
 
 
-_SYSTEM_PROMPT = """You are a senior code reviewer analyzing duplicate issues in a pull request.
-Your task is to:
-1. Identify issues that are duplicates based on file location, line ranges, and problem description
-2. Select the best representative issue to keep from each group of duplicates
-3. Be conservative - only mark issues as duplicates if you're confident they address the same problem
+_SYSTEM_PROMPT = """You are a senior code reviewer removing duplicate findings from a pull-request review.
+A finding is a duplicate only when it raises the same concrete problem as another finding or a prior
+inline comment — not merely because it shares a file or line. Once findings address the same concrete
+problem, collapse them aggressively and keep only the single most comprehensive one.
 
 IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema."""
 
@@ -84,15 +72,18 @@ async def deduplicate_issues(
     """Deduplicate the in-scope issues and return the survivors (the canonical post-dedup set).
 
     A deterministic positional pre-filter keeps positionally-isolated findings without an LLM call;
-    only file+line colliders (vs another issue or a prior bot comment) reach the single sandbox
-    dedupe call, which also drops issues already raised by a competing bot's prior comments.
+    only file+line colliders (vs another finding or any prior inline comment) reach the single sandbox
+    dedupe call, which also drops findings a prior inline comment already raised — from any reviewer,
+    bot or human, ReviewHog's own included.
     """
     if not issues:
         logger.info("No issues found to deduplicate.")
         return []
 
-    previous_issues = _previous_bot_issues(pr_comments)
-    prior_comment_lines = [pos for c in previous_issues if (pos := _comment_line(c)) is not None]
+    prior_comment_lines = [pos for c in pr_comments if (pos := _comment_line(c)) is not None]
+    if pr_comments:
+        authors = sorted({c.user for c in pr_comments})
+        logger.info(f"Deduping against {len(pr_comments)} prior inline comment(s) from authors: {authors}")
     candidates, unique = _select_dedup_candidates(issues, prior_comment_lines)
     logger.info(
         f"Deduplication: {len(candidates)} positional candidate(s); "
@@ -106,7 +97,7 @@ async def deduplicate_issues(
     prompt = template.render(
         CLAUDE_CODE_CONTEXT="",  # No specific code context needed for deduplication
         PR_CONTEXT=json.dumps(pr_metadata.model_dump(mode="json"), indent=2),
-        PREVIOUS_ISSUES_JSON=json.dumps([c.model_dump(mode="json") for c in previous_issues], indent=2),
+        PRIOR_COMMENTS_JSON=json.dumps([c.model_dump(mode="json") for c in pr_comments], indent=2),
         ISSUES_JSON=json.dumps([issue.model_dump(mode="json") for issue in candidates], indent=2),
         DEDUPLICATION_SCHEMA=schema.strip(),
     )

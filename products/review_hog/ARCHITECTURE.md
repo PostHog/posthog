@@ -174,13 +174,12 @@ team/user/repository; tests updated & green; `ruff check products/review_hog/` c
 
 **Out of scope for Stage 2 (later stages):** productize beyond the CLI (Temporal parent workflow / API trigger
 / Postgres run state — `run.py` carries the `TODO: Make it a parent workflow…`); the remaining
-[Known issues](#known-issues--tech-debt) (duplicate report-generation logic; `is_directy_…` /
-`detected_in_pass` prompt-schema typos); product isolation (contracts + facade). Durable Postgres run
+[Known issues](#known-issues--tech-debt); product isolation (contracts + facade). Durable Postgres run
 state + cloud persistence is its own effort — now **Stage 3** below.
 
 ### 🔭 Stage 3 — durable persistence & the loop-y review (cloud)
 
-> **Status: Stage 3 complete (steps 1–10 built & green).** Foundation, persist-after-success, explicit
+> **Status: Stage 3 complete (steps 1–14 built & green; 15–16 remaining).** Foundation, persist-after-success, explicit
 > team/user identity, the per-turn **point-in-time diff snapshot**, **step 8 — Postgres is the
 > single source of truth and the on-disk `reviews/<pr>/` store is gone**, and **step 9 — `reset_review_hog`**
 > (DEBUG-only full wipe). The pipeline passes objects in-process within a run and persists every stage to rows;
@@ -207,7 +206,9 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 > is now built: the validation keep/drop criteria are a team-pulled `review-hog-validation-criteria` skill (the
 > `issue_validation` prompt is criteria-agnostic); the step-10 sync was generalized (one `review_hog` category for
 > both review skill sets → a single **"Code review"** Skills-UI tab; command renamed `sync_review_hog_skills`);
-> e2e ✅ on #63625. What remains: **(14)** a **dedup cleanup** (generalize prior-reviewer dedup off the hardcoded bot, Variant A), then **(15)** the **Temporal migration** — `run.py main()` → a **single-turn**
+> e2e ✅ on #63625. **Step 14 — dedup cleanup** is now built (Variant A: prior-reviewer dedup generalized off the
+> hardcoded bot to all prior inline comments, any author, treated uniformly; aggressive + uniform). What remains:
+> **(15)** the **Temporal migration** — `run.py main()` → a **single-turn**
 > `ReviewPRWorkflow` with the fan-out stages as child workflows, landed as a **single change** (decided
 > 2026-06-25); the reviewed-`head_sha` checkout pin is split to **conditional step 16**. The loop-y re-check,
 > cross-turn finding identity, and the `task_run` / `note` work-log artefacts are deferred to a follow-up after
@@ -548,22 +549,26 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
     green; **e2e ✅** on #63625 (9/9 stages; the agent confirmed-pulled the criteria skill via `skill-get`
     [`success:true`] and **dropped** an "unreachable" finding the criteria-less baseline kept — see
     `eval/RUN_LOG.md`). Full design in _Validator as a team-customizable skill_ under Deferred / future below.
-14. ⏭️ **(next, before Temporal) Dedup cleanup — generalize prior-reviewer dedup off the hardcoded bot.** Today the
-    dedup stage only recognizes one competing reviewer (`_PRIOR_REVIEWER_BOT = "greptile-apps[bot]"` in
-    `tools/issue_deduplicator.py`), so it misses CodeRabbit / Copilot / a team's own bots. **Decided (2026-06-25,
-    "Variant A"):** drop the single hardcoded handle and treat **every prior inline comment uniformly** — all bots
-    and humans, including ReviewHog's own. Both the deterministic positional gate (`_select_dedup_candidates`,
-    which already only sees comments that resolve to a file+line — top-level chatter is excluded) **and** the LLM
-    dedup input get **all** inline comments, **with their author handles**, so the agent reasons about provenance
-    itself. Generalize `_previous_bot_issues` from "the one bot's comments" to "all prior inline comments". The
-    guardrail moves to the **prompt**: make it explicit that **same location ≠ duplicate — drop a finding only if a
-    prior comment raises the _same concrete problem_** (so a valid finding isn't dropped because a human commented
-    nearby). **Self-dedup stays uniform here** (our own comment is just another prior comment → don't re-post it);
-    the richer **cross-turn finding lifecycle** (resolve / update our own findings across turns, matched against the
-    **DB** findings, not the comment text) is the loop's job, deferred with the loop. **Why before Temporal:** keeps
-    the pipeline shape final so the Temporal migration threads the finished dedup, not a half-changed one. Low risk
-    (publish is off, so it only bites once ReviewHog runs alongside other reviewers). Full design in _Dedup cleanup_
-    under Deferred / future below.
+14. ✅ **Dedup cleanup — prior-reviewer dedup generalized off the hardcoded bot (Variant A).** The dedup stage
+    used to recognize one competing reviewer (`_PRIOR_REVIEWER_BOT = "greptile-apps[bot]"`), missing CodeRabbit /
+    Copilot / a team's own bots. **As built (2026-06-25):** dropped the hardcoded handle **and** the
+    `_previous_bot_issues` author filter — `deduplicate_issues` now feeds **every** prior inline comment, **with its
+    author handle** (already serialized on `PRComment.user`), to both the deterministic positional gate
+    (`_select_dedup_candidates`, which already only sees comments resolving to a file+line, so top-level chatter is
+    excluded) and the LLM input (the prompt var renamed `PREVIOUS_ISSUES_JSON` → `PRIOR_COMMENTS_JSON`, block
+    `<previous_issues>` → `<prior_comments>`). **User decision (2026-06-25): aggressive + uniform** — keep collapsing
+    hard, but treat all authors the same (no ours-vs-theirs branching; the author is context, not a rule). The
+    rewritten prompt (and the realigned `_SYSTEM_PROMPT`, which used to say "be conservative") anchors "duplicate" on
+    **same concrete problem, not bare co-location** — so a useful finding isn't dropped just for sitting near an
+    unrelated comment, while genuine same-problem findings still collapse to the single most comprehensive one.
+    **Self-dedup stays uniform** (our own prior comment is just another comment → don't re-post it); the richer
+    **cross-turn finding lifecycle** (resolve / update our own findings, matched against the **DB** findings not the
+    comment text) is the loop's job, deferred with the loop. Also tightened the `IssueDeduplication` model/schema
+    description (no "explanations" field exists). 221 backend tests (incl. a regression test that a prior comment
+    from a non-privileged author still drops a colliding finding — guarding against re-introducing a single-reviewer
+    filter) + ruff + tach green. **e2e:** only bites when the reviewed PR carries prior inline comments from other
+    reviewers, so a fresh e2e shows nothing on a comment-free PR — verify opportunistically. Full design in
+    _Dedup cleanup_ under Deferred / future below.
 15. ⏭️ **(after the dedup cleanup) Make the pipeline Temporal — single-turn workflow, landed as one change.** Rework
     `run.py main()` into a single-turn **`ReviewPRWorkflow`** parent workflow with the three fan-out stages
     (analyze / perspective review / validate) as **child workflows** and the rest as **activities**, exchanging
@@ -829,34 +834,44 @@ version=N)` block — the agent pulls the bar over MCP). Cold-start sync (`run.p
   `lazy_seed` / sync-command / pull machinery, so it's cheap once that exists — and landing it before Temporal
   means the workflow threads the final skill set, not a half-migrated one.
 
-- **Dedup cleanup — this is step 14** (lands before Temporal; design detail here). Today `tools/issue_deduplicator.py`
-  dedupes ReviewHog's findings against exactly one competing reviewer — `_PRIOR_REVIEWER_BOT = "greptile-apps[bot]"` —
-  used in two places: (1) the deterministic positional gate `_select_dedup_candidates` (a finding sharing a file +
-  overlapping line with a prior comment becomes an LLM dedup candidate; the rest are kept **without** an LLM call),
-  and (2) the LLM dedup input (`PREVIOUS_ISSUES_JSON`), where the agent drops findings a prior comment already raised.
-  The single hardcoded handle misses CodeRabbit / Copilot / a team's own bots. **Decided design (Variant A,
-  2026-06-25):**
-  - **Treat every prior inline comment uniformly** — all bots and humans, ReviewHog's own included. A comment from
-    us is just another prior comment; the author is metadata, not a special case. Drop the hardcoded handle;
-    generalize `_previous_bot_issues` from "the one bot's comments" to "all prior inline comments". (The positional
-    gate already only sees comments that resolve to a file+line via `_comment_line` — top-level PR chatter like
-    "LGTM" has no line and is already excluded, so "all comments" really means "all inline review comments".)
-  - **Both the gate and the LLM input get all inline comments, with author handles**, so the agent reasons about
-    provenance itself.
-  - **The guardrail is the prompt, not the filter:** make it explicit that **same location ≠ duplicate — drop a
-    finding only if a prior comment raises the _same concrete problem_**. The conservative system prompt + this rule
-    keep a valid finding from being dropped just because a human commented on a nearby line.
+- **Dedup cleanup — step 14, ✅ as built (2026-06-25).** `tools/issue_deduplicator.py` used to dedupe ReviewHog's
+  findings against exactly one competing reviewer — `_PRIOR_REVIEWER_BOT = "greptile-apps[bot]"`, applied by a
+  `_previous_bot_issues` author filter — feeding two places: (1) the deterministic positional gate
+  `_select_dedup_candidates` (a finding sharing a file + overlapping line with a prior comment becomes an LLM dedup
+  candidate; the rest are kept **without** an LLM call), and (2) the LLM dedup input. That single handle missed
+  CodeRabbit / Copilot / a team's own bots. **As built (Variant A):**
+  - **Dropped the hardcoded handle _and_ the `_previous_bot_issues` filter entirely** (not renamed). `pr_comments`
+    from `fetch_pr_comments` is **already inline-only** (`pr.get_review_comments()`), so `deduplicate_issues` now
+    builds `prior_comment_lines` and the LLM input straight from `pr_comments` — every prior inline comment, every
+    author (other bots, humans, ReviewHog's own), uniformly. (`_comment_line` already drops comments with no
+    resolvable file+line, so top-level "LGTM" chatter never reaches the gate.)
+  - **Both the gate and the LLM input get all inline comments, with author handles** — already serialized on
+    `PRComment.user`, so no data-flow change. The prompt instructs the agent to **use the author to read what a
+    comment is**: a code-review bot's comment is usually a formal finding (so a bot already raising the same problem
+    is strong duplicate evidence), a human's may be a question / nit / discussion (weaker evidence) — without
+    privileging or excluding any reviewer. The prompt var was renamed `PREVIOUS_ISSUES_JSON` → `PRIOR_COMMENTS_JSON`
+    and the block `<previous_issues>` → `<prior_comments>` for clarity.
+  - **User decision (2026-06-25): aggressive + uniform.** Keep collapsing hard (fewer, useful findings is the goal).
+    **Uniform** means our deterministic code privileges/excludes no reviewer — no hardcoded handle, no ours-vs-theirs
+    branching, the positional gate is author-blind — but the **LLM still uses** the author as a bot-vs-human signal
+    (above). The prompt was rewritten and `_SYSTEM_PROMPT` realigned (it used to say "be conservative", contradicting
+    the prompt's "AGGRESSIVE MODE"). The anchor is **same concrete problem, not bare co-location** — two findings on
+    the same line flagging _different_ problems are kept; a finding near an unrelated comment (a nit, a question,
+    praise) is kept; genuine same-problem findings still collapse to the single most comprehensive one.
   - **Self-dedup is uniform here; lifecycle is the loop's job.** Not re-posting our own prior finding is handled by
     treating our comment as just-another-prior-comment. The richer behavior — knowing a finding was _resolved_
     across turns and updating/closing our own comment — needs **cross-turn finding identity against the persisted DB
     findings** (structured, lifecycle-aware), not re-parsing our own comment text; that ships with the loop
     (deferred). The DB is the source of truth for "what we already raised"; comments are the GitHub-side reflection.
+  - **Also tightened** the `IssueDeduplication` model/schema description (no "explanations" field exists; the prompt
+    no longer asks for one) and added a regression test that a prior comment from a **non-privileged author** still
+    drops a colliding finding — guarding against re-introducing a single-reviewer filter. (No author parameterization:
+    the dedup never branches on `c.user`, so enumerating handles would just re-run the same path; one arbitrary
+    non-special author is the meaningful case.)
   - **Out of scope (config, not this step):** if a team wants to _exclude_ a specific reviewer from dedup, that's a
     team-config allowlist later — not needed now.
-
-  **Why before Temporal:** the Temporal migration should thread the finished pipeline; changing dedup after the
-  workflow lands means touching the dedup activity twice. Low risk to do now — publish is disabled, so
-  dedup-against-other-reviewers only has effect once ReviewHog runs alongside them.
+  - **Verification:** 221 backend tests + ruff + tach green. e2e only bites when the reviewed PR carries prior inline
+    comments from other reviewers, so a comment-free PR shows no behavior delta — verify opportunistically.
 
 - **Everything on Temporal — this is step 15** (the major step after the validator-skill + dedup-cleanup work; design detail here).
   Rework `run.py main()` into a **single-turn `ReviewPRWorkflow`** parent workflow (one run = one review turn);
@@ -909,9 +924,11 @@ version=N)` block — the agent pulls the bar over MCP). Cold-start sync (`run.p
   (and any future agent picking it up) starts from facts, not re-derivation.
 
   _Conventions ReviewHog must follow:_
-  - **Workflow shape:** inherit `PostHogWorkflow` + `@temporalio.workflow.defn(name="…")` with explicit kebab names
-    (`review-pr`, `review-analyze-chunks`, `review-perspectives`, `review-validate`); activities are bare
-    `@temporalio.activity.defn async def`. `posthog/temporal/common/base.py:5-37`;
+  - **Workflow shape:** inherit `PostHogWorkflow` + `@temporalio.workflow.defn(name="…")` with explicit kebab names,
+    each mapping to its class: `review-pr` (`ReviewPRWorkflow`), `review-analyze-chunks` (`AnalyzeChunksWorkflow`),
+    `review-perspectives` (`ReviewPerspectivesWorkflow`), `review-validate-issues` (`ValidateIssuesWorkflow`). The
+    `review-` prefix keeps the registered names globally unique on the shared `video-export-task-queue` even where the
+    class name omits it. Activities are bare `@temporalio.activity.defn async def`. `posthog/temporal/common/base.py:5-37`;
     `posthog/temporal/delete_teams/workflows.py:70-71`; Signals' `products/signals/backend/temporal/summary.py:125-141`
     (dataclass inputs + `parse_inputs` + a `workflow_id_for(team_id, artefact_id)` classmethod).
   - **Inputs:** `@dataclass` (not Pydantic), with an optional `@property properties_to_log -> dict` to keep sensitive
@@ -980,7 +997,9 @@ AnalyzeChunksWorkflow, ReviewPerspectivesWorkflow, ValidateIssuesWorkflow]` + `A
   - `tach`: no new `depends_on` — the pin goes through `products.tasks.backend.facade.*`; re-run
     `tach check --dependencies --interfaces` after wiring.
 
-  _The head_sha pin chain (conditional step 16 — verified end-to-end, additive `head_sha: str | None = None` at each
+  _The head_sha pin chain (conditional step 16 — researched end-to-end against the real code; the existing hops below
+  are cited as they are today, and the `head_sha` field / property / checkout branch are the **additions to make**
+  (none of the head_sha code exists yet). Additive `head_sha: str | None = None` at each
   hop, default → today's branch-tip; precedence: `head_sha` wins over `branch` at the checkout):_
   `facade/agents.py` (contract surface) → `MultiTurnSession.start` (`custom_prompt_multi_turn_runner.py:52-101`) →
   `create_task_and_trigger` (`custom_prompt_internals.py:114-154`) → `Task.create_and_run`
@@ -991,8 +1010,8 @@ AnalyzeChunksWorkflow, ReviewPerspectivesWorkflow, ValidateIssuesWorkflow]` + `A
   when set, else fall back to branch). Carrier = an explicit `head_sha` kwarg parallel to `branch` (keeps
   `CustomPromptSandboxContext` stable; the precedence rule lives in one place at the checkout activity).
 
-  _Resolved decisions (2026-06-25):_ step **13 lands first** (validator-as-skill — below); step 15 ships as a
-  **single change** (not incremental); partial-unit failure stays **best-effort** (`gather(return_exceptions=True)` →
+  _Resolved decisions (2026-06-25):_ steps **13 (validator-as-skill) and 14 (dedup cleanup) land first** — both now
+  done; step 15 ships as a **single change** (not incremental); partial-unit failure stays **best-effort** (`gather(return_exceptions=True)` →
   placeholder, matching today — publish is off, so a partial review has no blast radius); the head_sha pin is
   **conditional step 16**, its own tasks-owned change, skipped unless actually needed.
 
@@ -1094,10 +1113,11 @@ pr_metadata.head_branch` is threaded into every sandbox step. Then `bind_sandbox
    file/lines don't overlap the PR diff. Both pure, in-process.
 8. **Deduplicate** — `deduplicate_issues(issues, pr_metadata, pr_comments, …)` first runs a **deterministic
    positional pre-filter** (`_select_dedup_candidates`): only issues sharing a file + overlapping lines with
-   another issue or a prior bot comment can be duplicates, so isolated issues survive **without** an LLM call
-   (and a zero-candidate run skips the sandbox). Colliding candidates go to the single sandbox dedupe call
-   (`IssueDeduplication`), which also drops issues already raised by a competing bot's prior comments
-   (`greptile-apps[bot]`). Returns the canonical post-dedup `list[Issue]`; `persist_findings` mirrors them to
+   another issue or **any prior inline comment** can be duplicates, so isolated issues survive **without** an LLM
+   call (and a zero-candidate run skips the sandbox). Colliding candidates go to the single sandbox dedupe call
+   (`IssueDeduplication`), which also drops findings any prior inline comment already raised — every reviewer (bot
+   or human, ReviewHog's own included) treated uniformly, the author handle passed through for context (step 14).
+   Returns the canonical post-dedup `list[Issue]`; `persist_findings` mirrors them to
    `issue_finding` rows.
 9. **Validate** — `validate_issues(team_id=…)` (1 sandbox call per issue, all concurrent under the semaphore)
    returns a `dict[issue.id, IssueValidation]`; `persist_verdicts` mirrors them to `validation_verdict` rows
@@ -1296,13 +1316,7 @@ Found during Stage 1 analysis and the first parallel run (PR #65862); **document
 - **Inconsistent failure handling** — chunk analysis (step 5) and perspective review (step 6) log and continue on
   partial chunk failure (pipeline proceeds with incomplete results — by design, those stages are
   best-effort), whereas chunking and dedup raise `RuntimeError`.
-- **Prompt/schema mismatch** — the `Issue` field is still misspelled `is_directy_related_to_changes` (in
-  both the model and the generated schema). _(The durable `ReviewIssueFinding` maps it to the correctly-spelled
-  `is_directly_related_to_changes`.)_
-- **Hardcoded reviewer assumption** — deduplication only recognizes `greptile-apps[bot]` (the
-  `_PRIOR_REVIEWER_BOT` constant) as the prior reviewer. **Scheduled fix: step 14** (dedup cleanup) — generalize to
-  all prior inline comments (any reviewer, ReviewHog's own included); see _Dedup cleanup_ under Deferred / future.
 - **Alpha maturity** — the published comment literally says "ReviewHog Alpha" and asks users to reply
-  "valid"/"invalid"; identity/config is hardcoded (see above).
+  "valid"/"invalid" (publish is gated off for now anyway).
 - **Flat orchestration** — `run.py` is a single async function with a top-of-file
   `TODO: Make it a parent workflow and spawn steps as child workflows`.

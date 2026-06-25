@@ -2,14 +2,12 @@ from pydantic import BaseModel, Field
 
 
 class DuplicateIssue(BaseModel):
-    """Information about a duplicate issue."""
+    """A finding flagged as a duplicate, to be removed."""
 
-    id: str = Field(description="Issue ID that should be removed")
+    id: str = Field(description="Id of the finding to remove")
 
 
 class IssueDeduplication(BaseModel):
-    """Result of deduplication analysis for issues."""
+    """Result of deduplication analysis for findings."""
 
-    duplicates: list[DuplicateIssue] = Field(
-        description="List of duplicate issues that should be removed, with explanations"
-    )
+    duplicates: list[DuplicateIssue] = Field(description="Ids of the findings to remove as duplicates")
