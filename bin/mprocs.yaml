@@ -477,8 +477,7 @@ procs:
 
     # Behavioral Cohorts stream rebuild (Rust). The shuffler keys clickhouse_events_json into
     # cohort_stream_events; the processor consumes that and emits membership changes. Opt-in
-    # (autostart: false) until the shadow-mode pipeline is rolled out — like flags-consumer, they
-    # stay out of every dev's default stack and are started manually when working on them.
+    # (autostart: false).
     cohort-event-shuffler:
         shell: |-
             bin/wait-for-docker && \
