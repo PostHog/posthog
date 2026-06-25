@@ -6,9 +6,14 @@ Key names mirror the task-run request serializer
 (`products/tasks/backend/presentation/serializers.py`) so the resolver output
 can be handed to the task layer with zero translation.
 
-Resolution: dict merge with user keys winning over workspace keys (writes are
-validated up front, so half-set rows can't reach the DB). `reasoning_effort`
-is dropped if the resolved model doesn't support it, so a stale effort from
+Resolution: whole-triple swap, not field-by-field merge. If the user row
+carries the atomic `(runtime_adapter, model)` pair, the user's entire
+preference object takes over (including its absent `reasoning_effort`);
+otherwise we fall back wholesale to the workspace default. A field-by-field
+merge would blend mismatched configurations — for example, surfacing a
+workspace `reasoning_effort` of `low` alongside the user's non-thinking
+model — which is never what the user picked. `reasoning_effort` is still
+dropped if the resolved model doesn't support it, so a stale effort from
 a previous model choice can't silently stick. Unset keys stay `None` so the
 task layer applies its own defaults rather than duplicating them here.
 
@@ -53,8 +58,10 @@ _EMPTY = AIPreferences()
 def resolve_ai_preferences(integration: Integration, slack_user_id: str | None) -> AIPreferences:
     """Resolve the effective AI preferences for a Slack user in a workspace.
 
-    User keys override workspace keys field-by-field. `reasoning_effort` is
-    dropped if the resolved model doesn't support it.
+    Whole-triple swap: if the user row carries the atomic `(runtime_adapter,
+    model)` pair, the user's preference object wins outright; otherwise the
+    workspace row wins outright. We never blend the two. `reasoning_effort`
+    is dropped if the resolved model doesn't support it.
     """
 
     if not is_slack_app_home_enabled(integration):
@@ -71,16 +78,29 @@ def resolve_ai_preferences(integration: Integration, slack_user_id: str | None) 
             Q(slack_workspace_id=slack_workspace_id) & (Q(slack_user_id__isnull=True) | user_row_filter)
         ).values("slack_user_id", "ai_preferences")
     )
-    user_prefs = next(
-        (r["ai_preferences"] for r in rows if slack_user_id is not None and r["slack_user_id"] == slack_user_id),
-        {},
+    user_prefs = (
+        next(
+            (r["ai_preferences"] for r in rows if slack_user_id is not None and r["slack_user_id"] == slack_user_id),
+            {},
+        )
+        or {}
     )
-    workspace_prefs = next((r["ai_preferences"] for r in rows if r["slack_user_id"] is None), {})
+    workspace_prefs = next((r["ai_preferences"] for r in rows if r["slack_user_id"] is None), {}) or {}
 
-    merged = {**(workspace_prefs or {}), **(user_prefs or {})}
-    runtime_adapter = merged.get("runtime_adapter") or None
-    model = merged.get("model") or None
-    reasoning_effort = merged.get("reasoning_effort") or None
+    # `validate_ai_preferences` enforces that `runtime_adapter` and `model` are
+    # set together, so the presence of either one is a faithful signal that
+    # this row has been explicitly configured. Pick the whole triple from
+    # whichever row sourced the pair.
+    if user_prefs.get("runtime_adapter") and user_prefs.get("model"):
+        chosen = user_prefs
+    elif workspace_prefs.get("runtime_adapter") and workspace_prefs.get("model"):
+        chosen = workspace_prefs
+    else:
+        chosen = {}
+
+    runtime_adapter = chosen.get("runtime_adapter") or None
+    model = chosen.get("model") or None
+    reasoning_effort = chosen.get("reasoning_effort") or None
     if runtime_adapter and model and reasoning_effort:
         reasoning_effort = _filter_unsupported_effort(runtime_adapter, model, reasoning_effort)
 

@@ -184,15 +184,19 @@ class TestResolveAIPreferences:
             )
         assert resolve_ai_preferences(integration, "U001") == expected
 
-    def test_atomic_pair_workspace_wins_when_user_row_has_no_pair(self, slack_setup, flag_on):
-        """A user row with only `reasoning_effort` set (no pair) must not block
-        the workspace row's pair from being used. Effort still tracks the user
-        row when the resolved model supports it."""
+    def test_user_row_with_no_pair_yields_workspace_triple_intact(self, slack_setup, flag_on):
+        """A user row without the atomic `(runtime_adapter, model)` pair is
+        treated as "no personal preference", so the workspace row wins
+        wholesale — including its own `reasoning_effort`. The user's
+        orphaned effort never leaks into the resolved triple."""
         integration = slack_setup
         SlackSettings.objects.create(
             default_integration=integration,
             slack_workspace_id="T_WS",
             slack_user_id="U001",
+            # Orphan effort with no pair — shouldn't reach the DB through the
+            # normal write path, but the resolver still has to defend against
+            # it (direct writes, older data, schema drift).
             ai_preferences={"reasoning_effort": "medium"},
         )
         SlackSettings.objects.create(
@@ -202,31 +206,57 @@ class TestResolveAIPreferences:
             ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
         )
 
-        result = resolve_ai_preferences(integration, "U001")
-        assert result.runtime_adapter == "claude"
-        assert result.model == "claude-opus-4-7"
-        # User's effort wins over workspace's because both are supported by the
-        # resolved model.
-        assert result.reasoning_effort == "medium"
+        assert resolve_ai_preferences(integration, "U001") == AIPreferences(
+            runtime_adapter="claude",
+            model="claude-opus-4-7",
+            reasoning_effort="high",
+        )
 
-    def test_unsupported_effort_dropped_when_model_does_not_support_it(self, slack_setup, flag_on):
-        """If the user previously saved an effort while on a thinking model and
-        the workspace later switches to a non-thinking model, the stale effort
-        must not leak through."""
+    def test_user_pair_without_effort_does_not_inherit_workspace_effort(self, slack_setup, flag_on):
+        """If the user explicitly picks a pair without a reasoning effort,
+        the resolver must not silently graft the workspace's effort onto
+        it. Whole-triple swap: user's absent effort stays absent."""
         integration = slack_setup
         SlackSettings.objects.create(
             default_integration=integration,
             slack_workspace_id="T_WS",
             slack_user_id="U001",
-            ai_preferences={"reasoning_effort": "xhigh"},  # not supported on sonnet-4-6
+            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7"},
         )
         SlackSettings.objects.create(
             default_integration=integration,
             slack_workspace_id="T_WS",
             slack_user_id=None,
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-sonnet-4-6"},
+            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "low"},
+        )
+
+        assert resolve_ai_preferences(integration, "U001") == AIPreferences(
+            runtime_adapter="claude",
+            model="claude-opus-4-7",
+            reasoning_effort=None,
+        )
+
+    def test_unsupported_effort_dropped_when_model_does_not_support_it(self, slack_setup, flag_on):
+        """If a row stores an effort the resolved model can't honour (e.g.
+        the model definition changed since the effort was saved), the
+        resolver drops it rather than letting it leak through to the task
+        layer."""
+        integration = slack_setup
+        SlackSettings.objects.create(
+            default_integration=integration,
+            slack_workspace_id="T_WS",
+            slack_user_id="U001",
+            # `xhigh` isn't in `supported_by_model` for sonnet-4-6, so the
+            # runtime drop must clear it.
+            ai_preferences={
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-6",
+                "reasoning_effort": "xhigh",
+            },
         )
         result = resolve_ai_preferences(integration, "U001")
+        assert result.runtime_adapter == "claude"
+        assert result.model == "claude-sonnet-4-6"
         assert result.reasoning_effort is None
 
     def test_user_id_none_uses_workspace_row_only(self, slack_setup, flag_on):
