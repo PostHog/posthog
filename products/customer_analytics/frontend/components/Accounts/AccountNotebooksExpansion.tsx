@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconGraph, IconPencil, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
+import { IconCloud, IconGraph, IconPencil, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -46,6 +46,7 @@ const LINK_ICONS: Record<string, JSX.Element> = {
     'usage-dashboard': <IconGraph />,
     slack: <IconSlack />,
     'billing-admin': <IconReceipt />,
+    salesforce: <IconCloud />,
 }
 
 function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
