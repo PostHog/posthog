@@ -13,6 +13,7 @@ _PAYLOAD_PATH = "products.signals.backend.scout_harness.model_selection.posthoga
 
 _SKILL = "signals-scout-team-self-driving"
 _OTHER_SKILL = "signals-scout-errors"
+_GPT = "gpt-5.5"
 _RUN_ID = "0190a000-0000-7000-8000-000000000001"
 
 
@@ -26,51 +27,77 @@ def _resolve(skill: str = _SKILL, run_id: str = _RUN_ID, *, enabled: bool = True
         return resolve_scout_model(_fake_team(), skill, run_id)
 
 
+def _share(payload: object, skill: str = _SKILL, n: int = 400) -> dict[str | None, int]:
+    # Empirical model split across many run ids — buckets are uniform, so shares track the config.
+    counts: dict[str | None, int] = {}
+    for i in range(n):
+        model = _resolve(skill=skill, run_id=f"run-{i}", payload=payload)
+        counts[model] = counts.get(model, 0) + 1
+    return counts
+
+
 class TestResolveScoutModel:
     def test_flag_off_keeps_agent_default(self) -> None:
-        assert _resolve(enabled=False) is None
+        assert _resolve(enabled=False, payload={"scouts": {_SKILL: {GLM_MODEL: 1}}}) is None
 
-    def test_flag_on_no_payload_routes_all_scouts_to_glm(self) -> None:
-        # Back-compat: enabled flag with no payload behaves like the original "all in" gate.
-        assert _resolve(payload=None) == GLM_MODEL
+    @parameterized.expand(
+        [
+            ("no_payload", None),
+            ("no_scouts_key", {}),
+            ("scout_not_listed", {"scouts": {_OTHER_SKILL: {GLM_MODEL: 1}}}),
+            ("empty_distribution", {"scouts": {_SKILL: {}}}),
+        ]
+    )
+    def test_keeps_agent_default_when_unconfigured(self, _name: str, payload: object) -> None:
+        assert _resolve(payload=payload) is None
+
+    def test_full_weight_routes_every_run(self) -> None:
+        assert _resolve(payload={"scouts": {_SKILL: {GLM_MODEL: 1}}}) == GLM_MODEL
 
     def test_locks_flag_key(self) -> None:
-        # A rename mustn't silently detach the gate.
         with patch(_ENABLED_PATH, return_value=False) as mock_flag, patch(_PAYLOAD_PATH, return_value=None):
             resolve_scout_model(_fake_team(), _SKILL, _RUN_ID)
-        assert mock_flag.call_args.args[0] == "scouts-glm"
+        assert mock_flag.call_args.args[0] == "scouts-model-selection"
 
-    @parameterized.expand(
-        [
-            ("wildcard", {"enabled_skills": ["*"]}, GLM_MODEL),
-            ("explicit_member", {"enabled_skills": [_SKILL]}, GLM_MODEL),
-            ("explicit_non_member", {"enabled_skills": [_OTHER_SKILL]}, None),
-            ("empty_list_opts_nobody_in", {"enabled_skills": []}, None),
-            ("malformed_falls_back_to_all", {"enabled_skills": [123]}, GLM_MODEL),
-        ]
-    )
-    def test_enabled_skills_selects_subset(self, _name: str, payload: dict, expected: str | None) -> None:
-        assert _resolve(payload=payload) == expected
+    def test_wildcard_applies_to_unlisted_scout(self) -> None:
+        # A scout with no explicit entry falls back to the "*" distribution.
+        payload = {"scouts": {"*": {GLM_MODEL: 1}}}
+        assert _resolve(skill=_OTHER_SKILL, payload=payload) == GLM_MODEL
 
-    @parameterized.expand(
-        [
-            ("rate_zero_keeps_default", 0, None),
-            ("rate_one_routes_to_glm", 1, GLM_MODEL),
-        ]
-    )
-    def test_sample_rate_bounds(self, _name: str, rate: float, expected: str | None) -> None:
-        assert _resolve(payload={"sample_rate": rate}) == expected
+    def test_explicit_entry_wins_over_wildcard(self) -> None:
+        payload = {"scouts": {_SKILL: {GLM_MODEL: 1}, "*": {_GPT: 1}}}
+        assert _resolve(payload=payload) == GLM_MODEL
 
-    def test_sample_rate_is_deterministic_per_run(self) -> None:
-        # The same run id always resolves the same model — the decision is a stable hash, not a draw.
-        payload = {"sample_rate": 0.5}
+    def test_named_default_takes_the_remainder(self) -> None:
+        # 20% gpt, the remaining 80% pinned to a named default model (not the agent-server default).
+        payload = {"scouts": {_SKILL: {_GPT: 0.2, "default": GLM_MODEL}}}
+        shares = _share(payload)
+        assert set(shares) == {_GPT, GLM_MODEL}
+        assert None not in shares
+
+    def test_multi_model_split_is_proportional(self) -> None:
+        # 30% glm, 30% gpt, 40% agent-server default — all three buckets are non-trivially populated.
+        payload = {"scouts": {_SKILL: {GLM_MODEL: 0.3, _GPT: 0.3}}}
+        shares = _share(payload)
+        assert shares.get(GLM_MODEL, 0) > 0
+        assert shares.get(_GPT, 0) > 0
+        assert shares.get(None, 0) > 0
+        # The remainder (default) is the largest slice here (0.4 vs 0.3 each).
+        assert shares[None] == max(shares.values())
+
+    def test_selection_is_deterministic_per_run(self) -> None:
+        payload = {"scouts": {_SKILL: {GLM_MODEL: 0.5, _GPT: 0.5}}}
         assert _resolve(payload=payload) == _resolve(payload=payload)
 
-    def test_sample_rate_splits_runs(self) -> None:
-        # Across many run ids a 0.5 rate routes a non-trivial fraction each way (not all-or-nothing).
-        payload = {"sample_rate": 0.5}
-        glm = sum(1 for i in range(200) if _resolve(run_id=f"run-{i}", payload=payload) == GLM_MODEL)
-        assert 0 < glm < 200
+    @parameterized.expand(
+        [
+            ("malformed_weight_dropped", {GLM_MODEL: "lots"}, None),
+            ("zero_weight_dropped", {GLM_MODEL: 0}, None),
+            ("bool_weight_dropped", {GLM_MODEL: True}, None),
+        ]
+    )
+    def test_malformed_weights_keep_agent_default(self, _name: str, dist: dict, expected: str | None) -> None:
+        assert _resolve(payload={"scouts": {_SKILL: dist}}) == expected
 
     def test_flag_read_failure_keeps_agent_default(self) -> None:
         # A scout must never fail to run because the gate was unreachable — fall back to the default.
