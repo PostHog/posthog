@@ -407,8 +407,10 @@ def test_permission_denied_maps_to_auth_appropriate_message(raised_message, expe
     matched = [message for key, message in non_retryable_errors.items() if key in raised_message]
 
     assert len(matched) == 1
-    assert expected_advice in matched[0]
-    assert wrong_advice not in matched[0]
+    message = matched[0]
+    assert message is not None
+    assert expected_advice in message
+    assert wrong_advice not in message
 
 
 def test_not_found_api_error_is_non_retryable():
