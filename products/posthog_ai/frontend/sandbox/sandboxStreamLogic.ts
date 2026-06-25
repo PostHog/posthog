@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
 import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -686,6 +687,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     let statusSeq = 0
     let compactSeq = 0
     let taskSeq = 0
+    let consoleSeq = 0
 
     const pushHuman = (text: string): void => {
         items = insertHumanMessageAtTurnStart(items, {
@@ -944,8 +946,21 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             }
             continue
         }
+        if (method === '_posthog/console') {
+            const message = typeof params.message === 'string' ? params.message : ''
+            const level = typeof params.level === 'string' ? params.level : 'info'
+            if (message) {
+                items.push({
+                    id: `console-${consoleSeq++}`,
+                    type: 'debug',
+                    text: message,
+                    debugLevel: level,
+                })
+            }
+            continue
+        }
         if (method?.startsWith('_posthog/')) {
-            // run_started, usage_update, resources_used, sdk_session, console, sandbox_output, … — no thread item.
+            // run_started, usage_update, resources_used, sdk_session, sandbox_output, … — no thread item.
             continue
         }
         if (method !== 'session/update') {
@@ -1041,7 +1056,16 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     key((props) => (props.replayOnly ? `replay:${props.streamKey}` : props.streamKey)),
     path((key) => ['products', 'posthog_ai', 'sandbox', 'sandboxStreamLogic', key]),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['preflight', 'isDev'],
+            userLogic,
+            ['user'],
+        ],
     })),
     actions({
         /**
@@ -1425,7 +1449,22 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             (s) => [s.log, s.isBootstrapResumeRun],
             (log, isResumeRun): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
         ],
-        threadItems: [(s) => [s.foldedThread], (foldedThread): ThreadItem[] => foldedThread.threadItems],
+        /**
+         * Whether `_posthog/console` debug rows should surface in the thread. Derived from the current
+         * user's staff/impersonation flag and dev environment, so debug items are filtered out of
+         * `threadItems` for non-privileged users — never reaching the virtualizer as empty rows.
+         */
+        showDebugItems: [
+            (s) => [s.user, s.isDev],
+            (user, isDev): boolean => !!user?.is_staff || !!user?.is_impersonated || isDev,
+        ],
+        threadItems: [
+            (s) => [s.foldedThread, s.showDebugItems],
+            (foldedThread, showDebugItems): ThreadItem[] =>
+                showDebugItems
+                    ? foldedThread.threadItems
+                    : foldedThread.threadItems.filter((item) => item.type !== 'debug'),
+        ],
         toolInvocations: [
             (s) => [s.foldedThread],
             (foldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,

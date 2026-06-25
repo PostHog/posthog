@@ -10,6 +10,7 @@ import { MarkdownMessage } from '../MarkdownMessage'
 import { AssistantFailureMessage } from '../messages/AssistantFailureMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
+import { SandboxDebugMessage } from '../messages/SandboxDebugMessage'
 import { SandboxActivity } from '../SandboxActivity'
 import { sandboxStreamLogic } from '../sandboxStreamLogic'
 import { SandboxCompactBoundaryItem, SandboxStatusItem, SandboxTaskNotificationItem } from '../SandboxThreadItems'
@@ -159,6 +160,9 @@ export const SandboxThreadRow = memo(function SandboxThreadRow({
     }
     if (item.type === 'progress') {
         return <SandboxProgressItem item={item} />
+    }
+    if (item.type === 'debug') {
+        return <SandboxDebugMessage id={item.id} text={item.text ?? ''} level={item.debugLevel ?? 'info'} />
     }
     return null
 })
