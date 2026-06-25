@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-25 10:55:40 UTC
+// Generated at: 2026-06-25 20:36:39 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -144,6 +144,7 @@ export type CanonicalProvider =
     | 'venice-fp8'
     | 'venice-int4'
     | 'wafer-fp4'
+    | 'wafer-fp8'
     | 'wandb-bf16'
     | 'wandb-fp16'
     | 'wandb-fp4'
