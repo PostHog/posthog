@@ -699,6 +699,7 @@ class ExternalDataSourceType(models.TextChoices):
 DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.POSTGRES: "postgres",
     ExternalDataSourceType.MYSQL: "mysql",
+    ExternalDataSourceType.SNOWFLAKE: "snowflake",
 }
 
 
