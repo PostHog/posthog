@@ -1559,7 +1559,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         self.organization.available_product_features = []
         self.organization.save()
 
-        runner = self._runner(self.user)
+        runner = self._runner(self.user, base=AnalyticsQueryRunner)
         with CaptureQueriesContext(connection) as ctx:
             runner.get_cache_key()
 
