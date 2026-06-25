@@ -1,5 +1,12 @@
 /** Walks parsed rrweb serialized nodes, scrubbing text content and attributes in place. */
-import { applyBlur, hasMediaSrcAttr, isMediaSrcAttr, isMediaTag } from './assets'
+import {
+    INLINE_IMAGE_ATTR,
+    applyBlur,
+    blurInlineImageAttr,
+    hasMediaSrcAttr,
+    isMediaSrcAttr,
+    isMediaTag,
+} from './assets'
 import { ScrubContext, isObject } from './config'
 import { scrubText } from './text'
 import { scrubUrl } from './url'
@@ -143,6 +150,11 @@ function scrubAttrs(ctx: ScrubContext, attrs: Record<string, unknown>, kind: Tag
 
     for (const name of Object.keys(attrs)) {
         if (kind === 'media' && isMediaSrcAttr(name)) {
+            continue
+        }
+        // Inlined rendered pixels (canvas/img `rr_dataURL`): blur the image, on any tag.
+        if (name === INLINE_IMAGE_ATTR) {
+            changed = blurInlineImageAttr(ctx, attrs, name) || changed
             continue
         }
         const value = attrs[name]

@@ -226,4 +226,29 @@ describe('anonymize/dom', () => {
         expect(scrubFullSnapshot(ctx, event.data)).toBe(false)
         expect(event.data.node.childNodes[0].childNodes[0].textContent).toBe(cssText)
     })
+
+    it('blurs canvas pixels inlined as rr_dataURL in a FullSnapshot', () => {
+        const blurCtx = { allow: defaultAllowLists(), maxWordsLen: 8, blurJobs: [] as any[] }
+        const onePxPng =
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg=='
+        const canvasAttrs: Record<string, unknown> = { rr_dataURL: onePxPng, width: '300', height: '150' }
+        const event = {
+            type: 2,
+            timestamp: 1,
+            data: {
+                node: {
+                    type: 0,
+                    id: 1,
+                    childNodes: [{ type: 2, id: 2, tagName: 'canvas', attributes: canvasAttrs, childNodes: [] }],
+                },
+                initialOffset: { top: 0, left: 0 },
+            },
+        }
+        expect(scrubFullSnapshot(blurCtx, event.data)).toBe(true)
+        // Raw pixels gone immediately (fail-safe), blur deferred; dimensions untouched.
+        expect(canvasAttrs.rr_dataURL).not.toBe(onePxPng)
+        expect(canvasAttrs.rr_dataURL).toMatch(/^data:image\/png;base64,/)
+        expect(canvasAttrs.width).toBe('300')
+        expect(blurCtx.blurJobs).toHaveLength(1)
+    })
 })
