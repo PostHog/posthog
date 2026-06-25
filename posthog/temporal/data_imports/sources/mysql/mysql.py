@@ -34,15 +34,19 @@ from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+    SourceInputs,
+    SourceResponse,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
-from posthog.temporal.data_imports.sources.common.sql import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     BacktickIdentifierQuoter,
     Column,
     InvalidIdentifierError,
@@ -52,16 +56,20 @@ from posthog.temporal.data_imports.sources.common.sql import (
     compute_projected_columns,
     project_arrow_columns,
 )
-from posthog.temporal.data_imports.sources.common.sql.implementation import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
     SQLSourceImplementation,
     TableStats,
 )
-from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
-from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace, resolve_source_location
-from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
-
-from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
+    IncrementalFieldFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
+    normalize_namespace,
+    resolve_source_location,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [
     "MySQLColumn",

@@ -9,11 +9,14 @@ import pymysql
 
 from posthog.schema import SourceFieldInputConfig
 
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
-from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
-from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
-from posthog.temporal.data_imports.sources.mysql.mysql import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
+    ColumnTypeCategory,
+    ValidatedRowFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _MAX_CONNECT_ATTEMPTS,
     STATEMENT_TIMEOUT_SECONDS,
     MySQLColumn,
@@ -30,9 +33,8 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     _safe_convert_datetime,
     _sanitize_identifier,
 )
-from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
-
-from products.data_warehouse.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -423,7 +425,9 @@ class TestGetRowsToSync:
         # tracking with handled failures (e.g. a bad incremental field or the MAX_EXECUTION_TIME
         # timeout). Genuine problems resurface in the real streaming query and are classified there.
         cursor.execute.side_effect = error
-        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.capture_exception"
+        )
 
         assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
         capture.assert_not_called()
@@ -638,7 +642,9 @@ class TestExplainQuery:
         # EXPLAIN is best-effort diagnostics — a failure (e.g. MySQL 1345 when
         # EXPLAINing a view whose underlying tables the user can't SHOW VIEW on)
         # never affects the sync, so it must not be reported to error tracking.
-        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.capture_exception"
+        )
         cursor.execute.side_effect = pymysql.err.OperationalError(
             1345, "EXPLAIN/SHOW can not be issued; lacking privileges for underlying table"
         )
@@ -715,7 +721,7 @@ def build_pipeline_mocks(mocker):
     mock_connection.cursor.side_effect = cursor_factory
 
     mock_connect = mocker.patch(
-        "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
         return_value=mock_connection,
     )
     return mock_connect, setup_cursor, ss_cursor
@@ -966,12 +972,12 @@ class TestConnectTransientRetry:
         ],
     )
     def test_retries_transient_drop_then_succeeds(self, mocker, fail_count, expected_sleeps):
-        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         conn = MagicMock()
         conn.__enter__.return_value = conn
         drop = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
         mock_connect = mocker.patch(
-            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=[drop] * fail_count + [conn],
         )
 
@@ -982,7 +988,7 @@ class TestConnectTransientRetry:
         assert [c.args[0] for c in sleep.call_args_list] == expected_sleeps
 
     def test_retries_ssl_unexpected_eof_then_succeeds(self, mocker):
-        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         conn = MagicMock()
         conn.__enter__.return_value = conn
         drop = pymysql.err.OperationalError(
@@ -991,7 +997,7 @@ class TestConnectTransientRetry:
             "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
         )
         mock_connect = mocker.patch(
-            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=[drop, conn],
         )
 
@@ -1002,11 +1008,11 @@ class TestConnectTransientRetry:
         sleep.assert_called_once_with(2)
 
     def test_retries_connect_timeout_then_succeeds(self, mocker):
-        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
-            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=[
                 pymysql.err.OperationalError(2003, "Can't connect to MySQL server on 'host' (timed out)"),
                 conn,
@@ -1020,11 +1026,11 @@ class TestConnectTransientRetry:
         sleep.assert_called_once_with(2)
 
     def test_retries_packet_sequence_error_then_succeeds(self, mocker):
-        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
-            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=[
                 pymysql.err.InternalError("Packet sequence number wrong - got 2 expected 3"),
                 conn,
@@ -1038,9 +1044,9 @@ class TestConnectTransientRetry:
         sleep.assert_called_once_with(2)
 
     def test_does_not_retry_connection_refused(self, mocker):
-        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
-            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=pymysql.err.OperationalError(
                 2003, "Can't connect to MySQL server on 'host' ([Errno 111] Connection refused)"
             ),
@@ -1054,9 +1060,9 @@ class TestConnectTransientRetry:
         sleep.assert_not_called()
 
     def test_does_not_retry_non_transient_internal_error(self, mocker):
-        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
-            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=pymysql.err.InternalError("some other internal error"),
         )
 
@@ -1068,9 +1074,9 @@ class TestConnectTransientRetry:
         sleep.assert_not_called()
 
     def test_gives_up_after_max_attempts(self, mocker):
-        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
-            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"),
         )
 
@@ -1081,9 +1087,9 @@ class TestConnectTransientRetry:
         assert mock_connect.call_count == _MAX_CONNECT_ATTEMPTS
 
     def test_does_not_retry_ssl_version_mismatch(self, mocker):
-        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
-            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=pymysql.err.OperationalError(
                 2013,
                 "Lost connection to MySQL server during query "
@@ -1154,7 +1160,7 @@ class TestRetryOnTransientTabletUnavailable:
         ],
     )
     def test_retries_then_succeeds(self, mocker, fail_count, expected_sleeps):
-        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         operation = MagicMock(side_effect=[self._unavailable()] * fail_count + ["ok"])
 
         assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
@@ -1163,7 +1169,7 @@ class TestRetryOnTransientTabletUnavailable:
         assert [c.args[0] for c in sleep.call_args_list] == expected_sleeps
 
     def test_gives_up_after_max_attempts(self, mocker):
-        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         operation = MagicMock(side_effect=self._unavailable())
 
         with pytest.raises(pymysql.err.OperationalError):
@@ -1172,7 +1178,7 @@ class TestRetryOnTransientTabletUnavailable:
         assert operation.call_count == _MAX_CONNECT_ATTEMPTS
 
     def test_does_not_retry_non_transient_error(self, mocker):
-        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         operation = MagicMock(side_effect=pymysql.err.OperationalError(1045, "Access denied for user"))
 
         with pytest.raises(pymysql.err.OperationalError):
@@ -1590,7 +1596,9 @@ class TestMySQLSourceValidateCredentials:
         ],
     )
     def test_known_connection_errors_are_not_captured(self, source, mocker, raised, expected_error):
-        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source.capture_exception"
+        )
         mocker.patch.object(source, "get_schemas", side_effect=raised)
 
         valid, error = source.validate_credentials(_make_config(), team_id=1)
@@ -1600,7 +1608,9 @@ class TestMySQLSourceValidateCredentials:
         capture.assert_not_called()
 
     def test_unexpected_errors_are_still_captured(self, source, mocker):
-        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source.capture_exception"
+        )
         mocker.patch.object(source, "get_schemas", side_effect=RuntimeError("something genuinely unexpected"))
 
         valid, error = source.validate_credentials(_make_config(), team_id=1)
