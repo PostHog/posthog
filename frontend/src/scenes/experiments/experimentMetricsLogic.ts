@@ -89,20 +89,23 @@ type MetricErrorState = { detail: string } | null
 type ResolveByUuid<T> = (uuid: string) => T
 
 /**
- * Metric uuids that currently hold a result, across primary and secondary. These are the metrics a
- * non-cold recalculaions dims in place: they have a stale value to show while the fresh one loads.
+ * Metric uuids that currently show something, a result OR an error, across primary and secondary. These
+ * are the metrics a non-cold recalculation dims in place: they have a stale value (or a stale error) to
+ * keep on screen while the fresh one loads. Errored metrics must be included so they dim on reload too.
  */
-const metricUuidsWithResult = (
+const metricUuidsToDim = (
     experiment: Experiment,
     primaryResults: readonly (CachedNewExperimentQueryResponse | undefined)[],
-    secondaryResults: readonly (CachedNewExperimentQueryResponse | undefined)[]
+    secondaryResults: readonly (CachedNewExperimentQueryResponse | undefined)[],
+    primaryErrors: readonly (unknown | null)[],
+    secondaryErrors: readonly (unknown | null)[]
 ): string[] => [
     ...metricsInOrder(experiment, 'primary')
         .map((metric) => metric.uuid as string)
-        .filter((_, index) => primaryResults[index] !== undefined),
+        .filter((_, index) => primaryResults[index] !== undefined || !!primaryErrors[index]),
     ...metricsInOrder(experiment, 'secondary')
         .map((metric) => metric.uuid as string)
-        .filter((_, index) => secondaryResults[index] !== undefined),
+        .filter((_, index) => secondaryResults[index] !== undefined || !!secondaryErrors[index]),
 ]
 
 /**
@@ -458,15 +461,17 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
                 /**
-                 * Dim the metrics that already have a value so they read as "refreshing" until the new result
-                 * streams in. Cold runs have no prior results, so there's nothing to dim.
+                 * Dim the metrics that already show something (a value or an error) so they read as
+                 * "refreshing" until the new result streams in. Cold runs have nothing prior, so nothing to dim.
                  */
                 if (trigger !== 'cold_run') {
                     actions.setRecalculatingMetricUuids(
-                        metricUuidsWithResult(
+                        metricUuidsToDim(
                             props.experiment,
                             values.primaryMetricsResults,
-                            values.secondaryMetricsResults
+                            values.secondaryMetricsResults,
+                            values.primaryMetricsResultsErrors,
+                            values.secondaryMetricsResultsErrors
                         )
                     )
                 }

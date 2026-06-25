@@ -797,7 +797,10 @@ export function MetricRowGroup({
 
         return (
             <>
-                <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={noResultStateStyle}>
+                <tr
+                    className={clsx('hover:bg-bg-hover group [&:last-child>td]:border-b-0', recalculatingClassName)}
+                    style={noResultStateStyle}
+                >
                     {/* Metric column - always visible */}
                     <td
                         className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
