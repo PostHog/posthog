@@ -1,10 +1,10 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { MessageAsset } from './hogflows/types'
+import { getMessageAssetContentUrl, getMessageAssetPdf, getMessageAssets } from './messageAssetsApi'
 import type { workflowAssetsLogicType } from './workflowAssetsLogicType'
 
 export interface WorkflowAssetsLogicProps {
@@ -43,7 +43,7 @@ export const workflowAssetsLogic = kea<workflowAssetsLogicType>([
                     if (!props.id || props.id === 'new') {
                         return []
                     }
-                    return await api.hogFlows.getMessageAssets(props.id, {
+                    return await getMessageAssets(props.id, {
                         parent_run_id: props.parentRunId,
                         action_id: props.actionId,
                         search: values.search || undefined,
@@ -57,11 +57,7 @@ export const workflowAssetsLogic = kea<workflowAssetsLogicType>([
                 // Fetch the on-demand PDF as a blob and hand it to the browser as a download.
                 downloadPdf: async (asset: MessageAsset) => {
                     try {
-                        const blob = await api.hogFlows.getMessageAssetPdf(
-                            props.id,
-                            asset.invocation_id,
-                            asset.action_id
-                        )
+                        const blob = await getMessageAssetPdf(props.id, asset.invocation_id, asset.action_id)
                         const url = URL.createObjectURL(blob)
                         const link = document.createElement('a')
                         link.href = url
@@ -81,8 +77,7 @@ export const workflowAssetsLogic = kea<workflowAssetsLogicType>([
         contentUrl: [
             () => [(_, props) => props.id as string],
             (id): ((asset: MessageAsset) => string) => {
-                return (asset: MessageAsset) =>
-                    api.hogFlows.getMessageAssetContentUrl(id, asset.invocation_id, asset.action_id)
+                return (asset: MessageAsset) => getMessageAssetContentUrl(id, asset.invocation_id, asset.action_id)
             },
         ],
     }),
