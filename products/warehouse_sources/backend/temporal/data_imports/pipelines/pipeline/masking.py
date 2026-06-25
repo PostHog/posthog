@@ -27,7 +27,9 @@ def mask_value(team_id: int, value: object) -> str | None:
     return hashlib.sha256(f"{team_id}:{value}".encode()).hexdigest()
 
 
-def _fold(name: str) -> str:
+def fold_column_name(name: str) -> str:
+    """Fold a source column name into the normalized namespace so masked/protected names match
+    regardless of source casing (e.g. Snowflake's `ID` vs the normalized `id`)."""
     try:
         return NamingConvention.normalize_identifier(name)
     except ValueError:
@@ -43,10 +45,10 @@ def resolve_masked_columns(
     merges / the incremental cursor — a defensive backstop to the serializer's rejection)."""
     if not masked_columns:
         return set()
-    protected = {_fold(column) for column in (primary_keys or [])}
+    protected = {fold_column_name(column) for column in (primary_keys or [])}
     if incremental_field:
-        protected.add(_fold(incremental_field))
-    return {_fold(column) for column in masked_columns} - protected
+        protected.add(fold_column_name(incremental_field))
+    return {fold_column_name(column) for column in masked_columns} - protected
 
 
 def mask_table_columns(
@@ -63,7 +65,7 @@ def mask_table_columns(
     if not masked:
         return table
     for index, name in enumerate(list(table.column_names)):
-        if _fold(name) not in masked:
+        if fold_column_name(name) not in masked:
             continue
         digests = [mask_value(team_id, value) for value in table.column(index).to_pylist()]
         table = table.set_column(index, name, pa.array(digests, type=pa.string()))

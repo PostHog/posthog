@@ -55,7 +55,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.masking import mask_value
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.masking import (
+    fold_column_name,
+    mask_value,
+    resolve_masked_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
@@ -787,13 +791,14 @@ class CDCExtractActivity:
                 self.enabled_columns_by_table[schema.name] = retained
 
             # Masking is independent of column selection: a schema may mask columns it still syncs.
-            masked = schema.masked_columns
-            if isinstance(masked, list) and masked:
-                protected: set[str] = set(self.pk_columns_by_table.get(schema.name, []))
-                masked_inc = schema.incremental_field
-                if isinstance(masked_inc, str) and masked_inc:
-                    protected.add(masked_inc)
-                self.masked_columns_by_table[schema.name] = {str(c) for c in masked} - protected
+            # Names are folded to the normalized namespace so a cased mask entry (e.g. "ID") still
+            # protects a PK stored as "id" instead of slipping through and hashing the merge key.
+            if isinstance(schema.masked_columns, list) and schema.masked_columns:
+                self.masked_columns_by_table[schema.name] = resolve_masked_columns(
+                    schema.masked_columns,
+                    self.pk_columns_by_table.get(schema.name, []),
+                    schema.incremental_field,
+                )
 
     def _project_event_columns(self, event: ChangeEvent) -> ChangeEvent:
         retained = self.enabled_columns_by_table.get(event.table_name)
@@ -816,7 +821,7 @@ class CDCExtractActivity:
         if not masked:
             return event
         columns = {
-            name: (mask_value(self.inputs.team_id, value) if name in masked else value)
+            name: (mask_value(self.inputs.team_id, value) if fold_column_name(name) in masked else value)
             for name, value in event.columns.items()
         }
         return dataclasses.replace(event, columns=columns)

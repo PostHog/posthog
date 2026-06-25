@@ -296,7 +296,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         help_text=(
             "Names of source columns whose values are replaced with a deterministic one-way digest at "
             "sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. "
-            "Primary-key columns and the active incremental field can't be masked."
+            "Primary-key columns and the active incremental field can't be masked. Applied on the next "
+            "sync — existing already-synced rows are not retroactively masked; trigger a resync to mask "
+            "historical data."
         ),
     )
     row_filters = RowFiltersField(

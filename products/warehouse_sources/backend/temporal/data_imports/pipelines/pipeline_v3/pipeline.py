@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DeltaTableHelper,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.masking import mask_table_columns
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     PipelineResult,
@@ -339,6 +340,13 @@ class PipelineV3(Generic[ResumableData]):
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
+        pa_table = mask_table_columns(
+            pa_table,
+            self._schema.masked_columns,
+            team_id=self._schema.team_id,
+            primary_keys=self._resource.primary_keys,
+            incremental_field=self._schema.incremental_field,
+        )
 
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)

@@ -34,6 +34,11 @@ class TestResolveMaskedColumns:
     def test_excludes_pk_and_incremental(self):
         assert resolve_masked_columns(["a", "b", "c"], primary_keys=["a"], incremental_field="b") == {"c"}
 
+    def test_excludes_pk_case_insensitively(self):
+        # A cased mask entry must still protect a PK stored in a different case, or the CDC/pipeline
+        # paths would hash the merge key and corrupt UPDATE/DELETE processing.
+        assert resolve_masked_columns(["ID", "Email"], primary_keys=["id"]) == {"email"}
+
     def test_empty_when_unset(self):
         assert resolve_masked_columns(None) == set()
 
