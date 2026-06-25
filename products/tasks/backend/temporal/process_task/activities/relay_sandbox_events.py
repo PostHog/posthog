@@ -318,6 +318,8 @@ async def _relay_loop(
                             await redis_stream.write_event(event_data)
                             if task_run is not None and _is_permission_request_event(event_data):
                                 await asyncio.to_thread(_safe_dispatch_slack_permission_request, task_run, event_data)
+                            if task_run is not None and _is_permission_rejection_event(event_data):
+                                await asyncio.to_thread(_safe_mark_slack_permission_rejected, task_run, event_data)
                             reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
@@ -511,6 +513,19 @@ def _is_permission_request_event(event_data: dict) -> bool:
     return isinstance(notification, dict) and notification.get("method") == "_posthog/permission_request"
 
 
+def _is_permission_rejection_event(event_data: dict) -> bool:
+    if event_data.get("type") != "notification":
+        return False
+
+    notification = event_data.get("notification")
+    if not isinstance(notification, dict) or notification.get("method") != "_posthog/permission_resolved":
+        return False
+
+    params = notification.get("params")
+    option_id = params.get("optionId") if isinstance(params, dict) else None
+    return isinstance(option_id, str) and option_id.startswith("reject")
+
+
 def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
     """Schedule a push when an interactive run idles waiting on the user.
 
@@ -540,6 +555,23 @@ def _safe_dispatch_slack_permission_request(task_run: TaskRunModel, event_data: 
     except Exception:
         logger.warning(
             "relay_sandbox_events_slack_permission_prompt_failed",
+            run_id=str(task_run.id),
+            exc_info=True,
+        )
+
+
+def _safe_mark_slack_permission_rejected(task_run: TaskRunModel, event_data: dict) -> None:
+    try:
+        notification = event_data.get("notification")
+        params = notification.get("params") if isinstance(notification, dict) else None
+        request_id = params.get("requestId") if isinstance(params, dict) else None
+        updates: dict[str, object] = {"slack_permission_rejected": True}
+        if isinstance(request_id, str) and request_id:
+            updates["slack_permission_rejected_request_id"] = request_id
+        TaskRunModel.update_state_atomic(task_run.id, updates=updates)
+    except Exception:
+        logger.warning(
+            "relay_sandbox_events_permission_rejection_mark_failed",
             run_id=str(task_run.id),
             exc_info=True,
         )

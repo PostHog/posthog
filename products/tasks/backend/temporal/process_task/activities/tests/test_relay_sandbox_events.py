@@ -19,6 +19,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _is_active_agent_update,
     _is_end_of_turn,
     _is_keepalive_event,
+    _is_permission_rejection_event,
     _is_session_update,
     _mark_error_unless_run_is_terminal,
     _relay_loop,
@@ -173,6 +174,47 @@ class TestIsKeepaliveEvent:
     )
     def test_is_keepalive_event(self, _name: str, event_data: dict, expected: bool) -> None:
         assert _is_keepalive_event(event_data) == expected
+
+
+class TestIsPermissionRejectionEvent:
+    @parameterized.expand(
+        [
+            (
+                "reject",
+                {
+                    "type": "notification",
+                    "notification": {"method": "_posthog/permission_resolved", "params": {"optionId": "reject"}},
+                },
+                True,
+            ),
+            (
+                "reject_custom",
+                {
+                    "type": "notification",
+                    "notification": {"method": "_posthog/permission_resolved", "params": {"optionId": "reject_once"}},
+                },
+                True,
+            ),
+            (
+                "allow",
+                {
+                    "type": "notification",
+                    "notification": {"method": "_posthog/permission_resolved", "params": {"optionId": "allow"}},
+                },
+                False,
+            ),
+            (
+                "other_method",
+                {
+                    "type": "notification",
+                    "notification": {"method": "_posthog/permission_request", "params": {"optionId": "reject"}},
+                },
+                False,
+            ),
+        ],
+    )
+    def test_is_permission_rejection_event(self, _name: str, event_data: dict, expected: bool) -> None:
+        assert _is_permission_rejection_event(event_data) == expected
 
 
 class TestAgentActiveReactivation:
@@ -478,6 +520,68 @@ class TestRelaySandboxEventsErrorHandling:
 
         redis_stream.write_event.assert_any_await(permission_event)
         dispatch_mock.assert_called_once_with(task_run, permission_event)
+        redis_stream.mark_complete.assert_awaited_once()
+        redis_stream.mark_error.assert_not_awaited()
+
+    async def test_permission_rejection_marks_task_run_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        permission_rejected_event = {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/permission_resolved",
+                "params": {"requestId": "perm-1", "optionId": "reject"},
+            },
+        }
+        terminal_event = {
+            "type": "notification",
+            "notification": {"method": "_posthog/task_complete"},
+        }
+        task_run = SimpleNamespace(id="run-id")
+        mark_mock = MagicMock()
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(permission_rejected_event))
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
+            return SuccessfulEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def fake_to_thread(func, *args):
+            func(*args)
+
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+        monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(relay_sandbox_events_module, "_safe_mark_slack_permission_rejected", mark_mock)
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            task_run=cast(object, task_run),
+        )
+
+        redis_stream.write_event.assert_any_await(permission_rejected_event)
+        mark_mock.assert_called_once_with(task_run, permission_rejected_event)
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 

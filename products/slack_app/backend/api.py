@@ -3438,7 +3438,8 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     if not isinstance(request_id, str) or not isinstance(run_id, str) or not isinstance(task_id, str):
         return HttpResponse(status=200)
 
-    if action.get("action_id") == SLACK_PERMISSION_ACTION_DENY:
+    action_id = action.get("action_id")
+    if action_id == SLACK_PERMISSION_ACTION_DENY:
         option_id = context.get("reject_option_id")
         action_label = "Denied"
     else:
@@ -3492,6 +3493,15 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
             "I couldn't deliver that response to the agent. Please try again from the Task UI.",
         )
         return HttpResponse(status=200)
+
+    if action_id == SLACK_PERMISSION_ACTION_DENY:
+        TaskRun.update_state_atomic(
+            task_run.id,
+            updates={
+                "slack_permission_rejected": True,
+                "slack_permission_rejected_request_id": request_id,
+            },
+        )
 
     cache.delete(_picker_context_cache_key(context_token))
     option_label = options_by_id[option_id]["label"]

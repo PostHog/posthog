@@ -469,6 +469,9 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         assert mock_send_agent_command.call_args.kwargs["params"] == {"requestId": "perm-1", "optionId": "reject"}
         assert "Denied" in mock_requests_post.call_args.kwargs["json"]["text"]
+        task_run.refresh_from_db()
+        assert task_run.state["slack_permission_rejected"] is True
+        assert task_run.state["slack_permission_rejected_request_id"] == "perm-1"
 
     @patch("products.slack_app.backend.api.requests.post")
     @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")

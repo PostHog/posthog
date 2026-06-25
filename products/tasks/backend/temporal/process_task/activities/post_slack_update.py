@@ -13,6 +13,10 @@ from products.tasks.backend.access import has_tasks_access
 
 logger = get_logger(__name__)
 
+SLACK_TERMINAL_NOTIFIED_STATUS_KEY = "slack_terminal_notified_status"
+SLACK_TERMINAL_NOTIFIED_ERROR_KEY = "slack_terminal_notified_error_message"
+SLACK_PERMISSION_REJECTION_ERROR_FRAGMENT = "[ede_diagnostic] result_type=user"
+
 
 @dataclass
 class PostSlackUpdateInput:
@@ -67,12 +71,10 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.update_reaction("hedgehog")
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
             elif task_run.status == TaskRun.Status.CANCELLED:
-                handler.update_reaction("hedgehog")
-                handler.post_cancelled(task_url)
+                _post_cancelled_once(task_run, handler, task_url)
             elif task_run.status == TaskRun.Status.FAILED:
                 error = task_run.error_message or "Unknown error"
-                handler.update_reaction("x")
-                handler.post_error(error, task_url)
+                _post_error_once(task_run, handler, error, task_url)
             return
 
         if task_run.status == TaskRun.Status.COMPLETED:
@@ -85,12 +87,10 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             else:
                 handler.post_completion(task_url)
         elif task_run.status == TaskRun.Status.CANCELLED:
-            handler.update_reaction("hedgehog")
-            handler.post_cancelled(task_url)
+            _post_cancelled_once(task_run, handler, task_url)
         elif task_run.status == TaskRun.Status.FAILED:
             error = task_run.error_message or "Unknown error"
-            handler.update_reaction("x")
-            handler.post_error(error, task_url)
+            _post_error_once(task_run, handler, error, task_url)
         else:
             if pr_url:
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
@@ -142,6 +142,60 @@ def _post_pr_opened_notification_once(
     handler.post_pr_opened(pr_url, task_url, reply_target_slack_user_id=reply_target_slack_user_id)
 
     _mark_pr_opened_notified(task_run, pr_url)
+
+
+def _is_terminal_notified(task_run: Any, status: str, error: str | None = None) -> bool:
+    from products.tasks.backend.models import TaskRun
+
+    state = task_run.state or {}
+    if state.get(SLACK_TERMINAL_NOTIFIED_STATUS_KEY) != status:
+        return False
+    if status != TaskRun.Status.FAILED:
+        return True
+    return state.get(SLACK_TERMINAL_NOTIFIED_ERROR_KEY) == (error or "")
+
+
+def _mark_terminal_notified(task_run: Any, status: str, error: str | None = None) -> None:
+    from products.tasks.backend.models import TaskRun
+
+    updates = {SLACK_TERMINAL_NOTIFIED_STATUS_KEY: status}
+    if status == TaskRun.Status.FAILED:
+        updates[SLACK_TERMINAL_NOTIFIED_ERROR_KEY] = error or ""
+
+    TaskRun.update_state_atomic(task_run.id, updates=updates)
+
+
+def _is_suppressed_permission_rejection_error(task_run: Any, error: str) -> bool:
+    state = task_run.state or {}
+    return bool(state.get("slack_permission_rejected")) and SLACK_PERMISSION_REJECTION_ERROR_FRAGMENT in error
+
+
+def _post_error_once(task_run: Any, handler: Any, error: str, task_url: str | None) -> None:
+    from products.tasks.backend.models import TaskRun
+
+    if _is_terminal_notified(task_run, TaskRun.Status.FAILED, error):
+        handler.delete_progress()
+        return
+
+    if _is_suppressed_permission_rejection_error(task_run, error):
+        handler.update_reaction("hedgehog")
+        handler.delete_progress()
+    else:
+        handler.update_reaction("x")
+        handler.post_error(error, task_url)
+    _mark_terminal_notified(task_run, TaskRun.Status.FAILED, error)
+
+
+def _post_cancelled_once(task_run: Any, handler: Any, task_url: str | None) -> None:
+    from products.tasks.backend.models import TaskRun
+
+    if _is_terminal_notified(task_run, TaskRun.Status.CANCELLED):
+        handler.delete_progress()
+        return
+
+    handler.update_reaction("hedgehog")
+    handler.post_cancelled(task_url)
+    _mark_terminal_notified(task_run, TaskRun.Status.CANCELLED)
 
 
 def _is_pr_opened_notified(task_run, pr_url: str) -> bool:

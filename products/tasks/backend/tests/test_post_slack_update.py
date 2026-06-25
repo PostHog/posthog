@@ -11,6 +11,8 @@ _post_slack_update_module = importlib.import_module(
 )
 PostSlackUpdateInput = _post_slack_update_module.PostSlackUpdateInput
 post_slack_update = _post_slack_update_module.post_slack_update
+SLACK_TERMINAL_NOTIFIED_ERROR_KEY = _post_slack_update_module.SLACK_TERMINAL_NOTIFIED_ERROR_KEY
+SLACK_TERMINAL_NOTIFIED_STATUS_KEY = _post_slack_update_module.SLACK_TERMINAL_NOTIFIED_STATUS_KEY
 
 
 @override_settings(SITE_URL="http://localhost:8000")
@@ -112,6 +114,77 @@ class TestPostSlackUpdate(TestCase):
 
         mock_update_reaction.assert_called_once_with("x")
         mock_post_error.assert_called_once()
+
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "post_error")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_failed_run_suppresses_permission_rejection_diagnostic(
+        self,
+        mock_task_run_class,
+        mock_handler_init,
+        mock_update_reaction,
+        mock_post_error,
+        mock_delete_progress,
+    ):
+        error = "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use"
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.FAILED,
+            error_message=error,
+            state={"slack_permission_rejected": True},
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_delete_progress.assert_called_once()
+        mock_post_error.assert_not_called()
+        mock_task_run_class.update_state_atomic.assert_called_once_with(
+            "run-1",
+            updates={
+                SLACK_TERMINAL_NOTIFIED_STATUS_KEY: mock_task_run_class.Status.FAILED,
+                SLACK_TERMINAL_NOTIFIED_ERROR_KEY: error,
+            },
+        )
+
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "post_error")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_failed_run_does_not_repost_when_already_notified(
+        self,
+        mock_task_run_class,
+        mock_handler_init,
+        mock_update_reaction,
+        mock_post_error,
+        mock_delete_progress,
+    ):
+        error = "Something went wrong"
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.FAILED,
+            error_message=error,
+            state={
+                SLACK_TERMINAL_NOTIFIED_STATUS_KEY: mock_task_run_class.Status.FAILED,
+                SLACK_TERMINAL_NOTIFIED_ERROR_KEY: error,
+            },
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(
+            PostSlackUpdateInput(
+                run_id="run-1",
+                slack_thread_context=self.slack_thread_context,
+                sandbox_cleaned=True,
+            )
+        )
+
+        mock_delete_progress.assert_called_once()
+        mock_update_reaction.assert_not_called()
+        mock_post_error.assert_not_called()
+        mock_task_run_class.update_state_atomic.assert_not_called()
 
     @patch.object(SlackThreadHandler, "post_cancelled")
     @patch.object(SlackThreadHandler, "update_reaction")
