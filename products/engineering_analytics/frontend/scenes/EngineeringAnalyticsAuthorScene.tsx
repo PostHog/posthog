@@ -47,7 +47,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection name={handle} resourceType={{ type: 'health' }} />
-            <div className="flex max-w-5xl flex-col gap-4">
+            <div className="flex flex-col gap-4">
                 {/* The picker scopes the cost tiles only — the PR list below stays the author's recent PRs. */}
                 <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-2">
