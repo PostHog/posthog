@@ -40122,6 +40122,8 @@ export namespace Schemas {
     } as const;
 
     export interface SurveyOpenQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
       type: SurveyOpenQuestionSchemaTypeEnum;
       /** Question text shown to respondents. */
       question: string;
@@ -40149,6 +40151,8 @@ export namespace Schemas {
     } as const;
 
     export interface SurveyLinkQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
       type: SurveyLinkQuestionSchemaTypeEnum;
       /** Question text shown to respondents. */
       question: string;
@@ -40272,6 +40276,8 @@ export namespace Schemas {
     export type SurveyBranchingSchema = SurveyNextQuestionBranching | SurveyEndBranching | SurveySpecificQuestionBranching | SurveyResponseBasedBranching;
 
     export interface SurveyRatingQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
       type: SurveyRatingQuestionSchemaTypeEnum;
       /** Question text shown to respondents. */
       question: string;
@@ -40314,6 +40320,8 @@ export namespace Schemas {
     } as const;
 
     export interface SurveySingleChoiceQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
       type: SurveySingleChoiceQuestionSchemaTypeEnum;
       /** Question text shown to respondents. */
       question: string;
@@ -40352,6 +40360,8 @@ export namespace Schemas {
     } as const;
 
     export interface SurveyMultipleChoiceQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
       type: SurveyMultipleChoiceQuestionSchemaTypeEnum;
       /** Question text shown to respondents. */
       question: string;
