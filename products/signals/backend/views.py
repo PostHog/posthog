@@ -529,10 +529,14 @@ class SignalReportContentUpdateSerializer(serializers.Serializer):
     signals pipeline and is deliberately not writable here.
     """
 
+    # min_length=1 (not just allow_blank=False) so the non-empty constraint surfaces as
+    # `minLength: 1` in the generated OpenAPI/Zod schema — otherwise clients only learn an
+    # empty string is invalid when the server rejects it.
     title = serializers.CharField(
         required=False,
         allow_blank=False,
         trim_whitespace=True,
+        min_length=1,
         max_length=SIGNAL_REPORT_TITLE_MAX_LENGTH,
         help_text="New human-facing title for the report. Omit to leave the title unchanged.",
     )
@@ -540,6 +544,7 @@ class SignalReportContentUpdateSerializer(serializers.Serializer):
         required=False,
         allow_blank=False,
         trim_whitespace=True,
+        min_length=1,
         max_length=SIGNAL_REPORT_SUMMARY_MAX_LENGTH,
         help_text=(
             "New summary (the report's description) explaining what the report is about. "

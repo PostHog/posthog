@@ -128,11 +128,13 @@ export interface PaginatedSignalReportListApi {
 export interface PatchedSignalReportContentUpdateApi {
     /**
      * New human-facing title for the report. Omit to leave the title unchanged.
+     * @minLength 1
      * @maxLength 300
      */
     title?: string
     /**
      * New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged.
+     * @minLength 1
      * @maxLength 10000
      */
     summary?: string

@@ -8,11 +8,13 @@
         "summary": {
             "description": "New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged.",
             "maxLength": 10000,
+            "minLength": 1,
             "type": "string"
         },
         "title": {
             "description": "New human-facing title for the report. Omit to leave the title unchanged.",
             "maxLength": 300,
+            "minLength": 1,
             "type": "string"
         }
     },

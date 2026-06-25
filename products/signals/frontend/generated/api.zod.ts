@@ -30,11 +30,13 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         title: zod
             .string()
+            .min(1)
             .max(signalsReportsPartialUpdateBodyTitleMax)
             .optional()
             .describe('New human-facing title for the report. Omit to leave the title unchanged.'),
         summary: zod
             .string()
+            .min(1)
             .max(signalsReportsPartialUpdateBodySummaryMax)
             .optional()
             .describe(
