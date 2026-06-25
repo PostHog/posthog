@@ -291,14 +291,31 @@ impl<'a> HogVM<'a> {
             Operation::Null => {
                 self.push_stack(HogLiteral::Null)?;
             }
-            // The reference's STRING/INTEGER/FLOAT opcodes are all `pushStack(next())` with no type
-            // enforcement; the SQL-AST compiler relies on this (it emits INTEGER with a boolean
-            // operand). Push the raw token as whatever Hog value it deserializes to.
-            Operation::String | Operation::Integer | Operation::Float => {
-                let token = self.context.get_bytecode(self.ip, &self.current_symbol)?.clone();
-                self.ip += 1;
-                let val = self.json_to_hog(token)?;
+            Operation::String => {
+                let val: String = self.next()?;
                 self.push_stack(val)?;
+            }
+            Operation::Float => {
+                let val: f64 = self.next()?;
+                self.push_stack(val)?;
+            }
+            // The reference's INTEGER opcode is untyped `pushStack(next())`; the SQL-AST compiler
+            // emits it with a boolean operand. Fast-path the overwhelmingly common i64 (this is a hot
+            // opcode — loop counters etc.), and fall back to pushing the raw token for anything else.
+            Operation::Integer => {
+                let as_int = self
+                    .context
+                    .get_bytecode(self.ip, &self.current_symbol)?
+                    .as_i64();
+                if let Some(i) = as_int {
+                    self.ip += 1;
+                    self.push_stack(i)?;
+                } else {
+                    let token = self.context.get_bytecode(self.ip, &self.current_symbol)?.clone();
+                    self.ip += 1;
+                    let val = self.json_to_hog(token)?;
+                    self.push_stack(val)?;
+                }
             }
             Operation::Pop => {
                 self.pop_stack()?;
