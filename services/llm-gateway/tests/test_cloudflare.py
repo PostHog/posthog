@@ -27,10 +27,12 @@ def test_allowlist_derived_from_cost_aliases() -> None:
     expected = {alias.removeprefix("openai/") for alias in COST_ALIASES if alias.startswith("openai/@cf/")}
     assert CLOUDFLARE_ALLOWED_MODELS == expected
     assert "@cf/moonshotai/kimi-k2.6" in CLOUDFLARE_ALLOWED_MODELS
+    assert "@cf/zai-org/glm-5.2" in CLOUDFLARE_ALLOWED_MODELS
 
 
-def test_ensure_cloudflare_model_allowed_accepts_priced_model() -> None:
-    ensure_cloudflare_model_allowed("@cf/moonshotai/kimi-k2.6")
+@pytest.mark.parametrize("model", ["@cf/moonshotai/kimi-k2.6", "@cf/zai-org/glm-5.2"])
+def test_ensure_cloudflare_model_allowed_accepts_priced_model(model: str) -> None:
+    ensure_cloudflare_model_allowed(model)
 
 
 @pytest.mark.parametrize(
