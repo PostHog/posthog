@@ -205,6 +205,8 @@ export interface SignalScoutConfig {
     id: string
     /** The `signals-scout-*` skill this config controls. Fixed at creation. */
     skill_name: string
+    /** What this scout investigates, sourced from the skill's `description` metadata. Empty if absent. */
+    description: string
     /** Whether this scout runs on its schedule. */
     enabled: boolean
     /** Whether the scout writes findings to the inbox. false = dry-run. */
