@@ -5,7 +5,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -13,7 +13,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -39,7 +39,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -48,7 +48,7 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(where_optimization.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(where_optimization.id)
                                                                                                                 and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(persons.id)
                and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))
   ORDER BY persons.created_at DESC,
@@ -75,7 +75,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -84,7 +84,7 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(where_optimization.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(where_optimization.id)
                                                                                                                 and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(persons.id)
                and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))
   ORDER BY persons.created_at DESC,
@@ -112,7 +112,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -120,7 +120,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -147,7 +147,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -155,7 +155,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'inexistent'), 0)))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'inexistent'), 0)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -216,7 +216,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___some_prop,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -224,7 +224,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'some_value'), 0)))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___some_prop, 'some_value'), 0)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -292,7 +292,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -300,7 +300,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE isNotNull(persons.properties___email)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -327,7 +327,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -335,7 +335,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0)))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(ilike(toString(persons.properties___email), '%another@gm%'), 0)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -363,7 +363,7 @@
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -372,22 +372,22 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0), ilike(toString(where_optimization.id), '%another@gm%'), in(where_optimization.id,
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           FROM person_distinct_id2
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE ilike(person_distinct_ids.distinct_id, '%another@gm%'))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE or(ifNull(ilike(toString(persons.properties___email), '%another@gm%'), 0), ifNull(ilike(toString(persons.properties___name), '%another@gm%'), 0), ilike(toString(persons.id), '%another@gm%'), in(persons.id,
                                                                                                                                                                                                             (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                               (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                               (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                 FROM person_distinct_id2
                                                                                                                                                                                                                 WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                 GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                              WHERE ilike(person_distinct_ids.distinct_id, '%another@gm%'))))
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -415,7 +415,7 @@
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -424,22 +424,22 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%distinct_id_3%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%distinct_id_3%'), 0), ilike(toString(where_optimization.id), '%distinct_id_3%'), in(where_optimization.id,
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    FROM person_distinct_id2
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE ilike(person_distinct_ids.distinct_id, '%distinct_id_3%'))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE or(ifNull(ilike(toString(persons.properties___email), '%distinct_id_3%'), 0), ifNull(ilike(toString(persons.properties___name), '%distinct_id_3%'), 0), ilike(toString(persons.id), '%distinct_id_3%'), in(persons.id,
                                                                                                                                                                                                                      (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                                       FROM
-                                                                                                                                                                                                                        (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                        (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                          FROM person_distinct_id2
                                                                                                                                                                                                                          WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                          GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                         HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                         HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                                       WHERE ilike(person_distinct_ids.distinct_id, '%distinct_id_3%'))))
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -467,7 +467,7 @@
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -476,22 +476,22 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%00000000-0000-4000-8000-000000000000%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%00000000-0000-4000-8000-000000000000%'), 0), ilike(toString(where_optimization.id), '%00000000-0000-4000-8000-000000000000%'), in(where_optimization.id,
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         FROM person_distinct_id2
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE ilike(person_distinct_ids.distinct_id, '%00000000-0000-4000-8000-000000000000%'))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE or(ifNull(ilike(toString(persons.properties___email), '%00000000-0000-4000-8000-000000000000%'), 0), ifNull(ilike(toString(persons.properties___name), '%00000000-0000-4000-8000-000000000000%'), 0), ilike(toString(persons.id), '%00000000-0000-4000-8000-000000000000%'), in(persons.id,
                                                                                                                                                                                                                                                                                           (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                                                                                                            FROM
-                                                                                                                                                                                                                                                                                             (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                                                                                               FROM person_distinct_id2
                                                                                                                                                                                                                                                                                               WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                                                                                               GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                              HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                                                                                                            WHERE ilike(person_distinct_ids.distinct_id, '%00000000-0000-4000-8000-000000000000%'))))
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -518,7 +518,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -526,7 +526,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -552,7 +552,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -561,7 +561,7 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(where_optimization.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(where_optimization.id)
                                                                                                                 and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(persons.id)
                and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))
   ORDER BY persons.created_at DESC,
@@ -588,7 +588,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -597,7 +597,7 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(where_optimization.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(where_optimization.id)
                                                                                                                 and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(persons.id)
                and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))
   ORDER BY persons.created_at DESC,
@@ -625,7 +625,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -633,7 +633,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -660,7 +660,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -668,7 +668,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'inexistent'), 0)))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___email, 'inexistent'), 0)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -729,7 +729,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___some_prop,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -737,7 +737,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'some_value'), 0)))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___some_prop, 'some_value'), 0)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -805,7 +805,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -813,7 +813,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE isNotNull(persons.properties___email)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -840,7 +840,7 @@
   SELECT persons.id AS id
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -848,7 +848,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0)))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(ilike(toString(persons.properties___email), '%another@gm%'), 0)
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -876,7 +876,7 @@
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -885,22 +885,22 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0), ilike(toString(where_optimization.id), '%another@gm%'), in(where_optimization.id,
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           FROM person_distinct_id2
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE ilike(person_distinct_ids.distinct_id, '%another@gm%'))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE or(ifNull(ilike(toString(persons.properties___email), '%another@gm%'), 0), ifNull(ilike(toString(persons.properties___name), '%another@gm%'), 0), ilike(toString(persons.id), '%another@gm%'), in(persons.id,
                                                                                                                                                                                                             (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                              FROM
-                                                                                                                                                                                                               (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                               (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                 FROM person_distinct_id2
                                                                                                                                                                                                                 WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                 GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                              WHERE ilike(person_distinct_ids.distinct_id, '%another@gm%'))))
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -928,7 +928,7 @@
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -937,22 +937,22 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%distinct_id_3%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%distinct_id_3%'), 0), ilike(toString(where_optimization.id), '%distinct_id_3%'), in(where_optimization.id,
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    FROM person_distinct_id2
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE ilike(person_distinct_ids.distinct_id, '%distinct_id_3%'))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE or(ifNull(ilike(toString(persons.properties___email), '%distinct_id_3%'), 0), ifNull(ilike(toString(persons.properties___name), '%distinct_id_3%'), 0), ilike(toString(persons.id), '%distinct_id_3%'), in(persons.id,
                                                                                                                                                                                                                      (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                                       FROM
-                                                                                                                                                                                                                        (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                        (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                          FROM person_distinct_id2
                                                                                                                                                                                                                          WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                          GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                         HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                         HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                                       WHERE ilike(person_distinct_ids.distinct_id, '%distinct_id_3%'))))
   ORDER BY persons.created_at DESC,
            persons.id DESC
@@ -980,7 +980,7 @@
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
-            tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -989,22 +989,22 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%00000000-0000-4000-8000-000000000000%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%00000000-0000-4000-8000-000000000000%'), 0), ilike(toString(where_optimization.id), '%00000000-0000-4000-8000-000000000000%'), in(where_optimization.id,
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         FROM person_distinct_id2
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE ilike(person_distinct_ids.distinct_id, '%00000000-0000-4000-8000-000000000000%'))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE or(ifNull(ilike(toString(persons.properties___email), '%00000000-0000-4000-8000-000000000000%'), 0), ifNull(ilike(toString(persons.properties___name), '%00000000-0000-4000-8000-000000000000%'), 0), ilike(toString(persons.id), '%00000000-0000-4000-8000-000000000000%'), in(persons.id,
                                                                                                                                                                                                                                                                                           (SELECT person_distinct_ids.person_id AS person_id
                                                                                                                                                                                                                                                                                            FROM
-                                                                                                                                                                                                                                                                                             (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
                                                                                                                                                                                                                                                                                               FROM person_distinct_id2
                                                                                                                                                                                                                                                                                               WHERE equals(person_distinct_id2.team_id, 99999)
                                                                                                                                                                                                                                                                                               GROUP BY person_distinct_id2.distinct_id
-                                                                                                                                                                                                                                                                                              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                              HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                                                                                                                                            WHERE ilike(person_distinct_ids.distinct_id, '%00000000-0000-4000-8000-000000000000%'))))
   ORDER BY persons.created_at DESC,
            persons.id DESC
