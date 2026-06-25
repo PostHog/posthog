@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from posthog.schema import (
     DateRange,

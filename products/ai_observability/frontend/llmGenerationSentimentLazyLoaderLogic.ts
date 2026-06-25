@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { chunk } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,6 +10,7 @@ import { runWithConcurrency } from './utils'
 
 const BATCH_MAX_SIZE = 100
 const MAX_CONCURRENT_BATCHES = 2
+const BATCH_TIMER_DISPOSABLE_KEY = 'generationSentimentBatchTimer'
 
 export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentLazyLoaderLogicType>([
     path(['products', 'ai_observability', 'frontend', 'llmGenerationSentimentLazyLoaderLogic']),
@@ -125,45 +126,37 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
                 >
                 pendingLookups.set(lookup.key, lookup)
 
-                if (cache.batchTimer) {
-                    return
-                }
+                cache.disposables.add(() => {
+                    const batchTimer = setTimeout(() => {
+                        cache.disposables.dispose(BATCH_TIMER_DISPOSABLE_KEY)
+                        void (async () => {
+                            const pendingLookups = cache.pendingLookups as Map<string, GenerationSentimentLookup>
+                            const allLookups = Array.from(pendingLookups.values())
+                            cache.pendingLookups = new Map<string, GenerationSentimentLookup>()
 
-                cache.batchTimer = setTimeout(async () => {
-                    const pendingLookups = cache.pendingLookups as Map<string, GenerationSentimentLookup>
-                    const allLookups = Array.from(pendingLookups.values())
-                    cache.pendingLookups = new Map<string, GenerationSentimentLookup>()
-                    cache.batchTimer = null
+                            if (!values.currentTeamId || allLookups.length === 0) {
+                                actions.loadGenerationSentimentBatchFailure(allLookups.map((lookup) => lookup.key))
+                                return
+                            }
 
-                    if (!values.currentTeamId || allLookups.length === 0) {
-                        actions.loadGenerationSentimentBatchFailure(allLookups.map((lookup) => lookup.key))
-                        return
-                    }
+                            const chunks = chunk(allLookups, BATCH_MAX_SIZE)
 
-                    const chunks = chunk(allLookups, BATCH_MAX_SIZE)
+                            await runWithConcurrency(chunks, MAX_CONCURRENT_BATCHES, async (batch) => {
+                                const requestedKeys = batch.map((lookup) => lookup.key)
 
-                    await runWithConcurrency(chunks, MAX_CONCURRENT_BATCHES, async (batch) => {
-                        const requestedKeys = batch.map((lookup) => lookup.key)
+                                try {
+                                    const results = await fetchStoredGenerationSentiments(batch)
+                                    actions.loadGenerationSentimentBatchSuccess(results, requestedKeys)
+                                } catch {
+                                    actions.loadGenerationSentimentBatchFailure(requestedKeys)
+                                }
+                            })
+                        })()
+                    }, 0)
 
-                        try {
-                            const results = await fetchStoredGenerationSentiments(batch)
-                            actions.loadGenerationSentimentBatchSuccess(results, requestedKeys)
-                        } catch {
-                            actions.loadGenerationSentimentBatchFailure(requestedKeys)
-                        }
-                    })
-                }, 0)
+                    return () => clearTimeout(batchTimer)
+                }, BATCH_TIMER_DISPOSABLE_KEY)
             },
         }
     }),
-
-    events(({ cache }) => ({
-        beforeUnmount: () => {
-            if (cache.batchTimer) {
-                clearTimeout(cache.batchTimer)
-                cache.batchTimer = null
-            }
-            cache.pendingLookups?.clear?.()
-        },
-    })),
 ])

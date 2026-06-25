@@ -23,11 +23,7 @@ const SENTIMENT_GENERATION_SELECT = [
 ] as const
 
 const EVALUATION_TARGET_ID_SELECT = `
-    coalesce(
-        nullIf(nullIf(toString(properties.$ai_target_event_id), ''), 'null'),
-        nullIf(nullIf(toString(properties.$ai_target_id), ''), 'null'),
-        ''
-    )
+    ifNull(nullIf(nullIf(toString(properties.$ai_target_event_id), ''), 'null'), '')
 `
 
 type SentimentEvaluationQueryRow = [string, string, unknown, unknown, unknown, unknown, unknown, unknown]
@@ -164,11 +160,7 @@ async function queryStoredGenerationSentiments(
                     toString(properties.$ai_sentiment_message_count) AS message_count
                 FROM ${hogql.raw(source.from)}
                 WHERE event = '$ai_evaluation'
-                  AND (
-                    properties.$ai_evaluation_runtime = 'sentiment'
-                    OR properties.$ai_evaluation_result_type = 'sentiment'
-                    OR length(toString(properties.$ai_sentiment_label)) > 0
-                  )
+                  AND properties.$ai_evaluation_runtime = 'sentiment'
                   AND ${hogql.raw(source.traceIdExpression)} IN ${traceIds}
             )
             WHERE length(generation_id) > 0
@@ -350,14 +342,16 @@ export async function fetchSentimentGenerationsPage(
         .map((row) => mapGenerationRow(row))
         .filter((row): row is SentimentGeneration => row !== null)
 
-    const sentimentByGenerationKey = await fetchStoredGenerationSentiments(
-        generationRows.map((generation) => ({
-            key: generation.uuid,
-            traceId: generation.traceId,
-            generationIds: generation.generationIds,
-        }))
-    )
-    const inputsByGenerationKey = await fetchGenerationInputs(generationRows)
+    const [sentimentByGenerationKey, inputsByGenerationKey] = await Promise.all([
+        fetchStoredGenerationSentiments(
+            generationRows.map((generation) => ({
+                key: generation.uuid,
+                traceId: generation.traceId,
+                generationIds: generation.generationIds,
+            }))
+        ),
+        fetchGenerationInputs(generationRows),
+    ])
 
     return {
         generations: generationRows

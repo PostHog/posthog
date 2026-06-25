@@ -298,7 +298,6 @@ function SessionTurnView({
 
                     {showStepsPanel && (
                         <StepsPanel
-                            traceId={trace.id}
                             fullTrace={fullTrace}
                             expandedEventIds={expandedGenerationIds}
                             onToggleEventExpand={toggleGenerationExpanded}
@@ -382,12 +381,10 @@ function TurnBody({
 }
 
 function StepsPanel({
-    traceId,
     fullTrace,
     expandedEventIds,
     onToggleEventExpand,
 }: {
-    traceId: string
     fullTrace: LLMTrace | undefined
     expandedEventIds: Set<string>
     onToggleEventExpand: (eventId: string) => void
@@ -399,7 +396,6 @@ function StepsPanel({
                 isLoading={false}
                 expandedEventIds={expandedEventIds}
                 onToggleEventExpand={onToggleEventExpand}
-                traceId={traceId}
             />
         </div>
     )

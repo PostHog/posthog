@@ -47,7 +47,12 @@ describe('sentimentQueries', () => {
             message_count: 1,
         })
         expect(mockApi.queryHogQL).toHaveBeenCalledTimes(1)
-        expect(mockApi.queryHogQL.mock.calls[0][0]).toContain('FROM posthog.ai_events AS ai_events')
+        const sentimentQuery = mockApi.queryHogQL.mock.calls[0][0]
+        expect(sentimentQuery).toContain('FROM posthog.ai_events AS ai_events')
+        expect(sentimentQuery).toContain("properties.$ai_evaluation_runtime = 'sentiment'")
+        expect(sentimentQuery).toContain('properties.$ai_target_event_id')
+        expect(sentimentQuery).not.toContain('properties.$ai_target_id')
+        expect(sentimentQuery).not.toContain('properties.$ai_evaluation_result_type')
     })
 
     it('falls back to events when stored generation sentiment is missing from ai_events', async () => {

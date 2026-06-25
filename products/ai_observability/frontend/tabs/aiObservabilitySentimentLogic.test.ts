@@ -52,7 +52,7 @@ describe('aiObservabilitySentimentLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        mockEvaluationsList.mockResolvedValue({ results: [] } as Awaited<ReturnType<typeof evaluationsList>>)
+        mockEvaluationsList.mockResolvedValue({ count: 0, results: [] })
         mockFetchSentimentGenerationsPage.mockResolvedValue({ generations: [], rawCount: 0 })
         logic = null
         availabilityLogic = null

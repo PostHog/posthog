@@ -19,7 +19,6 @@ interface AIObservabilityEventCardProps {
     }
     isExpanded: boolean
     onToggleExpand: () => void
-    traceId?: string
 }
 
 export function AIObservabilityEventCard({

@@ -2,9 +2,6 @@ import { LLMSentimentMessage, LLMSentimentResult } from '~/queries/schema/schema
 
 export type MessageSentiment = LLMSentimentMessage
 export type GenerationSentiment = LLMSentimentResult
-export type SentimentResult = GenerationSentiment & {
-    message_count: number
-}
 
 export const GENERATION_SENTIMENT_SELECT = "'' -- Sentiment"
 

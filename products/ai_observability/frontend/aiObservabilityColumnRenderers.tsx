@@ -229,14 +229,21 @@ function LazyGenerationSentimentCell({ lookup }: { lookup: GenerationSentimentLo
     const { getGenerationSentiment, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
     const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
 
-    const cached = getGenerationSentiment(lookup.key)
-    const loading = isGenerationLoading(lookup.key)
+    const lookupKey = lookup.key
+    const lookupTraceId = lookup.traceId
+    const lookupGenerationIdsKey = lookup.generationIds.join('\0')
+    const cached = getGenerationSentiment(lookupKey)
+    const loading = isGenerationLoading(lookupKey)
 
     useEffect(() => {
         if (cached === undefined && !loading) {
-            ensureGenerationSentimentLoaded(lookup)
+            ensureGenerationSentimentLoaded({
+                key: lookupKey,
+                traceId: lookupTraceId,
+                generationIds: lookupGenerationIdsKey ? lookupGenerationIdsKey.split('\0') : [],
+            })
         }
-    }, [cached, ensureGenerationSentimentLoaded, loading, lookup])
+    }, [cached, ensureGenerationSentimentLoaded, loading, lookupGenerationIdsKey, lookupKey, lookupTraceId])
 
     if (loading || cached === undefined) {
         return <AIDataLoading variant="inline" />

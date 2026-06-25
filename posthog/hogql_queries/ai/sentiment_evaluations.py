@@ -24,6 +24,7 @@ SentimentResult = dict[str, Any]
 
 AI_EVENTS_GENERATION_SENTIMENT_GENERATION_ID_SELECT = "ifNull(nullIf(nullIf(toString(generation_id), ''), 'null'), '')"
 MAX_GENERATION_SENTIMENT_EVALUATIONS_PER_TRACE = 1000
+SENTIMENT_LABELS = ("positive", "neutral", "negative")
 
 
 @dataclass(frozen=True)
@@ -273,21 +274,24 @@ def _aggregate_trace_sentiment(generation_results: list[tuple[str, SentimentResu
     for generation_id, result in generation_results:
         messages = result.get("messages")
         if isinstance(messages, dict) and messages:
+            message_score_dicts: list[dict[str, float]] = []
             for message_index, message in messages.items():
                 if not isinstance(message, dict):
                     continue
                 flat_messages[f"{generation_id}:{message_index}"] = message
-                message_scores = _normalize_scores(message.get("scores"))
-                if message_scores:
-                    score_dicts.append(message_scores)
-            continue
+                message_scores = _score_dict_from_sentiment(message)
+                if message_scores is not None:
+                    message_score_dicts.append(message_scores)
+            if message_score_dicts:
+                score_dicts.extend(message_score_dicts)
+                continue
 
-        result_scores = _normalize_scores(result.get("scores"))
-        if result_scores:
+        result_scores = _score_dict_from_sentiment(result)
+        if result_scores is not None:
             score_dicts.append(result_scores)
 
     scores = _average_score_dicts(score_dicts)
-    label = max(scores, key=scores.get)
+    label = max(scores, key=scores.get) if _has_score_signal(scores) else "neutral"
     return {
         "label": label,
         "score": scores[label],
@@ -316,7 +320,7 @@ def _decode_jsonish(value: object) -> object:
 
 
 def _normalize_label(value: object) -> str:
-    if isinstance(value, str) and value in {"positive", "neutral", "negative"}:
+    if isinstance(value, str) and value in SENTIMENT_LABELS:
         return value
     return "neutral"
 
@@ -380,11 +384,28 @@ def _normalize_messages(value: object) -> dict[str, SentimentMessage]:
     return messages
 
 
+def _score_dict_from_sentiment(value: Mapping[str, object]) -> dict[str, float] | None:
+    scores = _normalize_scores(value.get("scores"))
+    if _has_score_signal(scores):
+        return scores
+
+    score = _normalize_float(value.get("score"))
+    if score is None or score == 0.0:
+        return None
+
+    label = _normalize_label(value.get("label"))
+    return {sentiment_label: score if sentiment_label == label else 0.0 for sentiment_label in SENTIMENT_LABELS}
+
+
+def _has_score_signal(scores: Mapping[str, float]) -> bool:
+    return any(score != 0.0 for score in scores.values())
+
+
 def _average_score_dicts(score_dicts: list[dict[str, float]]) -> dict[str, float]:
     if not score_dicts:
         return {"positive": 0.0, "neutral": 0.0, "negative": 0.0}
 
-    labels = ["positive", "neutral", "negative"]
     return {
-        label: round(sum(scores.get(label, 0.0) for scores in score_dicts) / len(score_dicts), 4) for label in labels
+        label: round(sum(scores.get(label, 0.0) for scores in score_dicts) / len(score_dicts), 4)
+        for label in SENTIMENT_LABELS
     }
