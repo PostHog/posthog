@@ -55,10 +55,8 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
         openModal: true,
         closeModal: true,
         setRawText: (rawText: string) => ({ rawText }),
-        parseText: true,
-        setParsedOwners: (owners: OwnerGroup[]) => ({ owners }),
         setOwnerAssignee: (owner: string, assignee: ErrorTrackingIssueAssignee | null) => ({ owner, assignee }),
-        setMappingOwners: (owners: string[]) => ({ owners }),
+        setOwnersToMap: (owners: string[]) => ({ owners }),
         goToConfigure: true,
         goToImpact: true,
         backToMapping: true,
@@ -79,7 +77,6 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
             },
         ],
         rawText: ['', { setRawText: (_, { rawText }) => rawText, openModal: () => '' }],
-        parsedOwners: [[] as OwnerGroup[], { setParsedOwners: (_, { owners }) => owners, openModal: () => [] }],
         // Manual assignee picks keyed by owner; presence of the key overrides the auto-match (null = cleared).
         assigneeOverrides: [
             {} as Record<string, ErrorTrackingIssueAssignee | null>,
@@ -88,10 +85,10 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                 openModal: () => ({}),
             },
         ],
-        mappingOwners: [
+        ownersToMap: [
             [] as string[],
             {
-                setMappingOwners: (_, { owners }) => owners,
+                setOwnersToMap: (_, { owners }) => owners,
                 openModal: () => [],
                 backToPaste: () => [],
             },
@@ -168,14 +165,8 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
             actions.ensureAssigneeTypesLoaded()
             actions.resetMatchResults()
         },
-        setRawText: () => {
-            actions.parseText()
-        },
-        parseText: () => {
-            actions.setParsedOwners(entriesByOwner(parseCodeowners(values.rawText)))
-        },
         goToConfigure: () => {
-            actions.setMappingOwners(values.ownerRows.map((row) => row.owner))
+            actions.setOwnersToMap(values.ownerRows.map((row) => row.owner))
             actions.testMatches()
         },
         setDateRange: () => {
@@ -202,6 +193,7 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
     })),
 
     selectors({
+        parsedOwners: [(s) => [s.rawText], (rawText: string): OwnerGroup[] => entriesByOwner(parseCodeowners(rawText))],
         ownerRows: [
             (s) => [s.parsedOwners, s.roles, s.meFirstMembers, s.assigneeOverrides],
             (
@@ -216,9 +208,9 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
             (rows: CodeOwnerRuleCandidate[]): CodeOwnerRuleCandidate[] => buildSavableRows(rows),
         ],
         mappingRows: [
-            (s) => [s.ownerRows, s.mappingOwners],
-            (rows: CodeOwnerRuleCandidate[], mappingOwners: string[]): CodeOwnerOwnerMapping[] =>
-                buildMappingRows(rows, mappingOwners),
+            (s) => [s.ownerRows, s.ownersToMap],
+            (rows: CodeOwnerRuleCandidate[], ownersToMap: string[]): CodeOwnerOwnerMapping[] =>
+                buildMappingRows(rows, ownersToMap),
         ],
         hasParsedOwners: [(s) => [s.parsedOwners], (owners: OwnerGroup[]): boolean => owners.length > 0],
         parseErrors: [(s) => [s.rawText], (rawText: string): CodeownersError[] => findCodeownersErrors(rawText)],

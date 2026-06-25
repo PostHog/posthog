@@ -31,7 +31,7 @@ export function SortableRuleItem({
                     {...listeners}
                 />
             )}
-            {leading}
+            {leading && <div className="flex shrink-0 items-start pt-2">{leading}</div>}
             <div className="flex-1">{children}</div>
         </div>
     )

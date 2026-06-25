@@ -180,7 +180,6 @@ export function RuleList({
                                     leading={
                                         isSelectingRules ? (
                                             <LemonCheckbox
-                                                className="mt-0"
                                                 checked={selectedRuleIds.includes(rule.id)}
                                                 onChange={() => toggleSelectedRule(rule.id)}
                                             />

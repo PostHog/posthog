@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
@@ -7,52 +6,17 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { Button, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from 'lib/ui/quill'
-import { urls } from 'scenes/urls'
-
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../../components/Assignee/AssigneeSelect'
-import { Assignee, assigneeSelectLogic } from '../../../components/Assignee/assigneeSelectLogic'
-import { buildOwnerFilters, CodeOwnerOwnerMapping } from './codeownersImport'
+import { assigneeSelectLogic } from '../../../components/Assignee/assigneeSelectLogic'
+import { buildImpactRows } from './codeownersImpact'
+import { CodeOwnerOwnerMapping } from './codeownersImport'
 import { codeOwnersModalLogic } from './codeOwnersModalLogic'
-
-function assigneeLabel(assignee: Assignee): string {
-    if (!assignee) {
-        return 'Assign…'
-    }
-    return assignee.type === 'role' ? assignee.role.name : assignee.user.first_name || assignee.user.email
-}
+import { exceptionsUrl, issuesUrl } from './codeownersUrls'
 
 function pathsTooltip(patterns: string[]): JSX.Element {
     return <span className="block whitespace-pre-line text-left">{patterns.join('\n')}</span>
-}
-
-function exceptionsUrl(patterns: string[], dateRange: string): string {
-    const filters = buildOwnerFilters(patterns)
-    return combineUrl(
-        urls.activity(ActivityTab.ExploreEvents),
-        {},
-        {
-            q: {
-                kind: NodeKind.DataTableNode,
-                full: true,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                    orderBy: ['timestamp DESC'],
-                    event: '$exception',
-                    after: dateRange,
-                    properties: filters.values,
-                    tags: { productKey: ProductKey.ERROR_TRACKING },
-                },
-                propertiesViaUrl: true,
-                showPersistentColumnConfigurator: true,
-            },
-        }
-    ).url
 }
 
 export function CodeOwnersConfigureTable(): JSX.Element {
@@ -130,37 +94,10 @@ export function CodeOwnersImpactTable(): JSX.Element {
     const { savableRows, matchResults, matchResultsLoading, dateRange } = useValues(codeOwnersModalLogic)
     const { resolveAssignee } = useValues(assigneeSelectLogic)
 
-    const impactRows = useMemo(() => {
-        const groups = new Map<
-            string,
-            { label: string; exceptionCount: number; issueCount: number; patterns: string[] }
-        >()
-
-        for (const row of savableRows) {
-            if (!row.assignee) {
-                continue
-            }
-            const resolved = resolveAssignee(row.assignee)
-            if (!resolved) {
-                continue
-            }
-
-            const key = row.assignee.type === 'role' ? `role:${row.assignee.id}` : `user:${row.assignee.id}`
-            const existing = groups.get(key) ?? {
-                label: assigneeLabel(resolved),
-                exceptionCount: 0,
-                issueCount: 0,
-                patterns: [],
-            }
-            const count = matchResults[row.entryId]
-            existing.exceptionCount += count?.exceptionCount ?? 0
-            existing.issueCount += count?.issueCount ?? 0
-            existing.patterns.push(...row.patterns)
-            groups.set(key, existing)
-        }
-
-        return Array.from(groups.values())
-    }, [matchResults, resolveAssignee, savableRows])
+    const impactRows = useMemo(
+        () => buildImpactRows(savableRows, matchResults, resolveAssignee),
+        [matchResults, resolveAssignee, savableRows]
+    )
 
     return (
         <Table>
@@ -200,14 +137,7 @@ export function CodeOwnersImpactTable(): JSX.Element {
                                     size="xs"
                                     className="justify-start text-left px-0"
                                     onClick={() =>
-                                        window.open(
-                                            urls.errorTracking({
-                                                filterGroup: buildOwnerFilters(row.patterns),
-                                                dateRange: { date_from: dateRange, date_to: null },
-                                            }),
-                                            '_blank',
-                                            'noopener'
-                                        )
+                                        window.open(issuesUrl(row.patterns, dateRange), '_blank', 'noopener')
                                     }
                                 >
                                     {row.issueCount}

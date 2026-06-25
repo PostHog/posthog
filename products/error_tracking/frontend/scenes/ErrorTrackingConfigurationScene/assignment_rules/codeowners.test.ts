@@ -1,3 +1,4 @@
+import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 import type { OrganizationMemberType, RoleType } from '~/types'
 
 import {
@@ -10,6 +11,8 @@ import {
     parseCodeowners,
     patternToSourceValue,
 } from './codeowners'
+import { buildImpactRows } from './codeownersImpact'
+import { CodeOwnerRuleCandidate, buildMappingRows, buildSavableRows } from './codeownersImport'
 
 function makeRole(name: string): RoleType {
     return { id: name.toLowerCase(), name } as RoleType
@@ -17,6 +20,22 @@ function makeRole(name: string): RoleType {
 
 function makeMember(firstName: string, email: string, id: number = 1): OrganizationMemberType {
     return { user: { id, first_name: firstName, email } } as OrganizationMemberType
+}
+
+function candidate(
+    owner: string,
+    assignee: ErrorTrackingIssueAssignee | null,
+    patterns: string[],
+    orderIndex: number
+): CodeOwnerRuleCandidate {
+    return {
+        entryId: `${orderIndex}:${owner}`,
+        orderIndex,
+        owner,
+        patterns,
+        matchFragments: ownerMatchFragments(patterns),
+        assignee,
+    }
 }
 
 describe('codeowners helpers', () => {
@@ -123,6 +142,71 @@ describe('codeowners helpers', () => {
             expect(ownerMatchFragments(['products/error_tracking/**', 'products/error_tracking/api', '*'])).toEqual([
                 '(^|/)products/error_tracking/.*',
                 'products/error_tracking/api',
+            ])
+        })
+    })
+
+    describe('buildSavableRows', () => {
+        it('merges candidates by assignee and keeps source order precedence', () => {
+            const assignee = { type: 'role' as const, id: 'error-tracking' }
+            const rows = [
+                candidate('@team/error-tracking', assignee, ['a/**'], 0),
+                candidate('@team/error-tracking-oncall', assignee, ['b/**'], 2),
+                candidate('@unmapped', null, ['c/**'], 3),
+                candidate('@empty', { type: 'user' as const, id: 1 }, ['*'], 4),
+            ]
+
+            expect(buildSavableRows(rows)).toMatchObject([
+                {
+                    owner: '@team/error-tracking, @team/error-tracking-oncall',
+                    orderIndex: 2,
+                    patterns: ['a/**', 'b/**'],
+                    assignee,
+                },
+            ])
+        })
+    })
+
+    describe('buildMappingRows', () => {
+        it('dedupes owners while keeping all patterns', () => {
+            const rows = [
+                candidate('@team/error-tracking', null, ['a/**'], 0),
+                candidate('@team/frontend', null, ['b/**'], 1),
+                candidate('@team/error-tracking', null, ['c/**'], 2),
+            ]
+
+            expect(buildMappingRows(rows, ['@team/error-tracking'])).toMatchObject([
+                { owner: '@team/error-tracking', patterns: ['a/**', 'c/**'] },
+            ])
+        })
+    })
+
+    describe('buildImpactRows', () => {
+        it('groups counts by resolved assignee', () => {
+            const assignee = { type: 'role' as const, id: 'error-tracking' }
+            const rows = [
+                candidate('@team/error-tracking', assignee, ['a/**'], 0),
+                candidate('@oncall', assignee, ['b/**'], 1),
+            ]
+            const role = makeRole('Error tracking')
+
+            expect(
+                buildImpactRows(
+                    rows,
+                    {
+                        '0:@team/error-tracking': { exceptionCount: 2, issueCount: 1 },
+                        '1:@oncall': { exceptionCount: 3, issueCount: 2 },
+                    },
+                    () => ({ id: role.id, type: 'role', role })
+                )
+            ).toEqual([
+                {
+                    key: 'role:error-tracking',
+                    label: 'Error tracking',
+                    exceptionCount: 5,
+                    issueCount: 3,
+                    patterns: ['a/**', 'b/**'],
+                },
             ])
         })
     })
