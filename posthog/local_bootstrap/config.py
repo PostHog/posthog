@@ -67,7 +67,7 @@ class BootstrapConfig:
 
     project_name: str
     email: str = ""
-    password: str = "12345678"
+    password: str = ""
     tables: list[TableImportConfig] = field(default_factory=list)
     batch_size: int = 10_000
 

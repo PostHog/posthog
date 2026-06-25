@@ -1,3 +1,4 @@
+import secrets
 from typing import Any
 
 from django.conf import settings
@@ -36,21 +37,23 @@ class Command(BaseCommand):
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--name", help="Project name (prompted if omitted)")
         parser.add_argument("--email", help="Email for the project owner account (prompted if omitted)")
-        parser.add_argument("--password", default="12345678", help="Password for the owner account (default 12345678)")
+        parser.add_argument(
+            "--password",
+            help="Password for the owner account. If omitted, a random one is generated and shown once.",
+        )
 
         parser.add_argument("--events-bucket", help="S3 bucket holding the events dump")
         parser.add_argument("--events-prefix", default="", help="Key prefix for the events dump")
         parser.add_argument("--persons-bucket", help="S3 bucket holding the persons dump")
         parser.add_argument("--persons-prefix", default="", help="Key prefix for the persons dump")
 
-        parser.add_argument("--aws-access-key-id", help="AWS access key id (falls back to ambient AWS config)")
-        parser.add_argument("--aws-secret-access-key", help="AWS secret access key")
+        # Credentials come from the ambient AWS config (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env
+        # vars, shared credentials file, or instance profile) so secrets never land in argv or shell
+        # history. Only the non-sensitive region/endpoint are accepted as flags.
         parser.add_argument("--aws-region", help="AWS region")
         parser.add_argument("--aws-endpoint-url", help="Custom S3 endpoint (MinIO, SeaweedFS, R2, ...)")
 
-        # Persons may live in a different account/bucket; these override the shared creds for persons.
-        parser.add_argument("--persons-aws-access-key-id")
-        parser.add_argument("--persons-aws-secret-access-key")
+        # Persons may live in a different region/endpoint; these override the shared values for persons.
         parser.add_argument("--persons-aws-region")
         parser.add_argument("--persons-aws-endpoint-url")
 
@@ -71,12 +74,17 @@ class Command(BaseCommand):
             raise CommandError("bootstrap_local_project is a local-development tool and refuses to run in production")
 
         team_id = options.get("team_id")
+        self._generated_password: str | None = None
         if team_id:
             name = options["name"] or ""
             email = options["email"] or ""
         else:
             name = options["name"] or self._prompt("Project name")
             email = options["email"] or self._prompt("Owner email")
+            if not options["password"]:
+                # No hardcoded default: mint a high-entropy password and surface it once at the end.
+                self._generated_password = secrets.token_urlsafe(16)
+                options["password"] = self._generated_password
         compression = None if options["compression"] in ("none", "") else options["compression"]
 
         config = self._build_config(name, email, compression, options)
@@ -98,8 +106,6 @@ class Command(BaseCommand):
 
     def _build_config(self, name: str, email: str, compression: str | None, options: dict[str, Any]) -> BootstrapConfig:
         shared = {
-            "access_key_id": options["aws_access_key_id"],
-            "secret_access_key": options["aws_secret_access_key"],
             "region": options["aws_region"],
             "endpoint_url": options["aws_endpoint_url"],
         }
@@ -122,8 +128,6 @@ class Command(BaseCommand):
                     location=S3Location(
                         bucket=options["persons_bucket"],
                         prefix=options["persons_prefix"],
-                        access_key_id=options["persons_aws_access_key_id"] or shared["access_key_id"],
-                        secret_access_key=options["persons_aws_secret_access_key"] or shared["secret_access_key"],
                         region=options["persons_aws_region"] or shared["region"],
                         endpoint_url=options["persons_aws_endpoint_url"] or shared["endpoint_url"],
                     ),
@@ -138,7 +142,7 @@ class Command(BaseCommand):
         return BootstrapConfig(
             project_name=name,
             email=email,
-            password=options["password"],
+            password=options["password"] or "",
             tables=tables,
             batch_size=options["batch_size"],
         )
@@ -208,7 +212,11 @@ class Command(BaseCommand):
                 line += f", {result.distinct_ids_imported:,} distinct ids"
             self.stdout.write(self.style.SUCCESS(line))
         self.stdout.write("")
-        self.stdout.write(f"  Log in at http://localhost:8010 with {report.email} / the password you set.")
+        if self._generated_password:
+            self.stdout.write(self.style.WARNING(f"  Generated password (shown once): {self._generated_password}"))
+            self.stdout.write(f"  Log in at http://localhost:8010 with {report.email} / the password above.")
+        else:
+            self.stdout.write(f"  Log in at http://localhost:8010 with {report.email} / the password you set.")
 
     def _prompt(self, label: str) -> str:
         value = input(f"{label}: ").strip()

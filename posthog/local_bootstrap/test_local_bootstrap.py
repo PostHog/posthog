@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -133,3 +133,11 @@ class TestAccumulatePersons:
         rows = [{"person_id": pid, "distinct_id": "d1", "is_deleted": True, "properties": "{}"}]
         persons = self._run(monkeypatch, rows)
         assert persons[pid].is_deleted is True
+
+    def test_parses_epoch_seconds_created_at(self, monkeypatch):
+        # Persons dumps store created_at as uint32 epoch seconds, not a parquet timestamp; an int
+        # here must not crash and must decode to the right instant.
+        pid = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        rows = [{"person_id": pid, "distinct_id": "d1", "properties": "{}", "created_at": 1_704_067_200}]
+        persons = self._run(monkeypatch, rows)
+        assert persons[pid].created_at == datetime(2024, 1, 1, tzinfo=UTC)

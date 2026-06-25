@@ -5,8 +5,8 @@ import gzip
 import json
 import tempfile
 import contextlib
-from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Iterator
+from typing import IO, TYPE_CHECKING, Any
 
 import boto3
 import pyarrow.parquet as pq
@@ -82,7 +82,7 @@ def _iter_parquet_rows(path: str, batch_size: int) -> Iterator[dict[str, Any]]:
         yield from batch.to_pylist()
 
 
-def _open_maybe_compressed(path: str, key: str, compression: str | None):
+def _open_maybe_compressed(path: str, key: str, compression: str | None) -> IO[str]:
     """Open a (possibly compression-wrapped) text file for JSONLines reading. Parquet handles its
     own codec internally; this outer decompression only applies to JSONLines dumps."""
     if key.endswith(".gz") or compression == "gzip":
@@ -110,7 +110,7 @@ def iter_table_rows(
     config: TableImportConfig,
     files: list[DiscoveredFile],
     batch_size: int,
-    on_file_start=None,
+    on_file_start: Callable[[DiscoveredFile, int], None] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Yield every row across all of a table's files as plain dicts, downloading one file at a
     time. ``on_file_start(file, index)`` is called before each file so callers can report progress."""

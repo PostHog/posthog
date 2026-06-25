@@ -319,7 +319,7 @@ def _write_persons_to_clickhouse(team: Team, persons: dict[str, _PersonAccumulat
                 "_offset": 0,
                 "is_deleted": 0,
                 "version": entry.version,
-                "last_seen_at": created_at.replace(minute=0, second=0, microsecond=0),
+                "last_seen_at": created_at,
             }
         )
         for distinct_id, version in entry.distinct_ids.items():
