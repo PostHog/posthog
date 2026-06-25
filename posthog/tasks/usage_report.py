@@ -1133,18 +1133,23 @@ def get_teams_with_ai_event_count_in_period(
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             """
-            SELECT team_id, COUNT() as count
+            -- Gateway-originated events are billed via the gateway wallet, so they
+            -- are exempted here to avoid double-billing. Each real gateway call has
+            -- a unique, signature-bound $ai_gateway_request_id (stamped by capture
+            -- after verification, #64806). Exempt one event per distinct verified
+            -- request_id rather than every verified event: a captured signature
+            -- replayed onto extra events all share one request_id, so it earns a
+            -- single exemption and the replayed copies stay billable.
+            -- $ai_gateway_verified/$ai_gateway_request_id are ingestion-stamped, not
+            -- client-settable, so they can't be forged to dodge AIO billing.
+            SELECT
+                team_id,
+                COUNT() - uniqExactIf(
+                    JSONExtractString(properties, '$ai_gateway_request_id'),
+                    JSONExtractBool(properties, '$ai_gateway_verified')
+                ) as count
             FROM events
             WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
-                -- Gateway-originated events are billed via the gateway wallet, so
-                -- they are excluded here to avoid double-billing. The marker is
-                -- ingestion-verified ($ai_gateway_verified), not the client-settable
-                -- $ai_gateway property, so it cannot be forged to dodge AIO billing.
-                -- Deploy-ordering invariant: this filter is unconditionally active and
-                -- trusts $ai_gateway_verified, which is only non-forgeable once the
-                -- capture strip+stamp (#64806) and signing secret are live. It must not
-                -- run before those, or a client-forged marker would dodge AIO billing.
-                AND NOT JSONExtractBool(properties, '$ai_gateway_verified')
             GROUP BY team_id
         """,
             {"begin": begin, "end": end, "ai_events": AI_EVENTS},
