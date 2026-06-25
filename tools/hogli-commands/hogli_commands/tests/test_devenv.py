@@ -513,9 +513,7 @@ class TestMprocsRegistry:
         assert "start-backend" in config["shell"]
 
     def test_all_declared_capabilities_are_defined(self) -> None:
-        # Every capability a proc declares must be defined in intent-map.yaml.
-        # An orphan capability is benign only while its proc is always_required;
-        # routing it through resolution raises ValueError (resolver.py).
+        """Every proc-declared capability must exist in intent-map.yaml; orphans raise ValueError on resolution."""
         registry = create_mprocs_registry()
         intent_map = load_intent_map()
 
