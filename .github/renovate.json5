@@ -23,6 +23,12 @@
   vulnerabilityAlerts: {
     enabled: false,
   },
+  // Supply-chain cooldown: hold a new release for 3 days before updating, for every
+  // manager. config:best-practices only cools npm (via security:minimumReleaseAgeNpm),
+  // leaving pep621/cargo/gomod/github-actions with no delay. Security/OSV updates
+  // bypass minimumReleaseAge, so vulnerability fixes are never held back.
+  minimumReleaseAge: '3 days',
+  internalChecksFilter: 'strict',
   ignorePaths: [
     'common/hogql_parser/**',
   ],
