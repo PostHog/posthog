@@ -10,6 +10,7 @@ import {
     AnyPropertyFilter,
     FeatureFlagGroupType,
     FeatureFlagType,
+    FlagPropertyFilter,
     MultivariateFlagOptions,
     PropertyFilterType,
     PropertyOperator,
@@ -1596,17 +1597,17 @@ describe('the feature flag release conditions logic', () => {
         const flagKeys: Record<string, string> = { '10': 'beta-banner', '20': 'new-checkout' }
         const getFlagKey = (flagId: string): string => flagKeys[flagId] ?? flagId
 
-        const flagFilter = (key: string, label?: string): AnyPropertyFilter =>
+        const flagFilter = (key: string, label?: string): FlagPropertyFilter =>
             ({
                 type: PropertyFilterType.Flag,
                 operator: PropertyOperator.FlagEvaluatesTo,
                 key,
                 value: true,
                 ...(label !== undefined ? { label } : {}),
-            }) as AnyPropertyFilter
+            }) as FlagPropertyFilter
 
         it('backfills the resolved flag key onto label while keeping the ID in key', () => {
-            const [result] = withResolvedFlagLabels([flagFilter('10')], getFlagKey)
+            const [result] = withResolvedFlagLabels([flagFilter('10')], getFlagKey) as FlagPropertyFilter[]
             expect(result.label).toBe('beta-banner')
             // `key` still holds the ID the backend evaluates against — only the display label changes
             expect(result.key).toBe('10')
@@ -1625,7 +1626,7 @@ describe('the feature flag release conditions logic', () => {
         it('does not inject the raw ID as a label while the key is unresolved', () => {
             // 999 is not in the cache, so getFlagKey returns the ID — we must not show it as a name
             const unresolved = flagFilter('999')
-            const [result] = withResolvedFlagLabels([unresolved], getFlagKey)
+            const [result] = withResolvedFlagLabels([unresolved], getFlagKey) as FlagPropertyFilter[]
             expect(result.label).toBeUndefined()
             expect(result).toBe(unresolved)
         })
@@ -1634,7 +1635,8 @@ describe('the feature flag release conditions logic', () => {
             // A label injected earlier round-trips back through onChange; if the flag was renamed the
             // cache now holds a different key and the stale label must be overridden, not kept.
             const stale = flagFilter('20', 'old-checkout-name')
-            expect(withResolvedFlagLabels([stale], getFlagKey)[0].label).toBe('new-checkout')
+            const [result] = withResolvedFlagLabels([stale], getFlagKey) as FlagPropertyFilter[]
+            expect(result.label).toBe('new-checkout')
         })
 
         it('returns the same object when the label already matches the resolved key', () => {
