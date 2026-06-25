@@ -1812,6 +1812,8 @@ class ExternalDataSourceType(StrEnum):
     LEEXI = "Leexi"
     RB2_B = "RB2B"
     SUPERWALL = "Superwall"
+    LIANA = "Liana"
+    TAWK_TO = "TawkTo"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1913,6 +1915,11 @@ class FileSystemIconType(StrEnum):
 class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
+
+
+class FunnelConversionMetric(StrEnum):
+    CONVERSION_FROM_START = "conversion_from_start"
+    CONVERSION_FROM_PREVIOUS = "conversion_from_previous"
 
 
 class FunnelConversionWindowTimeUnit(StrEnum):

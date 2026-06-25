@@ -9,6 +9,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.models import (
+        MAX_METRIC_ATTEMPTS,
         ExperimentMetricsRecalculationWorkflowInputs,
         RecalculationProgressUpdate,
     )
@@ -120,7 +121,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     # metrics don't re-stampede in lockstep. Permanent failures don't reach here
                     # (StatisticError/ZeroDivisionError are recorded and returned, never raised).
                     retry_policy=RetryPolicy(
-                        maximum_attempts=5,
+                        maximum_attempts=MAX_METRIC_ATTEMPTS,
                         initial_interval=timedelta(seconds=5),
                         backoff_coefficient=2.0,
                         maximum_interval=timedelta(seconds=60),

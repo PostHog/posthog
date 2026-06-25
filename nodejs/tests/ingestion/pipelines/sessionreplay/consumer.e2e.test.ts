@@ -9,6 +9,13 @@ import { HighLevelProducer } from 'node-rdkafka'
 import snappy from 'snappy'
 import { v4 as uuidv4 } from 'uuid'
 
+import { defaultConfig, overrideWithEnv } from '~/common/config/config'
+import {
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+} from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import {
     DLQ_OUTPUT,
     INGESTION_WARNINGS_OUTPUT,
@@ -18,16 +25,12 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { defaultConfig, overrideWithEnv } from '~/config/config'
-import {
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-} from '~/config/kafka-topics'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { REDIS_KEY_PREFIX, RedisRestrictionType } from '~/common/utils/event-ingestion-restrictions/redis-schema'
+import { parseJSON } from '~/common/utils/json-parse'
 import { SessionRecordingIngester } from '~/ingestion/pipelines/sessionreplay/consumer'
 import { MouseInteractions, RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
@@ -35,9 +38,6 @@ import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Team } from '~/types'
-import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
-import { REDIS_KEY_PREFIX, RedisRestrictionType } from '~/utils/event-ingestion-restrictions/redis-schema'
-import { parseJSON } from '~/utils/json-parse'
 
 // Test configuration - matches local dev environment (MinIO API on port 19000)
 const TEST_CONFIG = {

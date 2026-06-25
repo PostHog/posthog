@@ -21,9 +21,8 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsSubscriptionView,
 )
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 try:
     from ee.models.rbac.access_control import AccessControl

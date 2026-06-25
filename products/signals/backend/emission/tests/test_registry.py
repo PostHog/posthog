@@ -10,7 +10,7 @@ from products.signals.backend.emission.registry import (
     is_signal_emission_registered,
     register_signal_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 _BASE_FIELDS = {
     "source_product": "test_product",

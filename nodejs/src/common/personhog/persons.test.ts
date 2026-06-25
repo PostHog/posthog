@@ -1,12 +1,12 @@
 import { create } from '@bufbuild/protobuf'
 import { type ServiceImpl, createClient, createRouterTransport } from '@connectrpc/connect'
 
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
-import { PersonSchema } from '~/generated/personhog/personhog/types/v1/person_pb'
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { PersonSchema } from '~/common/generated/personhog/personhog/types/v1/person_pb'
 import type {
     GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest,
-} from '~/generated/personhog/personhog/types/v1/person_pb'
+} from '~/common/generated/personhog/personhog/types/v1/person_pb'
 
 import { PersonHogPersonOperations } from './persons'
 
