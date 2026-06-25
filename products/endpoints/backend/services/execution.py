@@ -549,7 +549,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 endpoint_name=endpoint.name,
                 code_name=getattr(e, "code_name", None),
             )
-            raise ValidationError("Query execution failed.", getattr(e, "code_name", None))
+            raise ValidationError(str(e), getattr(e, "code_name", None))
         except HogVMException:
             execution_status = "user_error"
             error_label = "HogVMException"
