@@ -59,6 +59,12 @@ export interface FallbackHooks {
     onAttempt?: (index: number, model: Model<string>) => void
     /** A model was skipped after a fallback-eligible failure (original index). */
     onFallback?: (fromIndex: number, fromModel: Model<string>, reason: string | undefined) => void
+    /** The session's sticky model is no longer in the `models` list (delisted
+     *  from the gateway or removed from the spec), so the pin is broken and
+     *  attempt order falls back to the policy primary. Surfaced so the caller
+     *  can record the cache-warmth regression — otherwise it shows up only
+     *  indirectly as a lower prompt-cache hit rate. */
+    onPinLost?: (servedId: string) => void
 }
 
 /** Session-stability knobs. See `ModelOptimizeForSchema` in agent-shared. */
@@ -133,11 +139,26 @@ export function fallbackStreamFn(
     // turns within this wrapped fn. Seeded from a resumed conversation.
     let servedId = stickiness?.initialServedId
     return (_model, context, options) => {
+        // `servedId` is set but no longer in the models list — the pin has
+        // been broken (the model was delisted, or `models` was edited).
+        // Surface it via `onPinLost` so the caller can log / mark analytics;
+        // `attemptOrder` will return the full list and we'll repick from
+        // primary. Done here (not inside the IIFE) so a missing hook
+        // doesn't depend on whether `attemptOrder` is reached.
+        if (servedId && !models.some((m) => m.model.id === servedId)) {
+            hooks?.onPinLost?.(servedId)
+            servedId = undefined
+        }
         const order = attemptOrder(models, servedId, optimizeFor)
         const out = createAssistantMessageEventStream()
-        void (async () => {
+        // Track current attempt so the outer guard knows whether we've
+        // committed when something unexpected throws inside the IIFE.
+        let lastEntry: ResolvedModel = order[0].entry
+        let lastCommitted = false
+        const run = async (): Promise<void> => {
             for (let pos = 0; pos < order.length; pos++) {
                 const { entry, index } = order[pos]
+                lastEntry = entry
                 const last = pos === order.length - 1
                 const opts = { ...options, reasoning: entry.reasoning ?? options?.reasoning }
                 let committed = false
@@ -152,6 +173,7 @@ export function fallbackStreamFn(
                         if (isContentEvent(event)) {
                             // First real progress — commit: flush buffered envelope + this event.
                             committed = true
+                            lastCommitted = true
                             servedId = entry.model.id
                             hooks?.onAttempt?.(index, entry.model)
                             for (const b of buffered) {
@@ -196,7 +218,9 @@ export function fallbackStreamFn(
                 } catch (err) {
                     // The contract says base must not throw; defensively treat a
                     // throw as a pre-commit failure (we never forwarded anything,
-                    // so we can still fall over). Once committed, re-raise.
+                    // so we can still fall over). Once committed, re-raise to the
+                    // outer guard, which surfaces it on the stream — never let the
+                    // promise float (would leave callers awaiting `.result()` hung).
                     if (committed) {
                         throw err
                     }
@@ -229,7 +253,36 @@ export function fallbackStreamFn(
                     return
                 }
             }
-        })()
+        }
+        // No matter how `run` exits — normal completion, post-commit re-throw,
+        // or an unexpected throw from `out.push` / destructuring / `base()` not
+        // matching the no-throw contract — we MUST end the stream so callers
+        // awaiting `.result()` don't hang.
+        run().catch((err) => {
+            const reason = err instanceof Error ? err.message : String(err)
+            const message: AssistantMessage = {
+                role: 'assistant',
+                content: [],
+                api: lastEntry.model.api,
+                provider: lastEntry.model.provider,
+                model: lastEntry.model.id,
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
+                stopReason: 'error',
+                errorMessage: reason,
+                timestamp: Date.now(),
+            }
+            if (!lastCommitted) {
+                out.push({ type: 'error', reason: 'error', error: message })
+            }
+            out.end(message)
+        })
         return out as AssistantMessageEventStream
     }
 }

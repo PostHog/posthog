@@ -71,13 +71,13 @@ maybeDescribe('Postgres impls (real PG)', () => {
         expect(rev.state).toBe('draft')
 
         const newSpec = AgentSpecSchema.parse({
-            models: { mode: 'manual', models: [{ model: 'mock-static:hello' }] },
+            models: { mode: 'manual', models: [{ model: 'mock-static/hello' }] },
         })
         await store.updateSpec(rev.id, newSpec)
         const after = await store.getRevision(rev.id)
         expect(after!.spec.models).toEqual({
             mode: 'manual',
-            models: [{ model: 'mock-static:hello' }],
+            models: [{ model: 'mock-static/hello' }],
             optimize_for: 'cost',
         })
 

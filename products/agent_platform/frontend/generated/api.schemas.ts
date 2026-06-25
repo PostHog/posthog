@@ -267,6 +267,7 @@ export type AgentRevisionApiSpecModels =
               /**
                * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
                * @minLength 1
+               * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
                */
               model: string
               /** Per-model reasoning effort override (else the spec default). */
@@ -679,6 +680,7 @@ export type PatchedAgentRevisionApiSpecModels =
               /**
                * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
                * @minLength 1
+               * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
                */
               model: string
               /** Per-model reasoning effort override (else the spec default). */

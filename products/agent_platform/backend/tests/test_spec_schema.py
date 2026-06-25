@@ -234,6 +234,24 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         ("models_bad_mode", {"models": {"mode": "cheapest"}}, "models"),
         # manual mode requires a non-empty `models` list.
         ("models_manual_empty", {"models": {"mode": "manual", "models": []}}, "models"),
+        # Manual model ids MUST be `<provider>/<model-id>` — bare ids freeze
+        # fine but the gateway 400s on first session. Pattern enforced here so
+        # the author gets the error at authoring time.
+        (
+            "models_manual_bare_id",
+            {"models": {"mode": "manual", "models": [{"model": "claude-haiku-4-5"}]}},
+            "models",
+        ),
+        (
+            "models_manual_uppercase_provider",
+            {"models": {"mode": "manual", "models": [{"model": "Anthropic/claude-haiku-4-5"}]}},
+            "models",
+        ),
+        (
+            "models_manual_missing_model_id",
+            {"models": {"mode": "manual", "models": [{"model": "anthropic/"}]}},
+            "models",
+        ),
         # `triggers` must be an array if present, not a string.
         ("triggers_wrong_type", {"triggers": "all"}, "triggers"),
         # Discriminated union: an unknown trigger type doesn't match any of

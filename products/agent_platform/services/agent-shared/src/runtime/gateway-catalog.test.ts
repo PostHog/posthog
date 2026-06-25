@@ -88,10 +88,39 @@ describe('validateModelPolicy', () => {
         expect(issues[0].pointer).toBe('spec.models.level')
     })
 
-    it('fails open: empty catalog (unreachable gateway) blocks nothing', () => {
+    it('fails open on servability when the catalog is empty (unreachable gateway)', () => {
+        // `made/up` is well-formatted; absent the catalog we can't say if it's served,
+        // so we let it through rather than blocking authoring.
         expect(
             validateModelPolicy({ mode: 'manual', models: [{ model: 'made/up' }], optimize_for: 'cost' }, [])
         ).toEqual([])
+    })
+
+    it('still flags a malformed manual model id even when the catalog is empty', () => {
+        // Format check runs unconditionally — a bare id like `haiku-4-5` will 400 at
+        // the gateway regardless of catalog state, so catching it at freeze is
+        // strictly more useful than waiting for the first session to fail.
+        const issues = validateModelPolicy(
+            { mode: 'manual', models: [{ model: 'haiku-4-5' }], optimize_for: 'cost' },
+            []
+        )
+        expect(issues).toHaveLength(1)
+        expect(issues[0]).toMatchObject({
+            model: 'haiku-4-5',
+            pointer: 'spec.models.models[0].model',
+            reason: expect.stringContaining('provider'),
+        })
+    })
+
+    it('reports only the format error (not also "not served") when a model id is malformed', () => {
+        // Otherwise the author sees two errors for the same entry and the
+        // servability one is misleading (gateway will reject the format first).
+        const issues = validateModelPolicy(
+            { mode: 'manual', models: [{ model: 'haiku-4-5' }], optimize_for: 'cost' },
+            CATALOG
+        )
+        expect(issues).toHaveLength(1)
+        expect(issues[0].reason).toMatch(/provider/)
     })
 })
 

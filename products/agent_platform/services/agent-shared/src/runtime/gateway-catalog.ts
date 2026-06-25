@@ -145,17 +145,39 @@ export interface ModelPolicyIssue {
  * each listed model must be servable (author's to fix). `auto`: only flagged
  * when the level resolves to nothing servable — a single dead tier member is
  * platform drift, caught by `validateModelLevels` in CI, not the author's
- * problem. Empty catalog → no issues (fail-open; see HttpGatewayCatalog).
+ * problem.
+ *
+ * Catalog availability gates the SERVABILITY check (empty → fail-open, see
+ * HttpGatewayCatalog) but NOT the FORMAT check: a bare model id like
+ * `haiku-4-5` will 400 at the gateway regardless of catalog state, and we'd
+ * rather catch it at freeze than ship a session that fails on the first call.
  */
+// Mirror of `ModelIdSchema` in agent-shared/src/spec/spec.ts and
+// `_AGENT_SPEC_JSON_SCHEMA_RAW.models.manual.models[].model.pattern` in
+// backend/logic/spec_schema.py — keep all three in sync.
+const MODEL_ID_PATTERN = /^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$/
+
 export function validateModelPolicy(policy: ModelPolicy, models: CatalogModel[]): ModelPolicyIssue[] {
-    if (models.length === 0) {
-        return []
-    }
-    const accepted = acceptedModelIds(models)
+    const issues: ModelPolicyIssue[] = []
     if (policy.mode === 'manual') {
-        const issues: ModelPolicyIssue[] = []
+        // Format check runs unconditionally — see the function docstring.
         policy.models.forEach((entry, i) => {
-            if (!accepted.has(entry.model)) {
+            if (!MODEL_ID_PATTERN.test(entry.model)) {
+                issues.push({
+                    model: entry.model,
+                    pointer: `spec.models.models[${i}].model`,
+                    reason: 'must be "<provider>/<model-id>"',
+                })
+            }
+        })
+        if (models.length === 0) {
+            return issues
+        }
+        const accepted = acceptedModelIds(models)
+        policy.models.forEach((entry, i) => {
+            // Skip the servability check if the id is already malformed —
+            // the format error above is the more actionable signal.
+            if (MODEL_ID_PATTERN.test(entry.model) && !accepted.has(entry.model)) {
                 issues.push({
                     model: entry.model,
                     pointer: `spec.models.models[${i}].model`,
@@ -165,17 +187,20 @@ export function validateModelPolicy(policy: ModelPolicy, models: CatalogModel[])
         })
         return issues
     }
+    if (models.length === 0) {
+        return issues
+    }
+    const accepted = acceptedModelIds(models)
     const members = MODEL_POLICY_LEVELS[policy.level] ?? []
     if (members.some((m) => accepted.has(m))) {
-        return []
+        return issues
     }
-    return [
-        {
-            model: members.join(', ') || policy.level,
-            pointer: 'spec.models.level',
-            reason: `level "${policy.level}" resolves to no model the gateway currently serves`,
-        },
-    ]
+    issues.push({
+        model: members.join(', ') || policy.level,
+        pointer: 'spec.models.level',
+        reason: `level "${policy.level}" resolves to no model the gateway currently serves`,
+    })
+    return issues
 }
 
 /**

@@ -108,6 +108,10 @@ export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsCreateBodySpecModelsOneLevelDefault = `medium`
 export const agentApplicationsRevisionsCreateBodySpecModelsOneOptimizeForDefault = `cost`
 
+export const agentApplicationsRevisionsCreateBodySpecModelsTwoModelsItemModelRegExp = new RegExp(
+    '^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$'
+)
+
 export const agentApplicationsRevisionsCreateBodySpecModelsTwoOptimizeForDefault = `cost`
 export const agentApplicationsRevisionsCreateBodySpecModelsDefault = {
     mode: 'auto' as const,
@@ -260,6 +264,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                     model: zod
                                         .string()
                                         .min(1)
+                                        .regex(agentApplicationsRevisionsCreateBodySpecModelsTwoModelsItemModelRegExp)
                                         .describe(
                                             'Canonical model id, e.g. `anthropic\/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).'
                                         ),
@@ -777,6 +782,10 @@ export const agentApplicationsRevisionsUpdateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsUpdateBodySpecModelsOneLevelDefault = `medium`
 export const agentApplicationsRevisionsUpdateBodySpecModelsOneOptimizeForDefault = `cost`
 
+export const agentApplicationsRevisionsUpdateBodySpecModelsTwoModelsItemModelRegExp = new RegExp(
+    '^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$'
+)
+
 export const agentApplicationsRevisionsUpdateBodySpecModelsTwoOptimizeForDefault = `cost`
 export const agentApplicationsRevisionsUpdateBodySpecModelsDefault = {
     mode: 'auto' as const,
@@ -929,6 +938,7 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                                     model: zod
                                         .string()
                                         .min(1)
+                                        .regex(agentApplicationsRevisionsUpdateBodySpecModelsTwoModelsItemModelRegExp)
                                         .describe(
                                             'Canonical model id, e.g. `anthropic\/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).'
                                         ),
@@ -1469,6 +1479,10 @@ export const agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsPartialUpdateBodySpecModelsOneLevelDefault = `medium`
 export const agentApplicationsRevisionsPartialUpdateBodySpecModelsOneOptimizeForDefault = `cost`
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelsTwoModelsItemModelRegExp = new RegExp(
+    '^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$'
+)
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecModelsTwoOptimizeForDefault = `cost`
 export const agentApplicationsRevisionsPartialUpdateBodySpecModelsDefault = {
     mode: 'auto' as const,
@@ -1621,6 +1635,9 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                     model: zod
                                         .string()
                                         .min(1)
+                                        .regex(
+                                            agentApplicationsRevisionsPartialUpdateBodySpecModelsTwoModelsItemModelRegExp
+                                        )
                                         .describe(
                                             'Canonical model id, e.g. `anthropic\/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).'
                                         ),

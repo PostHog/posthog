@@ -402,5 +402,77 @@ describe('fallbackStreamFn', () => {
             await drive2(fn)
             expect(tried[0]).toEqual(['a'])
         })
+
+        it('fires onPinLost when the seeded sticky model is no longer in the list', async () => {
+            // The pin loss must surface — otherwise a delisted model silently
+            // costs the session its prompt-cache warmth, only visible
+            // indirectly as a lower hit-rate downstream.
+            const onPinLost = vi.fn()
+            const base = scriptedBase({ a: success('a'), b: success('b') })
+            const fn = fallbackStreamFn(base, models(['a', 'b']), { onPinLost }, { initialServedId: 'ghost' })
+            await drive(fn(fakeModel('a'), { messages: [] } as never, undefined))
+            expect(onPinLost).toHaveBeenCalledWith('ghost')
+        })
+
+        it('does not fire onPinLost when the seeded sticky model is still in the list', async () => {
+            const onPinLost = vi.fn()
+            const base = scriptedBase({ a: success('a'), b: success('b') })
+            const fn = fallbackStreamFn(base, models(['a', 'b']), { onPinLost }, { initialServedId: 'b' })
+            await drive(fn(fakeModel('a'), { messages: [] } as never, undefined))
+            expect(onPinLost).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('IIFE error guard', () => {
+        // The wrapper runs its dispatch loop in a detached async IIFE so the
+        // returned stream is available synchronously. Any path that lets that
+        // promise reject without ending the stream would hang callers awaiting
+        // `.result()`. These tests pin the guarantee.
+
+        it('ends the stream when `stream.result()` rejects AFTER the first content event (post-commit)', async () => {
+            // Once we've forwarded an event downstream, we can't fall over —
+            // but we also can't let the rejection float. The guard must surface
+            // the failure as a stop=error result rather than leaving `.result()`
+            // pending forever (which is what the pre-fix `void (async ...)`
+            // would have done).
+            const base: StreamFn = () => {
+                // A hand-rolled stream whose iterator yields one content event
+                // then ends, but whose `result()` rejects — exercises the
+                // `if (committed) throw err` re-raise path. Built by hand
+                // (not via createAssistantMessageEventStream) so we have full
+                // control over the rejection without depending on its API.
+                async function* iter(): AsyncGenerator<AssistantMessageEvent> {
+                    yield {
+                        type: 'text_delta',
+                        contentIndex: 0,
+                        delta: 'hello',
+                        partial: msg({ content: [{ type: 'text', text: 'hello' }] }),
+                    } as AssistantMessageEvent
+                }
+                const gen = iter()
+                return {
+                    [Symbol.asyncIterator]: () => gen,
+                    result: () => Promise.reject(new Error('mid-stream provider crash')),
+                } as unknown as ReturnType<StreamFn>
+            }
+            const fn = fallbackStreamFn(base, models(['a']))
+            // Must resolve, not hang. If the guard regresses, this test
+            // times out under vitest's default test timeout.
+            const { result } = await drive(fn(fakeModel('a'), { messages: [] } as never, undefined))
+            expect(result.stopReason).toBe('error')
+            expect(result.errorMessage).toMatch(/mid-stream/)
+        })
+
+        it('ends the stream when `base` throws synchronously on the FIRST attempt with no fallback eligible', async () => {
+            // Defensive guard for the no-throw contract being violated by a bug
+            // (not a network error). Must surface as an error result with no fallover.
+            const base: StreamFn = () => {
+                throw new Error('exploded')
+            }
+            const fn = fallbackStreamFn(base, models(['a']))
+            const { result } = await drive(fn(fakeModel('a'), { messages: [] } as never, undefined))
+            expect(result.stopReason).toBe('error')
+            expect(result.errorMessage).toBe('exploded')
+        })
     })
 })

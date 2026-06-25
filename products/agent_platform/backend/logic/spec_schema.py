@@ -200,6 +200,10 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                         "description": "Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).",
                                         "type": "string",
                                         "minLength": 1,
+                                        # Mirror of `ModelIdSchema` in agent-shared/src/spec/spec.ts.
+                                        # `<provider>/<model-id>` — bare ids freeze fine but the
+                                        # gateway 400s on first session; reject at authoring time.
+                                        "pattern": r"^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$",
                                     },
                                     "reasoning": {
                                         "description": "Per-model reasoning effort override (else the spec default).",

@@ -70,6 +70,45 @@ describe('AgentSpecSchema', () => {
         expect(() => AgentSpecSchema.parse({ model: 'x', tools: [{ kind: 'rogue', id: 'x' }] })).toThrow()
     })
 
+    describe('models.manual model id format', () => {
+        // ModelIdSchema enforces `<provider>/<model-id>` so a bare id doesn't
+        // freeze fine and then 400 on the very first session. Mirrored by
+        // the Python schema in backend/logic/spec_schema.py.
+        it('rejects a bare model id (no provider prefix)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'claude-haiku-4-5' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('rejects an uppercase provider', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'Anthropic/claude-haiku-4-5' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('rejects a missing model id (trailing slash)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    models: { mode: 'manual', models: [{ model: 'anthropic/' }] },
+                })
+            ).toThrow(/provider/)
+        })
+
+        it('accepts a canonical `<provider>/<model-id>`', () => {
+            const parsed = AgentSpecSchema.parse({
+                models: { mode: 'manual', models: [{ model: 'anthropic/claude-haiku-4-5' }] },
+            })
+            expect(parsed.models).toMatchObject({
+                mode: 'manual',
+                models: [{ model: 'anthropic/claude-haiku-4-5' }],
+            })
+        })
+    })
+
     describe('cron trigger config', () => {
         const minimal = {
             name: 'weekly-digest',

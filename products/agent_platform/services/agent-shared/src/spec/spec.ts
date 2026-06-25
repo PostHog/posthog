@@ -7,7 +7,20 @@
 
 import { z } from 'zod'
 
-export const ModelIdSchema = z.string().min(1)
+/**
+ * Canonical model id: `<provider>/<model-id>` (e.g. `anthropic/claude-haiku-4-5`).
+ *
+ * Reject bare ids at authoring time so we don't freeze a revision the gateway
+ * can't serve. `resolveModel` / `acceptedModelIds` operate on the prefixed
+ * form; a bare `haiku-4-5` would pass `.min(1)` here, freeze, then fail the
+ * very first session with a 400 from the gateway. Mirror of
+ * `_AGENT_SPEC_JSON_SCHEMA_RAW.models.manual.models[].model.pattern` in
+ * `backend/logic/spec_schema.py` — keep the two in sync.
+ */
+export const ModelIdSchema = z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$/, 'model id must be "<provider>/<model-id>"')
 
 /**
  * Auth modes. Auth is a property of the TRIGGER, not the spec — declarative
