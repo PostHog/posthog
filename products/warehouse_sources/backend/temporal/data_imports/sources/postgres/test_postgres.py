@@ -4465,44 +4465,19 @@ class TestGetTable:
             # Real execution still succeeds and returns the expected columns.
             assert {c.name for c in table.columns} >= {"id", "amount"}
 
-            # The metadata SELECT (not the best-effort EXPLAIN that precedes it) must run directly
-            # after a `SET LOCAL statement_timeout`, inside the same transaction. Match on the
-            # statement immediately before it rather than the first SET LOCAL in the run, since the
-            # view-detection probes above also scope their own timeout the same way.
+            set_timeout_idx = next(
+                i
+                for i, q in enumerate(spy.executed)
+                if "statement_timeout" in q and str(METADATA_STATEMENT_TIMEOUT_MS) in q
+            )
+            # The protective timeout must come before the first discovery probe (the
+            # `pg_matviews` lookup) and the metadata SELECT — not midway through, where a
+            # short default would already have canceled an earlier statement.
+            first_probe_idx = next(i for i, q in enumerate(spy.executed) if "pg_matviews" in q)
             info_schema_idx = next(
                 i for i, q in enumerate(spy.executed) if "information_schema.columns" in q and "EXPLAIN" not in q
             )
-            preceding = spy.executed[info_schema_idx - 1]
-            assert (
-                "SET LOCAL" in preceding
-                and "statement_timeout" in preceding
-                and str(METADATA_STATEMENT_TIMEOUT_MS) in preceding
-            )
-
-    @pytest.mark.django_db
-    def test_view_detection_probes_run_under_scoped_statement_timeout(self):
-        """The pg_matviews / pg_views probes at the top of `_get_table` run on the autocommit setup
-        connection before `postgres_source` sets the 10-minute session statement_timeout (which
-        only happens after `_get_table` returns), so a short role/server default could cancel them
-        with QueryCanceled before discovery even begins — the crash we observed was the very first
-        probe (`pg_matviews`). Pin that they run under a scoped SET LOCAL statement_timeout, like
-        the column metadata query below."""
-        logger = structlog.get_logger()
-
-        with django_connection.cursor() as dj_cursor:
-            dj_cursor.execute("CREATE TABLE test_get_table_probe_timeout (id INTEGER PRIMARY KEY)")
-            spy = _RecordingCursor(dj_cursor)
-            _get_table(cast(Any, spy), "public", "test_get_table_probe_timeout", logger)
-
-            matview_idx = next(i for i, q in enumerate(spy.executed) if "pg_matviews" in q)
-            # The probe must run directly after a scoped SET LOCAL statement_timeout, inside the
-            # same transaction — it's the first query `_get_table` issues.
-            preceding = spy.executed[matview_idx - 1]
-            assert (
-                "SET LOCAL" in preceding
-                and "statement_timeout" in preceding
-                and str(METADATA_STATEMENT_TIMEOUT_MS) in preceding
-            )
+            assert set_timeout_idx < first_probe_idx < info_schema_idx
 
     @pytest.mark.django_db
     def test_schemas_from_conn_runs_under_scoped_statement_timeout(self):

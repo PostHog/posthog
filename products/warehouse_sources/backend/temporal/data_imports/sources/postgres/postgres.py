@@ -2186,30 +2186,35 @@ def _get_table(
     column already exists and the probed value is discarded, so the caller should gate
     probing on "is a fresh schema being created" (see the equivalent gating on
     `_get_estimated_row_count_for_partitioned_table` in `postgres_source`)."""
-    # Scope a generous statement_timeout to these pg_catalog probes, mirroring the metadata query
-    # below. They run on the autocommit setup connection before postgres_source sets the 10-minute
-    # session statement_timeout (which only happens after _get_table returns), so without this they
-    # inherit whatever short role/server default the source has — and a large pg_catalog can cancel
-    # them with QueryCanceled before discovery even begins. Own transaction so the SET LOCAL scopes
-    # here and auto-resets (a self-contained BEGIN/COMMIT under autocommit).
-    with cursor.connection.transaction():
+    # Raise a generous statement_timeout for the whole discovery phase before issuing any query.
+    # The outer 10-minute setup timeout isn't set until `postgres_source` continues after
+    # `_get_table` returns, so without this every probe here — the `pg_matviews`/`pg_views` lookups,
+    # the metadata SELECT (whose `information_schema.columns` `numeric_*` columns invoke the slow
+    # per-column `_pg_numeric_*` functions), and even the `BEGIN` opening a scoping transaction —
+    # inherits a short role/server default that some hosted/pooled Postgres set, which cancels the
+    # statement with QueryCanceled mid-discovery. Session, not LOCAL: the connection is autocommit,
+    # so a LOCAL timeout has nothing to bind to and a scoping transaction's own `BEGIN` would itself
+    # run under the short default. Best-effort: engines without statement_timeout (e.g. DuckDB)
+    # reject the SET, so clear any aborted transaction and fall back to the default.
+    try:
         cursor.execute(
-            sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS)
-            )
+            sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
         )
-        is_mat_view_query = sql.SQL(
-            "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
+    except psycopg.Error:
+        cursor.connection.rollback()
+
+    is_mat_view_query = sql.SQL(
+        "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
+    ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+    is_mat_view_res = cursor.execute(is_mat_view_query).fetchone()
+    is_mat_view = is_mat_view_res is not None and is_mat_view_res[0] is True
+    is_view = False
+    if not is_mat_view:
+        is_view_query = sql.SQL(
+            "select {table} in (select viewname from pg_views where schemaname = {schema}) as res"
         ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
-        is_mat_view_res = cursor.execute(is_mat_view_query).fetchone()
-        is_mat_view = is_mat_view_res is not None and is_mat_view_res[0] is True
-        is_view = False
-        if not is_mat_view:
-            is_view_query = sql.SQL(
-                "select {table} in (select viewname from pg_views where schemaname = {schema}) as res"
-            ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
-            is_view_res = cursor.execute(is_view_query).fetchone()
-            is_view = is_view_res is not None and is_view_res[0] is True
+        is_view_res = cursor.execute(is_view_query).fetchone()
+        is_view = is_view_res is not None and is_view_res[0] is True
 
     if is_mat_view:
         # Table is a materialised view, column info doesn't exist in information_schema.columns
