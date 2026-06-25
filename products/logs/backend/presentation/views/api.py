@@ -51,11 +51,19 @@ from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, Log
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
 from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
+from products.logs.backend.presentation.views.user_config_api import LogsCustomFacetsViewSet
 from products.logs.backend.presentation.views.views_api import LogsViewViewSet
 from products.logs.backend.services_query_runner import ServicesQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
-__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsSamplingRuleViewSet", "LogsViewViewSet"]
+__all__ = [
+    "LogsViewSet",
+    "LogExplainViewSet",
+    "LogsAlertViewSet",
+    "LogsSamplingRuleViewSet",
+    "LogsCustomFacetsViewSet",
+    "LogsViewViewSet",
+]
 
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000

@@ -13,3 +13,7 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.register_legacy_dual_route(
         r"logs/explainLogWithAI", logs.LogExplainViewSet, "project_logs_explain_with_ai", ["team_id"]
     )
+    # New endpoint — projects-only (the dual-route helper is reserved for pre-rollback endpoints).
+    routers.projects.register(
+        r"logs/custom_facets", logs.LogsCustomFacetsViewSet, "project_logs_custom_facets", ["team_id"]
+    )
