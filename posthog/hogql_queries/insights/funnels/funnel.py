@@ -244,11 +244,27 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         )
         order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
 
+        # Median of the total time each completer spent in the entire funnel. `total_conversion_times`
+        # is the per-breakdown array of total times; the window over () then spans every breakdown group,
+        # so the median is breakdown-agnostic (the funnel header shows a single number). arrayReduce keeps
+        # it a scalar (medianArray is an aggregate and can't wrap the windowed aggregate). An empty array
+        # yields NaN, which we coerce to NULL.
+        total_conversion_times = (
+            f"groupArrayIf(arraySum(timings), step_reached >= {self.context.max_steps - 1}) AS total_conversion_times"
+        )
+        total_median_conversion_time = (
+            "arrayMap(x -> if(isNaN(x), NULL, x), "
+            "[arrayReduce('median', arrayFlatten(groupArray(total_conversion_times) OVER ()))])[1] "
+            "AS total_median_conversion_time"
+        )
+
         s = parse_select(
             f"""
             SELECT
                 {step_results},
                 {conversion_time_arrays},
+                {total_conversion_times},
+                {total_median_conversion_time},
                 rowNumberInAllBlocks() as row_number,
                 {final_prop} as final_prop
             FROM
@@ -267,6 +283,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 ast.Alias(alias=f"step_{i}_conversion_times", expr=ast.Array(exprs=[]))
                 for i in range(1, self.context.max_steps)
             )
+            columns.append(ast.Alias(alias="total_conversion_times", expr=ast.Array(exprs=[])))
+            columns.append(ast.Alias(alias="total_median_conversion_time", expr=ast.Constant(value=None)))
             columns.append(ast.Alias(alias="row_number", expr=ast.Constant(value=0)))
             columns.append(ast.Alias(alias="final_prop", expr=ast.Constant(value=NOT_IN_COHORT_ID)))
             synthetic_row = ast.SelectQuery(select=columns)
@@ -295,6 +313,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 {step_results2},
                 {mean_conversion_times},
                 {median_conversion_times},
+                max(total_median_conversion_time) AS total_median_conversion_time,
                 groupArray(row_number) as row_number,
                 final_prop
             FROM
@@ -432,6 +451,13 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             where=where,
             settings=HogQLQuerySettings(join_algorithm=JOIN_ALGOS),
         )
+
+    def _extract_total_median_conversion_time(self, results) -> Optional[float]:
+        # Identical across every output row (windowed over all breakdowns); read it off the first row.
+        # Column order: step counts, averages, medians, total_median, row_number, final_prop.
+        if not results:
+            return None
+        return results[0][-3]
 
     def _format_single_funnel(self, results, with_breakdown=False):
         max_steps = self.context.max_steps

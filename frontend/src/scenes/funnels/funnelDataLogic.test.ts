@@ -1095,14 +1095,16 @@ describe('funnelDataLogic', () => {
                     insight: InsightType.FUNNELS,
                 },
                 result: funnelResult.result,
-            }
+                // Funnel-level median is carried as a top-level field on the response, not summed from steps.
+                total_median_conversion_time: 208.75,
+            } as any
 
             await expectLogic(logic, () => {
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
                 conversionMetrics: {
-                    averageTime: 87098.67529697785,
+                    medianTime: 208.75,
                     stepRate: 0.46048109965635736,
                     totalRate: 0.46048109965635736,
                 },
@@ -1129,7 +1131,7 @@ describe('funnelDataLogic', () => {
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
             }).toMatchValues({
                 conversionMetrics: {
-                    averageTime: 86456.76, // from backend
+                    medianTime: 60492.5, // from backend
                     stepRate: 0,
                     totalRate: 0,
                 },
@@ -1157,7 +1159,7 @@ describe('funnelDataLogic', () => {
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
                 conversionMetrics: {
-                    averageTime: 0,
+                    medianTime: 0,
                     stepRate: 0,
                     totalRate: 0.7120000000000001, // avg(steps[0] / 100)
                 },
