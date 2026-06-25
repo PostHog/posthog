@@ -17,6 +17,7 @@ from posthog.tasks.calculate_cohort import (
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
+    CohortEnqueueError,
     calculate_cohort_from_list,
     enqueue_cohorts_to_calculate,
     increment_version_and_enqueue_calculate_cohort,
@@ -876,6 +877,100 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             mock_chain.assert_called_once_with(mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()
+
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+        def test_single_cohort_enqueue_failure_reverts_calculating_state(
+            self, mock_calculate_cohort_ch_delay: MagicMock
+        ) -> None:
+            # A broker blip at publish time must not leave the cohort stuck in is_calculating=True.
+            mock_calculate_cohort_ch_delay.side_effect = AttributeError("'NoneType' object has no attribute 'client'")
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="Standalone Cohort",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "$some_prop", "value": "something", "type": "person"}],
+                    }
+                },
+                is_static=False,
+            )
+
+            with self.assertRaises(CohortEnqueueError):
+                increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+
+            cohort.refresh_from_db()
+            self.assertFalse(cohort.is_calculating)
+
+        @patch("posthog.tasks.calculate_cohort.chain")
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
+        def test_chain_enqueue_failure_reverts_calculating_state_for_all_cohorts(
+            self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
+        ) -> None:
+            cohort_a = Cohort.objects.create(
+                team=self.team,
+                name="Cohort A",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}],
+                    }
+                },
+                is_static=False,
+            )
+            cohort_b = Cohort.objects.create(
+                team=self.team,
+                name="Cohort B",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "id", "value": cohort_a.id, "type": "cohort"}],
+                    }
+                },
+                is_static=False,
+            )
+
+            mock_calculate_cohort_ch_si.return_value = MagicMock()
+            mock_chain_instance = MagicMock()
+            mock_chain_instance.apply_async.side_effect = AttributeError(
+                "'NoneType' object has no attribute 'client'"
+            )
+            mock_chain.return_value = mock_chain_instance
+
+            with self.assertRaises(CohortEnqueueError):
+                increment_version_and_enqueue_calculate_cohort(cohort_b, initiating_user=None)
+
+            cohort_a.refresh_from_db()
+            cohort_b.refresh_from_db()
+            self.assertFalse(cohort_a.is_calculating)
+            self.assertFalse(cohort_b.is_calculating)
+
+        @patch("posthog.tasks.calculate_cohort.capture_exception")
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+        def test_enqueue_cohorts_treats_broker_failure_as_retryable(
+            self, mock_calculate_cohort_ch_delay: MagicMock, mock_capture_exception: MagicMock
+        ) -> None:
+            # A transient broker failure should not count toward errors_calculating or spawn a new
+            # error-tracking issue — the cohort stays eligible and is retried on the next pass.
+            mock_calculate_cohort_ch_delay.side_effect = AttributeError("'NoneType' object has no attribute 'client'")
+
+            cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="test_cohort",
+                last_calculation=None,
+                deleted=False,
+                is_calculating=False,
+                errors_calculating=0,
+                is_static=False,
+            )
+
+            enqueue_cohorts_to_calculate(1)
+
+            cohort.refresh_from_db()
+            self.assertFalse(cohort.is_calculating)
+            self.assertEqual(cohort.errors_calculating, 0)
+            mock_capture_exception.assert_not_called()
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")

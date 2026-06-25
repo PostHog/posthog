@@ -110,6 +110,16 @@ MAX_STUCK_COHORTS_TO_RESET = 3
 MAX_STUCK_STATIC_COHORTS_TO_SCAN = MAX_STUCK_COHORTS_TO_RESET * 10
 
 
+class CohortEnqueueError(Exception):
+    """Raised when publishing a cohort calculation task to the broker fails.
+
+    By the time we publish, all application logic (dependency resolution, version bump) has
+    already succeeded, so a failure here is a transient broker/Redis connectivity blip at
+    publish time rather than a problem with the cohort. The cohort's calculating state is
+    reverted before this is raised, so it stays eligible and is retried on the next pass.
+    """
+
+
 def static_cohort_has_supported_population_source(cohort: Cohort) -> bool:
     from products.cohorts.backend.models.util import cohort_filters_have_values
 
@@ -306,6 +316,19 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
         try:
             increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
             cohort_ids.append(cohort.pk)
+        except CohortEnqueueError as e:
+            # Transient broker failure at publish time. The calculating state has already been
+            # reverted, so the cohort stays eligible and will be retried on the next scheduled
+            # pass. Treat it as retryable infra noise: don't bump errors_calculating (it isn't a
+            # cohort problem and shouldn't count toward MAX_ERRORS_CALCULATING) and don't fire
+            # capture_exception (a broker stutter shouldn't spawn a fresh error-tracking issue).
+            logger.warning(
+                "enqueued_cohort_calculation_broker_error",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+                error=str(e.__cause__ or e),
+            )
+            continue
         except Exception as e:
             logger.exception(
                 "enqueued_cohort_calculation_error",
@@ -374,10 +397,12 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
         # Non-first tasks get a 2s countdown to mitigate ClickHouse replica lag:
         # the preceding cohort's new rows may not have replicated yet. See #47618.
         task_chain: list = []
+        prepared_cohorts: list[Cohort] = []
         for cohort_id in sorted_cohort_ids:
             current_cohort = seen_cohorts_cache.get(cohort_id)
             if current_cohort and not current_cohort.is_static:
                 _prepare_cohort_for_calculation(current_cohort)
+                prepared_cohorts.append(current_cohort)
                 task = calculate_cohort_ch.si(
                     current_cohort.id,
                     current_cohort.pending_version,
@@ -388,7 +413,14 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
                 task_chain.append(task)
 
         if task_chain:
-            chain(*task_chain).apply_async()
+            try:
+                chain(*task_chain).apply_async()
+            except Exception as e:
+                # Publishing failed (transient broker blip). Revert the calculating state on
+                # every cohort we prepared so none are left stuck in is_calculating=True limbo.
+                for prepared in prepared_cohorts:
+                    _revert_cohort_calculation_state(prepared)
+                raise CohortEnqueueError() from e
     else:
         logger.info("cohort_has_no_dependencies", cohort_id=cohort.id)
         _enqueue_single_cohort_calculation(cohort, initiating_user)
@@ -411,14 +443,32 @@ def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
     cohort.refresh_from_db()
 
 
+def _revert_cohort_calculation_state(cohort: Cohort) -> None:
+    """Undo the calculating state set by _prepare_cohort_for_calculation after a failed enqueue.
+
+    Without this, a cohort whose task never made it onto the broker stays stuck with
+    is_calculating=True and is excluded from recalculation until reset_stuck_cohorts catches it
+    (up to an hour later, and never at all for cohorts that have no last_calculation). The bumped
+    pending_version is intentionally left as-is — it's harmless, and the next enqueue supersedes it.
+    """
+    if cohort.is_static:
+        return
+    cohort.is_calculating = False
+    cohort.save(update_fields=["is_calculating"])
+
+
 def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional[User]) -> None:
     """Helper function to enqueue a single cohort for calculation"""
     _prepare_cohort_for_calculation(cohort)
-    calculate_cohort_ch.delay(
-        cohort.id,
-        cohort.pending_version,
-        initiating_user.id if initiating_user else None,
-    )
+    try:
+        calculate_cohort_ch.delay(
+            cohort.id,
+            cohort.pending_version,
+            initiating_user.id if initiating_user else None,
+        )
+    except Exception as e:
+        _revert_cohort_calculation_state(cohort)
+        raise CohortEnqueueError() from e
 
 
 @shared_task(
