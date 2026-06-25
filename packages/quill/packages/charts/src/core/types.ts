@@ -305,6 +305,8 @@ export interface TooltipConfig {
     showTotal?: boolean
     totalLabel?: string
     totalFormatter?: (value: number) => string
+    /** Sort series rows by value descending so the highest value appears at the top. */
+    sortedByValue?: boolean
 }
 
 /** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal

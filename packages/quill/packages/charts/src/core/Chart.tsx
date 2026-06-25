@@ -142,6 +142,7 @@ export function Chart<Meta = unknown>({
         showTotal: tooltipShowTotal,
         totalLabel: tooltipTotalLabel,
         totalFormatter: tooltipTotalFormatter,
+        sortedByValue: tooltipSortedByValue,
     } = tooltipConfig ?? {}
 
     // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
@@ -155,9 +156,17 @@ export function Chart<Meta = unknown>({
                     showTotal={tooltipShowTotal}
                     totalLabel={tooltipTotalLabel}
                     totalFormatter={tooltipTotalFormatter}
+                    sortedByValue={tooltipSortedByValue}
                 />
             )),
-        [renderTooltipProp, tooltipValueFormatter, tooltipShowTotal, tooltipTotalLabel, tooltipTotalFormatter]
+        [
+            renderTooltipProp,
+            tooltipValueFormatter,
+            tooltipShowTotal,
+            tooltipTotalLabel,
+            tooltipTotalFormatter,
+            tooltipSortedByValue,
+        ]
     )
 
     const margins = useChartMargins({

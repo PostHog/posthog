@@ -1,5 +1,5 @@
 import { DateDisplay } from 'lib/components/DateDisplay'
-import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
+import type { OpenPersonsModalProps, PersonsModalDateNavigation } from 'scenes/trends/persons-modal/PersonsModal'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
@@ -79,23 +79,38 @@ export function handleTrendsChartClick(
         return
     }
 
-    const title = (actorLabel: string): JSX.Element => (
-        <>
-            {actorLabel} on{' '}
-            <DateDisplay
-                interval={deps.interval || 'day'}
-                resolvedDateRange={deps.resolvedDateRange ?? undefined}
-                timezone={deps.timezone}
-                weekStartDay={deps.weekStartDay ?? undefined}
-                date={day}
-            />
-        </>
-    )
+    const days = dataset.action?.days ?? dataset.days ?? []
+
+    const buildTitle =
+        (idx: number) =>
+        (actorLabel: string): JSX.Element => (
+            <>
+                {actorLabel} on{' '}
+                <DateDisplay
+                    interval={deps.interval || 'day'}
+                    resolvedDateRange={deps.resolvedDateRange ?? undefined}
+                    timezone={deps.timezone}
+                    weekStartDay={deps.weekStartDay ?? undefined}
+                    date={days[idx]}
+                />
+            </>
+        )
+
+    const dateNavigation: PersonsModalDateNavigation | undefined =
+        days.length > 1
+            ? {
+                  dates: days,
+                  currentIndex: dataIndex,
+                  buildQuery: (idx) => datasetToActorsQuery({ dataset, query: deps.querySource!, day: days[idx] }),
+                  buildTitle,
+              }
+            : undefined
 
     deps.openPersonsModal({
-        title,
+        title: buildTitle(dataIndex),
         query: datasetToActorsQuery({ dataset, query: deps.querySource, day }),
         additionalSelect: personsModalOptions.additionalSelect,
         orderBy: personsModalOptions.orderBy,
+        dateNavigation,
     })
 }

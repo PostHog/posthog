@@ -18,6 +18,10 @@ export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta
     /** Formats the total value. Defaults to the `valueFormatter` (applied with the first summable
      *  row's entry) or `toLocaleString`. */
     totalFormatter?: (value: number) => string
+    /** Sort series rows by value descending so the highest value appears at the top. */
+    sortedByValue?: boolean
+    /** Extra content rendered below all rows and the total, separated by a divider. */
+    footer?: React.ReactNode
 }
 
 export function DefaultTooltip<Meta = unknown>({
@@ -27,9 +31,12 @@ export function DefaultTooltip<Meta = unknown>({
     showTotal,
     totalLabel = 'Total',
     totalFormatter,
+    sortedByValue,
+    footer,
 }: DefaultTooltipProps<Meta>): React.ReactElement {
     const format = valueFormatter ?? ((value: number): string => value.toLocaleString())
-    const summable = seriesData.filter((s) => !s.series.overlay)
+    const rows = sortedByValue ? [...seriesData].sort((a, b) => b.value - a.value) : seriesData
+    const summable = rows.filter((s) => !s.series.overlay)
     const renderTotal = showTotal && summable.length > 1
     const total = summable.reduce((acc, s) => acc + s.value, 0)
     const formatTotal = totalFormatter ?? ((value: number): string => format(value, summable[0]))
@@ -39,7 +46,7 @@ export function DefaultTooltip<Meta = unknown>({
             <div data-attr="hog-chart-tooltip-label" className="font-semibold mb-1">
                 {label}
             </div>
-            {seriesData.map((s) => (
+            {rows.map((s) => (
                 <div key={s.series.key} data-attr="hog-chart-tooltip-row" className="flex items-center gap-2">
                     <TooltipSwatch color={s.color} />
                     <span data-attr="hog-chart-tooltip-series">{s.series.label}:</span>
@@ -56,6 +63,7 @@ export function DefaultTooltip<Meta = unknown>({
                     <strong data-attr="hog-chart-tooltip-value">{formatTotal(total)}</strong>
                 </div>
             )}
+            {footer && <div className="mt-1 pt-1 border-t border-current/25 text-xs opacity-60">{footer}</div>}
         </TooltipSurface>
     )
 }
