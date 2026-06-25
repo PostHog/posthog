@@ -119,7 +119,7 @@ ANALYTICS_SERVICE_ID = "analytics"
 FREE_PLAN_SERVICE_ID = "free"
 PAY_AS_YOU_GO_SERVICE_ID = "pay_as_you_go"
 
-ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai"]
+ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai", "observability"]
 
 SERVICES_CACHE_KEY = "agentic_provisioning:services"
 SERVICES_CACHE_TTL = 3600
@@ -129,7 +129,7 @@ SERVICES_CACHE_STORE_TTL = 86400
 
 _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 
-_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, AI observability, logs, posthog ai, emails, and more."
+_FALLBACK_DESCRIPTION = "PostHog — AI infrastructure for your product: product & web analytics, session replay, feature flags & experiments, error tracking, AI observability, logs & traces, and more."
 
 
 def _build_free_plan_service() -> dict[str, Any]:
@@ -152,7 +152,7 @@ def _build_pay_as_you_go_service() -> dict[str, Any]:
             "type": "paid",
             "paid": {
                 "type": "freeform",
-                "freeform": "$0/mo base, usage-based pricing. See https://posthog.com/pricing for rates.",
+                "freeform": "$0/mo base, usage-based pricing, generous free tier. See https://posthog.com/pricing for rates.",
             },
         },
         "kind": "plan",

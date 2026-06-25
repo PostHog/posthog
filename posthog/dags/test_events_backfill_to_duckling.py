@@ -35,6 +35,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _execute_export_with_retry,
     _get_cluster,
     _glob_run_files,
+    _is_transient_s3_error,
     _resolve_duckling_target,
     _resolve_table_names,
     _set_table_partitioning,
@@ -1103,6 +1104,54 @@ class TestConnectionDropped:
         assert _connection_dropped(exc) is False
 
 
+# The exact shape duckgres surfaces when S3 5xx/throttles mid-glob (HTTP GET listing the run's
+# files); a ProgrammingError, NOT a connection drop — so it needs its own retry path.
+_S3_503_GLOB_ERROR = psycopg.errors.SyntaxErrorOrAccessRuleViolation(
+    "rpc error: code = Unknown desc = HTTP Error: HTTP GET error reading "
+    "'s3://posthog-duckling-x-mw-prod-us/backfill/events/55513/year=2019/month=12/day=21/abc_' "
+    "in region 'us-east-1' (HTTP 503 Service Unavailable)"
+)
+
+
+class TestIsTransientS3Error:
+    """_is_transient_s3_error retries S3 5xx/throttles surfaced through the PG wire, but only
+    when the message is genuinely about object storage (so a plain SQL error can't match)."""
+
+    @parameterized.expand(
+        [
+            ("glob_503", _S3_503_GLOB_ERROR),
+            (
+                "add_files_500",
+                psycopg.errors.InternalError(
+                    "HTTP Error: HTTP GET error reading 's3://b/f.parquet' (HTTP 500 InternalError)"
+                ),
+            ),
+            (
+                "slowdown_throttle",
+                psycopg.OperationalError("HTTP PUT error writing 's3://b/f' (HTTP 503 SlowDown: Please reduce ...)"),
+            ),
+            ("too_many_requests", psycopg.errors.InternalError("HTTP GET 's3://b/x' HTTP 429 Too Many Requests")),
+        ]
+    )
+    def test_transient_s3_errors_are_retryable(self, _label, exc):
+        assert _is_transient_s3_error(exc) is True
+
+    @parameterized.expand(
+        [
+            # 404/403 are permanent S3 responses — not retryable.
+            ("not_found", psycopg.errors.InternalError("HTTP GET error reading 's3://b/missing' (HTTP 404 Not Found)")),
+            ("access_denied", psycopg.errors.InternalError("HTTP GET 's3://b/x' (HTTP 403 Forbidden)")),
+            # A genuine SQL error that merely contains a number must not match (no S3/HTTP token).
+            ("sql_error_with_500", psycopg.errors.SyntaxErrorOrAccessRuleViolation("error near column 500")),
+            ("binder_error", psycopg.errors.InternalError("Binder Error: Referenced column not found")),
+            # 503 text without any object-storage context must not match either.
+            ("bare_503", psycopg.OperationalError("service had 503 issues")),
+        ]
+    )
+    def test_non_transient_errors_are_not_retryable(self, _label, exc):
+        assert _is_transient_s3_error(exc) is False
+
+
 class TestConnectDuckgres:
     """_connect_duckgres pins the session to UTC so ranged DELETEs align with the UTC day
     the export wrote, but never fails a connection if the server can't set it."""
@@ -1212,6 +1261,31 @@ class TestDuckgresSessionRetry:
         # _reconnect closes the prior (dead) connection before acquiring a fresh one
         conn0.close.assert_called_once()
         conn1.close.assert_called_once()
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_transient_s3_retries_on_same_connection(self, mock_connect, _sleep):
+        # A transient S3 5xx is the worker hiccuping on object storage, not a worker drop —
+        # so it replays on the SAME connection (no reconnect) and eventually succeeds.
+        mock_connect.return_value = MagicMock()
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(side_effect=[_S3_503_GLOB_ERROR, _S3_503_GLOB_ERROR, "ok"])
+
+        assert session.run("register", op) == "ok"
+        assert op.call_count == 3
+        assert mock_connect.call_count == 1  # initial connect only — never reconnected
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_transient_s3_gives_up_after_max_attempts(self, mock_connect, _sleep):
+        mock_connect.return_value = MagicMock()
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(side_effect=_S3_503_GLOB_ERROR)
+
+        with pytest.raises(psycopg.errors.SyntaxErrorOrAccessRuleViolation):
+            session.run("register", op)
+        assert op.call_count == _DuckgresSession.MAX_ATTEMPTS
+        assert mock_connect.call_count == 1  # never reconnects for an S3 hiccup
 
 
 class TestDuckgresBackfillOptions:

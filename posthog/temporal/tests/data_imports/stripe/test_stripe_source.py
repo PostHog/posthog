@@ -6,21 +6,25 @@ import pytest
 from unittest import mock
 
 import stripe as stripe_lib
+import requests
 from parameterized import parameterized
 from stripe._http_client import HTTPClient
 
 from posthog.models.integration import Integration
-from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
-from posthog.temporal.data_imports.sources.stripe.constants import (
+from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
+
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import StripeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.sources.stripe.settings import WEBHOOK_ONLY_ENDPOINTS
-from posthog.temporal.data_imports.sources.stripe.source import StripeSource
-from posthog.temporal.data_imports.sources.stripe.stripe import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import WEBHOOK_ONLY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
     StripeNestedResource,
     StripePermissionError,
@@ -35,10 +39,6 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     get_rows,
     validate_credentials,
 )
-from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from .data import BALANCE_TRANSACTIONS
 
@@ -94,7 +94,7 @@ def external_data_schema_incremental(external_data_source, team):
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
 # incremental field last value
-@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_source_full_refresh(
@@ -129,7 +129,7 @@ async def test_stripe_source_full_refresh(
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
 # incremental field last value
-@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_source_resuming_full_refresh(
@@ -174,7 +174,7 @@ async def test_stripe_source_resuming_full_refresh(
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
 # incremental field last value
-@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_source_incremental(team, mock_stripe_api, external_data_source, external_data_schema_incremental):
@@ -262,7 +262,10 @@ def test_validate_credentials_basic_only_probes_one_endpoint():
     mock_client = mock.MagicMock()
     _mock_all_stripe_endpoints(mock_client)
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+        return_value=mock_client,
+    ):
         result = validate_credentials("api_key")
 
         assert result is True
@@ -303,7 +306,10 @@ def test_subscription_list_uses_expand_for_discounts():
     resumable_manager = mock.MagicMock()
     resumable_manager.can_resume.return_value = False
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+        return_value=mock_client,
+    ):
         # Drain the generator so the list call actually happens.
         list(
             get_rows(
@@ -335,7 +341,10 @@ def test_webhook_only_endpoint_yields_no_rows(endpoint):
     resumable_manager = mock.MagicMock()
     resumable_manager.can_resume.return_value = False
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+        return_value=mock_client,
+    ):
         rows = list(
             get_rows(
                 api_key="api_key",
@@ -361,7 +370,10 @@ def test_validate_credentials_skips_webhook_only_resource(endpoint):
     and not hit Stripe."""
     mock_client = mock.MagicMock()
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+        return_value=mock_client,
+    ):
         result = validate_credentials("api_key", [endpoint])
 
     assert result is True
@@ -378,7 +390,10 @@ def test_validate_credentials_basic_treats_403_as_success():
     _mock_all_stripe_endpoints(mock_client)
     mock_client.customers.list = mock.MagicMock(side_effect=stripe_lib.PermissionError(message="Forbidden"))
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+        return_value=mock_client,
+    ):
         result = validate_credentials("api_key")
 
     assert result is True
@@ -392,7 +407,10 @@ def test_validate_credentials_basic_unknown_error_raises_validation_error():
     mock_client.customers.list = mock.MagicMock(side_effect=RuntimeError("connection reset by peer"))
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ),
         pytest.raises(StripeValidationError) as e,
     ):
         validate_credentials("api_key")
@@ -405,7 +423,10 @@ def test_validate_credentials_with_explicit_endpoint():
     mock_client = mock.MagicMock()
     _mock_all_stripe_endpoints(mock_client)
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+        return_value=mock_client,
+    ):
         result = validate_credentials("api_key", endpoints=[ACCOUNT_RESOURCE_NAME])
 
         assert result is True
@@ -426,7 +447,10 @@ def test_validate_credentials_basic_authentication_error_short_circuits():
     )
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ),
         pytest.raises(StripeAuthenticationError) as e,
     ):
         validate_credentials("api_key")
@@ -444,7 +468,10 @@ def test_validate_credentials_endpoint_list_authentication_error_short_circuits(
     mock_client.charges.list = mock.MagicMock()
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ),
         pytest.raises(StripeAuthenticationError) as e,
     ):
         validate_credentials(
@@ -465,7 +492,10 @@ def test_validate_credentials_endpoint_list_permission_error_lists_only_403_reso
     mock_client.charges.list = mock.MagicMock(side_effect=stripe_lib.PermissionError(message="Forbidden"))
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ),
         pytest.raises(StripePermissionError) as e,
     ):
         validate_credentials("api_key", endpoints=["Charge", "Customer", "Account"])
@@ -480,7 +510,10 @@ def test_validate_credentials_endpoint_list_unknown_error_raises_validation_erro
     mock_client.charges.list = mock.MagicMock(side_effect=RuntimeError("connection reset by peer"))
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ),
         pytest.raises(StripeValidationError) as e,
     ):
         validate_credentials("api_key", endpoints=["Charge", "Customer"])
@@ -498,7 +531,10 @@ def test_validate_credentials_endpoint_list_mixed_403_and_unknown_raises_validat
     mock_client.subscriptions.list = mock.MagicMock(side_effect=stripe_lib.PermissionError(message="Forbidden"))
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ),
         pytest.raises(StripeValidationError) as e,
     ):
         validate_credentials("api_key", endpoints=["Charge", "Subscription", "Customer"])
@@ -519,7 +555,10 @@ def test_validate_credentials_nested_resource_validates_via_parent(nested_table_
     mock_client = mock.MagicMock()
     mock_client.customers.list = mock.MagicMock()
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+        return_value=mock_client,
+    ):
         result = validate_credentials("api_key", endpoints=[nested_table_name])
 
     assert result is True
@@ -539,7 +578,10 @@ def test_validate_credentials_nested_resource_surfaces_parent_permission_error(n
     mock_client.customers.list = mock.MagicMock(side_effect=stripe_lib.PermissionError(message="Forbidden"))
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ),
         pytest.raises(StripePermissionError) as e,
     ):
         validate_credentials("api_key", endpoints=[nested_table_name])
@@ -665,6 +707,41 @@ def test_stripe_http_client_retries_rate_limits(_name, status_code, num_retries,
     )
 
 
+@parameterized.expand(
+    [
+        # (cause, num_retries, max_network_retries, expected)
+        # A connection reset mid-response body surfaces as a ChunkedEncodingError, which Stripe
+        # wraps in a non-retryable APIConnectionError — we retry it while budget remains.
+        ("connection_reset_retried", requests.exceptions.ChunkedEncodingError("Connection broken"), 0, 2, True),
+        # ...but stops once the retry budget is exhausted, so we don't loop forever.
+        (
+            "connection_reset_budget_exhausted",
+            requests.exceptions.ChunkedEncodingError("Connection broken"),
+            2,
+            2,
+            False,
+        ),
+        # An SSL error is deliberately non-retryable in the SDK — we must not start retrying it.
+        ("ssl_error_not_retried", requests.exceptions.SSLError("bad cert"), 0, 2, False),
+        # An APIConnectionError with no wrapped cause has nothing to identify as a reset.
+        ("no_cause_not_retried", None, 0, 2, False),
+    ]
+)
+def test_stripe_http_client_retries_connection_reset(_name, cause, num_retries, max_network_retries, expected):
+    """A connection reset while paging surfaces from requests as a ChunkedEncodingError, which the
+    SDK declines to retry (only Timeout/ConnectionError are retryable) so it crashes the import.
+    Our client retries that transient reset in-process while leaving SSL errors non-retryable."""
+    client = _tracked_stripe_http_client()
+    # response=None is how the SDK signals a connection error rather than an HTTP response.
+    error = stripe_lib.APIConnectionError("Unexpected error communicating with Stripe.")
+    if cause is not None:
+        error.__cause__ = cause
+
+    assert (
+        client._should_retry(None, error, num_retries=num_retries, max_network_retries=max_network_retries) is expected
+    )
+
+
 def test_validate_credentials_nested_resources_have_registered_parents():
     """Invariant: every StripeNestedResource's `parent_name` must point at a key that is
     also registered as a top-level StripeResource in _build_resources. validate_credentials
@@ -696,7 +773,10 @@ def test_validate_credentials_with_missing_table_name():
     _mock_all_stripe_endpoints(mock_client)
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ),
         pytest.raises(StripePermissionError) as e,
     ):
         validate_credentials("api_key", endpoints=["bad_table"])
@@ -727,7 +807,10 @@ def test_validate_credentials_endpoint_list_oauth_skips_account():
     mock_client = mock.MagicMock()
     _mock_all_stripe_endpoints(mock_client)
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+        return_value=mock_client,
+    ):
         result = validate_credentials(
             "oauth_token",
             endpoints=[ACCOUNT_RESOURCE_NAME, "Customer", "Charge"],
@@ -751,7 +834,10 @@ def test_check_endpoint_permissions_returns_per_endpoint_status():
     mock_client.charges.list = mock.MagicMock(side_effect=stripe_lib.PermissionError(message="Forbidden"))
     mock_client.subscriptions.list = mock.MagicMock(side_effect=RuntimeError("connection reset"))
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+        return_value=mock_client,
+    ):
         results = check_endpoint_permissions("api_key", endpoints=["Customer", "Charge", "Subscription"])
 
     assert results["Customer"] is None
@@ -769,7 +855,10 @@ def test_check_endpoint_permissions_raises_on_401():
     )
 
     with (
-        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ),
         pytest.raises(StripeAuthenticationError),
     ):
         check_endpoint_permissions("api_key", endpoints=["Customer", "Charge"])
@@ -781,7 +870,10 @@ def test_check_endpoint_permissions_oauth_marks_account_as_unavailable():
     mock_client = mock.MagicMock()
     _mock_all_stripe_endpoints(mock_client)
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+        return_value=mock_client,
+    ):
         results = check_endpoint_permissions(
             "oauth_token", endpoints=[ACCOUNT_RESOURCE_NAME, "Customer"], auth_method="oauth"
         )
@@ -796,7 +888,10 @@ def test_check_endpoint_permissions_oauth_marks_account_as_unavailable():
 def test_validate_credentials_oauth_account_endpoint_returns_true():
     mock_client = mock.MagicMock()
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+        return_value=mock_client,
+    ):
         result = validate_credentials("oauth_token", endpoints=[ACCOUNT_RESOURCE_NAME], auth_method="oauth")
 
         assert result is True
@@ -891,13 +986,16 @@ class TestUpdateWebhookEvents:
         return mock_client, endpoint
 
     def test_drift_calls_update_with_merged_set(self):
-        from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import update_webhook_events
 
         mock_client, endpoint = self._mock_client_with_endpoint(
             url=self.WEBHOOK_URL, enabled_events=["charge.captured"]
         )
 
-        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ):
             result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["charge.captured", "customer.created"])
 
         assert result.success
@@ -923,23 +1021,29 @@ class TestUpdateWebhookEvents:
         ]
     )
     def test_does_not_write_when_no_drift(self, _name, endpoint_url, enabled_events):
-        from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import update_webhook_events
 
         mock_client, _ = self._mock_client_with_endpoint(url=endpoint_url, enabled_events=enabled_events)
 
-        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ):
             result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["charge.captured", "customer.created"])
 
         assert result.success
         mock_client.webhook_endpoints.update.assert_not_called()
 
     def test_permission_error_returns_actionable_failure_without_raising(self):
-        from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import update_webhook_events
 
         mock_client, _ = self._mock_client_with_endpoint(url=self.WEBHOOK_URL, enabled_events=["charge.captured"])
         mock_client.webhook_endpoints.update.side_effect = stripe_lib.PermissionError(message="Forbidden")
 
-        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ):
             result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["customer.created"])
 
         assert result.success is False
@@ -948,9 +1052,11 @@ class TestUpdateWebhookEvents:
         assert "customer.created" in result.error
 
     def test_empty_desired_is_noop(self):
-        from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import update_webhook_events
 
-        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as mock_client_cls:
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient"
+        ) as mock_client_cls:
             result = update_webhook_events("rk_test", None, "https://x", [])
 
         assert result.success
@@ -961,8 +1067,12 @@ class TestAllKnownWebhookEvents:
     """Guards the event-derivation the create + reconcile paths both depend on."""
 
     def test_only_emits_events_under_mapped_prefixes(self):
-        from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_WEBHOOK_EVENT
-        from posthog.temporal.data_imports.sources.stripe.stripe import _all_known_webhook_events
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+            RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
+            _all_known_webhook_events,
+        )
 
         events = _all_known_webhook_events()
 
@@ -973,7 +1083,9 @@ class TestAllKnownWebhookEvents:
             assert any(event.startswith(f"{p}.") for p in prefixes), f"unmapped event leaked in: {event}"
 
     def test_includes_revenue_critical_resource_events(self):
-        from posthog.temporal.data_imports.sources.stripe.stripe import _all_known_webhook_events
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
+            _all_known_webhook_events,
+        )
 
         events = set(_all_known_webhook_events())
         # The resources Revenue analytics depends on must always be covered. Disputes ride in via
@@ -985,7 +1097,10 @@ class TestAllKnownWebhookEvents:
 
 class TestCreateWebhook:
     def test_creates_endpoint_with_full_known_event_set(self):
-        from posthog.temporal.data_imports.sources.stripe.stripe import _all_known_webhook_events, create_webhook
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
+            _all_known_webhook_events,
+            create_webhook,
+        )
 
         endpoint = mock.MagicMock()
         endpoint.secret = "whsec_abc"
@@ -993,7 +1108,10 @@ class TestCreateWebhook:
         mock_client.webhook_endpoints.create.return_value = endpoint
 
         url = "https://webhooks.us.posthog.com/public/webhooks/dwh/123"
-        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ):
             result = create_webhook("rk_test", None, url)
 
         assert result.success
@@ -1005,12 +1123,15 @@ class TestCreateWebhook:
         assert params["enabled_events"] == _all_known_webhook_events()
 
     def test_permission_error_returns_actionable_failure(self):
-        from posthog.temporal.data_imports.sources.stripe.stripe import create_webhook
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import create_webhook
 
         mock_client = mock.MagicMock()
         mock_client.webhook_endpoints.create.side_effect = Exception("403 Forbidden")
 
-        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ):
             result = create_webhook("rk_test", None, "https://x")
 
         assert result.success is False
@@ -1026,12 +1147,15 @@ class TestCreateWebhook:
         ]
     )
     def test_account_access_error_points_to_manual_setup(self, _name, exception):
-        from posthog.temporal.data_imports.sources.stripe.stripe import create_webhook
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import create_webhook
 
         mock_client = mock.MagicMock()
         mock_client.webhook_endpoints.create.side_effect = exception
 
-        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
+            return_value=mock_client,
+        ):
             result = create_webhook("rk_test", "acct_123", "https://x")
 
         assert result.success is False

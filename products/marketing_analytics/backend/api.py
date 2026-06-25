@@ -33,7 +33,7 @@ from products.marketing_analytics.backend.services.event_suggestions import sugg
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
 from products.marketing_analytics.backend.services.marketing_diagnostic import get_marketing_diagnostic
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 

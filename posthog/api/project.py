@@ -173,7 +173,7 @@ def update_team_revenue_analytics_config(team: Team, validated_data: dict[str, A
 
     if "events" in validated_data:
         from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+        from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
             team=team,
@@ -892,7 +892,7 @@ class ProjectBackwardCompatSerializer(
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     def get_managed_viewsets(self, obj: Project) -> dict[str, bool]:
         from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+        from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         enabled_set = set(
             DataWarehouseManagedViewSet.objects.filter(team=obj.passthrough_team).values_list("kind", flat=True)
