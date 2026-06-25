@@ -11,12 +11,24 @@ jest.mock('@simplewebauthn/browser', () => ({
     browserSupportsWebAuthnAutofill: jest.fn(),
 }))
 
+const SAFARI_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'
+const CHROME_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+
+function setUserAgent(userAgent: string): void {
+    Object.defineProperty(window.navigator, 'userAgent', { value: userAgent, configurable: true })
+}
+
 describe('passkeyLogic', () => {
-    describe('startConditionalPasskeyLogin (passkey autofill)', () => {
+    describe('startConditionalPasskeyLogin (WebKit-only passkey autofill)', () => {
         let logic: ReturnType<typeof passkeyLogic.build>
         let beginHandler: jest.Mock
+        const originalUserAgent = window.navigator.userAgent
 
         beforeEach(() => {
+            setUserAgent(SAFARI_UA)
+            ;(browserSupportsWebAuthnAutofill as jest.Mock).mockResolvedValue(true)
             // Settle the ceremony as a cancellation so it resolves without a page reload.
             ;(startAuthentication as jest.Mock).mockRejectedValue(
                 Object.assign(new Error('cancelled'), { name: 'AbortError' })
@@ -42,12 +54,11 @@ describe('passkeyLogic', () => {
 
         afterEach(() => {
             logic.unmount()
+            setUserAgent(originalUserAgent)
             jest.clearAllMocks()
         })
 
-        it('runs a conditional ceremony with browser autofill and no credential constraint', async () => {
-            ;(browserSupportsWebAuthnAutofill as jest.Mock).mockResolvedValue(true)
-
+        it('on WebKit, runs a conditional ceremony with browser autofill and no credential constraint', async () => {
             logic.actions.startConditionalPasskeyLogin()
             await expectLogic(logic).toFinishAllListeners()
 
@@ -56,6 +67,16 @@ describe('passkeyLogic', () => {
             expect(options.useBrowserAutofill).toBe(true)
             // Conditional UI must not constrain credentials — the browser offers all discoverable passkeys.
             expect(options.optionsJSON.allowCredentials).toEqual([])
+        })
+
+        it('does nothing on a non-WebKit browser (those use the auto-modal instead)', async () => {
+            setUserAgent(CHROME_UA)
+
+            logic.actions.startConditionalPasskeyLogin()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(beginHandler).not.toHaveBeenCalled()
+            expect(startAuthentication).not.toHaveBeenCalled()
         })
 
         it('does nothing when the browser does not support autofill', async () => {
@@ -69,8 +90,6 @@ describe('passkeyLogic', () => {
         })
 
         it('starts only one ceremony when triggered repeatedly', async () => {
-            ;(browserSupportsWebAuthnAutofill as jest.Mock).mockResolvedValue(true)
-
             logic.actions.startConditionalPasskeyLogin()
             logic.actions.startConditionalPasskeyLogin()
             await expectLogic(logic).toFinishAllListeners()

@@ -1,12 +1,25 @@
+import { startAuthentication } from '@simplewebauthn/browser'
 import { router } from 'kea-router'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
+import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { initKea } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+jest.mock('@simplewebauthn/browser', () => ({ startAuthentication: jest.fn() }))
+
+const CHROME_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+const SAFARI_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'
+
+function setUserAgent(userAgent: string): void {
+    Object.defineProperty(window.navigator, 'userAgent', { value: userAgent, configurable: true })
+}
 
 describe('loginLogic', () => {
     describe('redirect vulnerability', () => {
@@ -64,11 +77,75 @@ describe('loginLogic', () => {
         }
     })
 
+    describe('passkey auto-trigger after precheck', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        let beginHandler: jest.Mock
+        const originalUserAgent = window.navigator.userAgent
+
+        beforeEach(() => {
+            setUserAgent(CHROME_UA)
+            // Treat the ceremony as a user cancellation so it resolves without a page reload.
+            ;(startAuthentication as jest.Mock).mockRejectedValue(
+                Object.assign(new Error('cancelled'), { name: 'AbortError' })
+            )
+            beginHandler = jest.fn(() => [
+                200,
+                {
+                    challenge: 'abc',
+                    timeout: 60000,
+                    rpId: 'localhost',
+                    allowCredentials: [],
+                    userVerification: 'preferred',
+                },
+            ])
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/login/precheck': () => [
+                        200,
+                        { saml_available: false, webauthn_credentials: [{ id: 'cred-1', type: 'public-key' }] },
+                    ],
+                    '/api/webauthn/login/begin/': beginHandler,
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+            passkeyLogic().mount()
+        })
+
+        afterEach(() => {
+            passkeyLogic().unmount()
+            logic.unmount()
+            setUserAgent(originalUserAgent)
+            jest.clearAllMocks()
+        })
+
+        it('auto-triggers the passkey ceremony on non-WebKit browsers', async () => {
+            logic.actions.precheck({ email: 'user@example.com' })
+            // Drain the whole ceremony (begin request included) so nothing leaks into the next test.
+            await expectLogic(passkeyLogic)
+                .toDispatchActions(['beginPasskeyLogin', 'startPasskeyAuthenticationSuccess'])
+                .toFinishAllListeners()
+            expect(beginHandler).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not auto-trigger the passkey ceremony on WebKit (Safari)', async () => {
+            setUserAgent(SAFARI_UA)
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+            expect(beginHandler).not.toHaveBeenCalled()
+        })
+    })
+
     describe('precheck dedupe', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckHandler: jest.Mock
+        const originalUserAgent = window.navigator.userAgent
 
         beforeEach(() => {
+            setUserAgent(SAFARI_UA) // skip passkey ceremony, isolate precheck
             precheckHandler = jest.fn(() => [200, { saml_available: false }])
             useMocks({ post: { '/api/login/precheck': precheckHandler } })
             initKeaTests()
@@ -79,6 +156,7 @@ describe('loginLogic', () => {
 
         afterEach(() => {
             logic.unmount()
+            setUserAgent(originalUserAgent)
             jest.clearAllMocks()
         })
 

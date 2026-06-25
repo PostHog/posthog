@@ -9,6 +9,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { isWebKitBrowser } from 'lib/utils/browser'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -133,6 +134,18 @@ export const passkeyLogic = kea<passkeyLogicType>([
         ],
     })),
     listeners(({ actions, values, cache }) => ({
+        [loginLogic.actionTypes.precheckSuccess]: ({ precheckResponse }) => {
+            // Non-WebKit browsers auto-open the passkey modal once precheck confirms the user has
+            // passkeys. WebKit can't (it freezes without a gesture) and uses autofill instead — see
+            // startConditionalPasskeyLogin.
+            if (
+                precheckResponse?.webauthn_credentials?.length &&
+                !precheckResponse.sso_enforcement &&
+                !isWebKitBrowser()
+            ) {
+                actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
+            }
+        },
         beginPasskeyLogin: () => {
             // Don't start a second ceremony while one is already in flight (e.g. a double-clicked
             // passkey button) — concurrent WebAuthn ceremonies hang WebKit.
@@ -143,11 +156,11 @@ export const passkeyLogic = kea<passkeyLogicType>([
             actions.startPasskeyAuthentication()
         },
         startConditionalPasskeyLogin: async () => {
-            // Offer saved passkeys through the browser's autofill UI (conditional mediation) instead
-            // of a modal: no user gesture is required, so WebKit doesn't freeze, and a user with a
-            // passkey signs in with one tap while typing their email. The request stays pending in the
-            // background until the user picks a credential. No-ops where autofill is unsupported —
-            // those browsers fall back to the explicit passkey button.
+            // WebKit-only. Safari/iOS freeze on the auto-modal, so there we offer passkeys via the
+            // email field's autofill instead
+            if (!isWebKitBrowser()) {
+                return
+            }
             // Latch synchronously before the first await so a repeat trigger can't race past the guard.
             if (cache.conditionalCeremonyStarted) {
                 return

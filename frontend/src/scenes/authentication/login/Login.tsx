@@ -19,9 +19,8 @@ export function Login(): JSX.Element {
     const { startConditionalPasskeyLogin } = useActions(passkeyLogic)
     const { Login: VariantLogin } = authFlowVariantRegistry[resolveAuthFlowVariant(featureFlags)]
 
-    // Surface saved passkeys in the email field's autofill menu as soon as the form renders, so a
-    // user with a passkey signs in with one tap and no modal — the WebKit-safe replacement for the
-    // old auto-triggered prompt. Runs once on mount; no-ops where autofill isn't supported.
+    // WebKit (Safari/iOS) can't open the passkey modal without a user gesture, so we show
+    // passkeys via the email field's autofill instead. Other browsers keep the auto-modal.
     useEffect(() => {
         startConditionalPasskeyLogin()
     }, [startConditionalPasskeyLogin])
