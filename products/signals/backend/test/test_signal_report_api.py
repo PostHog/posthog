@@ -375,6 +375,98 @@ class TestSignalReportListAPI(APIBaseTest):
         assert ids.index(str(r_p3.id)) < ids.index(str(r_p4.id))
         assert ids.index(str(r_p4.id)) < ids.index(str(r_none.id))
 
+    def test_ordering_by_priority_descending_lists_nulls_first(self):
+        """`-priority` is the artefact-first path's descending branch: null-priority reports lead
+        (they sort as the lowest priority), then P4..P0. Guards the descending segment ordering."""
+        r_p0 = self._create_report(title="P0 report", summary="s", signal_count=1, total_weight=1.0)
+        r_p4 = self._create_report(title="P4 report", summary="s", signal_count=1, total_weight=1.0)
+        r_none = self._create_report(title="No priority", summary="s", signal_count=1, total_weight=1.0)
+        self._priority_artefact(r_p0, priority="P0")
+        self._priority_artefact(r_p4, priority="P4")
+
+        response = self.client.get(self._list_url(status="ready", ordering="-priority"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(r_none.id)) < ids.index(str(r_p4.id))
+        assert ids.index(str(r_p4.id)) < ids.index(str(r_p0.id))
+
+    def test_priority_from_bulk_created_artefact(self):
+        """priority_rank is maintained by a DB trigger, so writers that bypass the model funnel —
+        bulk_create here, as the seed command and data migrations do — still get a populated rank and
+        sort/filter correctly. Funnel-only population would leave these reports unsorted/unfiltered."""
+        r_p0 = self._create_report(title="P0 report")
+        r_p2 = self._create_report(title="P2 report")
+        SignalReportArtefact.objects.bulk_create(
+            [
+                SignalReportArtefact(
+                    team=self.team,
+                    report=r_p0,
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                    content=json.dumps({"explanation": "x", "priority": "P0"}),
+                ),
+                SignalReportArtefact(
+                    team=self.team,
+                    report=r_p2,
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                    content=json.dumps({"explanation": "x", "priority": "P2"}),
+                ),
+            ]
+        )
+
+        filtered = self.client.get(self._list_url(priority="P0"))
+        assert filtered.status_code == status.HTTP_200_OK
+        assert {r["id"] for r in filtered.json()["results"]} == {str(r_p0.id)}
+
+        ordered = self.client.get(self._list_url(status="ready", ordering="priority"))
+        ids = [r["id"] for r in ordered.json()["results"]]
+        assert ids.index(str(r_p0.id)) < ids.index(str(r_p2.id))
+
+    def test_priority_ordering_paginates_across_null_boundary(self):
+        """The artefact-first path returns prioritized reports (off the index) and null-priority reports
+        (a trailing segment) as two pieces stitched by offset/limit math. A page window spanning the
+        boundary must not drop or duplicate reports."""
+        r_p0 = self._create_report(title="P0 report")
+        r_p1 = self._create_report(title="P1 report")
+        r_p2 = self._create_report(title="P2 report")
+        self._priority_artefact(r_p0, priority="P0")
+        self._priority_artefact(r_p1, priority="P1")
+        self._priority_artefact(r_p2, priority="P2")
+        nulls = {str(self._create_report(title="null-a").id), str(self._create_report(title="null-b").id)}
+
+        all_ids: list[str] = []
+        for offset in (0, 2, 4):
+            response = self.client.get(self._list_url(status="ready", ordering="priority", limit=2, offset=offset))
+            assert response.status_code == status.HTTP_200_OK
+            body = response.json()
+            assert body["count"] == 5
+            all_ids.extend(r["id"] for r in body["results"])
+
+        assert len(all_ids) == 5 and len(set(all_ids)) == 5  # no drops, no duplicates across the boundary
+        assert all_ids[:3] == [str(r_p0.id), str(r_p1.id), str(r_p2.id)]  # prioritized first, in P0->P2 order
+        assert set(all_ids[3:]) == nulls  # null-priority reports trail
+
+    def test_priority_ordering_excludes_other_team(self):
+        """The artefact-first path builds a separate SignalReportArtefact query; assert it stays scoped to
+        the requesting team and never surfaces another team's reports via their priority artefacts."""
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_report = SignalReport.objects.create(
+            team=other_team, status=SignalReport.Status.READY, title="other P0", summary="s"
+        )
+        SignalReportArtefact.objects.create(
+            team=other_team,
+            report=other_report,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"explanation": "x", "priority": "P0"}),
+        )
+        mine = self._create_report(title="mine P2")
+        self._priority_artefact(mine, priority="P2")
+
+        response = self.client.get(self._list_url(status="ready", ordering="priority"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(mine.id) in ids
+        assert str(other_report.id) not in ids
+
     def test_ordering_skips_unknown_clause_keeps_valid_ones(self):
         """An unrecognized clause (e.g. a stale persisted field) is skipped, not fatal:
         the valid clauses still apply instead of silently reverting to the default order."""

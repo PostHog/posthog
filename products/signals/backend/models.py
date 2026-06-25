@@ -736,6 +736,13 @@ class SignalReportArtefact(UUIDModel):
     # destroying the report's work log.
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     task = models.ForeignKey("tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # Sortable priority rank (P0->0 .. P4->4) for `priority_judgment` rows, null otherwise. A typed
+    # projection of `content->>'priority'` that the inbox sorts/filters on without parsing JSON per row.
+    # DB-MAINTAINED, not written by the ORM: a `BEFORE INSERT/UPDATE` trigger (see migration) derives it
+    # from `content`, so it can never drift and is set even for writers that bypass the model
+    # (`bulk_create`, data migrations, raw SQL). Treat as read-only application-side. `content` (the JSON)
+    # remains the source of truth.
+    priority_rank = models.SmallIntegerField(null=True, blank=True, editable=False)
 
     class Meta:
         indexes = [
@@ -745,6 +752,15 @@ class SignalReportArtefact(UUIDModel):
             # Latest-wins lookups: artefacts are append-only, so deriving the current status / log
             # tail is `WHERE report=? AND type=? ORDER BY created_at DESC` — this makes it a seek.
             models.Index(fields=["report", "type", "-created_at"], name="signals_sig_rpt_type_ct_idx"),
+            # Priority sort/filter drives from this index in priority order (artefact-first), keeping
+            # latest-per-report via an anti-join, so Postgres uses an incremental sort that stops at the
+            # page LIMIT instead of scanning every report. Partial to priority_judgment rows only.
+            models.Index(
+                fields=["team", "priority_rank", "-created_at", "report"],
+                name="signals_artefact_prio_idx",
+                # Literal (not ArtefactType.PRIORITY_JUDGMENT): the nested enum isn't in scope inside Meta.
+                condition=models.Q(type="priority_judgment"),
+            ),
         ]
 
     @classmethod

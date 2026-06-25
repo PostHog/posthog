@@ -34,6 +34,7 @@ from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -516,6 +517,13 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
 
 
+# Priority value <-> sortable integer rank, mirroring the `priority_rank` column the DB trigger maintains
+# on priority_judgment artefacts (see migration 0051). The null sentinel sorts a report with no priority
+# after P4 (ascending) / before P0 (descending) — preserving the prior coalesce-to-"~" contract.
+_PRIORITY_RANK_BY_VALUE: dict[str, int] = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
+_NULL_PRIORITY_RANK = 5
+
+
 @extend_schema_view(
     destroy=extend_schema(exclude=True),
 )
@@ -544,6 +552,17 @@ class SignalReportViewSet(
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
+    }
+    # Report-queryset ordering field -> its expression on the artefact-first query (which drives from the
+    # priority index, joined to its report). Secondary keys not listed here (e.g. is_suggested_reviewer,
+    # which is per-user) make `_artefact_first_priority_order` bail to the report-first path.
+    _ARTEFACT_FIRST_SECONDARY: dict[str, str] = {
+        "pipeline_status_rank": "_artefact_status_rank",
+        "updated_at": "report__updated_at",
+        "created_at": "report__created_at",
+        "signal_count": "report__signal_count",
+        "total_weight": "report__total_weight",
+        "id": "report_id",
     }
 
     def safely_get_queryset(self, queryset):
@@ -742,8 +761,9 @@ class SignalReportViewSet(
         return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
     def _apply_signal_report_priority_filter(self, queryset):
-        # Filters on the `priority_rank` annotation, which must be applied first.
-        # Reports without a priority artefact (coalesced to "~") are excluded when this filter is set.
+        # Filters on the `priority_rank` annotation (the integer rank of the latest priority_judgment),
+        # which must be applied first. Reports without a priority artefact (coalesced to the null sentinel)
+        # are excluded when this filter is set.
         priority_filter = self.request.query_params.get("priority")
         if not priority_filter:
             return queryset
@@ -761,7 +781,7 @@ class SignalReportViewSet(
                 }
             )
 
-        return queryset.filter(priority_rank__in=values)
+        return queryset.filter(priority_rank__in=[_PRIORITY_RANK_BY_VALUE[v] for v in values])
 
     def _apply_signal_report_actionability_filter(self, queryset):
         # Filters on the `latest_actionability_value` annotation (the actionability
@@ -791,58 +811,67 @@ class SignalReportViewSet(
 
         return queryset.filter(latest_actionability_value__in=values)
 
+    @staticmethod
+    def _pipeline_status_rank_case(status_field: str, actionability_field: str):
+        """Semantic pipeline-stage rank CASE, parameterized by the field paths it reads.
+
+        `ordering=status` uses this rank, not the lexicographic `status` column order. `ready` splits into
+        two virtual stages: 0 = ready + actionable (or no judgment yet), 1 = ready + not_actionable. Built
+        from field names so it works on a report queryset (`status` / `latest_actionability_value`) and on
+        an artefact queryset joined to its report (`report__status` / an actionability subquery annotation).
+        """
+        S = SignalReport.Status
+        ready_not_actionable = Q(**{status_field: S.READY}) & Q(**{actionability_field: "not_actionable"})
+        return Case(
+            When(ready_not_actionable, then=Value(1)),
+            When(**{status_field: S.READY}, then=Value(0)),
+            When(**{status_field: S.PENDING_INPUT}, then=Value(2)),
+            When(**{status_field: S.IN_PROGRESS}, then=Value(3)),
+            When(**{status_field: S.CANDIDATE}, then=Value(4)),
+            When(**{status_field: S.POTENTIAL}, then=Value(5)),
+            When(**{status_field: S.FAILED}, then=Value(6)),
+            When(**{status_field: S.RESOLVED}, then=Value(7)),
+            When(**{status_field: S.SUPPRESSED}, then=Value(8)),
+            When(**{status_field: S.DELETED}, then=Value(9)),
+            default=Value(50),
+            output_field=IntegerField(),
+        )
+
     def _annotate_signal_report_status_rank(self, queryset):
-        # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
-        # `status=ready` splits into two virtual stages (requires `latest_actionability_value`):
-        # 0 = ready + actionable (or no judgment yet), 1 = ready + not_actionable; then other stages.
         return queryset.annotate(
-            pipeline_status_rank=Case(
-                When(self._Q_READY_NOT_ACTIONABLE, then=Value(1)),
-                When(status=SignalReport.Status.READY, then=Value(0)),
-                When(status=SignalReport.Status.PENDING_INPUT, then=Value(2)),
-                When(status=SignalReport.Status.IN_PROGRESS, then=Value(3)),
-                When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
-                When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
-                When(status=SignalReport.Status.FAILED, then=Value(6)),
-                When(status=SignalReport.Status.RESOLVED, then=Value(7)),
-                When(status=SignalReport.Status.SUPPRESSED, then=Value(8)),
-                When(status=SignalReport.Status.DELETED, then=Value(9)),
-                default=Value(50),
-                output_field=IntegerField(),
-            )
+            pipeline_status_rank=self._pipeline_status_rank_case("status", "latest_actionability_value")
         )
 
     def _annotate_signal_report_priority(self, queryset):
-        # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
-        # artefact. These sort lexicographically, so we extract via jsonb and coalesce NULL to "~"
-        # (sorts after "P4") for reports without a priority. The startswith guard skips non-object content.
+        # `priority_rank` is the latest priority_judgment artefact's DB-maintained `priority_rank` column
+        # (P0->0 .. P4->4; see the trigger in migration 0051), coalesced to a sentinel so reports without a
+        # priority sort after P4 (asc) / before P0 (desc) — matching the prior coalesce-to-"~" behaviour.
+        # Powers the priority filter; priority-led *ordering* is served by the artefact-first list path
+        # (which drives the partial index), not this per-row subquery.
         latest_priority = Subquery(
             SignalReportArtefact.objects.filter(
                 report_id=OuterRef("id"),
                 type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                content__startswith="{",
             )
             .order_by("-created_at")
-            .annotate(
-                _priority_val=Func(
-                    Cast(F("content"), output_field=JSONField()),
-                    Value("priority"),
-                    function="jsonb_extract_path_text",
-                    output_field=CharField(),
-                ),
-            )
-            .values("_priority_val")[:1],
-            output_field=CharField(),
+            .values("priority_rank")[:1],
+            output_field=IntegerField(),
         )
         return queryset.annotate(
-            priority_rank=Coalesce(latest_priority, Value("~"), output_field=CharField()),
+            priority_rank=Coalesce(latest_priority, Value(_NULL_PRIORITY_RANK), output_field=IntegerField()),
         )
 
-    def _annotate_latest_actionability_value(self, queryset):
-        # Extract the "actionability" value from the latest actionability_judgment artefact.
-        latest_actionability = Subquery(
+    @staticmethod
+    def _latest_actionability_value_subquery(report_ref):
+        """Subquery yielding the `actionability` of a report's latest actionability_judgment artefact.
+
+        `report_ref` is the report-id expression at the embedding depth: `OuterRef("id")` on a report
+        queryset, `OuterRef("report_id")` when embedded in an artefact queryset. Shared by the report-first
+        annotation and the artefact-first status-rank tiebreak so the two stay in lockstep.
+        """
+        return Subquery(
             SignalReportArtefact.objects.filter(
-                report_id=OuterRef("id"),
+                report_id=report_ref,
                 type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
                 content__startswith="{",
             )
@@ -858,7 +887,10 @@ class SignalReportViewSet(
             .values("_actionability_val")[:1],
             output_field=CharField(),
         )
-        return queryset.annotate(latest_actionability_value=latest_actionability)
+
+    def _annotate_latest_actionability_value(self, queryset):
+        # Extract the "actionability" value from the latest actionability_judgment artefact.
+        return queryset.annotate(latest_actionability_value=self._latest_actionability_value_subquery(OuterRef("id")))
 
     def _prefetch_signal_report_priority_artefacts(self, queryset):
         return queryset.prefetch_related(
@@ -1080,9 +1112,7 @@ class SignalReportViewSet(
         # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
         # products), the task facade (PR urls), or serialization, rather than one opaque request.
         with tracer.start_as_current_span("signals.reports.list.queryset"):
-            queryset = self.filter_queryset(self.get_queryset())
-            page = self.paginate_queryset(queryset)
-            reports = list(page if page is not None else queryset)
+            reports, paginated = self._resolve_report_page(request)
 
         report_ids = [str(r.id) for r in reports]
         trace.get_current_span().set_attribute("signals.reports.list.count", len(report_ids))
@@ -1103,9 +1133,148 @@ class SignalReportViewSet(
         with tracer.start_as_current_span("signals.reports.list.serialize"):
             data = serializer.data
 
-        if page is not None:
+        if paginated:
             return self.get_paginated_response(data)
         return Response(data)
+
+    # NB: annotations referencing `list`/`tuple` are quoted because the DRF `list` action method (defined
+    # above) shadows the builtin `list` for the rest of this class body, so unquoted `list[...]` would try
+    # to subscript the method object at definition time.
+    def _resolve_report_page(self, request) -> "tuple[list[SignalReport], bool]":
+        """Resolve the page of reports to serialize, returning (reports, paginated).
+
+        Priority-led ordering drives the page from the artefact priority index (`_artefact_first_report_page`)
+        so the LIMIT pushes down; everything else uses the standard report-first queryset + DRF pagination.
+        """
+        artefact_order = self._artefact_first_priority_order()
+        if artefact_order is not None and self.paginator is not None:
+            return self._artefact_first_report_page(request, artefact_order), True
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            return list(page), True
+        return list(queryset), False
+
+    def _artefact_first_priority_order(self) -> "list[str] | None":
+        """Order clauses for the artefact-first query when ordering is priority-led, else None.
+
+        Returns None (so the caller falls back to the report-first path) unless the first ordering key is
+        `priority_rank` and every secondary key is one the artefact query can express
+        (`_ARTEFACT_FIRST_SECONDARY`). The returned clauses are on the `SignalReportArtefact` query.
+        """
+        parsed = self._parse_signal_report_ordering()
+        if not parsed:
+            return None
+        first = parsed[0]
+        if (first[1:] if first.startswith("-") else first) != "priority_rank":
+            return None
+        clauses = [first]  # the artefact row carries `priority_rank` directly
+        for clause in parsed[1:]:
+            descending = clause.startswith("-")
+            name = clause[1:] if descending else clause
+            translated = self._ARTEFACT_FIRST_SECONDARY.get(name)
+            if translated is None:
+                return None  # unsupported secondary key -> report-first path handles it correctly
+            clauses.append(f"-{translated}" if descending else translated)
+        if not any((c[1:] if c.startswith("-") else c) == "report_id" for c in clauses):
+            clauses.append("report_id")  # stable tiebreak
+        return clauses
+
+    def _artefact_first_report_page(self, request, order_clauses: "list[str]") -> "list[SignalReport]":
+        # Drive the ordered page of report ids from the priority index, then hydrate those <=page rows
+        # through the normal queryset. The paginator state is set by hand (count = full filtered total)
+        # so `get_paginated_response` builds count/next/previous exactly as the report-first path would.
+        base = self.get_queryset()
+        # `_resolve_report_page` only routes here when `self.paginator` is set; it is the DRF default
+        # LimitOffsetPagination, whose count/limit/offset we set by hand below.
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        limit = paginator.get_limit(request)
+        offset = paginator.get_offset(request)
+        total = base.count()
+
+        ordered_ids = self._priority_ordered_report_ids(base, order_clauses, offset, limit, total)
+        reports = self._hydrate_reports_in_order(ordered_ids)
+
+        paginator.request = request
+        paginator.count = total
+        paginator.limit = limit
+        paginator.offset = offset
+        return reports
+
+    def _priority_ordered_report_ids(
+        self, base, order_clauses: "list[str]", offset: int, limit: int, total: int
+    ) -> "list":
+        # Two segments: reports that have a priority (ordered artefact-first off the index) and reports that
+        # don't (ordered report-first by the secondary keys). For ascending priority the null segment trails
+        # (sorts after P4); for descending it leads (matching the prior coalesce-to-"~" contract). The page
+        # window [offset, offset+limit) is sliced across the two — each slice pushes its LIMIT/OFFSET into SQL.
+        descending = order_clauses[0].startswith("-")
+        prioritized_ids = self._prioritized_artefact_ordered_ids(base, order_clauses)
+        null_ids = self._null_priority_report_ids(base)
+
+        prioritized_count = prioritized_ids.count()
+        null_count = total - prioritized_count
+        segments = (
+            [(null_ids, null_count), (prioritized_ids, prioritized_count)]
+            if descending
+            else [(prioritized_ids, prioritized_count), (null_ids, null_count)]
+        )
+
+        result: list = []
+        rem_offset, rem_limit = offset, limit
+        for segment_qs, segment_count in segments:
+            if rem_limit <= 0:
+                break
+            if rem_offset >= segment_count:
+                rem_offset -= segment_count
+                continue
+            chunk = list(segment_qs[rem_offset : rem_offset + rem_limit])
+            result.extend(chunk)
+            rem_limit -= len(chunk)
+            rem_offset = 0
+        return result
+
+    def _prioritized_artefact_ordered_ids(self, base, order_clauses: "list[str]"):
+        # Latest priority_judgment per report (anti-join on a newer same-type row), restricted to the
+        # already-filtered report set, ordered off the partial priority index (incremental sort + LIMIT).
+        priority_type = SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+        has_newer = Exists(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("report_id"),
+                type=priority_type,
+                created_at__gt=OuterRef("created_at"),
+            )
+        )
+        artefacts = SignalReportArtefact.objects.filter(
+            team=self.team, type=priority_type, report_id__in=base.values("id")
+        ).filter(~has_newer)
+        if any((c[1:] if c.startswith("-") else c) == "_artefact_status_rank" for c in order_clauses):
+            artefacts = artefacts.annotate(
+                _artefact_actionability=self._latest_actionability_value_subquery(OuterRef("report_id")),
+            ).annotate(
+                _artefact_status_rank=self._pipeline_status_rank_case("report__status", "_artefact_actionability"),
+            )
+        return artefacts.order_by(*order_clauses).values_list("report_id", flat=True)
+
+    def _null_priority_report_ids(self, base):
+        # Reports in the filtered set with no priority_judgment artefact, ordered by the same secondary keys
+        # as the prioritized segment (the report-side clauses after the leading priority key).
+        priority_type = SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+        secondary = self._parse_signal_report_ordering()[1:]
+        if not any((c[1:] if c.startswith("-") else c) == "id" for c in secondary):
+            secondary = [*secondary, "id"]
+        return (
+            base.filter(~Exists(SignalReportArtefact.objects.filter(report_id=OuterRef("id"), type=priority_type)))
+            .order_by(*secondary)
+            .values_list("id", flat=True)
+        )
+
+    def _hydrate_reports_in_order(self, ordered_ids: "list") -> "list[SignalReport]":
+        # Load the page's reports with the full list annotations/prefetches, preserving the artefact-first order.
+        if not ordered_ids:
+            return []
+        by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ordered_ids)}
+        return [by_id[str(report_id)] for report_id in ordered_ids if str(report_id) in by_id]
 
     @extend_schema(exclude=True)
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
