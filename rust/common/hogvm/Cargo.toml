@@ -14,3 +14,10 @@ regex.workspace = true
 rand.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
+
+[dev-dependencies]
+rayon = "1.10"
+
+[[bench]]
+name = "ingestion"
+harness = false

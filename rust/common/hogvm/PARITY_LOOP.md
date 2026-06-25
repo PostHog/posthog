@@ -113,19 +113,27 @@ PYTHONPATH=.:common /tmp/hogvm-venv/bin/python rust/common/hogvm/scripts/gen_stl
 The committed `stl_oracle.json` means the Rust test runs without the venv; you only need it to
 regenerate after adding/altering cases.
 
-### 2b. Performance (planned) — three modes, ingestion-shaped
-We measure the same compiled programs in three execution modes:
-1. **Pure Node** — the reference TS VM (`common/hogvm/typescript`).
-2. **Pure Rust** — `sync_execute`, single-threaded, as the floor; plus a **rayon** batch mode.
+### 2b. Performance — three modes, ingestion-shaped
+We measure the *same* compiled program (`tests/static/perf_program.json`) over the same event
+stream in three execution modes:
+1. **Pure Node** — the reference TS VM (`common/hogvm/typescript`). *(pending Node harness)*
+2. **Pure Rust** — `sync_execute`, single-threaded floor + a **rayon** parallel batch. *(built)*
 3. **Rust-from-Node via FFI** — the realistic production shape (Node ingestion calls into Rust).
+   *(pending napi-rs binding)*
 
-Scenario: an **ingestion batch** — 10k synthetic events processed in **batches of 2k**, running
-a non-trivial Hog program per event (filters + string/json/date work). We report per-mode
-throughput (events/s) and p50/p99 latency, and the Rust speedup vs Node. The Rust batch path
-uses `rayon` `par_iter` over each batch — the parallelism is the lever for beating Node.
+Scenario: an **ingestion batch** — 10k events in **batches of 2k**, each running a non-trivial Hog
+program (several `arraySort`/`arrayReverse` passes over the event's numeric series — real
+O(n log n) CPU per event, using only ops the Rust VM already implements so all three modes run
+identical bytecode). Events come from a deterministic formula replicated in every harness, so no
+large fixture is shipped and the workload is identical across languages. The program is validated
+against the reference VM before timing (`scripts/gen_perf_workload.py` writes the oracle).
 
-Harness lives as a `criterion` bench for pure-Rust, and a small Node script that times Node vs
-the FFI binding over the identical bytecode + event set.
+Built: `benches/ingestion.rs` (`scripts/run_perf.sh`). A key efficiency point baked in — build the
+STL once per worker and swap `ctx.globals` per event, rather than rebuilding the STL map 10k times.
+
+**First result (4-core sandbox):** single 10.3k events/s; rayon parallel 39.9k events/s — **3.87×
+speedup (~97% efficiency)**. Near-linear scaling is the lever for beating Node; the Node baseline +
+FFI numbers come next to complete the three-way comparison.
 
 ---
 
