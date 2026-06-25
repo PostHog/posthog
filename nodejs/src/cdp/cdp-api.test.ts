@@ -7,8 +7,9 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/api/router'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { HogFlow } from '~/schema/hogflow'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'
@@ -25,7 +26,6 @@ import {
     insertIntegration,
 } from './_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
-import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -1006,7 +1006,6 @@ describe('CDP API', () => {
     // email branch always goes through EmailService directly on this path.
     describe('hog_flows/:id/invocations — email actions are sent inline despite queue routing', () => {
         let emailSpy: jest.SpyInstance
-        let originalMatcher: (teamId: number) => boolean
         let hogFlowId: string
 
         beforeEach(async () => {
@@ -1085,12 +1084,6 @@ describe('CDP API', () => {
             const inserted = await insertHogFlow(hogFlow)
             hogFlowId = inserted.id
 
-            // Simulate CDP_EMAIL_QUEUE_ROUTING='*' (prod-us) without rebuilding the executor — the
-            // matcher is set in the constructor closure, so reaching in is the only way to flip it.
-            const hogExecutor = api['hogExecutor'] as any
-            originalMatcher = hogExecutor.emailQueueMatcher
-            hogExecutor.emailQueueMatcher = () => true
-
             // Stub EmailService so the test doesn't depend on a running maildev SMTP. The spy
             // captures whether the inline path was taken — that's the assertion that proves the fix.
             emailSpy = jest
@@ -1117,7 +1110,6 @@ describe('CDP API', () => {
         })
 
         afterEach(() => {
-            ;(api['hogExecutor'] as any).emailQueueMatcher = originalMatcher
             emailSpy.mockRestore()
         })
 

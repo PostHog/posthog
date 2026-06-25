@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, RateLimitError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import type { ModelOption } from '../modelPickerLogic'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'

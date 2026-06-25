@@ -232,6 +232,11 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
+export interface OrganizationAIAccessRequestResponseApi {
+    /** Whether the access request was accepted and the organization admins were notified. */
+    success: boolean
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -961,6 +966,7 @@ export type ActivityLogListParams = {
      * * `UserGroup` - UserGroup
      * * `BatchExport` - BatchExport
      * * `BatchImport` - BatchImport
+     * * `ExportedAsset` - ExportedAsset
      * * `Integration` - Integration
      * * `Annotation` - Annotation
      * * `Tag` - Tag
@@ -968,6 +974,7 @@ export type ActivityLogListParams = {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -1039,6 +1046,7 @@ export const ActivityLogListScope = {
     UserGroup: 'UserGroup',
     BatchExport: 'BatchExport',
     BatchImport: 'BatchImport',
+    ExportedAsset: 'ExportedAsset',
     Integration: 'Integration',
     Annotation: 'Annotation',
     Tag: 'Tag',
@@ -1046,6 +1054,7 @@ export const ActivityLogListScope = {
     Subscription: 'Subscription',
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+    OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
     AlertConfiguration: 'AlertConfiguration',
@@ -1104,6 +1113,7 @@ export const ActivityLogListScope = {
  * * `UserGroup` - UserGroup
  * * `BatchExport` - BatchExport
  * * `BatchImport` - BatchImport
+ * * `ExportedAsset` - ExportedAsset
  * * `Integration` - Integration
  * * `Annotation` - Annotation
  * * `Tag` - Tag
@@ -1111,6 +1121,7 @@ export const ActivityLogListScope = {
  * * `Subscription` - Subscription
  * * `PersonalAPIKey` - PersonalAPIKey
  * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+ * * `OAuthApplication` - OAuthApplication
  * * `User` - User
  * * `Action` - Action
  * * `AlertConfiguration` - AlertConfiguration
@@ -1170,6 +1181,7 @@ export const ActivityLogListScopesItem = {
     UserGroup: 'UserGroup',
     BatchExport: 'BatchExport',
     BatchImport: 'BatchImport',
+    ExportedAsset: 'ExportedAsset',
     Integration: 'Integration',
     Annotation: 'Annotation',
     Tag: 'Tag',
@@ -1177,6 +1189,7 @@ export const ActivityLogListScopesItem = {
     Subscription: 'Subscription',
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+    OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
     AlertConfiguration: 'AlertConfiguration',

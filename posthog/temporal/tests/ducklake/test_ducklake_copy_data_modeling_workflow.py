@@ -29,7 +29,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 
 
 def _create_mock_catalog():
-    """Create a mock DuckLakeCatalog with cross-account settings."""
+    """Create a mock DuckLakeCatalog."""
     mock_catalog = MagicMock()
     mock_catalog.to_public_config.return_value = {
         "DUCKLAKE_RDS_HOST": "localhost",
@@ -43,12 +43,6 @@ def _create_mock_catalog():
         "DUCKLAKE_S3_SECRET_KEY": "",
     }
     mock_catalog.bucket = "test-bucket"
-    mock_catalog.cross_account_role_arn = "arn:aws:iam::123456789012:role/test-role"
-    mock_catalog.cross_account_external_id = "external-id-123"
-    mock_cross_account_dest = MagicMock()
-    mock_cross_account_dest.role_arn = "arn:aws:iam::123456789012:role/test-role"
-    mock_cross_account_dest.bucket_name = "test-bucket"
-    mock_catalog.to_cross_account_destination.return_value = mock_cross_account_dest
     return mock_catalog
 
 
@@ -248,8 +242,6 @@ def test_copy_data_modeling_model_to_ducklake_activity_via_duckgres(monkeypatch)
     mock_stage.assert_called_once_with(
         source_uri="s3://source/table",
         catalog_bucket="test-bucket",
-        role_arn="arn:aws:iam::123456789012:role/test-role",
-        external_id="external-id-123",
         organization_id="org-123",
     )
     execute_calls = mock_conn.execute.call_args_list
@@ -311,7 +303,7 @@ def test_verify_ducklake_copy_activity_runs_queries(monkeypatch):
         MagicMock(return_value=_create_mock_catalog()),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_connection",
         MagicMock(),
     )
 
@@ -369,8 +361,8 @@ async def test_ducklake_copy_workflow_skips_when_feature_flag_disabled(monkeypat
         call_counts["copy"] += 1
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         lambda *args, **kwargs: False,
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_modeling_ducklake_metadata_activity", metadata_stub)
@@ -460,7 +452,7 @@ def test_verify_ducklake_copy_activity_reports_failures(monkeypatch):
         MagicMock(return_value=_create_mock_catalog()),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_connection",
         MagicMock(),
     )
 
@@ -616,7 +608,7 @@ def test_verify_ducklake_copy_activity_respects_tolerance(monkeypatch, observed,
         MagicMock(return_value=_create_mock_catalog()),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_connection",
         MagicMock(),
     )
 
@@ -697,7 +689,7 @@ def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypatch):
         MagicMock(return_value=_create_mock_catalog()),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_connection",
         MagicMock(),
     )
 
@@ -855,8 +847,8 @@ async def test_ducklake_copy_workflow_runs_when_feature_flag_enabled(monkeypatch
         return []
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         lambda *args, **kwargs: True,
     )
 
@@ -938,8 +930,8 @@ async def test_ducklake_copy_workflow_calls_cleanup_after_verify(monkeypatch, at
         call_counts["cleanup"] += 1
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_modeling_ducklake_metadata_activity", metadata_stub)

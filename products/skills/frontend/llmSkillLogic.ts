@@ -14,17 +14,17 @@ import {
     llmSkillsNameFilesRetrieve,
     llmSkillsNamePartialUpdate,
     llmSkillsResolveNameRetrieve,
-} from 'products/ai_observability/frontend/generated/api'
+} from 'products/skills/frontend/generated/api'
 import type {
     LLMSkillApi,
     LLMSkillFileApi,
     LLMSkillFileInputApi,
     LLMSkillListApi,
     LLMSkillVersionSummaryApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
+} from 'products/skills/frontend/generated/api.schemas'
 
 import type { llmSkillLogicType } from './llmSkillLogicType'
-import { llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'
+import { exportAndDownloadSkill, llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'
 import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from './skillConstants'
 
 export enum SkillMode {
@@ -135,6 +135,8 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         setFileContentsLoading: (loading: boolean) => ({ loading }),
         toggleOutlineExpanded: true,
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
+        downloadSkill: true,
+        setDownloadingZip: (downloadingZip: boolean) => ({ downloadingZip }),
     }),
 
     reducers(({ props }) => ({
@@ -191,6 +193,12 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             {
                 setCompareVersion: () => null,
                 loadSkillSuccess: () => null,
+            },
+        ],
+        downloadingZip: [
+            false,
+            {
+                setDownloadingZip: (_, { downloadingZip }) => downloadingZip,
             },
         ],
     })),
@@ -399,6 +407,23 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
     }),
 
     listeners(({ actions, props, values }) => ({
+        downloadSkill: async () => {
+            if (props.skillName === 'new') {
+                return
+            }
+            actions.setDownloadingZip(true)
+            try {
+                await exportAndDownloadSkill(props.skillName)
+            } catch (e) {
+                console.error('Failed to export skill', e)
+                const detail =
+                    e !== null && typeof e === 'object' && 'detail' in e ? (e as { detail?: string }).detail : undefined
+                lemonToast.error(detail || (e instanceof Error ? e.message : 'Failed to export skill'))
+            } finally {
+                actions.setDownloadingZip(false)
+            }
+        },
+
         deleteSkill: async () => {
             if (props.skillName !== 'new' && values.skill && isSkill(values.skill)) {
                 try {

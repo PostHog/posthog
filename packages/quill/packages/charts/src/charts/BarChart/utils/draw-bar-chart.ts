@@ -1,9 +1,9 @@
 import { color as d3Color } from 'd3-color'
 
-import { bandCenter, type BarChartPrivate, computeBarTrackRect, computeSeriesBars } from '../../../core/bar-layout'
+import { bandCenter, type BarChartPrivate, buildBarLayers, computeBarTrackRect } from '../../../core/bar-layout'
 import {
+    BAR_HIGHLIGHT_DARKEN,
     BAR_TRACK_HOVER_ALPHA,
-    type BarRect,
     type BarShadow,
     clipToRoundedRects,
     drawAxes,
@@ -16,7 +16,6 @@ import {
 import { barColorAt } from '../../../core/color-utils'
 import type { BarScaleSet, StackedBand } from '../../../core/scales'
 import type { BarChartConfig, BarFillStyle, BarsConfig, ChartDimensions, ChartDrawArgs } from '../../../core/types'
-import { DEFAULT_Y_AXIS_ID } from '../../../core/types'
 import { computeVisibleXLabels } from '../../../overlays/AxisLabels'
 import { resolveBarShadow } from './bar-config'
 import { type BarLayout } from './bars-under-cursor'
@@ -129,21 +128,15 @@ export function drawBarChartStatic(
         drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
     }
 
-    const seriesBars = coloredSeries
-        .filter((s) => !s.visibility?.excluded)
-        .map((s) => {
-            const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-            const bars = computeSeriesBars({
-                series: s,
-                labels: drawLabels,
-                scales: d3Scales,
-                layout: barLayout,
-                isHorizontal,
-                stackedBand: stackedData?.get(s.key),
-                isTopOfStack: topStackedKeyByAxis.get(axisId) === s.key,
-            }).filter((b): b is BarRect => b !== null)
-            return { series: s, bars }
-        })
+    const seriesBars = buildBarLayers({
+        series: coloredSeries,
+        labels: drawLabels,
+        scales: d3Scales,
+        layout: barLayout,
+        isHorizontal,
+        stackedData,
+        topStackedKeyByAxis,
+    })
 
     // `roundStackEnds`: round both outer ends of the whole stack into a pill by clipping
     // the bar layer to a rounded rect spanning each band's full extent, then drawing the
@@ -226,7 +219,7 @@ export function drawBarHoverItems(
             )
         } else {
             const barColor = barColorAt(s, bar.dataIndex)
-            const highlightColor = d3Color(barColor)?.darker(0.6).toString() ?? barColor
+            const highlightColor = d3Color(barColor)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? barColor
             drawBarHighlight(ctx, bar, highlightColor, highlightRadius)
         }
     }

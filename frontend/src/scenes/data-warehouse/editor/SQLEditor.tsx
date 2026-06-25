@@ -14,6 +14,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
+import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -63,6 +64,9 @@ interface SQLEditorProps {
     runQueryDisabledReason?: string
     runQueryTooltip?: string
     onShareTab?: () => void
+    queryPaneDefaultHeight?: number
+    /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
+    autoFocusQueryPane?: boolean
 }
 
 export function SQLEditor({
@@ -77,6 +81,8 @@ export function SQLEditor({
     runQueryDisabledReason,
     runQueryTooltip,
     onShareTab,
+    queryPaneDefaultHeight,
+    autoFocusQueryPane,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -97,6 +103,7 @@ export function SQLEditor({
             navigatorRef,
             sidebarRef,
             databaseTreeRef,
+            queryPaneDefaultHeight,
             sourceNavigatorResizerProps: {
                 containerRef: navigatorRef,
                 logicKey: 'source-navigator',
@@ -120,7 +127,7 @@ export function SQLEditor({
                 marginTop: mode === SQLEditorMode.FullScene ? 8 : 0,
             },
         }),
-        [mode]
+        [mode, queryPaneDefaultHeight]
     )
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(
@@ -243,6 +250,7 @@ export function SQLEditor({
                                                             runQueryDisabledReason={runQueryDisabledReason}
                                                             runQueryTooltip={runQueryTooltip}
                                                             onShareTab={onShareTab}
+                                                            autoFocusQueryPane={autoFocusQueryPane}
                                                         />
                                                     </div>
                                                 </div>
@@ -250,6 +258,7 @@ export function SQLEditor({
                                         </BindLogic>
                                     )}
                                     <MaterializationModal tabId={tabId || ''} />
+                                    <AccessControlModal />
                                     {!mode || mode === SQLEditorMode.FullScene ? <ViewLinkModal /> : null}
                                 </BindLogic>
                             </BindLogic>
@@ -286,6 +295,28 @@ function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
                 )}
             </div>
         </LemonModal>
+    )
+}
+
+function AccessControlModal(): JSX.Element | null {
+    const { accessControlModalOpen, editingAccessControlObject } = useValues(sqlEditorLogic)
+    const { closeAccessControlModal } = useActions(sqlEditorLogic)
+
+    if (!editingAccessControlObject) {
+        return null
+    }
+
+    return (
+        <AccessControlObjectModal
+            isOpen={accessControlModalOpen}
+            onClose={closeAccessControlModal}
+            resource={editingAccessControlObject.resource}
+            resource_id={editingAccessControlObject.resourceId}
+            title={editingAccessControlObject.name}
+            description={`Control who can query this ${
+                editingAccessControlObject.resource === AccessControlResourceType.WarehouseTable ? 'table' : 'view'
+            }. Users without access won't see it and queries referencing it will fail for them.`}
+        />
     )
 }
 

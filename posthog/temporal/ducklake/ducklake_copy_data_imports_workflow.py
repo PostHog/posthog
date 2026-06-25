@@ -8,7 +8,6 @@ from django.conf import settings
 
 import duckdb
 import deltalake
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -17,6 +16,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.ducklake.common import (
     _get_org_id_for_team,
     attach_catalog,
+    duckgres_data_imports_schema,
     get_config,
     get_duckgres_server_for_organization,
     get_ducklake_catalog_by_team_org,
@@ -41,6 +41,7 @@ from posthog.ducklake.verification import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -51,6 +52,9 @@ from posthog.temporal.ducklake.metrics import (
 )
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
+    DUCKGRES_BATCH_SINK_FLAG,
+)
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
@@ -155,8 +159,30 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
         await logger.aerror("Team does not exist when evaluating DuckLake data imports gate")
         return False
 
+    # Mutual exclusion with the Duckgres v3 batch sink: both writers target the
+    # same posthog_data_imports_team_{id} tables with zero coordination, so a
+    # team must never have both enabled. The sink wins.
     try:
-        return posthoganalytics.feature_enabled(
+        if feature_enabled_or_false(
+            DUCKGRES_BATCH_SINK_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            send_feature_flag_events=False,
+        ):
+            await logger.ainfo("DuckLake copy workflow skipped: duckgres batch sink owns this team's tables")
+            return False
+    except Exception as error:
+        await logger.awarning(
+            "Failed to evaluate duckgres batch sink flag; continuing with copy-workflow gate",
+            error=str(error),
+        )
+        capture_exception(error)
+
+    try:
+        return feature_enabled_or_false(
             "ducklake-data-imports-copy-workflow",
             str(team.uuid),
             groups={
@@ -195,6 +221,11 @@ async def prepare_data_imports_ducklake_metadata_activity(
         await logger.ainfo("DuckLake copy requested but no schema_ids were provided - skipping")
         return []
 
+    # Resolve the same per-team schema the v3 sink uses (table_suffix-aware), so the
+    # historical copy and the live sink never diverge on schema name. All schemas in the
+    # batch belong to one team, so this is loop-invariant — resolve it once.
+    ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
+
     model_list: list[DuckLakeCopyDataImportsMetadata] = []
 
     for schema_id in inputs.schema_ids:
@@ -221,7 +252,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 source_schema_name=schema.name,
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
-                ducklake_schema_name=f"posthog_data_imports_team_{inputs.team_id}",
+                ducklake_schema_name=ducklake_schema_name,
                 ducklake_table_name=sanitize_ducklake_identifier(
                     f"{source_type}_{schema.source.prefix}_{normalized_name}"
                     if schema.source.prefix
@@ -296,8 +327,6 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
     stage_delta_table(
         source_uri=inputs.model.source_table_uri,
         catalog_bucket=catalog.bucket,
-        role_arn=catalog.cross_account_role_arn,
-        external_id=catalog.cross_account_external_id,
         organization_id=org_id,
     )
 
@@ -334,8 +363,6 @@ def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingClea
         return
     cleanup_staged_files(
         staging_uri=inputs.staging_uri,
-        role_arn=catalog.cross_account_role_arn,
-        external_id=catalog.cross_account_external_id,
     )
 
 

@@ -16,8 +16,8 @@ module.exports = {
     // with jest-image-snapshot's outdated snapshot reporter
     reporters: [...(baseConfig.reporters || ['default']), 'jest-image-snapshot/src/outdated-snapshot-reporter.js'],
     testTimeout: 60000,
-    testEnvironment: './test-runner-jest-environment.js',
-    snapshotResolver: './test-snapshot-resolver.js',
+    testEnvironment: './common/storybook/test-runner-jest-environment.js',
+    snapshotResolver: './common/storybook/test-snapshot-resolver.js',
     testPathIgnorePatterns: ['/node_modules/', '/rust/cymbal/tests/snapshots/'],
     testSequencer: path.resolve(__dirname, 'test-sequencer.js'),
 }

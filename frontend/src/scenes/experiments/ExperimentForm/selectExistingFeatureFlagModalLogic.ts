@@ -4,23 +4,18 @@ import { loaders } from 'kea-loaders'
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { toParams } from 'lib/utils/url'
 import { FLAGS_PER_PAGE } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagType } from '~/types'
 
+import type { FeatureFlagModalFilters } from '../experimentsLogic'
 import type { selectExistingFeatureFlagModalLogicType } from './selectExistingFeatureFlagModalLogicType'
 
-export interface FeatureFlagModalFilters {
-    active?: string
-    created_by_id?: number
-    search?: string
-    order?: string
-    page?: number
-    evaluation_runtime?: string
-}
+// Canonical definition lives in experimentsLogic; re-exported so existing importers keep working.
+export type { FeatureFlagModalFilters }
 
 const DEFAULT_FILTERS: FeatureFlagModalFilters = {
     active: undefined,

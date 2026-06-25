@@ -21,9 +21,11 @@ vi.mock('@/hono/analytics', () => ({
 }))
 
 vi.mock('@/hono/instructions', () => ({
-    InstructionsBuilder: vi.fn().mockImplementation(() => ({
-        build: mockBuildInstructions,
-    })),
+    InstructionsBuilder: vi.fn().mockImplementation(function () {
+        return {
+            build: mockBuildInstructions,
+        }
+    }),
 }))
 
 vi.mock('@/hono/metrics', () => ({
@@ -32,20 +34,24 @@ vi.mock('@/hono/metrics', () => ({
 }))
 
 vi.mock('@/hono/request-state-resolver', () => ({
-    RequestStateResolver: vi.fn().mockImplementation(() => ({
-        resolve: mockResolveState,
-    })),
+    RequestStateResolver: vi.fn().mockImplementation(function () {
+        return {
+            resolve: mockResolveState,
+        }
+    }),
 }))
 
 vi.mock('@/hono/resource-catalog', () => ({
-    ResourceCatalog: vi.fn().mockImplementation(() => ({
-        getPrompt: vi.fn(() => ({ messages: [] })),
-        getPromptsList: vi.fn(() => ({ prompts: [] })),
-        getResourcesList: vi.fn(() => ({ resources: [] })),
-        readResource: vi.fn(async () => ({ contents: [] })),
-        revalidateContextMillResources: mockRevalidateContextMillResources,
-        warmup: vi.fn(async () => {}),
-    })),
+    ResourceCatalog: vi.fn().mockImplementation(function () {
+        return {
+            getPrompt: vi.fn(() => ({ messages: [] })),
+            getPromptsList: vi.fn(() => ({ prompts: [] })),
+            getResourcesList: vi.fn(() => ({ resources: [] })),
+            readResource: vi.fn(async () => ({ contents: [] })),
+            revalidateContextMillResources: mockRevalidateContextMillResources,
+            warmup: vi.fn(async () => {}),
+        }
+    }),
 }))
 
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js'

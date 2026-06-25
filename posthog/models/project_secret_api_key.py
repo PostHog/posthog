@@ -1,6 +1,7 @@
 from typing import Optional
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils import timezone
 
@@ -51,7 +52,12 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
 
     class Meta:
         db_table = "posthog_projectsecretapikey"
-        indexes = [models.Index(fields=["team", "created_at"])]
+        indexes = [
+            models.Index(fields=["team", "created_at"]),
+            # `scopes` is filtered with the array `@>` operator (scopes__contains) on
+            # the gateway-credential refresh; GIN makes it an index scan, not a seq scan.
+            GinIndex(fields=["scopes"], name="projectsecretapikey_scopes_gin"),
+        ]
         constraints = [models.UniqueConstraint(fields=["team", "label"], name="unique_team_label")]
 
 

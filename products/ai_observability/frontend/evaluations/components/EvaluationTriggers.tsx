@@ -21,7 +21,7 @@ export function EvaluationTriggers(): JSX.Element {
     const addConditionSet = (): void => {
         const newCondition: EvaluationConditionSet = {
             id: `cond-${Date.now()}`,
-            rollout_percentage: 0,
+            rollout_percentage: 100,
             properties: [],
         }
         setTriggerConditions([...evaluation.conditions, newCondition])

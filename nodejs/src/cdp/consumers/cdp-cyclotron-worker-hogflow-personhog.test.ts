@@ -2,10 +2,10 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
 
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'

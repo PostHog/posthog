@@ -278,7 +278,7 @@ Harness-level:
 - `signals-scout-emit-signal` / `signals-scout-scratchpad-remember` — emit / remember.
 
 For deeper investigation, the sandbox image bakes
-`posthog:auditing-warehouse-data-health` (catches Stripe-source failures upstream of
+`posthog:auditing-warehouse-source-health` (catches Stripe-source failures upstream of
 revenue analytics) and `posthog:diagnosing-failed-warehouse-syncs` (recovery actions
 for a failing sync).
 

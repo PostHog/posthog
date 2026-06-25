@@ -1,6 +1,7 @@
 import { serveStatic } from '@hono/node-server/serve-static'
 import type { Hono } from 'hono'
 
+import { isLocalApi } from '@/lib/constants'
 import { buildRedirectUrl, getPublicUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 
@@ -80,6 +81,17 @@ const authRedirectHandler = (c: HonoCtx): Response => {
  * resource metadata, MCP UI app static assets, and auth-server fallback redirects.
  */
 export function registerPublicRoutes(app: Hono, redis: RedisWithPing, lifecycle: Lifecycle): void {
+    // The client (e.g. Claude Desktop) caches UI app bundles, so after rebuilding them
+    // locally it can keep serving the old version and your changes won't show up.
+    // Disable caching in dev so rebuilds are always reflected.
+    // Prod keeps its default caching.
+    app.use('/ui-apps/*', async (c, next) => {
+        await next()
+        if (isLocalApi()) {
+            c.header('Cache-Control', 'no-store')
+        }
+    })
+
     // MCP UI app static assets. The CF runtime serves these via the Workers
     // Static Assets binding (`wrangler.jsonc`'s `assets.directory: ./public/`);
     // here we serve them from disk so the same `${MCP_APPS_BASE_URL}/ui-apps/...`

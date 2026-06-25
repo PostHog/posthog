@@ -5,8 +5,8 @@ import { initKeaTests } from '~/test/init'
 
 import { logsIngestionLogic } from './logsIngestionLogic'
 
-jest.mock('lib/utils', () => ({
-    ...jest.requireActual('lib/utils'),
+jest.mock('lib/utils/async', () => ({
+    ...jest.requireActual('lib/utils/async'),
     delay: () => Promise.resolve(),
 }))
 

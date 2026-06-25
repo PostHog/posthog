@@ -8,7 +8,7 @@ from django.test.client import Client as HttpClient
 def create_external_data_source_ok(client: HttpClient, team_id: int) -> int:
     """Create an external data source and return the id."""
     with patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     ):
         response = client.post(

@@ -63,7 +63,8 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
     counts off the activity log, cross-cutting orientation across every entity type),
     and per-entity recent inventory (`recent_surveys`, `recent_feature_flags`,
     `recent_experiments`, `recent_alerts`, `recent_hog_functions`, `recent_hog_flows`,
-    `recent_notebooks`, `recent_cohorts`, `recent_actions`, `recent_dashboards`).
+    `recent_notebooks`, `recent_cohorts`, `recent_actions`, `recent_dashboards`,
+    `business_knowledge`).
     Per-entity sections are deliberately light (counts + 5 most-recent items with
     name, status, timestamp); deep drilldowns go via the per-entity MCP list tools.
     See the module docstring at `profile/builders.py` for the authoritative section
@@ -74,18 +75,35 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   `ACTIVITY_SLACK_S`, and `WORKFLOW_HARD_CEILING_S` (`= DEFAULT_MAX_RUNTIME_S +
 ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   `start_to_close_timeout`).
+- `team_limits.py`
+  Single source of truth for a team's effective scout caps + metadata, resolved from the
+  `signals-scout` flag payload in one read. The same three-layer cap resolution
+  (`team_configs[team]` → `default_team_config` → code constant) the coordinator enforces at
+  dispatch, plus enrollment (`_parse_enrollment` → `guaranteed_team_ids` / `skip_team_ids`, with a
+  cloud/dev-gated fallback) and the editorial banner string. `guaranteed_team_ids` may contain the
+  `"*"` wildcard (`ENROLL_ALL_TOKEN`): with it, enrollment inverts from an explicit allowlist to
+  "every team that has enabled scout configs" — the self-serve gate, where the product-autonomy-
+  gated UI creates the configs; explicit ids alongside `"*"` are still force-provisioned and
+  `skip_team_ids` still hard-excludes. The global per-tick ceiling is flag-tunable too
+  (`_resolve_global_max_runs_per_tick` ← `max_runs_per_tick_global`, default `MAX_RUNS_PER_TICK`).
+  Kept free of the temporalio stack so it stays cheap to import on the API path; both the
+  coordinator and the metadata endpoint import from here so the reported caps never drift from what
+  dispatch allows. `resolve_team_metadata()` backs the metadata viewset;
+  `seed_config_layers_for_team()` lets the on-demand `sync` endpoint seed the same launch posture.
 - `serializers.py`
   DRF serializers for the harness HTTP surface (runs, scratchpad, project profile).
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
 - `views.py`
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
-  `SignalProjectProfileViewSet`.
+  `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
   and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
   The config viewset is the no-wait creation path: `create` registers (upserts) a
   config for an already-authored skill with its schedule/emit posture in one call.
   `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never
-  mints config rows.
+  mints config rows. The metadata viewset is the read-only `scout/metadata/current/`
+  endpoint that reports enrollment + banner + enforced limits via
+  `team_limits.resolve_team_metadata`.
 
 ## Mental model
 
@@ -97,8 +115,10 @@ one sandbox session → zero or more emitted signals.
   live on `task_run`, not on the bridge row. Single-flight is a best-effort app-layer guard:
   `_has_running_run` skips dispatch when a prior run for the same `(team, skill_name)` has
   `task_run.status = IN_PROGRESS`. The old `WHERE status='running'` partial unique index was
-  dropped in the bridge simplification; a `task_run.status`-based constraint plus active
-  stale-run recovery (`_self_heal_stale_runs` is a no-op today) is a tracked follow-up.
+  dropped in the bridge simplification; `_self_heal_stale_runs` now reaps the orphan case at
+  the app layer (failing any `QUEUED`/`IN_PROGRESS` run older than `STALE_RUN_CUTOFF_S` before
+  the guard), so a worker crash no longer wedges a lane permanently. A `task_run.status`-based
+  DB constraint is still a possible follow-up for stronger single-flight guarantees.
 - The sandbox is opened with the team's MCP token plus the harness-internal tools.
   The skill body is loaded into the system prompt; each scout has its own
   `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag and
@@ -110,6 +130,13 @@ one sandbox session → zero or more emitted signals.
   (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key for the
   LLM-analytics token / cost roll-up. Failure context (status, error, full chat log via
   LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
+- Each run emits scout-owned lifecycle analytics events (best-effort, keyed on the team):
+  `signals_scout_run_started` (the run cleared the guards and a TaskRun exists),
+  `signals_scout_run_finished` (terminal: `completed`/`failed`/`cancelled` + runtime + emit
+  count), and `signals_scout_run_reaped` (a stranded orphan was reaped by
+  `_self_heal_stale_runs`). They join on `run_id`/`task_run_id` and are the event-derived
+  (no-warehouse-lag) basis for throughput, stall, and worker-death alerting — a `started`
+  with no `finished` is a run that died before finalize; a reaped run emits no `finished`.
 - Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()`
   with `source_product="signals_scout"` and `source_type="cross_source_issue"`.
   From there the signal flows through the same emitter → buffer → grouping v2 path
@@ -137,7 +164,7 @@ one sandbox session → zero or more emitted signals.
 
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
   Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose
-  per-scout schedule (`run_interval_minutes`, default hourly) is due, most-overdue
+  per-scout schedule (`run_interval_minutes`, default every 24 hours) is due, most-overdue
   first, hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to
   drop ticks rather than queue them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,
@@ -165,9 +192,10 @@ one sandbox session → zero or more emitted signals.
   every team.
 - Run lifecycle lives on the linked `TaskRun` (`task_run.status`), managed by
   `MultiTurnSession` — the `SignalScoutRun` bridge row carries no status of its own. A
-  `TaskRun` stranded in `IN_PROGRESS` (worker SIGKILL before finalize) blocks new runs for
-  that `(team, skill)` via `_has_running_run` until it transitions out; active recovery of
-  such rows is a deferred follow-up (`_self_heal_stale_runs` is currently a no-op).
+  `TaskRun` stranded in `IN_PROGRESS` (worker SIGKILL before finalize) would block new runs
+  for that `(team, skill)` via `_has_running_run` — so `_self_heal_stale_runs` fails any such
+  run older than `STALE_RUN_CUTOFF_S` before the guard, letting the lane recover within a tick
+  or two instead of wedging until manual intervention.
 - Emit path goes through `emit_signal()` and only `emit_signal()`. Do not write to
   the embeddings pipeline or `SignalReport` directly from harness code.
 - **If you add or rename a workflow/activity in `temporal/agentic/`, update

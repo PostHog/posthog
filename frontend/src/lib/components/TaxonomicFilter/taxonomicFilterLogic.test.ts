@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import {
     isSkeletonItem,
@@ -10,6 +11,7 @@ import {
     taxonomicFilterLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -34,8 +36,8 @@ describe('taxonomicFilterLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions': (res) => {
-                    const search = res.url.searchParams.get('search')
+                '/api/projects/:team/event_definitions': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
                     const results = search
                         ? mockEventDefinitions.filter((e) => e.name.includes(search))
                         : mockEventDefinitions
@@ -47,8 +49,8 @@ describe('taxonomicFilterLogic', () => {
                         },
                     ]
                 },
-                '/api/environments/:team/sessions/property_definitions': (res) => {
-                    const search = res.url.searchParams.get('search')
+                '/api/environments/:team/sessions/property_definitions': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
                     const results = search
                         ? mockSessionPropertyDefinitions.filter((e) => e.name.includes(search))
                         : mockSessionPropertyDefinitions
@@ -187,6 +189,29 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    it('emits search latency for the active remote tab when its results land', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const eventsListLogic = infiniteListLogic({
+            ...logic.props,
+            listGroupType: TaxonomicFilterGroupType.Events,
+        })
+
+        await expectLogic(eventsListLogic, () => logic.actions.setSearchQuery('event')).toDispatchActions([
+            'loadRemoteItemsSuccess',
+        ])
+        await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1)
+
+        const latencyCall = captureSpy.mock.calls.find(([event]) => event === 'taxonomic filter search latency')
+        expect(latencyCall).toBeTruthy()
+        expect(latencyCall?.[1]).toMatchObject({
+            groupType: TaxonomicFilterGroupType.Events,
+            searchQuery: 'event',
+            time_to_see_data_ms: expect.any(Number),
+        })
+
+        captureSpy.mockRestore()
+    })
+
     it('tabs skip groups with no results', async () => {
         await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1).clearHistory()
 
@@ -226,8 +251,8 @@ describe('taxonomicFilterLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': (res) => {
-                        const search = res.url.searchParams.get('search')
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const search = new URL(request.url).searchParams.get('search')
                         const results = search
                             ? eventsWithPageview.filter((e) => e.name.toLowerCase().includes(search.toLowerCase()))
                             : eventsWithPageview
@@ -732,29 +757,98 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
-    describe('SuggestedFilters presence', () => {
+    describe('SuggestedFilters presence by variant', () => {
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'control',
+            })
+        })
+
         it.each([
             {
+                description: 'control: includes SuggestedFilters when explicitly listed',
+                variant: 'control',
                 groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                expectQuickFilters: true,
-                description: 'includes SuggestedFilters when listed in groupTypes',
+                expectPresent: true,
+                expectDefault: true,
             },
             {
+                description: 'control: does not auto-inject SuggestedFilters for a multi-group picker',
+                variant: 'control',
                 groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-                expectQuickFilters: false,
-                description: 'excludes SuggestedFilters when not listed in groupTypes',
+                expectPresent: false,
+                expectDefault: false,
             },
-        ])('$description', ({ groupTypes, expectQuickFilters }) => {
+            {
+                description: 'pill: auto-injects SuggestedFilters as the default for a multi-group picker',
+                variant: 'pill',
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                expectPresent: true,
+                expectDefault: true,
+            },
+            {
+                description: 'pill: does not auto-inject SuggestedFilters for a single substantive group',
+                variant: 'pill',
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                expectPresent: false,
+                expectDefault: false,
+            },
+        ])('$description', ({ variant, groupTypes, expectPresent, expectDefault }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
+            })
+
             const testLogicProps: TaxonomicFilterLogicProps = {
-                taxonomicFilterLogicKey: `testOptIn-${groupTypes.join('-')}`,
+                taxonomicFilterLogicKey: `testVariant-${variant}-${groupTypes.join('-')}`,
                 taxonomicGroupTypes: groupTypes,
             }
             const testLogic = taxonomicFilterLogic(testLogicProps)
             testLogic.mount()
 
             expect(testLogic.values.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)).toBe(
-                expectQuickFilters
+                expectPresent
             )
+            if (expectDefault) {
+                expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+            } else {
+                expect(testLogic.values.activeTab).not.toBe(TaxonomicFilterGroupType.SuggestedFilters)
+            }
+
+            testLogic.unmount()
+        })
+
+        it('pill flag resolving after mount still makes SuggestedFilters the default tab', () => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'testLateFlagDefault',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+            testLogic.mount()
+
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Events)
+
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            expect(testLogic.values.taxonomicGroupTypes).toContain(TaxonomicFilterGroupType.SuggestedFilters)
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+
+            testLogic.unmount()
+        })
+
+        it('an explicit tab choice made before the pill flag resolves is kept', () => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'testLateFlagExplicit',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+            testLogic.mount()
+
+            testLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Actions)
 
             testLogic.unmount()
         })

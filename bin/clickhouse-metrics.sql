@@ -262,4 +262,19 @@ AS
     FROM kafka_metrics_avro
     group by _partition, _topic;
 
+-- Read aliases in the `posthog` database.
+-- The product connection uses CLICKHOUSE_DATABASE=posthog and resolves the
+-- bare names `metrics`, `metric_attributes`, `metrics_kafka_metrics` there,
+-- while everything above lives in `default` (this script runs unqualified
+-- through docker clickhouse-client). Without these aliases the product reads
+-- empty same-named tables in `posthog` while data accumulates in `default`.
+DROP TABLE IF EXISTS posthog.metrics1_to_metric_attributes;
+DROP TABLE IF EXISTS posthog.metrics1_to_resource_attributes;
+DROP TABLE IF EXISTS posthog.metrics1;
+CREATE OR REPLACE TABLE posthog.metrics AS default.metrics1 ENGINE = Distributed('posthog', 'default', 'metrics1');
+DROP TABLE IF EXISTS posthog.metric_attributes;
+CREATE TABLE posthog.metric_attributes AS default.metric_attributes ENGINE = Distributed('posthog', 'default', 'metric_attributes');
+DROP TABLE IF EXISTS posthog.metrics_kafka_metrics;
+CREATE TABLE posthog.metrics_kafka_metrics AS default.metrics_kafka_metrics ENGINE = Distributed('posthog', 'default', 'metrics_kafka_metrics');
+
 select 'clickhouse metrics tables initialised successfully!';

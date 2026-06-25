@@ -24,9 +24,9 @@ RUN apt-get update && \
     "g++" \
     "gcc" \
     "python3" \
-    "librdkafka1=2.10.1-1.cflt~deb12" \
-    "librdkafka++1=2.10.1-1.cflt~deb12" \
-    "librdkafka-dev=2.10.1-1.cflt~deb12" \
+    "librdkafka1=2.12.0-1.cflt~deb12" \
+    "librdkafka++1=2.12.0-1.cflt~deb12" \
+    "librdkafka-dev=2.12.0-1.cflt~deb12" \
     # libssl pinned to the 3.0 series (ABI-stable), not an exact version: Debian rotates
     # point releases out of the security archive, which breaks exact pins on uncached builds.
     "libssl-dev=3.0.*" \
@@ -106,8 +106,8 @@ RUN apt-get update && \
     echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
-    "librdkafka1=2.10.1-1.cflt~deb12" \
-    "librdkafka++1=2.10.1-1.cflt~deb12" \
+    "librdkafka1=2.12.0-1.cflt~deb12" \
+    "librdkafka++1=2.12.0-1.cflt~deb12" \
     # libssl pinned to the 3.0 series (ABI-stable), not an exact version: Debian rotates
     # point releases out of the security archive, which breaks exact pins on uncached builds.
     "libssl3=3.0.*" \

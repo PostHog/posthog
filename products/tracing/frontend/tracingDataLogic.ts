@@ -7,7 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
@@ -19,6 +19,7 @@ import {
     type VisibleDurationRange,
     visibleDurationRange,
 } from './durationBuckets'
+import { traceLookupDateRange } from './traceLinks'
 import type { tracingDataLogicType } from './tracingDataLogicType'
 import { type TracingFilters, type TracingOrderBy, tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
@@ -54,6 +55,23 @@ function isUserInitiatedError(error: unknown): boolean {
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
+// A ts hint (from a shared/cold link) bounds the lookup tightly around the trace instead of the
+// scene's current date range — the table is time-keyed, so this is what keeps an id lookup from
+// scanning the whole window. Guard validity: a hand-edited/corrupted ts would otherwise make dayjs
+// throw on toISOString().
+function resolveTraceLookupRange(
+    ts: string | null | undefined,
+    utcDateRange: { date_from?: string | null; date_to?: string | null }
+): { date_from?: string | null; date_to?: string | null } {
+    if (ts && dayjs(ts).isValid()) {
+        return traceLookupDateRange(ts)
+    }
+    return {
+        date_from: utcDateRange.date_from ?? '-24h',
+        date_to: utcDateRange.date_to ?? undefined,
+    }
+}
+
 function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'): void {
     if (count === 0) {
         posthog.capture('tracing no results returned', { query_type: queryType })
@@ -72,6 +90,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     actions({
         runQuery: true,
         fetchNextPage: true,
+        loadMoreTraceSpans: true,
+        setTracePagination: (hasMore: boolean, nextOffset: number | null) => ({ hasMore, nextOffset }),
         clearSpans: true,
         cancelInProgressSpans: (controller: AbortController | null) => ({ controller }),
         cancelInProgressSparkline: (controller: AbortController | null) => ({ controller }),
@@ -201,6 +221,46 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 clearSpans: () => null,
             },
         ],
+        // Whether the open trace has more spans than the loaded pages (drives the waterfall's
+        // infinite scroll). Reset on every fresh trace open so a small trace can't inherit a
+        // previous trace's "load more" affordance.
+        traceSpansHasMore: [
+            false as boolean,
+            {
+                setTracePagination: (_, { hasMore }) => hasMore,
+                loadTraceSpans: () => false,
+            },
+        ],
+        // Offset to request for the next waterfall page (count of spans already loaded for the trace).
+        traceSpansNextOffset: [
+            0 as number,
+            {
+                setTracePagination: (_, { nextOffset }) => nextOffset ?? 0,
+                loadTraceSpans: () => 0,
+            },
+        ],
+        // The trace + ts the loaded spans belong to, so `loadMoreTraceSpans` can refetch the next
+        // page with the same lookup window without re-deriving it from a since-shifted date range.
+        traceLoadContext: [
+            null as { traceId: string; ts?: string | null } | null,
+            {
+                loadTraceSpans: (_, { traceId, ts }) => ({ traceId, ts }),
+                clearSpans: () => null,
+            },
+        ],
+        // Separate from the loader's own `traceSpansLoading` so paging in more spans shows a small
+        // bottom spinner rather than the drawer's full-trace overlay (see `isLoadingFullTrace`).
+        traceSpansLoadingMore: [
+            false as boolean,
+            {
+                loadMoreTraceSpans: () => true,
+                loadMoreTraceSpansSuccess: () => false,
+                loadMoreTraceSpansFailure: () => false,
+                // A fresh trace fetch must show the full-trace overlay even if a stale load-more is
+                // still in flight.
+                loadTraceSpans: () => false,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
@@ -271,16 +331,45 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         traceSpans: [
             [] as Span[],
             {
-                loadTraceSpans: async (traceId: string): Promise<Span[]> => {
+                loadTraceSpans: async ({ traceId, ts }: { traceId: string; ts?: string | null }): Promise<Span[]> => {
                     const response = await api.tracing.getTrace(traceId, {
-                        dateRange: {
-                            date_from: values.utcDateRange.date_from ?? '-24h',
-                            date_to: values.utcDateRange.date_to ?? undefined,
-                        },
+                        dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                     })
+                    actions.setTracePagination(!!response.hasMore, response.nextOffset ?? null)
                     return response.results as Span[]
+                },
+                // Infinite scroll: page in the next batch of the open trace's spans (earliest first)
+                // and append. Guarded so a trailing scroll event after the last page is a no-op.
+                loadMoreTraceSpans: async (): Promise<Span[]> => {
+                    if (!values.traceSpansHasMore || !values.traceLoadContext) {
+                        return values.traceSpans
+                    }
+                    const { traceId, ts } = values.traceLoadContext
+                    const response = await api.tracing.getTrace(traceId, {
+                        dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        offset: values.traceSpansNextOffset,
+                    })
+                    // Bail if a new trace was opened mid-fetch — appending this stale page to the new
+                    // trace's spans would corrupt the waterfall.
+                    if (values.traceLoadContext?.traceId !== traceId) {
+                        return values.traceSpans
+                    }
+                    // Dedupe against what's already loaded: the waterfall keys its tree by span_id,
+                    // so a page that overlaps prior pages wouldn't grow the rendered rows but would
+                    // still balloon this array (and pin the infinite-scroll trigger at the bottom,
+                    // spinning the CPU). If a page adds nothing new, stop paging.
+                    const seen = new Set(values.traceSpans.map((s) => s.span_id))
+                    const newSpans = (response.results as Span[]).filter((s) => !seen.has(s.span_id))
+                    if (newSpans.length === 0) {
+                        actions.setTracePagination(false, null)
+                        return values.traceSpans
+                    }
+                    actions.setTracePagination(!!response.hasMore, response.nextOffset ?? null)
+                    return [...values.traceSpans, ...newSpans]
                 },
             },
         ],
@@ -624,6 +713,11 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         fetchSpanTreeFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
                 lemonToast.error(`Failed to load call tree: ${error}`)
+            }
+        },
+        loadMoreTraceSpansFailure: ({ error }) => {
+            if (!isUserInitiatedError(error)) {
+                lemonToast.error(`Failed to load more spans: ${error}`)
             }
         },
     })),

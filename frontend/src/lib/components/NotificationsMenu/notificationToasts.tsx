@@ -1,11 +1,15 @@
 import {
     IconBug,
     IconCheckCircle,
+    IconClock,
     IconComment,
     IconFlask,
     IconFolder,
     IconNotification,
+    IconPieChart,
     IconPlug,
+    IconStar,
+    IconTrending,
     IconWarning,
 } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
@@ -23,6 +27,10 @@ const NOTIFICATION_TYPE_ICONS: Record<string, JSX.Element> = {
     issue_assigned: <IconBug className="size-5 text-primary shrink-0" />,
     experiment_concluded: <IconFlask className="size-5 text-primary shrink-0" />,
     project_created: <IconFolder className="size-5 text-primary shrink-0" />,
+    usage_spike: <IconTrending className="size-5 text-warning shrink-0" />,
+    reminder: <IconClock className="size-5 text-primary shrink-0" />,
+    web_analytics_digest: <IconPieChart className="size-5 text-primary shrink-0" />,
+    achievement_unlocked: <IconStar className="size-5 text-warning shrink-0" />,
 }
 
 export function getNotificationIcon(notificationType: string): JSX.Element {

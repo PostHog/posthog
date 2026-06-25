@@ -98,6 +98,7 @@ class TestActivityTypes:
             "fetch_evaluation_activity",
             "execute_llm_judge_activity",
             "execute_hog_eval_activity",
+            "execute_sentiment_eval_activity",
             "emit_evaluation_event_activity",
             "emit_internal_telemetry_activity",
             "increment_trial_eval_count_activity",

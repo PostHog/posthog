@@ -5,7 +5,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import GitHubAuthenticationError, RepositoryCloneError
-from products.tasks.backend.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 from ..utils import get_github_token

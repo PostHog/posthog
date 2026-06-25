@@ -4,7 +4,6 @@ import dataclasses
 
 import duckdb
 import deltalake
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -24,7 +23,6 @@ from posthog.ducklake.storage import (
     cleanup_staged_files,
     compute_staging_uri,
     configure_connection,
-    configure_cross_account_connection,
     connect_to_duckgres,
     ensure_ducklake_bucket_exists,
     get_deltalake_storage_options,
@@ -38,6 +36,7 @@ from posthog.ducklake.verification import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -105,7 +104,7 @@ async def ducklake_copy_workflow_gate_activity(inputs: DuckLakeCopyWorkflowGateI
         return False
 
     try:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "ducklake-data-modeling-copy-workflow",
             str(team.uuid),
             groups={
@@ -250,7 +249,7 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
                     )
                 config = catalog.to_public_config()
                 config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
-                configure_cross_account_connection(conn, destinations=[catalog.to_cross_account_destination()])
+                configure_connection(conn)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             ducklake_table = f"{alias}.{inputs.model.schema_name}.{inputs.model.table_name}"
@@ -519,8 +518,6 @@ def _copy_data_modeling_via_duckgres(inputs: DuckLakeCopyActivityInputs, logger)
     stage_delta_table(
         source_uri=inputs.model.source_table_uri,
         catalog_bucket=catalog.bucket,
-        role_arn=catalog.cross_account_role_arn,
-        external_id=catalog.cross_account_external_id,
         organization_id=org_id,
     )
 
@@ -557,8 +554,6 @@ def cleanup_data_modeling_staging_activity(inputs: DuckLakeDataModelingStagingCl
         return
     cleanup_staged_files(
         staging_uri=inputs.staging_uri,
-        role_arn=catalog.cross_account_role_arn,
-        external_id=catalog.cross_account_external_id,
     )
 
 

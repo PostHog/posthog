@@ -58,6 +58,8 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         description=input_dto.description,
         type=input_dto.type,
         parameters=input_dto.parameters,
+        running_time_calculation=input_dto.running_time_calculation,
+        excluded_variants=input_dto.excluded_variants,
         metrics=input_dto.metrics,
         metrics_secondary=input_dto.metrics_secondary,
         secondary_metrics=input_dto.secondary_metrics,

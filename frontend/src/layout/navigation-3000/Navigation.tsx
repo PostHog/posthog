@@ -41,10 +41,9 @@ export function Navigation({
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
     const mainRef = useRef<HTMLElement>(null)
-    const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible } = useValues(panelLayoutLogic)
+    const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible, navbarWidth } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
-    const { setTabScrollDepth } = useActions(sceneLogic)
-    const { activeTabId, activeSceneId } = useValues(sceneLogic)
+    const { activeSceneId } = useValues(sceneLogic)
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
@@ -139,6 +138,11 @@ export function Navigation({
                             ? 'var(--color-bg-surface-primary)'
                             : 'var(--color-bg-primary)',
                         '--side-panel-width': sidePanelWidth + 'px',
+                        // Live navbar width from the resizer drives both the grid's left column
+                        // (via --left-nav-width below) and the nav element itself, which reads
+                        // --project-navbar-width. Collapsed/mobile fall back to the base default.
+                        '--project-navbar-width':
+                            !mobileLayout && !isLayoutNavCollapsed ? `${navbarWidth}px` : undefined,
                         '--left-nav-width': isLayoutNavCollapsed
                             ? 'var(--project-navbar-width-collapsed)'
                             : 'var(--project-navbar-width)',
@@ -168,11 +172,6 @@ export function Navigation({
                                     'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none': sidePanelOpen,
                                 }
                             )}
-                            onScroll={(e) => {
-                                if (activeTabId) {
-                                    setTabScrollDepth(activeTabId, e.currentTarget.scrollTop)
-                                }
-                            }}
                         >
                             <SceneLayout sceneConfig={sceneConfig}>
                                 {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (

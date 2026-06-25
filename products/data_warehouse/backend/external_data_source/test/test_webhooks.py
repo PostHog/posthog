@@ -4,7 +4,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
-from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult, WebhookSyncResult
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.data_warehouse.backend.external_data_source.webhooks import (
@@ -14,6 +13,10 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    WebhookCreationResult,
+    WebhookSyncResult,
+)
 
 pytestmark = [
     pytest.mark.django_db,

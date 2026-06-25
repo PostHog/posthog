@@ -32,12 +32,12 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$bool_prop'), ''), 'null'), '^"|"$', '') AS `properties___$bool_prop`
@@ -47,7 +47,7 @@
                                                           FROM person
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))), and(equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                                                                                                                                                                                                                                                                                                  (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                   FROM cohortpeople
@@ -133,7 +133,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -215,7 +215,7 @@
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
      GROUP BY actor_id) AS source
   INNER JOIN
-    (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -233,7 +233,7 @@
                                                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
                                                        GROUP BY actor_id) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY source.event_count DESC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
@@ -261,7 +261,7 @@
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
   GROUP BY session_replay_events.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(session_replay_events.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(session_replay_events.is_deleted), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -280,7 +280,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -334,7 +334,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -380,7 +380,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -426,7 +426,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+                      arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -472,7 +472,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+                      arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -517,7 +517,7 @@
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated
   '''
   SELECT sum(total) AS total,
-         if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+         if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -539,24 +539,24 @@
                         ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                  WHERE and(equals(e.team_id, 99999), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value) AS e
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+              WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
               GROUP BY d.timestamp,
                        e.actor_id,
                        breakdown_value
               ORDER BY d.timestamp ASC)
-           WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC'))), 0))
+           WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC'))))
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
         ORDER BY breakdown_value ASC)
@@ -658,7 +658,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -683,12 +683,12 @@
                         ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                  LEFT JOIN
                    (SELECT person.id AS id,
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
@@ -698,7 +698,7 @@
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 99999)
                                                                    GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                                   HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                  WHERE and(equals(e.team_id, 99999), and(equals(e.event, '$pageview'), and(in(e__person.properties___name, tuple('p1', 'p2', 'p3')), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                                                                                                                                                           (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                            FROM cohortpeople
@@ -708,11 +708,11 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+              WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
               GROUP BY d.timestamp,
                        breakdown_value
               ORDER BY d.timestamp ASC)
-           WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), 0)))
+           WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))))
         GROUP BY day_start,
                  breakdown_value
         ORDER BY day_start ASC,
@@ -740,7 +740,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -803,7 +803,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -820,12 +820,12 @@
                   ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
@@ -876,7 +876,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -893,12 +893,12 @@
                   ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value)
@@ -929,7 +929,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -946,12 +946,12 @@
                   ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value)
@@ -982,7 +982,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+                      arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -999,12 +999,12 @@
                   ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value_1)
@@ -1035,7 +1035,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+                      arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1052,12 +1052,12 @@
                   ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value_1)
@@ -1117,12 +1117,12 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
@@ -1132,7 +1132,7 @@
                                                           FROM person
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-26 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-02 23:59:59', 'UTC'))), equals(e.event, 'event_name'), ifNull(equals(e__person.properties___name, 'Jane'), 0))
         GROUP BY day_start)
      GROUP BY day_start
@@ -1288,7 +1288,7 @@
         WHERE and(equals(e.team_id, 99999), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up')))
      GROUP BY actor_id) AS source
   INNER JOIN
-    (SELECT tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1) AS created_at,
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -1311,7 +1311,7 @@
                                                           WHERE and(equals(e.team_id, 99999), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up')))
                                                        GROUP BY actor_id) AS source)))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY source.event_count DESC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
@@ -1339,7 +1339,7 @@
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
   GROUP BY session_replay_events.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(session_replay_events.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(session_replay_events.is_deleted), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1397,7 +1397,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1422,12 +1422,12 @@
                         ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                  LEFT JOIN
                    (SELECT person.id AS id,
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`,
@@ -1438,18 +1438,18 @@
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 99999)
                                                                    GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                                   HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                  WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'sign up'), ifNull(equals(e__person.properties___filter_prop, 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value) AS e
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))), 0))
+              WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))))
               GROUP BY d.timestamp,
                        breakdown_value
               ORDER BY d.timestamp ASC)
-           WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0)))
+           WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))))
         GROUP BY day_start,
                  breakdown_value
         ORDER BY day_start ASC,
@@ -1477,7 +1477,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+                      arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1502,12 +1502,12 @@
                         ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
                  FROM events AS e
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                  LEFT JOIN
                    (SELECT person.id AS id,
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`,
@@ -1518,18 +1518,18 @@
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 99999)
                                                                    GROUP BY person.id
-                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                                   HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                  WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'sign up'), ifNull(equals(e__person.properties___filter_prop, 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value_1) AS e
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))), 0))
+              WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))))
               GROUP BY d.timestamp,
                        breakdown_value_1
               ORDER BY d.timestamp ASC)
-           WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0)))
+           WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))))
         GROUP BY day_start,
                  breakdown_value_1
         ORDER BY day_start ASC,
@@ -1744,7 +1744,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1761,12 +1761,12 @@
                   ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), and(equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                      FROM cohortpeople
@@ -1873,12 +1873,12 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
@@ -1888,7 +1888,7 @@
                                                           FROM person
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(e__person.properties___name, 'person1'), 0))
         GROUP BY day_start)
      GROUP BY day_start
@@ -1921,12 +1921,12 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
@@ -1936,7 +1936,7 @@
                                                           FROM person
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(e__person.properties___name, 'person1'), 0))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2161,12 +2161,12 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-03 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-03 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2208,12 +2208,12 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-03 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-03 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2255,12 +2255,12 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-03 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-03 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2302,12 +2302,12 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-03 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-03 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2371,12 +2371,12 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -2415,21 +2415,21 @@
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -2482,7 +2482,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -2499,12 +2499,12 @@
                   ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value)
@@ -2932,12 +2932,12 @@
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 00:00:00', 'UTC'))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-05 10:59:59', 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3300,7 +3300,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -3317,12 +3317,12 @@
                   ifNull(nullIf(leftUTF8(toString(e__person.properties___email), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
@@ -3334,7 +3334,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
-                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                             HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), or(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'safari'), 0))))
            GROUP BY day_start,
                     breakdown_value)
@@ -3365,7 +3365,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -3382,12 +3382,12 @@
                   ifNull(nullIf(leftUTF8(toString(e__person.properties___email), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
@@ -3399,7 +3399,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
-                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                             HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(toString(e__person.properties___email), '%@posthog.com%'), 0)))
            GROUP BY day_start,
                     breakdown_value)
@@ -3470,12 +3470,12 @@
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
@@ -3485,7 +3485,7 @@
                                                           FROM person
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__person.`properties___$some_prop`, 'some_val'), 0))
         GROUP BY day_start)
      GROUP BY day_start
@@ -3509,7 +3509,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -3526,12 +3526,12 @@
                   ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
@@ -3541,7 +3541,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
-                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                             HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value)
@@ -3572,7 +3572,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+                      arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -3589,12 +3589,12 @@
                   ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
@@ -3604,7 +3604,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
-                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                             HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     breakdown_value_1)
@@ -3654,10 +3654,10 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -3698,10 +3698,10 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -3723,7 +3723,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -4021,7 +4021,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -4043,12 +4043,12 @@
                      ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                        breakdown_value)
@@ -4314,7 +4314,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -4338,12 +4338,12 @@
                                                                                                                                                                                              FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                        breakdown_value)
@@ -4374,7 +4374,7 @@
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
   '''
   SELECT sum(total) AS total,
-         if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+         if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -4425,7 +4425,7 @@
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
   '''
   SELECT sum(total) AS total,
-         if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+         if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -4476,7 +4476,7 @@
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
   '''
   SELECT sum(total) AS total,
-         arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+         arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -4527,7 +4527,7 @@
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
   '''
   SELECT sum(total) AS total,
-         arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+         arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -4872,12 +4872,12 @@
        (SELECT count() AS total
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), equals(e.event, 'viewed video'), greaterOrEquals(e.timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(0))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))))
         GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)))
   LIMIT 50000 SETTINGS readonly=2,
@@ -4926,7 +4926,7 @@
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling
   '''
   SELECT sum(total) AS total,
-         if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+         if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -4946,12 +4946,12 @@
                         ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e
                  LEFT OUTER JOIN
-                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                  WHERE and(equals(e.team_id, 99999), equals(e.event, 'viewed video'), greaterOrEquals(e.timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(0))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))))
                  GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                           breakdown_value)
@@ -4997,12 +4997,12 @@
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), equals(e.event, 'viewed video'), greaterOrEquals(e.timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(0))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))))
               GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                        day_start)
@@ -5366,12 +5366,12 @@
                   min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id))
         GROUP BY day_start
@@ -5556,7 +5556,7 @@
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
   '''
   SELECT sum(total) AS total,
-         if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+         if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -5573,12 +5573,12 @@
                      ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
@@ -5594,7 +5594,7 @@
                                                                 FROM person
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
-                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                                HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY e.`$session_id`,
                        breakdown_value)
@@ -5624,7 +5624,7 @@
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
   '''
   SELECT sum(total) AS total,
-         arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 26), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+         arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -5641,12 +5641,12 @@
                      ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         raw_sessions.session_id_v7 AS session_id_v7
@@ -5662,7 +5662,7 @@
                                                                 FROM person
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
-                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                                HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY e.`$session_id`,
                        breakdown_value_1)
@@ -5868,7 +5868,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), 0), toStartOfWeek(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), 0))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -5928,7 +5928,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -5988,7 +5988,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+                      arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), 0), toStartOfWeek(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), 0))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -6048,7 +6048,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+                      arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -6127,10 +6127,10 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -6243,22 +6243,22 @@
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
         GROUP BY timestamp, actor_id) AS e
      CROSS JOIN
        (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
         FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))) AS numbers) AS d
-     WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+     WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -6284,22 +6284,22 @@
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))))
         GROUP BY timestamp, actor_id) AS e
      CROSS JOIN
        (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
         FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')))) AS numbers) AS d
-     WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+     WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))))
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -6325,22 +6325,22 @@
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))))
         GROUP BY timestamp, actor_id) AS e
      CROSS JOIN
        (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
         FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')))) AS numbers) AS d
-     WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+     WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))))
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -6374,21 +6374,21 @@
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -6523,12 +6523,12 @@
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
@@ -6538,16 +6538,16 @@
                                                                 FROM person
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
-                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                                HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 99999), and(equals(e.event, '$pageview'), in(e__person.properties___name, tuple('person-1', 'person-2'))), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -6643,21 +6643,21 @@
                      if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(numbers.number)) AS timestamp
               FROM numbers(dateDiff('hour', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalHour(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalHour(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalHour(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -6688,12 +6688,12 @@
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
         FROM events AS e
         LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
