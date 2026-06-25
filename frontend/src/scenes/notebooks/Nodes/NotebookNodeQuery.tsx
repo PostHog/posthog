@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -33,7 +33,7 @@ import {
     NotebookSQLEditorOutput,
     NotebookSQLEditorSettings,
 } from './components/NotebookSQLEditor'
-import { notebookNodeLogic } from './notebookNodeLogic'
+import { useRequiredNotebookNode } from './NotebookNodeContext'
 import { UnsupportedNodePlaceholder } from './sharedNodeSupport'
 import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
@@ -53,7 +53,7 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const { query, nodeId } = attributes
-    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const nodeLogic = useRequiredNotebookNode()
     const { expanded, nodeId: resolvedNodeId, notebookLogic } = useValues(nodeLogic)
     const {
         editingNodeIds,
@@ -246,7 +246,7 @@ export const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
     const { query, isDefaultFilterApplied } = attributes
-    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const nodeLogic = useRequiredNotebookNode()
     const { notebookLogic } = useValues(nodeLogic)
     const { canvasFiltersOverride } = useValues(notebookLogic)
 
