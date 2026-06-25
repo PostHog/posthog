@@ -1388,7 +1388,8 @@
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
   FROM
-    (SELECT person.id AS id
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
@@ -1403,7 +1404,8 @@
              (SELECT person_static_cohort.person_id AS person_id
               FROM person_static_cohort
               WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))
-  ORDER BY persons.id ASC
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
