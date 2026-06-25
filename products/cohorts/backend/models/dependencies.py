@@ -149,14 +149,14 @@ def _compute_flag_excluded_behavioral_cohort_ids(team_id: int, *, allow_realtime
     return find_behavioral_cohorts(all_cohorts, allow_realtime_backfilled=allow_realtime_backfilled)
 
 
-def get_flag_excluded_behavioral_cohort_ids(team_id: int, *, allow_realtime_backfilled: bool) -> set[int]:
+def get_flag_excluded_behavioral_cohort_ids(team_id: int, *, allow_realtime_backfilled: bool | None) -> set[int]:
     """Behavioral (flag-incompatible) cohort ids for a team, cached across requests."""
     # feature_enabled can return None when the flag can't be evaluated; normalize so the
     # cache key is stable and the compute path sees a real bool.
     allow_realtime_backfilled = bool(allow_realtime_backfilled)
     cache_key = _behavioral_cohort_ids_key(team_id, allow_realtime_backfilled)
     cached = cache.get(cache_key)
-    if cached is not None:
+    if cached is not None:  # empty list is a valid cached result, not a miss
         return set(cached)
 
     behavioral_cohort_ids = _compute_flag_excluded_behavioral_cohort_ids(

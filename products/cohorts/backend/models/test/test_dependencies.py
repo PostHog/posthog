@@ -1310,24 +1310,47 @@ class TestFlagExcludedBehavioralCohortIds(BaseTest):
         Cohort.objects.create(team=self.team, name="behavioral", filters=self.BEHAVIORAL_FILTERS)
 
         # feature_enabled can return None; it must be treated as False without erroring.
-        excluded = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=None)  # type: ignore[arg-type]
+        excluded = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=None)
 
         self.assertEqual(
             set(cache.get(_behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=False))), excluded
         )
 
     def test_cache_invalidated_when_cohort_changes(self) -> None:
-        cache_key = _behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=False)
+        cache_key_false = _behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=False)
+        cache_key_true = _behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=True)
         leaf = Cohort.objects.create(team=self.team, name="leaf", filters=self._person_filters())
 
         self.assertEqual(get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False), set())
-        self.assertIsNotNone(cache.get(cache_key))
+        self.assertEqual(get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=True), set())
+        self.assertIsNotNone(cache.get(cache_key_false))
+        self.assertIsNotNone(cache.get(cache_key_true))
 
-        # Turning the cohort behavioral must invalidate the cached set.
+        # Turning the cohort behavioral must invalidate both cache key variants.
         leaf.filters = self.BEHAVIORAL_FILTERS
         leaf.save()
 
-        self.assertIsNone(cache.get(cache_key))
+        self.assertIsNone(cache.get(cache_key_false))
+        self.assertIsNone(cache.get(cache_key_true))
         self.assertEqual(
             get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False), {leaf.id}
         )
+
+    def test_backfilled_realtime_cohort_excluded_without_flag_included_with_it(self) -> None:
+        from django.utils import timezone
+
+        # A realtime cohort that has been backfilled (is_flag_compatible=True) should NOT be
+        # excluded when allow_realtime_backfilled=True, but must still be excluded when False.
+        realtime_behavioral = Cohort.objects.create(
+            team=self.team,
+            name="realtime_behavioral",
+            cohort_type=CohortType.REALTIME,
+            filters=self.BEHAVIORAL_FILTERS,
+            last_backfill_person_properties_at=timezone.now(),
+        )
+
+        excluded_without = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False)
+        excluded_with = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=True)
+
+        self.assertIn(realtime_behavioral.id, excluded_without)
+        self.assertNotIn(realtime_behavioral.id, excluded_with)
