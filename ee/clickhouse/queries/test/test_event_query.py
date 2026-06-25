@@ -12,8 +12,8 @@ from posthog.models.element import Element
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
-from posthog.models.person import Person
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
+from posthog.test.persons import create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
@@ -211,7 +211,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test"})
+        create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -219,7 +219,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:00Z",
         )
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "foo"})
+        create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "foo"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -249,8 +249,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
     def test_account_filters(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+        create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+        create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
 
         _create_event(event="event_name", team=self.team, distinct_id="person_1")
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
@@ -277,8 +277,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self._run_query(filter)
 
     def test_action_with_person_property_filter(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+        create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+        create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
 
         _create_event(event="event_name", team=self.team, distinct_id="person_1")
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
@@ -312,7 +312,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         materialize("events", "test_prop")
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+        create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -321,7 +321,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             properties={"test_prop": "hi"},
         )
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
+        create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -446,9 +446,9 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             properties={"another": "value"},
         )
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "foobar"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"$browser": "test"})
+        create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
+        create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "foobar"})
+        create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"$browser": "test"})
 
         _create_event(
             team=self.team,

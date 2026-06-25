@@ -8,12 +8,12 @@ import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customPro
 import { getItemId } from '~/layout/panel-layout/ProjectTree/utils'
 import { UserProductListItem, UserProductListReason } from '~/queries/schema/schema-general'
 
-import type { inlineEditToolsLogicType } from './inlineEditToolsLogicType'
+import type { editToolsLogicType } from './editToolsLogicType'
 
 const PRODUCTS_ROOT = 'products://'
 
-export const inlineEditToolsLogic = kea<inlineEditToolsLogicType>([
-    path(['layout', 'panel-layout', 'ai-first', 'tabs', 'inlineEditToolsLogic']),
+export const editToolsLogic = kea<editToolsLogicType>([
+    path(['layout', 'panel-layout', 'ai-first', 'tabs', 'editToolsLogic']),
     connect(() => ({
         values: [customProductsLogic, ['customProducts']],
         actions: [customProductsLogic, ['loadCustomProducts', 'loadCustomProductsSuccess']],
