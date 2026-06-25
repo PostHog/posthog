@@ -1,4 +1,7 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { ApiError } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
@@ -46,7 +49,13 @@ function createJsonResponse(payload: unknown): Response {
     })
 }
 
-function createFetchMock({ runs = {} }: { runs?: Record<string, TaskRun> } = {}): typeof fetch {
+function createFetchMock({
+    runs = {},
+    runsList = [],
+}: {
+    runs?: Record<string, TaskRun>
+    runsList?: TaskRun[]
+} = {}): typeof fetch {
     return jest.fn((input: RequestInfo | URL) => {
         const url = String(input)
         const taskRunMatch = url.match(/\/tasks\/([^/]+)\/runs\/([^/]+)\/$/)
@@ -59,7 +68,7 @@ function createFetchMock({ runs = {} }: { runs?: Record<string, TaskRun> } = {})
             )
         }
         if (runsListMatch) {
-            return Promise.resolve(createJsonResponse({ results: [] }))
+            return Promise.resolve(createJsonResponse({ results: runsList }))
         }
         if (taskMatch) {
             return Promise.resolve(createJsonResponse(createMockTask(taskMatch[1])))
@@ -142,7 +151,7 @@ describe('taskDetailSceneLogic', () => {
             logic.mount()
 
             const initialRun = createMockRun('run-456', TaskRunStatus.QUEUED)
-            logic.actions.loadRunsSuccess([initialRun])
+            logic.actions.loadTaskRunsSuccess([initialRun])
             expect(logic.values.runs[0].status).toBe(TaskRunStatus.QUEUED)
 
             const updatedRun = createMockRun('run-456', TaskRunStatus.IN_PROGRESS)
@@ -158,13 +167,100 @@ describe('taskDetailSceneLogic', () => {
 
             const run1 = createMockRun('run-1', TaskRunStatus.COMPLETED)
             const run2 = createMockRun('run-2', TaskRunStatus.QUEUED)
-            logic.actions.loadRunsSuccess([run1, run2])
+            logic.actions.loadTaskRunsSuccess([run1, run2])
 
             const updatedRun2 = createMockRun('run-2', TaskRunStatus.IN_PROGRESS)
             logic.actions.updateRun(updatedRun2)
 
             expect(logic.values.runs[0].status).toBe(TaskRunStatus.COMPLETED)
             expect(logic.values.runs[1].status).toBe(TaskRunStatus.IN_PROGRESS)
+            logic.unmount()
+        })
+
+        it('inserts a run that was created before the refreshed list returns', async () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            const run = createMockRun('run-new', TaskRunStatus.QUEUED)
+            logic.actions.updateRun(run)
+
+            expect(logic.values.runs.map((existingRun) => existingRun.id)).toEqual(['run-new'])
+            logic.unmount()
+        })
+    })
+
+    describe('progressive selected run loading', () => {
+        it('uses runs from the list without refetching selected run detail', async () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const fetchMock = global.fetch as jest.Mock
+            fetchMock.mockClear()
+
+            logic.actions.loadTaskRunsSuccess([createMockRun('run-in-list', TaskRunStatus.COMPLETED)])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.selectedRunId).toBe('run-in-list')
+            expect(logic.values.selectedRun?.id).toBe('run-in-list')
+            expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/runs/run-in-list/'))).toBe(false)
+            logic.unmount()
+        })
+
+        it('fetches a deep-linked selected run that is not in the list', async () => {
+            const runId = '00000000-0000-4000-8000-000000000456'
+            global.fetch = createFetchMock({
+                runs: { [runId]: createMockRun(runId, TaskRunStatus.COMPLETED) },
+            })
+            router.actions.push(`/tasks/task-123?runId=${runId}`)
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.selectedRunId).toBe(runId)
+            expect(logic.values.selectedRun?.id).toBe(runId)
+            expect(
+                (global.fetch as jest.Mock).mock.calls.some(([input]) => String(input).includes(`/runs/${runId}/`))
+            ).toBe(true)
+
+            logic.unmount()
+        })
+    })
+
+    describe('loader failure state', () => {
+        it('stores run-list failures for inline retry UI', () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.loadTaskRunsFailure('Could not load task runs', new ApiError('Could not load task runs', 500))
+
+            expect(logic.values.runsError).toBe('Could not load task runs')
+            logic.unmount()
+        })
+
+        it('stores selected-run not-found failures separately from retryable errors', () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.loadSelectedTaskRunFailure('Not found', new ApiError('Not found', 404))
+
+            expect(logic.values.selectedRunNotFound).toBe(true)
+            expect(logic.values.selectedRunError).toBe(null)
+            logic.unmount()
+        })
+
+        it('stores selected-run non-404 failures for inline retry UI', () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.loadSelectedTaskRunFailure(
+                'Could not load task run',
+                new ApiError('Could not load task run', 500)
+            )
+
+            expect(logic.values.selectedRunNotFound).toBe(false)
+            expect(logic.values.selectedRunError).toBe('Could not load task run')
             logic.unmount()
         })
     })

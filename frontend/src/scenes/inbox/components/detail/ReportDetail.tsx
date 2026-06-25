@@ -95,9 +95,16 @@ function ReportDetailMeta({
             </span>
         )
     }
+    // Mirrors error tracking's "First seen" / "Last seen": surface both lifecycle moments as distinct facts.
     stats.push(
         <span className="flex items-center gap-1">
-            <span>Updated</span>
+            <span>First seen</span>
+            <TZLabel time={report.created_at} />
+        </span>
+    )
+    stats.push(
+        <span className="flex items-center gap-1">
+            <span>Last updated</span>
             <TZLabel time={report.updated_at ?? report.created_at} />
         </span>
     )

@@ -179,7 +179,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 400)
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=False)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=False)
     def test_retrieve_group_crm_disabled(self, _):
         index: GroupTypeIndex = 0
         key = "key"
@@ -207,7 +207,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_retrieve_group_crm_enabled(self, _):
         index: GroupTypeIndex = 0
         key = "key"
@@ -246,7 +246,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(notebook.content[1]["type"], "text")
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_find_with_skip_create_notebook_does_not_create_notebook(self, _):
         index: GroupTypeIndex = 0
         key = "key"
@@ -295,7 +295,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @patch("products.notebooks.backend.logic.ResourceNotebook.objects.create", side_effect=IntegrityError)
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_retrieve_group_notebook_transaction_rollback(self, _, mock_relationship_create):
         index: GroupTypeIndex = 0
         key = "key"

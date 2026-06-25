@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
 import type { ModifiedRequest } from '~/api/router'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { instrumented } from '~/common/tracing/tracing-utils'
-import { HogFlow } from '~/schema/hogflow'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'

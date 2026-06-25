@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 
-from posthog.temporal.data_imports.sources.common.http.sampling import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.sampling import (
     CAPTURE_CONFIG_REDIS_KEY,
     CAPTURE_COUNTER_KEY_PREFIX,
     CaptureConfig,
