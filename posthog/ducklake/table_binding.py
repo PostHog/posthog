@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from posthog.ducklake.common import (
@@ -7,6 +8,8 @@ from posthog.ducklake.common import (
     duckgres_data_imports_table_name,
     duckgres_data_modeling_schema,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def bind_tables_to_ducklake(database: Any, team_id: int) -> None:
@@ -28,6 +31,7 @@ def bind_tables_to_ducklake(database: Any, team_id: int) -> None:
 def _bind_materialized_models(database: Any, team_id: int) -> None:
     """Bind materialized data-modeling models to their DuckLake schema (``shadow_<team_id>_models``)."""
     from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+    from posthog.hogql.errors import ResolutionError
 
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -38,7 +42,8 @@ def _bind_materialized_models(database: Any, team_id: int) -> None:
     for saved_query in materialized:
         try:
             node = database.get_table_node(saved_query.name.split("."))
-        except Exception:
+        except ResolutionError:
+            logger.debug("Model %s not in HogQL database; skipping DuckLake bind", saved_query.name)
             continue
         existing = node.table
         if existing is None:
@@ -62,6 +67,7 @@ def _bind_source_tables(database: Any, team_id: int) -> None:
     if a table hasn't been synced yet, duckgres errors at query time, which is intended.
     """
     from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+    from posthog.hogql.errors import ResolutionError
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -71,14 +77,16 @@ def _bind_source_tables(database: Any, team_id: int) -> None:
         DataWarehouseTable.objects.queryable()
         .filter(team_id=team_id, external_data_source__isnull=False)
         .exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
+        .prefetch_related("externaldataschema_set__source")
     )
     for table in tables:
-        external_schema = table.externaldataschema_set.first()
+        external_schema = next(iter(table.externaldataschema_set.all()), None)
         if external_schema is None:
             continue
         try:
             node = database.get_table_node(table.name_chain)
-        except Exception:
+        except ResolutionError:
+            logger.debug("Source table %s not in HogQL database; skipping DuckLake bind", table.name)
             continue
         existing = node.table
         if existing is None:
