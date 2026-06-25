@@ -23,8 +23,6 @@ use crate::{
     ExportedFunction,
 };
 
-pub const TO_STRING_RECURSION_LIMIT: usize = 32;
-
 // A "native function" is a function that can be called from within the VM. It takes a list
 // of arguments, and returns either a value, or null. It's pure (cannot modify the VM state).
 pub type NativeFunction = Box<dyn Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError>>;
@@ -510,6 +508,13 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "toInt")?;
                 let res = match args[0].deref(&vm.heap)? {
+                    // Datetimes floor to whole seconds; dates to whole days since the epoch.
+                    HogLiteral::Object(obj) if obj_marker(&vm.heap, obj, "__hogDateTime__")? => {
+                        Some(obj_number(&vm.heap, obj, "dt")?.unwrap_or(0.0).floor() as i64)
+                    }
+                    HogLiteral::Object(obj) if obj_marker(&vm.heap, obj, "__hogDate__")? => {
+                        Some(hog_date_epoch_days(&vm.heap, obj)?)
+                    }
                     HogLiteral::Number(n) => Some(if n.is_float() {
                         n.to_float() as i64
                     } else {
@@ -531,6 +536,12 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "toFloat")?;
                 let res = match args[0].deref(&vm.heap)? {
+                    HogLiteral::Object(obj) if obj_marker(&vm.heap, obj, "__hogDateTime__")? => {
+                        Some(obj_number(&vm.heap, obj, "dt")?.unwrap_or(0.0))
+                    }
+                    HogLiteral::Object(obj) if obj_marker(&vm.heap, obj, "__hogDate__")? => {
+                        Some(hog_date_epoch_days(&vm.heap, obj)? as f64)
+                    }
                     HogLiteral::Number(n) => Some(n.to_float()),
                     HogLiteral::String(s) => s.trim().parse::<f64>().ok(),
                     _ => None,
@@ -1234,44 +1245,102 @@ pub fn hog_stl() -> Module {
 
 // TODO - this is slow, because rather than using a string buffer, we're allocating a new string each time
 // we recurse
-fn to_string(heap: &VmHeap, val: &HogValue, depth: usize) -> Result<String, VmError> {
-    if depth > TO_STRING_RECURSION_LIMIT {
-        return Err(VmError::NativeCallFailed(
-            "Maximum toString recursion depth exceeded".to_string(),
-        ));
+// `toString` semantics (reference `STLToString`): a top-level Hog date renders as `YYYY-MM-DD` and a
+// top-level Hog datetime as an ISO 8601 string; every other value (including nested temporals inside
+// containers) goes through the canonical printer, which raw-prints a top-level string but quotes
+// strings nested in arrays/objects. The `depth` arg is retained for call-site compatibility.
+fn to_string(heap: &VmHeap, val: &HogValue, _depth: usize) -> Result<String, VmError> {
+    if let HogLiteral::Object(obj) = val.deref(heap)? {
+        if obj_marker(heap, obj, "__hogDate__")? {
+            let year = obj_number(heap, obj, "year")?.unwrap_or(0.0) as i64;
+            let month = obj_number(heap, obj, "month")?.unwrap_or(0.0) as i64;
+            let day = obj_number(heap, obj, "day")?.unwrap_or(0.0) as i64;
+            return Ok(format!("{year}-{month:02}-{day:02}"));
+        }
+        if obj_marker(heap, obj, "__hogDateTime__")? {
+            return hog_datetime_to_iso(heap, obj);
+        }
     }
+    print_hog_string_output(heap, val)
+}
 
-    let val = val.deref(heap)?;
-    match val {
-        HogLiteral::Number(num) => {
-            let val = if num.is_float() {
-                num.to_float().to_string()
-            } else {
-                num.to_integer().to_string()
-            };
-            Ok(val)
-        }
-        HogLiteral::Boolean(bool) => Ok(bool.to_string()),
-        HogLiteral::String(string) => Ok(string.clone()),
-        HogLiteral::Array(hog_values) => Ok(format!(
-            "[{}]",
-            hog_values
-                .iter()
-                .map(|v| to_string(heap, v, depth + 1))
-                .collect::<Result<Vec<String>, VmError>>()?
-                .join(", ")
-        )),
-        HogLiteral::Object(hash_map) => {
-            let mut entries = Vec::new();
-            for (key, value) in hash_map {
-                entries.push(format!("{}: {}", key, to_string(heap, value, depth + 1)?));
-            }
-            Ok(format!("{{{}}}", entries.join(", ")))
-        }
-        HogLiteral::Callable(callable) => Ok(callable.to_string()),
-        HogLiteral::Closure(closure) => Ok(closure.to_string()),
-        HogLiteral::Null => Ok("null".to_string()),
+// Render a Hog datetime as Luxon's `DateTime.fromSeconds(dt, {zone}).toISO()` does: millisecond
+// precision, `Z` for UTC and a `+HH:MM` offset otherwise.
+fn hog_datetime_to_iso(
+    heap: &VmHeap,
+    obj: &IndexMap<String, HogValue>,
+) -> Result<String, VmError> {
+    let dt = obj_number(heap, obj, "dt")?.unwrap_or(0.0);
+    let zone = obj_string(heap, obj, "zone")?.unwrap_or_else(|| "UTC".to_string());
+    // Luxon keeps millisecond precision; round to whole millis first to avoid float drift turning
+    // e.g. .123 into .122 when splitting seconds and sub-second nanos.
+    let total_millis = (dt * 1000.0).round() as i64;
+    let secs = total_millis.div_euclid(1000);
+    let nanos = (total_millis.rem_euclid(1000) * 1_000_000) as u32;
+    let utc = DateTime::from_timestamp(secs, nanos).ok_or_else(|| {
+        VmError::NativeCallFailed(format!("toString: datetime {dt} out of range"))
+    })?;
+    let formatted = if zone == "UTC" {
+        utc.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+    } else {
+        let tz: chrono_tz::Tz = zone
+            .parse()
+            .map_err(|_| VmError::NativeCallFailed(format!("unknown timezone {zone}")))?;
+        utc.with_timezone(&tz)
+            .format("%Y-%m-%dT%H:%M:%S%.3f%:z")
+            .to_string()
+    };
+    Ok(formatted)
+}
+
+fn obj_marker(
+    heap: &VmHeap,
+    obj: &IndexMap<String, HogValue>,
+    key: &str,
+) -> Result<bool, VmError> {
+    match obj.get(key) {
+        Some(v) => Ok(matches!(v.deref(heap)?, HogLiteral::Boolean(true))),
+        None => Ok(false),
     }
+}
+
+fn obj_number(
+    heap: &VmHeap,
+    obj: &IndexMap<String, HogValue>,
+    key: &str,
+) -> Result<Option<f64>, VmError> {
+    match obj.get(key) {
+        Some(v) => Ok(match v.deref(heap)? {
+            HogLiteral::Number(n) => Some(n.to_float()),
+            _ => None,
+        }),
+        None => Ok(None),
+    }
+}
+
+fn obj_string(
+    heap: &VmHeap,
+    obj: &IndexMap<String, HogValue>,
+    key: &str,
+) -> Result<Option<String>, VmError> {
+    match obj.get(key) {
+        Some(v) => Ok(match v.deref(heap)? {
+            HogLiteral::String(s) => Some(s.clone()),
+            _ => None,
+        }),
+        None => Ok(None),
+    }
+}
+
+// Whole days from the Unix epoch to a Hog date (reference: `day.diff(epoch, 'days').days` floored).
+fn hog_date_epoch_days(heap: &VmHeap, obj: &IndexMap<String, HogValue>) -> Result<i64, VmError> {
+    let year = obj_number(heap, obj, "year")?.unwrap_or(0.0) as i32;
+    let month = obj_number(heap, obj, "month")?.unwrap_or(0.0) as u32;
+    let day = obj_number(heap, obj, "day")?.unwrap_or(0.0) as u32;
+    let date = NaiveDate::from_ymd_opt(year, month, day)
+        .ok_or_else(|| VmError::NativeCallFailed(format!("invalid date {year}-{month}-{day}")))?;
+    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("epoch is valid");
+    Ok(date.signed_duration_since(epoch).num_days())
 }
 
 /// `toDateTime(input[, zone])` → a Hog DateTime object `{ __hogDateTime__: true, dt, zone }`.
