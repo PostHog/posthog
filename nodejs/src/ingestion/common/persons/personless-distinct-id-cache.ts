@@ -1,7 +1,7 @@
 import { LRUCache } from 'lru-cache'
 import { Counter } from 'prom-client'
 
-import { ONE_HOUR } from '~/config/constants'
+import { ONE_HOUR } from '~/common/config/constants'
 
 export const personlessDistinctIdCacheOperationsCounter = new Counter({
     name: 'personless_distinct_id_cache_operations_total',

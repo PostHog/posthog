@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
@@ -25,12 +25,14 @@ export const taskRunChatLogic = kea<taskRunChatLogicType>([
             sandboxStreamLogic({ streamKey: props.runId }),
             ['currentRunStatus'],
         ],
-        actions: [sandboxStreamLogic({ streamKey: props.runId }), ['bootstrapRun', 'pushHumanMessage', 'reset']],
+        actions: [sandboxStreamLogic({ streamKey: props.runId }), ['pushHumanMessage']],
     })),
 
     actions({
         sendMessage: (content: string) => ({ content }),
         setSendingMessage: (sending: boolean) => ({ sending }),
+        setComposerDraft: (draft: string) => ({ draft }),
+        clearComposerDraft: true,
     }),
 
     reducers({
@@ -38,6 +40,13 @@ export const taskRunChatLogic = kea<taskRunChatLogicType>([
             false,
             {
                 setSendingMessage: (_, { sending }) => sending,
+            },
+        ],
+        composerDraft: [
+            '',
+            {
+                setComposerDraft: (_, { draft }) => draft,
+                clearComposerDraft: () => '',
             },
         ],
     }),
@@ -55,6 +64,9 @@ export const taskRunChatLogic = kea<taskRunChatLogicType>([
                 return
             }
             actions.setSendingMessage(true)
+            // Clear the draft synchronously before the await so text the user types while the send is in
+            // flight isn't clobbered when the request resolves. A failed send restores the original text.
+            actions.clearComposerDraft()
             try {
                 await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
                     jsonrpc: '2.0',
@@ -63,18 +75,11 @@ export const taskRunChatLogic = kea<taskRunChatLogicType>([
                 })
                 actions.pushHumanMessage(content)
             } catch {
+                actions.setComposerDraft(content)
                 lemonToast.error('Failed to send message. Please try again.')
             } finally {
                 actions.setSendingMessage(false)
             }
         },
     })),
-
-    afterMount(({ props, actions }) => {
-        // sandboxStreamLogic is already bound (the BindLogic in TaskRunChat mounts it first), so a
-        // reset + bootstrapRun here re-bootstraps cleanly when a reused logic instance is remounted.
-        // Live vs. replay mode is resolved inside bootstrapRun from the run status the tasks API returns.
-        actions.reset()
-        actions.bootstrapRun({ taskId: props.taskId, runId: props.runId })
-    }),
 ])

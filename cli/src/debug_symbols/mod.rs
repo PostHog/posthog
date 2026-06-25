@@ -314,7 +314,8 @@ pub fn report_problems(report: &DiscoveryReport, directory: &Path) -> Result<()>
             "The following files have debug info but no GNU build id, so they cannot be \
              matched to crash events:\n{listing}\n\
              Link with `-Wl,--build-id=sha1` (in Rust: `-C link-arg=-Wl,--build-id=sha1` \
-             via RUSTFLAGS); most toolchains add this by default."
+             via RUSTFLAGS; in Go: `-ldflags=-B=gobuildid`); most C/C++/Rust \
+             toolchains add this by default, Go does not."
         );
         // Only fail the run when there's nothing valid to upload; otherwise a
         // stray build-id-less helper binary would block every valid symbol.

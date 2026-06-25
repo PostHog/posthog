@@ -114,9 +114,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(EvaluationReport.objects.count(), 0)
 
     def test_can_create_sentiment_evaluation_without_default_report(self):
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=True):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
                 {
@@ -139,9 +137,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 0)
 
     def test_create_sentiment_evaluation_requires_feature_flag(self):
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=False):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
                 {
@@ -172,9 +168,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             created_by=self.user,
         )
 
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=False):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
                 {"enabled": True},
@@ -198,9 +192,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             created_by=self.user,
         )
 
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=False):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
                 {
@@ -218,9 +210,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation.name, "Updated Sentiment Evaluation")
 
     def test_sentiment_evaluation_rejects_model_configuration(self):
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=True):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
                 {
@@ -252,9 +242,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
     def test_rejects_unsupported_evaluation_output_type_combinations(
         self, _name, evaluation_type, output_type, evaluation_config, output_config
     ):
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=True):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
                 {
@@ -309,6 +297,31 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertIn("output_config", first)
         self.assertIn("model_configuration", first)
         self.assertEqual(first["evaluation_config"], {"prompt": "Prompt 1"})
+
+    def test_can_filter_evaluations_by_evaluation_type(self):
+        Evaluation.objects.create(
+            name="Judge evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Prompt"},
+            output_type="boolean",
+            output_config={},
+            team=self.team,
+            created_by=self.user,
+        )
+        Evaluation.objects.create(
+            name="Sentiment evaluation",
+            evaluation_type="sentiment",
+            evaluation_config={"source": "user_messages"},
+            output_type="sentiment",
+            output_config={},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/evaluations/?evaluation_type=sentiment")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([evaluation["name"] for evaluation in response.data["results"]], ["Sentiment evaluation"])
 
     def test_mcp_list_returns_slim_payload(self):
         Evaluation.objects.create(

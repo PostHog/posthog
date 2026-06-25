@@ -152,15 +152,11 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         allow_null=True,
         help_text=(
             "Experiment parameters JSON. Supported keys include "
-            "`feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, "
-            "`recommended_running_time`, `recommended_sample_size`, "
+            "`feature_flag_variants`, `rollout_percentage`, "
             "`custom_exposure_filter`, `excluded_variants` "
             "(list of variant keys to drop from statistical analysis; "
             "the baseline variant and holdout pseudo-variants cannot be excluded), "
-            "and `variant_notes` (free-text notes per variant, keyed by variant key). "
-            "The running-time calculator keys (`minimum_detectable_effect`, "
-            "`recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) "
-            "are deprecated here — prefer `running_time_calculation`."
+            "and `variant_notes` (free-text notes per variant, keyed by variant key)."
         ),
     )
     running_time_calculation = ExperimentRunningTimeCalculationField(
@@ -169,8 +165,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         help_text=(
             "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, "
             "`recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, "
-            "which historically lived in `parameters`; values are kept in sync with `parameters` "
-            "during the deprecation window."
+            "which historically lived in `parameters`."
         ),
     )
     excluded_variants = serializers.ListField(

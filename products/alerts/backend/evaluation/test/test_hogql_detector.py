@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import HogQLAlertConfig
 
+from posthog.api.services.query import ExecutionMode
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
@@ -15,6 +16,7 @@ from products.alerts.backend.evaluation.hogql import (
 
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
 ZSCORE = {"type": "zscore", "threshold": 0.9, "window": 5}
+EXEC_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 # zscore floors min-samples at 31, so STABLE_HISTORY is exactly the detector minimum. Non-zero
 # variance gives the detector a baseline to flag a spike against.
@@ -33,7 +35,9 @@ def _extract(values, *, columns=None, rows_config=None, detector_config=ZSCORE):
     rows = [[v] for v in values] if columns is None else values
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=rows, columns=columns)
-        return HogQLDetectorExtractor().extract(_alert(rows_config, detector_config), MagicMock(), MagicMock())
+        return HogQLDetectorExtractor().extract(
+            _alert(rows_config, detector_config), MagicMock(), MagicMock(), EXEC_MODE
+        )
 
 
 @pytest.mark.parametrize(
@@ -142,6 +146,8 @@ def test_extract_hogql_detector_series_is_alert_less():
     config = HogQLAlertConfig(type="HogQLAlertConfig", evaluation="last_row")
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=[[v] for v in [*STABLE_HISTORY, 100.0]], columns=None)
-        result = extract_hogql_detector_series(MagicMock(), MagicMock(), config, ZSCORE, user=None)
+        result = extract_hogql_detector_series(
+            MagicMock(), MagicMock(), config, ZSCORE, user=None, execution_mode=EXEC_MODE
+        )
     assert len(result.series[0].points) == _compute_min_samples_for_detector(ZSCORE)  # bounded to the minimum
     assert evaluate_with_detector(result, ZSCORE).value == 100.0

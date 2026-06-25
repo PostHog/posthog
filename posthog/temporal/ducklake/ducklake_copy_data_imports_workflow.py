@@ -8,7 +8,6 @@ from django.conf import settings
 
 import duckdb
 import deltalake
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -42,6 +41,7 @@ from posthog.ducklake.verification import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -163,7 +163,7 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
     # same posthog_data_imports_team_{id} tables with zero coordination, so a
     # team must never have both enabled. The sink wins.
     try:
-        if posthoganalytics.feature_enabled(
+        if feature_enabled_or_false(
             DUCKGRES_BATCH_SINK_FLAG,
             str(team.uuid),
             groups={
@@ -182,7 +182,7 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
         capture_exception(error)
 
     try:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "ducklake-data-imports-copy-workflow",
             str(team.uuid),
             groups={

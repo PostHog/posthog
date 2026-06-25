@@ -8,7 +8,7 @@ import { lookupMcpToolApproval } from './mcp-tool-lookup'
  * fills in every default — that's the spec the runner actually sees.
  */
 function buildSpec(overrides: Record<string, unknown> = {}): AgentSpec {
-    return AgentSpecSchema.parse({ model: 'claude-opus-4-7', ...overrides })
+    return AgentSpecSchema.parse({ model: 'anthropic/claude-opus-4-7', ...overrides })
 }
 
 describe('lookupMcpToolApproval', () => {
