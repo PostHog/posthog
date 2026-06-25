@@ -243,7 +243,7 @@ describe('InsightDisplayConfig', () => {
                         'Stack bars',
                         'Show values on series',
                         'Show percentages on series',
-                        'Show legendBottom',
+                        'Show legendRight',
                     ],
                 },
             ],
@@ -378,7 +378,7 @@ describe('InsightDisplayConfig', () => {
 
             const legendItem = getDisplaySectionItems().find((item) => item.includes('Show legend'))
             expect(legendItem).toBeTruthy()
-            expect(legendItem).toContain('Bottom')
+            expect(legendItem).toContain('Right')
         })
 
         it.each([
@@ -393,7 +393,7 @@ describe('InsightDisplayConfig', () => {
 
             const legendItem = getDisplaySectionItems().find((item) => item.includes('Show legend'))
             expect(legendItem).toBeTruthy()
-            expect(legendItem).toContain('Bottom')
+            expect(legendItem).toContain('Right')
         })
 
         it('keeps the plain "Show legend" checkbox for the aggregated bar-value chart', async () => {
@@ -402,7 +402,7 @@ describe('InsightDisplayConfig', () => {
 
             // The aggregated bar-value layout has no in-chart legend, so it must not get a position select.
             const items = getDisplaySectionItems()
-            expect(items.some((item) => item.includes('Bottom'))).toBe(false)
+            expect(items.some((item) => item.includes('Right'))).toBe(false)
         })
     })
 })
