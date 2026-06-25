@@ -656,7 +656,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 // steps should be empty in time conversion view. Return metrics precalculated on backend
                 if (funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert) {
                     return {
-                        medianTime: timeConversionResults?.median_conversion_time ?? 0,
+                        medianTime: timeConversionResults?.median_conversion_time ?? null,
                         stepRate: 0,
                         totalRate: 0,
                     }
@@ -665,7 +665,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 // Handle metrics for trends
                 if (funnelsFilter?.funnelVizType === FunnelVizType.Trends) {
                     return {
-                        medianTime: 0,
+                        medianTime: null,
                         stepRate: 0,
                         totalRate: average((steps?.[0] as unknown as TrendResult)?.data ?? []) / 100,
                     }
@@ -675,7 +675,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 // no concept of funnel_from_step and funnel_to_step here
                 if (steps.length <= 1) {
                     return {
-                        medianTime: 0,
+                        medianTime: null,
                         stepRate: 0,
                         totalRate: 0,
                     }
@@ -687,7 +687,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return {
                     // The median of the total funnel time isn't the sum of per-step medians, so it's
                     // computed breakdown-agnostically on the backend and carried as a top-level field.
-                    medianTime: (insightData as Partial<FunnelsQueryResponse>).total_median_conversion_time ?? 0,
+                    medianTime: (insightData as Partial<FunnelsQueryResponse>).total_median_conversion_time ?? null,
                     stepRate: fromStep.count === 0 ? 0 : toStep.count / fromStep.count,
                     totalRate: steps[0].count === 0 ? 0 : steps[steps.length - 1].count / steps[0].count,
                 }

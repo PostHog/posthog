@@ -3402,7 +3402,8 @@ export interface FunnelStepWithNestedBreakdown extends FunnelStep {
 }
 
 export interface FunnelTimeConversionMetrics {
-    medianTime: number
+    /** Null when the result predates the median field (old cache) — the header hides the figure in that case. */
+    medianTime: number | null
     stepRate: number
     totalRate: number
 }

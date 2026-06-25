@@ -1159,9 +1159,68 @@ describe('funnelDataLogic', () => {
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
                 conversionMetrics: {
-                    medianTime: 0,
+                    medianTime: null,
                     stepRate: 0,
                     totalRate: 0.7120000000000001, // avg(steps[0] / 100)
+                },
+            })
+        })
+
+        it('for steps viz when median is missing (old cache)', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnelVizType: FunnelVizType.Steps,
+                },
+            }
+
+            // No total_median_conversion_time — mirrors a result cached before the field existed.
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResult.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                conversionMetrics: {
+                    medianTime: null,
+                    stepRate: 0.46048109965635736,
+                    totalRate: 0.46048109965635736,
+                },
+            })
+        })
+
+        it('for time to convert viz when median is missing (old cache)', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnelVizType: FunnelVizType.TimeToConvert,
+                },
+            }
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: {
+                    bins: (funnelResultTimeToConvert.result as any).bins,
+                    average_conversion_time: (funnelResultTimeToConvert.result as any).average_conversion_time,
+                },
+            } as any
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues({
+                conversionMetrics: {
+                    medianTime: null,
+                    stepRate: 0,
+                    totalRate: 0,
                 },
             })
         })

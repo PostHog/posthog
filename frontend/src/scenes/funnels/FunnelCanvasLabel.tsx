@@ -39,7 +39,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   </>,
               ]
             : []),
-        ...(funnelsFilter?.funnelVizType !== FunnelVizType.Trends
+        ...(funnelsFilter?.funnelVizType !== FunnelVizType.Trends && conversionMetrics.medianTime != null
             ? [
                   <>
                       <span className="flex items-center text-secondary">
