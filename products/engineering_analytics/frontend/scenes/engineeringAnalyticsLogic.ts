@@ -13,7 +13,7 @@ import {
     engineeringAnalyticsSources,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
-import type { GitHubSourceApi } from '../generated/api.schemas'
+import type { GitHubSourceApi, PullRequestListItemApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
@@ -178,6 +178,35 @@ export function prKeyOf(row: Pick<PullRequestRow, 'repoOwner' | 'repoName' | 'nu
     return `${row.repoOwner}/${row.repoName}#${row.number}`
 }
 
+/** Map an API PR list item to the table row shape — shared by the PR list and the author page so both
+ *  feed the same PullRequestTable. ?? fallbacks degrade gracefully when a new frontend briefly hits an
+ *  older backend whose response predates the cost/push fields. */
+export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
+    return {
+        number: it.number,
+        title: it.title,
+        repoOwner: it.repo.owner,
+        repoName: it.repo.name,
+        authorHandle: it.author.handle,
+        authorAvatarUrl: it.author.avatar_url,
+        isBot: it.author.is_bot,
+        state: it.state as PRState,
+        isDraft: it.is_draft,
+        createdAt: it.created_at,
+        mergedAt: it.merged_at,
+        openToMergeSeconds: it.open_to_merge_seconds,
+        labels: it.labels,
+        runs: it.ci.runs,
+        passing: it.ci.passing,
+        failing: it.ci.failing,
+        pending: it.ci.pending,
+        pushes: it.pushes ?? 0,
+        rerunCycles: it.rerun_cycles ?? 0,
+        estimatedCostUsd: it.estimated_cost_usd ?? null,
+        billableMinutes: it.billable_minutes ?? null,
+    }
+}
+
 export interface PullRequestFilters {
     state: PRStateFilter
     author: string | null
@@ -314,33 +343,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         const response = await engineeringAnalyticsPullRequests(projectId(), {
                             source_id: values.sourceId ?? undefined,
                         })
-                        return response.items.map(
-                            (it): PullRequestRow => ({
-                                number: it.number,
-                                title: it.title,
-                                repoOwner: it.repo.owner,
-                                repoName: it.repo.name,
-                                authorHandle: it.author.handle,
-                                authorAvatarUrl: it.author.avatar_url,
-                                isBot: it.author.is_bot,
-                                state: it.state as PRState,
-                                isDraft: it.is_draft,
-                                createdAt: it.created_at,
-                                mergedAt: it.merged_at,
-                                openToMergeSeconds: it.open_to_merge_seconds,
-                                labels: it.labels,
-                                runs: it.ci.runs,
-                                passing: it.ci.passing,
-                                failing: it.ci.failing,
-                                pending: it.ci.pending,
-                                // Defensive ?? 0: during a deploy the new frontend can briefly hit an
-                                // older backend whose response predates these fields — degrade, don't crash.
-                                pushes: it.pushes ?? 0,
-                                rerunCycles: it.rerun_cycles ?? 0,
-                                estimatedCostUsd: it.estimated_cost_usd ?? null,
-                                billableMinutes: it.billable_minutes ?? null,
-                            })
-                        )
+                        return response.items.map(toPullRequestRow)
                     },
                 },
             ],
