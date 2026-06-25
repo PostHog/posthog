@@ -60,7 +60,7 @@ from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)

@@ -31,7 +31,7 @@ from posthog.schema import (
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.insight_transformers import _transform_trends
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
 

@@ -14,7 +14,7 @@ from posthog.hogql.escape_sql import escape_postgres_identifier
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.facade.models import ExternalDataSource
     from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
     from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -197,9 +197,9 @@ class PostgresAdapter:
     def validate_source_config(
         self, source: "ExternalDataSource", team: "Team"
     ) -> tuple["PostgresSource", "PostgresSourceConfig"]:
+        from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
         from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
-        from products.warehouse_sources.backend.types import ExternalDataSourceType
 
         if not source.is_direct_postgres:
             raise ExposedHogQLError("Invalid direct Postgres connection.")
