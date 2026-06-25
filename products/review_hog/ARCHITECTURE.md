@@ -181,14 +181,16 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 > **Status: Stage 3 complete (steps 1–8 built & green).** Foundation, persist-after-success, explicit
 > team/user identity, the per-turn **point-in-time diff snapshot**, and now **step 8 — Postgres is the
 > single source of truth and the on-disk `reviews/<pr>/` store is gone**. The pipeline passes objects
-> in-process within a run and persists every stage to rows; a head*sha-scoped **DB-driven resume** reuses
+> in-process within a run and persists every stage to rows; a `head_sha`-scoped **DB-driven resume** reuses
 > the turn-stable sandbox stages (chunk / analyze / lens review) on a re-run. The sandbox executor returns a
 > validated model (via `MultiTurnSession.start(model=…)`) instead of writing a file, and publish is
 > **DB-driven** (body from `ReviewReport.report_markdown`, inline comments from the finding/verdict rows). No
 > object storage. Lint + tach + the ReviewHog backend suite (125) + the Signals artefact suite pass. What
-> remains: the **loop itself** (Temporal + the re-check), the deferred `task_run` / `note` work-log
-> artefacts, and cross-turn finding identity (semantic, not the per-turn positional `issue_key`). See the
-> step list and \_Deferred / future* below.
+> remains (next steps): **(9)** a `reset_review_hog` management command to wipe ReviewHog's DB rows for a clean
+> slate while iterating, then **(10)** the **Temporal migration** — orchestrator → parent workflow + the loop-y
+> re-check; plus the deferred `task_run` / `note` work-log artefacts and cross-turn finding identity (semantic,
+> not the per-turn positional `issue_key`). See the
+> step list and the Deferred / future section below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
 DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
@@ -439,6 +441,22 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
    cross-turn identity before it re-reviews across commits. The `task_run` / `note` work-log artefacts and
    validation resume also land with the loop.
 
+9. ⏭️ **(next) `reset_review_hog` management command — wipe ReviewHog's DB state for a clean slate.** As we
+   iterate, a one-shot `python manage.py reset_review_hog` deletes all ReviewHog rows — every
+   `ReviewReportArtefact` (findings, verdicts, commit snapshots, and the `chunk_set` / `chunk_analysis` /
+   `lens_result` working state) and every `ReviewReport` — so a re-run starts genuinely fresh instead of
+   resuming or accumulating against stale turns. Team-scoped (default `--team-id`, plus an explicit `--all` for
+   every team, and optionally `--pr-url` / `--repository` to scope to one report). Now that Postgres is the
+   single source of truth, this is the _entire_ "clean state" story — there are no files left to remove. (Write
+   it via the fail-closed managers, e.g. `ReviewReport.objects.for_team(team_id)`, not raw SQL.)
+10. ⏭️ **(after) Make the whole pipeline Temporal.** Rework `run.py main()` into a **parent workflow** with each
+    stage a child workflow / activity (exchanging Postgres **row ids by reference**, ~2 MiB payload cap), and add
+    the **loop-y re-check** as a long-running `continue-as-new` workflow advanced by the report's `head_sha` /
+    `last_seen_comment_id` watermark. Step 8's DB-driven, head*sha-scoped design exists precisely so this is an
+    \_orchestration* change, not a persistence one. Cross-turn finding identity (semantic, not the positional
+    `issue_key`) and the `task_run` / `note` work-log artefacts land here. Full design in _Everything on
+    Temporal_ under Deferred / future below.
+
 ##### Cloud host, Temporal & GitHub (assumed / later)
 
 - **Cloud host assumed.** The orchestrator (`run.py main()`, a management-command coroutine — `run.py` carries
@@ -454,7 +472,8 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
 - **Shared abstract artefact base.** If a second consumer proves it out (nest-then-promote), extract an abstract
   `AttributedArtefact` (funnel + fields, with `task` / `report` FKs declared per-subclass to avoid a core→tasks
   FK) into a shared home; Signals would converge onto it via a **mixin only** (no table change). Not now.
-- **Everything on Temporal.** The whole orchestrator (`run.py main()`, the `TODO: Make it a parent workflow`)
+- **Everything on Temporal — this is step 10** (the major step after the `reset_review_hog` command; design
+  detail here). The whole orchestrator (`run.py main()`, the `TODO: Make it a parent workflow`)
   moves onto Temporal: a **parent workflow** with each pipeline stage (chunk → analyze → parallel lenses →
   combine/clean → dedupe → validate → persist → publish) as a **child workflow / activity**, so retries,
   visibility, and the global sandbox throttle are durable rather than in-process. The **loop-y re-check** (after
@@ -709,9 +728,15 @@ Per-run state by kind:
 - **Run a review:** `python manage.py run_review --pr-url <github_pr_url> --team-id <id> --user-id <id>`
   (`backend/management/commands/run_review.py` → `asyncio.run(main(pr_url=…, team_id=…, user_id=…))`). All
   three are required.
+  - **Default local-testing PR:** **[#65862](https://github.com/PostHog/posthog/pull/65862)** (team 1 /
+    user 1). It is an **origin-branch** PR — its head branch lives on `PostHog/posthog`, which the review
+    needs: the sandbox clones the **base** repo and checks out the head branch **by name**
+    (`get_sandbox_for_repository`, owned by `products/tasks`), so a **fork** PR fails at the checkout step
+    ("Activity task failed") because the fork's branch isn't on the base origin. Until the sandbox learns to
+    fetch `refs/pull/N/head`, test against origin-branch PRs.
 - **Lint:** `ruff check products/review_hog/ --fix && ruff format products/review_hog/`
-- **Tests:** `pytest products/review_hog/backend/reviewer/tests/` (sandbox calls are mocked; fixtures under
-  `tests/fixtures/`).
+- **Tests:** `pytest products/review_hog/backend` (125 tests; sandbox calls are mocked, fixtures under
+  `reviewer/tests/fixtures/`; persistence/model tests hit the test DB).
 
 **Configuration read at runtime:**
 
