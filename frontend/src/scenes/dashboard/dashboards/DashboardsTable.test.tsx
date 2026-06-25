@@ -82,4 +82,12 @@ describe('DashboardsTable bulk move', () => {
         expect(openMoveToModal.mock.calls[0][0]).toHaveLength(2)
         expect(clearSelection).toHaveBeenCalled()
     })
+
+    it('does not render the bulk move button in the control arm (no entry source)', () => {
+        // Control passes no dashboardFsEntry, so the bulk "Move to folder" button must not appear — its
+        // entry source is the mostly-empty sidebar store and it would render perpetually disabled.
+        mockCtx = { selectedKeys: [1, 2], clearSelection }
+        render(<DashboardsTable dashboards={[] as any} dashboardsLoading={false} />)
+        expect(screen.queryByText('Move to folder')).not.toBeInTheDocument()
+    })
 })

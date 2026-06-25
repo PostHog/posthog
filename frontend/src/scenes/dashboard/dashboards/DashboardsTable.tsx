@@ -83,6 +83,11 @@ export function DashboardsTable({
     const fsEntryFor = (id: number): FileSystemEntry | undefined =>
         dashboardFsEntry?.(id) ?? itemsByRef[`dashboard::${id}`]
 
+    // The tree arm is the only caller that supplies a complete entry source. Control falls back to the
+    // sidebar's lazily-loaded itemsByRef, which is mostly empty here — so the bulk "Move to folder" button
+    // would render perpetually disabled. Gate it on the tree arm so control's bulk bar is unchanged.
+    const isTreeArm = !!dashboardFsEntry
+
     const columns: LemonTableColumns<DashboardType> = [
         {
             width: 0,
@@ -319,35 +324,41 @@ export function DashboardsTable({
                         // Move the whole selection at once, resolving each id's entry the same way the per-row
                         // Move does. Some rows may not resolve (e.g. unfiled dashboards the sidebar hasn't
                         // loaded) — surface that count rather than silently dropping them from the move.
-                        const moveEntries = ctx.selectedKeys
-                            .map(fsEntryFor)
-                            .filter((entry): entry is FileSystemEntry => !!entry)
+                        // Tree arm only: in control the entry source is mostly empty, so the button would be
+                        // perpetually disabled — leave control's bulk bar exactly as it was.
+                        const moveEntries = isTreeArm
+                            ? ctx.selectedKeys
+                                  .map(fsEntryFor)
+                                  .filter((entry): entry is FileSystemEntry => !!entry)
+                            : []
                         const unmovable = ctx.selectedKeys.length - moveEntries.length
                         const partial = unmovable > 0 && moveEntries.length > 0
                         return (
                             <>
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    onClick={() => {
-                                        reportDashboardMoveInitiated('bulk', moveEntries.length)
-                                        openMoveToModal(moveEntries)
-                                        ctx.clearSelection()
-                                    }}
-                                    disabledReason={
-                                        moveEntries.length === 0
-                                            ? 'None of the selected dashboards can be moved to a folder'
-                                            : undefined
-                                    }
-                                    tooltip={
-                                        partial
-                                            ? `Only ${moveEntries.length} of ${ctx.selectedKeys.length} selected can be moved to a folder`
-                                            : undefined
-                                    }
-                                    data-attr="dashboards-bulk-move-to-folder"
-                                >
-                                    {partial ? `Move ${moveEntries.length} to folder` : 'Move to folder'}
-                                </LemonButton>
+                                {isTreeArm && (
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => {
+                                            reportDashboardMoveInitiated('bulk', moveEntries.length)
+                                            openMoveToModal(moveEntries)
+                                            ctx.clearSelection()
+                                        }}
+                                        disabledReason={
+                                            moveEntries.length === 0
+                                                ? 'None of the selected dashboards can be moved to a folder'
+                                                : undefined
+                                        }
+                                        tooltip={
+                                            partial
+                                                ? `Only ${moveEntries.length} of ${ctx.selectedKeys.length} selected can be moved to a folder`
+                                                : undefined
+                                        }
+                                        data-attr="dashboards-bulk-move-to-folder"
+                                    >
+                                        {partial ? `Move ${moveEntries.length} to folder` : 'Move to folder'}
+                                    </LemonButton>
+                                )}
                                 <BulkUpdateTagsButton
                                     resource="dashboards"
                                     selectedIds={ctx.selectedKeys}
