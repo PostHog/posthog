@@ -18,20 +18,23 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 
-import posthog.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
-from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
-from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
 )
-from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
-from posthog.temporal.data_imports.sources.postgres.exceptions import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
+    ColumnTypeCategory,
+    ValidatedRowFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
     PostHogDatabaseConnectionError,
     XminUnsupportedError,
 )
-from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
     WINDOW_MAX_QUERY_CANCELED_RETRIES,
     WINDOW_MAX_SERIALIZATION_RETRIES,
     ChildPartition,
@@ -46,7 +49,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     partition_bounds_for_range,
     should_preserve_asc_sort,
 )
-from posthog.temporal.data_imports.sources.postgres.postgres import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _MAX_SETUP_CONNECTION_DROPPED_RETRIES,
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
     _MIN_RECOVERY_CONFLICT_CHUNK_SIZE,
@@ -106,9 +109,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     get_schemas,
     postgres_source,
 )
-from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
-
-from products.data_warehouse.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestSafeDateLoader:
@@ -805,10 +807,10 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
         connection = self._make_failing_connection(err)
 
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             return_value=connection,
         ) as connect_mock:
-            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
                 with pytest.raises(Exception) as exc_info:
                     self._call_postgres_source()
 
@@ -826,7 +828,7 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
         connection = self._make_failing_connection(err)
 
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             return_value=connection,
         ) as connect_mock:
             with pytest.raises(psycopg.errors.SerializationFailure):
@@ -844,10 +846,10 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
         )
 
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             side_effect=err,
         ) as connect_mock:
-            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
                 with pytest.raises(psycopg.OperationalError):
                     self._call_postgres_source()
 
@@ -863,10 +865,10 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
         )
 
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             side_effect=err,
         ) as connect_mock:
-            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
                 with pytest.raises(psycopg.OperationalError):
                     self._call_postgres_source()
 
@@ -881,10 +883,10 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
         connection = self._make_failing_connection(err)
 
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             return_value=connection,
         ) as connect_mock:
-            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
                 with pytest.raises(psycopg.errors.InternalError_):
                     self._call_postgres_source()
 
@@ -898,10 +900,10 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
         connection = self._make_failing_connection(err)
 
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             return_value=connection,
         ) as connect_mock:
-            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
                 with pytest.raises(psycopg.errors.InternalError_):
                     self._call_postgres_source()
 
@@ -1093,7 +1095,7 @@ class TestConnectWithDroppedRetry:
             ]
         )
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
             result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
 
         assert result is good_conn
@@ -1110,7 +1112,7 @@ class TestConnectWithDroppedRetry:
             ]
         )
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
             result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
 
         assert result is good_conn
@@ -1135,7 +1137,7 @@ class TestConnectWithDroppedRetry:
             ]
         )
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
             result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
 
         assert result is good_conn
@@ -1148,7 +1150,7 @@ class TestConnectWithDroppedRetry:
             )
         )
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
             with pytest.raises(psycopg.OperationalError):
                 _connect_with_dropped_retry(connect, logger, max_attempts=5)
 
@@ -1159,7 +1161,7 @@ class TestConnectWithDroppedRetry:
             side_effect=psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected")
         )
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
             with pytest.raises(psycopg.OperationalError):
                 _connect_with_dropped_retry(connect, logger, max_attempts=3)
 
@@ -1208,7 +1210,9 @@ class TestRecoveryConflictAbortError:
 # Python: 'UNICODE'`. We pin the client encoding to UTF8 on connect to avoid the crash.
 class TestConnectForcesUtf8ClientEncoding:
     def test_connect_pins_client_encoding_to_utf8(self):
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect") as connect_mock:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
+        ) as connect_mock:
             _connect_to_postgres(
                 host="redshift-cluster.example.com",
                 port=5439,
@@ -1220,7 +1224,9 @@ class TestConnectForcesUtf8ClientEncoding:
         assert connect_mock.call_args.kwargs["options"] == FORCE_UTF8_CLIENT_ENCODING
 
     def test_caller_supplied_options_are_appended_after_utf8(self):
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect") as connect_mock:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
+        ) as connect_mock:
             _connect_to_postgres(
                 host="db.example.com",
                 port=5432,
@@ -1268,7 +1274,10 @@ class TestConnectOptionsStartupParamFallback:
             ]
         )
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            connect_mock,
+        ):
             result = _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
 
         assert result is good_conn
@@ -1282,7 +1291,10 @@ class TestConnectOptionsStartupParamFallback:
             side_effect=psycopg.OperationalError("FATAL:  unsupported startup parameter: options")
         )
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            connect_mock,
+        ):
             with pytest.raises(psycopg.OperationalError):
                 _connect_with_options_fallback(host="db")
 
@@ -1291,7 +1303,10 @@ class TestConnectOptionsStartupParamFallback:
     def test_unrelated_operational_error_is_not_retried(self):
         connect_mock = mock.MagicMock(side_effect=psycopg.OperationalError("password authentication failed for user"))
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            connect_mock,
+        ):
             with pytest.raises(psycopg.OperationalError):
                 _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
 
@@ -1310,7 +1325,10 @@ class TestConnectOptionsStartupParamFallback:
             ]
         )
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            connect_mock,
+        ):
             with pytest.raises(psycopg.OperationalError) as exc_info:
                 _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
 
@@ -1343,7 +1361,10 @@ class TestInvalidSSLNegotiationResponse:
         connect_mock = mock.MagicMock(
             side_effect=psycopg.OperationalError("received invalid response to SSL negotiation: I")
         )
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            connect_mock,
+        ):
             with pytest.raises(psycopg.OperationalError) as exc_info:
                 _connect_to_postgres(
                     host="db", port=41667, database="railway", user="postgres", password="x", require_ssl=True
@@ -1355,7 +1376,10 @@ class TestInvalidSSLNegotiationResponse:
         connect_mock = mock.MagicMock(
             side_effect=psycopg.OperationalError("server does not support SSL, but SSL was required")
         )
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            connect_mock,
+        ):
             with pytest.raises(SSLRequiredError):
                 _connect_to_postgres(
                     host="db", port=5432, database="db", user="postgres", password="x", require_ssl=True
@@ -1473,7 +1497,7 @@ class TestServerCursorStatementTimeout:
         fake_table.columns = []
         fake_table.__contains__ = mock.Mock(return_value=False)
 
-        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}.psycopg.connect", return_value=self._Connection()),
             patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(raise_on_fetch=False)),
@@ -1617,7 +1641,7 @@ class TestOffsetChunkingConnectRecoveryConflict:
                 raise psycopg.errors.SerializationFailure(self._RECOVERY_CONFLICT)
             return connection
 
-        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}.psycopg.connect", side_effect=connect_side_effect) as connect_mock,
             patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._OffsetCursor()),
@@ -1682,7 +1706,7 @@ class TestOffsetChunkingConnectTimeout:
                 raise psycopg.errors.ConnectionTimeout("connection timeout expired")
             return connection
 
-        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}.psycopg.connect", side_effect=connect_side_effect) as connect_mock,
             patch(
@@ -1798,7 +1822,7 @@ class TestOffsetChunkingRecoveryConflictTimeout:
         fake_table.columns = []
         fake_table.__contains__ = mock.Mock(return_value=False)
 
-        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}.psycopg.connect", return_value=self._Connection()),
             patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._OffsetCursor()),
@@ -1918,8 +1942,13 @@ class TestPostgresSourceForPipelineSchemaResolution:
             mock.patch(
                 "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
+            ) as postgres_source_mock,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.source_requires_ssl",
+                return_value=False,
+            ),
             mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
         ):
             objects_mock.select_related.return_value.get.return_value = schema_model
@@ -1947,8 +1976,13 @@ class TestPostgresSourceForPipelineSchemaResolution:
             mock.patch(
                 "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
+            ) as postgres_source_mock,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.source_requires_ssl",
+                return_value=False,
+            ),
             mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
         ):
             objects_mock.select_related.return_value.get.return_value = schema_model
@@ -1965,7 +1999,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
         # that key for `url_pattern`, so `SourceResponse.name` MUST also derive from the storage key
         # — otherwise Delta files land at `.../public__example_table/` while `DataWarehouseTable.url_pattern`
         # points at `.../example_table/` and HogQL reads from an empty location.
-        from posthog.temporal.data_imports.naming_convention import NamingConvention
+        from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
         schema_model = self._make_schema_model(
             "public.example_table",
@@ -1979,8 +2013,13 @@ class TestPostgresSourceForPipelineSchemaResolution:
             mock.patch(
                 "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
+            ) as postgres_source_mock,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.source_requires_ssl",
+                return_value=False,
+            ),
             mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
         ):
             response = mock.MagicMock()
@@ -1997,7 +2036,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
     def test_response_name_uses_schema_name_when_no_storage_key(self, source):
         # New (non-migrated) rows have no s3_folder_name — response.name falls back to the row's
         # current name so the Delta path matches `url_pattern` (also derived from the row's name).
-        from posthog.temporal.data_imports.naming_convention import NamingConvention
+        from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
         schema_model = self._make_schema_model(
             "poblic.new_table",
@@ -2011,8 +2050,13 @@ class TestPostgresSourceForPipelineSchemaResolution:
             mock.patch(
                 "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
+            ) as postgres_source_mock,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.source_requires_ssl",
+                return_value=False,
+            ),
             mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
         ):
             response = mock.MagicMock()
@@ -2033,8 +2077,13 @@ class TestPostgresSourceForPipelineSchemaResolution:
             mock.patch(
                 "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
+            ) as postgres_source_mock,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.source_requires_ssl",
+                return_value=False,
+            ),
             mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
         ):
             objects_mock.select_related.return_value.get.return_value = schema_model
@@ -2226,10 +2275,12 @@ class TestPostgresSchemaDiscovery:
         )
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             side_effect=[*dropping_connections, good_connection],
         ) as connect_mock:
-            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
                 schemas = get_schemas(
                     host="localhost",
                     port=5432,
@@ -2258,10 +2309,12 @@ class TestPostgresSchemaDiscovery:
         ]
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             side_effect=dropping_connections,
         ) as connect_mock:
-            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
                 with pytest.raises(psycopg.errors.InternalError_):
                     get_schemas(
                         host="localhost",
@@ -2299,10 +2352,12 @@ class TestPostgresSchemaDiscovery:
         )
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             side_effect=[drop, connection],
         ) as connect_mock:
-            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
                 schemas = get_schemas(
                     host="localhost",
                     port=5432,
@@ -2345,10 +2400,12 @@ class TestPostgresSchemaDiscovery:
         )
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             side_effect=[dropped_connection, good_connection],
         ) as connect_mock:
-            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
                 schemas = get_schemas(
                     host="localhost",
                     port=5432,
@@ -2372,10 +2429,12 @@ class TestPostgresSchemaDiscovery:
         dropped_connection = self._drop_on_execute_connection(err)
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             side_effect=[dropped_connection],
         ) as connect_mock:
-            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
                 with pytest.raises(psycopg.errors.InternalError_):
                     get_schemas(
                         host="localhost",
@@ -2397,10 +2456,12 @@ class TestPostgresSchemaDiscovery:
         )
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             side_effect=err,
         ) as connect_mock:
-            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
                 with pytest.raises(psycopg.OperationalError):
                     get_schemas(
                         host="localhost",
@@ -2423,7 +2484,7 @@ class TestPostgresSchemaDiscovery:
         )
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
             return_value=connection,
         ):
             schemas = get_schemas(
@@ -2497,7 +2558,7 @@ class TestPostgresSchemaDiscovery:
         connection = self._mock_connection(*fetchall_results)
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
             return_value=connection,
         ):
             schemas = get_schemas(
@@ -2519,7 +2580,7 @@ class TestPostgresSchemaDiscovery:
         )
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
             return_value=connection,
         ):
             foreign_keys = get_foreign_keys(
@@ -2559,7 +2620,7 @@ class TestPostgresSchemaDiscovery:
         ]
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
             return_value=connection,
         ):
             schemas = get_schemas(
@@ -2585,7 +2646,7 @@ class TestPostgresSchemaDiscovery:
 
     def test_get_postgres_row_count_skips_blank_schema_browse(self):
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._connect_to_postgres"
         ) as patch_connect_to_postgres:
             row_counts = get_postgres_row_count(
                 host="localhost",
@@ -2637,17 +2698,17 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
         with (
             mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
                 return_value=discovered,
             ),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
                 side_effect=exc,
             ),
             # PK/index discovery opens its own connection; let it fail so the test needs no real DB.
             # That path is already guarded and defaults gracefully.
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.pg_connection",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.pg_connection",
                 side_effect=psycopg.OperationalError("no db in test"),
             ),
         ):
@@ -2684,18 +2745,20 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
         with (
             mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
                 return_value=discovered,
             ),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
                 return_value={},
             ),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.pg_connection",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.pg_connection",
                 side_effect=connection_dropped,
             ),
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.capture_exception") as mock_capture,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.capture_exception"
+            ) as mock_capture,
         ):
             schemas = source.get_schemas(self._config(), team_id=1)
 
@@ -2735,30 +2798,32 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
         with (
             mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
                 return_value=discovered,
             ),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
                 return_value={},
             ),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.pg_connection",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.pg_connection",
                 return_value=conn_cm,
             ),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.get_primary_key_columns",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_primary_key_columns",
                 side_effect=unnest_error,
             ),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.get_leading_index_columns",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_leading_index_columns",
                 return_value={"users": set()},
             ),
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source._rls_active_from_conn",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source._rls_active_from_conn",
                 return_value={},
             ),
-            mock.patch("posthog.temporal.data_imports.sources.postgres.source.capture_exception") as mock_capture,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.capture_exception"
+            ) as mock_capture,
         ):
             schemas = source.get_schemas(self._config(), team_id=1)
 
@@ -2783,28 +2848,36 @@ class TestGetSslmode:
         assert _get_sslmode(require_ssl) == expected
 
     def test_returns_require_when_ssl_required_outside_test(self):
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.settings") as mock_settings:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+        ) as mock_settings:
             mock_settings.TEST = False
             mock_settings.DEBUG = False
             mock_settings.E2E_TESTING = False
             assert _get_sslmode(True) == "require"
 
     def test_returns_prefer_when_ssl_not_required_outside_test(self):
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.settings") as mock_settings:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+        ) as mock_settings:
             mock_settings.TEST = False
             mock_settings.DEBUG = False
             mock_settings.E2E_TESTING = False
             assert _get_sslmode(False) == "prefer"
 
     def test_returns_prefer_in_debug_mode(self):
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.settings") as mock_settings:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+        ) as mock_settings:
             mock_settings.TEST = False
             mock_settings.DEBUG = True
             mock_settings.E2E_TESTING = False
             assert _get_sslmode(True) == "prefer"
 
     def test_returns_prefer_in_e2e_mode(self):
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.settings") as mock_settings:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+        ) as mock_settings:
             mock_settings.TEST = False
             mock_settings.DEBUG = False
             mock_settings.E2E_TESTING = True
@@ -3546,7 +3619,9 @@ class TestGetRowsToSync:
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
-            with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+            ) as mock_capture:
                 rows = _get_rows_to_sync(cast(Any, dj_cursor), self._FAILING_COUNT_QUERY, logger)
 
         # Best-effort estimate falls back to 0 and never reports the handled failure.
@@ -3572,7 +3647,9 @@ class TestGetRowsToSync:
         cursor.execute.side_effect = Exception("temporary file size exceeds temp_file_limit (1048576kB)")
         count_query = _build_count_query("public", "users", False, None, None, None)
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as mock_capture:
             with pytest.raises(TemporaryFileSizeExceedsLimitException):
                 _get_rows_to_sync(cast(Any, cursor), count_query, logger)
 
@@ -3841,7 +3918,9 @@ class TestGetPartitionSettings:
         cursor = mock.MagicMock()
         cursor.execute.side_effect = psycopg.errors.UndefinedTable('relation "public.store_source" does not exist')
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as mock_capture:
             result = _get_partition_settings(cast(Any, cursor), "public", "store_source", logger, is_partitioned=False)
 
         assert result is None
@@ -3854,9 +3933,11 @@ class TestGetPartitionSettings:
         sentinel = object()
 
         with (
-            patch("posthog.temporal.data_imports.sources.postgres.postgres._is_partitioned_table") as mock_detect,
             patch(
-                "posthog.temporal.data_imports.sources.postgres.postgres._get_partition_settings_for_partitioned_table",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._is_partitioned_table"
+            ) as mock_detect,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_partition_settings_for_partitioned_table",
                 return_value=sentinel,
             ) as mock_partitioned,
         ):
@@ -3876,7 +3957,9 @@ class TestGetPartitionSettings:
             "canceling statement due to conflict with recovery"
         )
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
             result = _get_partition_settings(cast(Any, cursor), "public", "t", logger, is_partitioned=False)
 
         assert result is None
@@ -3890,7 +3973,9 @@ class TestGetPartitionSettings:
         # upstream/source-side failure (e.g. a misbehaving extension index on the source DB)
         # that is already tolerated by falling back to default partition settings.
         with django_connection.cursor() as dj_cursor:
-            with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+            ) as mock_capture:
                 result = _get_partition_settings(cast(Any, dj_cursor), "public", "does_not_exist_ps_table", logger)
 
         # Best-effort sizing falls back to None and never reports the handled failure.
@@ -3916,7 +4001,9 @@ class TestGetPartitionSettings:
         cursor = mock.MagicMock()
         cursor.execute.side_effect = exc
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
             result = _get_partition_settings(cast(Any, cursor), "public", "t", logger, is_partitioned=False)
 
         assert result is None
@@ -3928,7 +4015,9 @@ class TestGetPartitionSettings:
         cursor = mock.MagicMock()
         cursor.execute.side_effect = Exception("temporary file size exceeds temp_file_limit (1048576kB)")
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as mock_capture:
             with pytest.raises(TemporaryFileSizeExceedsLimitException):
                 _get_partition_settings(cast(Any, cursor), "public", "users", logger)
 
@@ -4210,7 +4299,7 @@ class TestGetPrimaryKeys:
         # The fallback query then hits a transient connection drop. It must propagate to the setup
         # retry loop (stays retryable), not be swallowed as "no primary key" + captured as noise.
         cursor.execute.side_effect = [None, psycopg.OperationalError("the connection is lost")]
-        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}._explain_query"),
             patch(f"{module}.capture_exception") as mock_capture,
@@ -4226,7 +4315,7 @@ class TestGetPrimaryKeys:
         # A genuine query-incompatibility error in the best-effort fallback still degrades to
         # "no primary key" and is captured — only transient drops are re-raised.
         cursor.execute.side_effect = [None, psycopg.errors.UndefinedColumn("boom")]
-        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}._explain_query"),
             patch(f"{module}.capture_exception") as mock_capture,
@@ -4347,7 +4436,9 @@ class TestHasDuplicatePrimaryKeys:
             'DETAIL:  connection to server at "10.0.0.1", port 5432 failed: '
             'FATAL:  too many connections for role "posthog_fdw_reader"'
         )
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as mock_capture:
             with pytest.raises(psycopg.OperationalError):
                 _has_duplicate_primary_keys(cast(Any, cursor), "public", "orders", ["id"], logger)
         mock_capture.assert_not_called()
@@ -4356,7 +4447,9 @@ class TestHasDuplicatePrimaryKeys:
         logger = structlog.get_logger()
         cursor = MagicMock()
         cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "id" does not exist')
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as mock_capture:
             result = _has_duplicate_primary_keys(cast(Any, cursor), "public", "orders", ["id"], logger)
         assert result is False
         mock_capture.assert_called_once()
@@ -5453,14 +5546,18 @@ class TestRlsActiveFromConnErrorHandling:
         # A Postgres-wire engine without `row_security_active` is an expected shape: degrade to no
         # RLS warnings without flooding error tracking.
         conn = self._conn_raising(psycopg.errors.InternalError(_FLIGHT_MISSING_FUNCTION_MSG))
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_not_called()
 
     def test_unexpected_error_is_still_captured(self):
         conn = self._conn_raising(Exception("connection reset by peer"))
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_called_once()
@@ -5476,7 +5573,9 @@ class TestRlsActiveFromConnErrorHandling:
                 "current transaction is aborted, commands ignored until end of transaction block"
             )
         )
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_not_called()
@@ -5492,7 +5591,9 @@ class TestRlsActiveFromConnErrorHandling:
         conn.broken = False
         setattr(conn, attr, True)
         conn.cursor.side_effect = psycopg.OperationalError("the connection is closed")
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_not_called()
@@ -5531,7 +5632,7 @@ class TestGetRowsInitialConnectRetry:
 
         try:
             with patch(
-                "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
                 side_effect=plain_connect,
             ):
                 response = postgres_source(
@@ -5562,9 +5663,9 @@ class TestGetRowsInitialConnectRetry:
                 return plain_connect(*args, **kwargs)
 
             with (
-                patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"),
+                patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"),
                 patch(
-                    "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+                    "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
                     side_effect=flaky_connect,
                 ),
             ):
