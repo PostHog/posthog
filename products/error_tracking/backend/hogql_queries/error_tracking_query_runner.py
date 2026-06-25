@@ -26,7 +26,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     date_from: datetime.datetime
     date_to: datetime.datetime
 
-    CACHE_VERSION = 3
+    CACHE_VERSION = 2
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
