@@ -442,6 +442,7 @@ doesn't conflict with concurrent PRs.
 - helpscout
 - hibob
 - high_level
+- hightouch
 - hoorayhr
 - hubplanner
 - hugging_face
@@ -479,6 +480,7 @@ doesn't conflict with concurrent PRs.
 - kyve
 - leadfeeder
 - leexi
+- lemon_squeezy
 - less_annoying_crm
 - lever
 - liana

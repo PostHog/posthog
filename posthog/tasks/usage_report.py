@@ -134,6 +134,9 @@ class UsageReportCounters:
     mobile_recording_bytes_in_period: int
     mobile_billable_recording_count_in_period: int
 
+    # Replay Vision
+    recording_observations_count_in_period: int
+
     # Persons and Groups
     group_types_total: int
 
@@ -902,6 +905,27 @@ def get_teams_with_recording_count_in_period(
                 "end": end,
                 "snapshot_source": snapshot_source,
             },
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_recording_observations_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    # Replay Vision emits one `$recording_observed` event per observation into the team's events table,
+    # with `event_uuid` set to the observation id. Count distinct uuids so at-least-once ingestion
+    # duplicates (same observation, same uuid) aren't over-counted — this is a billing input.
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.USAGE_REPORT):
+        return sync_execute(
+            """
+            SELECT team_id, count(distinct uuid) as count
+            FROM events
+            WHERE event = '$recording_observed' AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id
+        """,
+            {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
             ch_user=ClickHouseUser.BILLING,
@@ -2212,6 +2236,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
         or report.workflow_billable_invocations_in_period > 0
+        or report.recording_observations_count_in_period > 0
     )
 
 
@@ -2298,6 +2323,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end, snapshot_source="mobile"
         ),
         "teams_with_mobile_billable_recording_count_in_period": get_teams_with_mobile_billable_recording_count_in_period(
+            period_start, period_end
+        ),
+        "teams_with_recording_observations_count_in_period": get_teams_with_recording_observations_count_in_period(
             period_start, period_end
         ),
         "teams_with_decide_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
@@ -2550,6 +2578,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         mobile_recording_count_in_period=all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0),
         mobile_recording_bytes_in_period=all_data["teams_with_mobile_recording_bytes_in_period"].get(team.id, 0),
         mobile_billable_recording_count_in_period=all_data["teams_with_mobile_billable_recording_count_in_period"].get(
+            team.id, 0
+        ),
+        recording_observations_count_in_period=all_data["teams_with_recording_observations_count_in_period"].get(
             team.id, 0
         ),
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
