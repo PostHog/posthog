@@ -305,6 +305,7 @@
           ExternalDataSourceType.HUMANITIX: HumanitixSourceConfig,
           ExternalDataSourceType.HUNTR: HuntrSourceConfig,
           ExternalDataSourceType.IP2WHOIS: IP2WhoisSourceConfig,
+          ExternalDataSourceType.IKAS: IkasSourceConfig,
           ExternalDataSourceType.ILLUMINABASESPACE: IlluminaBasespaceSourceConfig,
           ExternalDataSourceType.IMAGGA: ImaggaSourceConfig,
           ExternalDataSourceType.INCIDENTIO: IncidentIoSourceConfig,
