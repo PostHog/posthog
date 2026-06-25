@@ -2555,7 +2555,7 @@ export const ExternalDataSourcesDatabaseSchemaCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        'Validate credentials and preview available tables from a remote database.\n\nThe request body contains source_type plus flat source-specific credential fields\n(e.g. host, port, database, user, password, schema for Postgres). The credential\nfields vary per source_type and are validated dynamically by the source registry.\n\nFor source_type \"Custom\" (a user-defined REST API) the body carries `manifest_json`\n(a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the\ncredential for the manifest\'s declared auth type — `auth_token` (bearer), `auth_api_key`\n(api_key), or `auth_password` (http_basic). The returned tables mirror the manifest\'s\nresources, with detected primary keys and incremental cursors.'
+        'Validate credentials and preview available tables from a remote database.\n\nThe request body contains source_type plus flat source-specific credential fields\n(e.g. host, port, database, user, password, schema for Postgres). The credential\nfields vary per source_type and are validated dynamically by the source registry.\n\nFor source_type \"Custom\" (a user-defined REST API) the body carries `manifest_json`\n(a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the\ncredential for the manifest\'s declared auth type — `auth_token` (bearer), `auth_api_key`\n(api_key), or `auth_password` (http_basic); keep secrets in these auth_\* keys, never\ninline in manifest_json. The returned tables mirror the manifest\'s resources, with\ndetected primary keys and incremental cursors.'
     )
 
 /**

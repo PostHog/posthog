@@ -2610,8 +2610,9 @@ export interface PaginatedExternalDataSourceConnectionOptionListApi {
  * For source_type "Custom" (a user-defined REST API) the body carries `manifest_json`
  * (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the
  * credential for the manifest's declared auth type — `auth_token` (bearer), `auth_api_key`
- * (api_key), or `auth_password` (http_basic). The returned tables mirror the manifest's
- * resources, with detected primary keys and incremental cursors.
+ * (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never
+ * inline in manifest_json. The returned tables mirror the manifest's resources, with
+ * detected primary keys and incremental cursors.
  */
 export interface DatabaseSchemaRequestApi {
     /** The source type to validate against.
