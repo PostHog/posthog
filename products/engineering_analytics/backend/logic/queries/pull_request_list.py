@@ -19,7 +19,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestListItem,
     RepoRef,
 )
+from products.engineering_analytics.backend.logic.cost import PRCostAggregate
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_list_costs
 
 _LIMIT = 1000
 
@@ -55,11 +57,12 @@ def query_pull_request_list(*, curated: CuratedGitHubSource, date_from: datetime
     )
     rows = response.results or []
     truncated = len(rows) > _LIMIT
-    items = [_map_row(row) for row in rows[:_LIMIT]]
+    cost_by_pr = query_pr_list_costs(curated=curated)
+    items = [_map_row(row, cost_by_pr) for row in rows[:_LIMIT]]
     return PullRequestList(items=items, truncated=truncated, limit=_LIMIT)
 
 
-def _map_row(row: tuple) -> PullRequestListItem:
+def _map_row(row: tuple, cost_by_pr: dict[tuple[str, str, int], PRCostAggregate]) -> PullRequestListItem:
     (
         number,
         title,
@@ -81,6 +84,7 @@ def _map_row(row: tuple) -> PullRequestListItem:
         pushes,
         rerun_cycles,
     ) = row
+    cost = cost_by_pr.get((repo_owner, repo_name, number))
     return PullRequestListItem(
         number=number,
         title=title,
@@ -100,5 +104,6 @@ def _map_row(row: tuple) -> PullRequestListItem:
         ci=CIStatusRollup(runs=runs, passing=passing, failing=failing, pending=pending),
         pushes=pushes,
         rerun_cycles=rerun_cycles,
-        estimated_cost_usd=None,
+        estimated_cost_usd=cost.estimated_cost_usd if cost else None,
+        billable_minutes=(cost.billable_seconds / 60) if cost else None,
     )

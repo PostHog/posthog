@@ -17,10 +17,11 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { humanFriendlyCurrency, humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { BillableBadge } from '../components/BillableBadge'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { CIStatusTag } from '../components/CIStatusTag'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
@@ -181,19 +182,16 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                       ),
                   },
                   {
-                      title: 'Est. cost',
+                      title: 'CI cost',
                       key: 'estimatedCostUsd',
-                      width: 110,
+                      width: 130,
                       align: 'right',
-                      tooltip: 'Estimated Depot CI cost. Lands with job-level CI data — not available yet.',
-                      render: (_, row) =>
-                          row.estimatedCostUsd == null ? (
-                              <LemonTag type="muted">pending</LemonTag>
-                          ) : (
-                              <span className="text-xs tabular-nums">
-                                  {humanFriendlyCurrency(row.estimatedCostUsd)}
-                              </span>
-                          ),
+                      tooltip:
+                          'Billable minutes + estimated cost across this PR’s jobs (self-hosted runners). "—" when the job-level source isn’t synced.',
+                      sorter: (a, b) => (a.estimatedCostUsd ?? -1) - (b.estimatedCostUsd ?? -1),
+                      render: (_, row) => (
+                          <BillableBadge minutes={row.billableMinutes} costUsd={row.estimatedCostUsd} />
+                      ),
                   },
               ] as LemonTableColumns<PullRequestRow>)
             : []),

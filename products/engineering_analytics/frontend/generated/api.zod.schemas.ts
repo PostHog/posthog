@@ -353,8 +353,12 @@ export const PullRequestListItemApi = zod.object({
         .number()
         .nullish()
         .describe(
-            'Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.'
+            "Estimated CI cost in USD summed over this PR's jobs (billable runners only). Null when nothing was costable or the job-level source isn't synced."
         ),
+    billable_minutes: zod
+        .number()
+        .nullish()
+        .describe("Billable (self-hosted) minutes summed over this PR's jobs. Null when the job source isn't synced."),
 })
 
 export type PullRequestListItemApi = zod.input<typeof PullRequestListItemApi>
@@ -424,7 +428,13 @@ export const PullRequestListApi = zod.object({
                     .number()
                     .nullish()
                     .describe(
-                        'Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.'
+                        "Estimated CI cost in USD summed over this PR's jobs (billable runners only). Null when nothing was costable or the job-level source isn't synced."
+                    ),
+                billable_minutes: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        "Billable (self-hosted) minutes summed over this PR's jobs. Null when the job source isn't synced."
                     ),
             })
         )

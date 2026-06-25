@@ -60,8 +60,10 @@ export interface PullRequestRow {
     pushes: number
     /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
     rerunCycles: number
-    /** Estimated Depot CI cost (USD). Null until the job-level warehouse source lands. */
+    /** Estimated CI cost (USD) over the PR's jobs (billable runners). Null when no cost / source unsynced. */
     estimatedCostUsd: number | null
+    /** Billable (self-hosted) minutes over the PR's jobs. Null when the job source isn't synced. */
+    billableMinutes: number | null
 }
 
 export interface CardsData {
@@ -336,6 +338,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 pushes: it.pushes ?? 0,
                                 rerunCycles: it.rerun_cycles ?? 0,
                                 estimatedCostUsd: it.estimated_cost_usd ?? null,
+                                billableMinutes: it.billable_minutes ?? null,
                             })
                         )
                     },
@@ -462,7 +465,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             ],
             // Cost & performance lens: surfaces per-PR pushes / re-runs / estimated cost. Transient
             // (no persisted/stateful UI in this phase, per SPEC).
-            costLensEnabled: [false, { setCostLensEnabled: (_, { enabled }) => enabled }],
+            costLensEnabled: [true, { setCostLensEnabled: (_, { enabled }) => enabled }],
         }),
 
         selectors({

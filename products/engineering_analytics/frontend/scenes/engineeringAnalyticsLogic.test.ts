@@ -70,6 +70,7 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         pushes: 0,
         rerunCycles: 0,
         estimatedCostUsd: null,
+        billableMinutes: null,
         ...overrides,
     }
 }

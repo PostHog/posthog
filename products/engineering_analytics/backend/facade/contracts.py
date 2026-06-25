@@ -287,10 +287,11 @@ class PullRequestListItem:
     pushes: int
     # Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).
     rerun_cycles: int
-    # Estimated Depot CI cost in USD. None until the job-level warehouse source
-    # (``github_workflow_jobs``) lands (SPEC §6): run-level data carries no runner tier, so
-    # no honest dollar figure exists yet. The cost model that will populate it is in logic/cost.py.
+    # Estimated CI cost in USD summed over this PR's jobs (billable runners only); None when nothing
+    # was costable or the job-level source (``github_workflow_jobs``) isn't synced. See logic/cost.py.
     estimated_cost_usd: float | None = None
+    # Billable (self-hosted) minutes summed over this PR's jobs; None when the job source isn't synced.
+    billable_minutes: float | None = None
 
 
 @dataclass(frozen=True)

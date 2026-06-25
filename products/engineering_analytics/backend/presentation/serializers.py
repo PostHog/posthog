@@ -258,8 +258,13 @@ class PullRequestListItemSerializer(DataclassSerializer):
                 "help_text": "Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).",
             },
             "estimated_cost_usd": {
-                "help_text": "Estimated Depot CI cost in USD. Null until the job-level warehouse source "
-                "(github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.",
+                "help_text": "Estimated CI cost in USD summed over this PR's jobs (billable runners only). "
+                "Null when nothing was costable or the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "billable_minutes": {
+                "help_text": "Billable (self-hosted) minutes summed over this PR's jobs. Null when the job "
+                "source isn't synced.",
                 "allow_null": True,
             },
         }

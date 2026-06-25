@@ -596,7 +596,28 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert (by_number[10].pushes, by_number[10].rerun_cycles) == (2, 1)
         assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
         assert by_number[12].pushes == 0  # no runs attributed to this PR
-        assert by_number[10].estimated_cost_usd is None  # cost scaffold: populated once jobs land
+        assert by_number[10].estimated_cost_usd is None  # no jobs source seeded here → no cost figure
+
+    def test_pull_request_list_includes_cost_when_jobs_synced(self) -> None:
+        # With the jobs source synced, the list carries per-PR cost + billable minutes.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(70, "alice", "open", 0, _ago(1), head_sha="sha70")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9400, "CI", "sha70", "completed", "success", _ago(1), _ago(1), pr_number=70)],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [_job_row(94000, 9400, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
+        )
+        item = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 70)
+        assert item.estimated_cost_usd is not None and item.estimated_cost_usd > 0
+        assert item.billable_minutes is not None and item.billable_minutes > 0
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()
