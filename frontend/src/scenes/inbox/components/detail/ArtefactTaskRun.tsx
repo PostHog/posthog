@@ -6,7 +6,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { identifierToHuman } from 'lib/utils/strings'
 
-import { isTerminalRunStatus, SandboxRunViewer } from 'products/posthog_ai/frontend/sandbox'
+import { isTerminalRunStatus, SandboxRunViewer } from 'products/posthog_ai/frontend'
 import { Task, TaskRunStatus } from 'products/tasks/frontend/types'
 
 import { isCustomAgentTaskRun, taskRunTypeLabel, TaskRunArtefactContent } from './artefactTypes'
