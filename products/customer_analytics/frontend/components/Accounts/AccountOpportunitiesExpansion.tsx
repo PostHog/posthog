@@ -77,7 +77,16 @@ export function AccountOpportunitiesExpansion({ accountId }: { accountId: string
         return <LemonSkeleton className="h-64 w-full" />
     }
 
-    const { sfdcId, opportunities } = opportunitiesResult
+    const { sfdcId, opportunities, loadFailed } = opportunitiesResult
+
+    if (loadFailed) {
+        return (
+            <OpportunitiesEmptyState
+                title="Couldn't load opportunities"
+                detail="Something went wrong loading this account's opportunities. Try refreshing the page."
+            />
+        )
+    }
 
     if (!sfdcId) {
         return (

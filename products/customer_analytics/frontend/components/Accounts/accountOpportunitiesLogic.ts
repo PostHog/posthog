@@ -25,12 +25,14 @@ export interface AccountOpportunity {
     contractStartDate: string | null
 }
 
-// Three distinct outcomes: a null `sfdcId` means the account isn't linked to Salesforce; `opportunities`
-// is null when the query couldn't run (the data warehouse table only exists in production), as opposed to
-// an empty array (linked account with no opportunities).
+// Outcomes: a null `sfdcId` means the account isn't linked to Salesforce; `opportunities` is null when the
+// query couldn't run (the data warehouse table only exists in production), as opposed to an empty array
+// (linked account with no opportunities). `loadFailed` is set when the load itself errored (e.g. the
+// account fetch failed) — the view shows a "couldn't load" state rather than hanging on the skeleton.
 export interface AccountOpportunitiesResult {
     sfdcId: string | null
     opportunities: AccountOpportunity[] | null
+    loadFailed?: boolean
 }
 
 // Identity used as a "not loaded yet" sentinel by the view — every loaded outcome returns a fresh object.
@@ -48,8 +50,16 @@ export const accountOpportunitiesLogic = kea<accountOpportunitiesLogicType>([
             NOT_LOADED,
             {
                 loadOpportunities: async (): Promise<AccountOpportunitiesResult> => {
-                    const account = await accountsRetrieve(String(values.currentTeamId), props.accountId)
-                    const sfdcId = account.properties?.sfdc_id ?? null
+                    let sfdcId: string | null
+                    try {
+                        const account = await accountsRetrieve(String(values.currentTeamId), props.accountId)
+                        sfdcId = account.properties?.sfdc_id ?? null
+                    } catch (error) {
+                        posthog.captureException(error as Error, {
+                            scope: 'accountOpportunitiesLogic.loadOpportunities',
+                        })
+                        return { sfdcId: null, opportunities: null, loadFailed: true }
+                    }
                     if (!sfdcId) {
                         return { sfdcId: null, opportunities: null }
                     }

@@ -48,6 +48,16 @@ describe('accountOpportunitiesLogic', () => {
         expect(queryMock).not.toHaveBeenCalled()
     })
 
+    it('surfaces a load-failed result (not an infinite skeleton) when the account fetch throws', async () => {
+        mockAccountsRetrieve.mockRejectedValue(new Error('network'))
+        const queryMock = jest.spyOn(api, 'query')
+
+        await mount()
+
+        expect(logic.values.opportunitiesResult).toEqual({ sfdcId: null, opportunities: null, loadFailed: true })
+        expect(queryMock).not.toHaveBeenCalled()
+    })
+
     it('degrades to a null result instead of throwing when the warehouse query fails', async () => {
         mockAccountsRetrieve.mockResolvedValue(buildAccount({ sfdc_id: 'sfdc-1' }))
         jest.spyOn(api, 'query').mockRejectedValue(new Error('Unknown table salesforce.opportunity'))
