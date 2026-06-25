@@ -11,6 +11,10 @@ DEFAULT_WIDGET_LIST_LIMIT = 10
 ACTIVITY_EVENTS_MAX_LIMIT = 50
 ACTIVITY_EVENTS_DEFAULT_LIMIT = 25
 
+# Logs list allows the largest page — log rows are cheap and users scan many at once.
+LOGS_LIST_MAX_LIMIT = 100
+LOGS_LIST_DEFAULT_LIMIT = 50
+
 # Cap widgets per batch create / run-widgets request.
 MAX_WIDGETS_BATCH_SIZE = 10
 

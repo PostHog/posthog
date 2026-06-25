@@ -601,7 +601,7 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
 def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
     # data_load.service imports temporalio at module scope; this is a models module, so a
     # top-level import would put the Temporal client on the django.setup() path
-    from products.data_warehouse.backend.data_load.service import (  # noqa: PLC0415
+    from products.data_warehouse.backend.logic.data_load.service import (  # noqa: PLC0415
         external_data_workflow_exists,
         pause_external_data_schedule,
         sync_external_data_job_workflow,

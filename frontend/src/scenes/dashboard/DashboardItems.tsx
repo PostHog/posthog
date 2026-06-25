@@ -163,6 +163,11 @@ export function DashboardItems(): JSX.Element {
 
         const element = containerRef.current
         const observer = new ResizeObserver((entries) => {
+            // Skip per-frame height commits during a gesture — they re-render every tile just for GridBackground,
+            // lagging the cursor. flushPendingLayouts remeasures on stop.
+            if (interactionInProgress.current) {
+                return
+            }
             for (const entry of entries) {
                 if (entry.target === element) {
                     setContainerHeight(entry.contentRect.height)
@@ -295,6 +300,12 @@ export function DashboardItems(): JSX.Element {
             updateLayouts(pendingLayouts.current)
             pendingLayouts.current = null
         }
+        // Remeasure once the gesture settles, since height updates were suppressed during it.
+        requestAnimationFrame(() => {
+            if (containerRef.current) {
+                setContainerHeight(containerRef.current.clientHeight)
+            }
+        })
     }, [updateLayouts])
 
     const handleWidthChange = useCallback(

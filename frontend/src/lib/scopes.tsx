@@ -108,7 +108,6 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
-    { key: 'persisted_folder', objectName: 'Persisted folder', objectPlural: 'persisted folders' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
     { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },

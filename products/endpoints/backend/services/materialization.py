@@ -43,7 +43,7 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
 from products.endpoints.backend.services.activity import EndpointContext
 from products.endpoints.backend.services.strategies import apply_where_filter, strategy_for
-from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
+from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 logger = structlog.get_logger(__name__)
 
