@@ -541,16 +541,15 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             if total_steps and failed_steps >= total_steps:
                 final_status = DeliveryStatus.FAILED
                 error_detail = (
-                    f" ({', '.join(generate_result.query_error_types)})"
-                    if generate_result.query_error_types
-                    else ""
+                    f" ({', '.join(generate_result.query_error_types)})" if generate_result.query_error_types else ""
                 )
-                noun = "query" if total_steps == 1 else "queries"
+                subject = (
+                    "The query the AI generated failed to run"
+                    if total_steps == 1
+                    else f"All {total_steps} queries the AI generated failed to run"
+                )
                 generation_error = {
-                    "message": (
-                        f"All {total_steps} {noun} the AI generated failed to run{error_detail}, "
-                        "so the report could not be computed."
-                    ),
+                    "message": f"{subject}{error_detail}, so the report could not be computed.",
                     "type": "AIReportQueryFailure",
                 }
             else:

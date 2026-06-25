@@ -125,9 +125,7 @@ function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Ele
             ) : null}
             {diagnostics.length > 0 ? (
                 <div className="flex flex-col gap-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                        Failed queries
-                    </div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Failed queries</div>
                     {diagnostics.map((d, index) => (
                         <div key={`${d.description ?? ''}-${index}`} className="flex flex-col gap-1">
                             <div className="flex items-center gap-2">

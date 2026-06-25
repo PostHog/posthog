@@ -2,9 +2,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-from parameterized import parameterized
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
