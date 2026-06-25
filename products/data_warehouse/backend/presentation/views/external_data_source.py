@@ -36,6 +36,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -492,7 +493,7 @@ class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
         read_only=True,
         required=False,
         allow_null=True,
-        choices=["duckdb", "postgres", "mysql"],
+        choices=["duckdb", "postgres", "mysql", "snowflake"],
         help_text="Backend engine detected for the direct connection.",
     )
     function_source = serializers.CharField(
@@ -514,7 +515,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         source="connection_metadata.engine",
         read_only=True,
         allow_null=True,
-        choices=["duckdb", "postgres", "mysql"],
+        choices=["duckdb", "postgres", "mysql", "snowflake"],
         help_text="Backend engine detected for the direct connection.",
     )
 
@@ -677,7 +678,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         allow_null=True,
         required=False,
-        choices=["duckdb", "postgres", "mysql"],
+        choices=["duckdb", "postgres", "mysql", "snowflake"],
         help_text="Backend engine detected for the direct connection.",
     )
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
@@ -3663,7 +3664,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
                 access_method=ExternalDataSource.AccessMethod.DIRECT,
-                source_type__in=(ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL),
+                source_type__in=direct_capable_source_types(),
             )
             .exclude(deleted=True)
             .only("id", "prefix", "connection_metadata")
