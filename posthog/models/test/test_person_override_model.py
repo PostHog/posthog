@@ -10,6 +10,7 @@ from django.db.utils import DEFAULT_DB_ALIAS, ConnectionHandler, IntegrityError
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.models import Person, PersonOverride, PersonOverrideMapping, Team
+from posthog.test.persons import create_person
 
 # PersonOverride model is not actively used (see PR #23616)
 # Skip all tests in this module
@@ -45,9 +46,9 @@ def people(team):
     override_person_uuid = uuid4()
     new_override_person_uuid = uuid4()
 
-    p1 = Person.objects.create(uuid=old_person_uuid, team=team)
-    p2 = Person.objects.create(uuid=override_person_uuid, team=team)
-    p3 = Person.objects.create(uuid=new_override_person_uuid, team=team)
+    p1 = create_person(uuid=old_person_uuid, team=team)
+    p2 = create_person(uuid=override_person_uuid, team=team)
+    p3 = create_person(uuid=new_override_person_uuid, team=team)
 
     yield (p1, p2, p3)
 
