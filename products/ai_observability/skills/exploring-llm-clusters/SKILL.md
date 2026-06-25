@@ -199,6 +199,33 @@ posthog:query-llm-trace
 }
 ```
 
+### When you need message content
+
+Use `events` for cluster events, IDs, cost/latency/token metrics, and evaluation rows.
+Do **not** query `events.properties.$ai_input`, `$ai_output`, or `$ai_output_choices` when you need user messages or full model inputs/outputs —
+those heavy fields live on `posthog.ai_events`.
+
+For a few representative examples, prefer `query-llm-trace`; it reads `posthog.ai_events` for you and returns the full event tree.
+For batch extraction, first get the trace IDs from the cluster, then query `posthog.ai_events` anchored on `trace_id`:
+
+```sql
+posthog:execute-sql
+SELECT
+    trace_id,
+    timestamp,
+    span_id,
+    event,
+    model,
+    input,
+    output_choices
+FROM posthog.ai_events
+WHERE trace_id IN ('<trace_id_1>', '<trace_id_2>', ...)
+ORDER BY trace_id, timestamp
+```
+
+`posthog.ai_events` has a shorter retention window than `events`; older clusters may still have metadata and metrics but no message content.
+For more detail, use the exploring LLM traces skill's [event reference](../exploring-llm-traces/references/events-and-properties.md).
+
 ## Investigation patterns
 
 ### "What kinds of LLM usage do we have?"
@@ -253,4 +280,5 @@ Always surface these links so the user can verify visually in the PostHog UI.
 - The noise cluster (`cluster_id: -1`) contains outliers that didn't fit any pattern
 - Use `llma-clustering-job-list` to understand what clustering configs are active
 - Trace IDs in clusters can be used directly with `query-llm-trace` for deep inspection
+- Message content lives on `posthog.ai_events`, not `events.properties`; use `query-llm-trace` unless you need custom batch SQL
 - For large clusters, inspect the top-ranked traces (closest to centroid) for representative examples
