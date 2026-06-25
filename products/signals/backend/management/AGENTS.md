@@ -178,19 +178,6 @@ is safe to re-run. Each artefact carries a `(product, type)` pair: these are sig
 now, but the run happened earlier). Live creation paths append the same artefacts at run time going
 forward — custom agents instead use their own `identifier()` `(product, type)` pair.
 
-## Perf-testing fixtures
-
-`seed_perf_reports` bulk-inserts a large volume of synthetic `SignalReport`s + artefacts (no signals,
-no LLM, no task runs) for query-performance testing of the inbox list/sort/filter paths. Unlike
-`seed_inbox_data` (realistic, slow, one report at a time), this is straight `bulk_create`s — tens of
-thousands of rows in seconds. Reports are uniform: even spread of priorities (P0–P4), 50/50 actionable,
-trivial titles (`perf-testing-report-N`). DEBUG only.
-
-```bash
-# 50k reports (+ ~6 artefacts each) for team 1, replacing any existing ones
-python manage.py seed_perf_reports --team-id 1 --count 50000 --clear
-```
-
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
