@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     GitHubSource,
     PRLifecycle,
     PullRequestList,
+    QuarantineFile,
     WorkflowHealthItem,
 )
 
@@ -96,3 +97,16 @@ def list_workflow_health(
 
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
     return logic.build_github_sources(team=team, user_access_control=user_access_control)
+
+
+def get_quarantine(
+    *,
+    team: Team,
+    repo: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> QuarantineFile:
+    # Quarantine resolves its source lazily (DEBUG reads the local checkout, an explicit ``repo`` needs
+    # no source) so it stays fail-open where the curated reads above don't — ``source_id`` /
+    # ``user_access_control`` only matter when it falls back to the connected source's most-active repo.
+    return logic.build_quarantine(team=team, repo=repo, source_id=source_id, user_access_control=user_access_control)
