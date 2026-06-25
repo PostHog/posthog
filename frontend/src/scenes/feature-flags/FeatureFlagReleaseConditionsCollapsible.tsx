@@ -130,7 +130,10 @@ function summarizeProperties(
         if (property.type === PropertyFilterType.Cohort) {
             key = 'Cohort'
         } else if (property.type === PropertyFilterType.Flag) {
-            key = property.label || (property.key ? getFlagKey(property.key) : '') || 'flag'
+            // Prefer the freshly-resolved key; only use it once it differs from the raw ID so the
+            // summary doesn't flash the numeric ID while the cache is still loading.
+            const resolved = property.key ? getFlagKey(property.key) : ''
+            key = (resolved && resolved !== property.key ? resolved : property.label) || 'flag'
         } else {
             key = property.key || 'property'
         }

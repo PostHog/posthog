@@ -43,17 +43,23 @@ export function isDistinctIdFilter(property: AnyPropertyFilter): boolean {
 
 // Flag-dependency filters store the numeric flag ID in `key`. Backfill the human-readable flag
 // key onto `label` (which every display surface prefers) so the UI never shows a bare ID once
-// `getFlagKey` has resolved it. Leaves filters untouched when the key can't be resolved yet.
+// `getFlagKey` has resolved it. We re-resolve from the cache on every call rather than trusting an
+// existing `label`: the editable PropertyFilters round-trips the injected label back through
+// `onChange` into state, so a stale label could otherwise stick (e.g. after a flag rename). When
+// the key isn't resolved yet (`getFlagKey` returns the raw ID) we leave the filter untouched.
 export function withResolvedFlagLabels(
     properties: AnyPropertyFilter[] | undefined,
     getFlagKey: (flagId: string) => string
 ): AnyPropertyFilter[] {
     return (properties ?? []).map((property) => {
-        if (property.type !== PropertyFilterType.Flag || !property.key || property.label) {
+        if (property.type !== PropertyFilterType.Flag || !property.key) {
             return property
         }
         const resolved = getFlagKey(property.key)
-        return resolved && resolved !== property.key ? { ...property, label: resolved } : property
+        if (!resolved || resolved === property.key || resolved === property.label) {
+            return property
+        }
+        return { ...property, label: resolved }
     })
 }
 
