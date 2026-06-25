@@ -1871,21 +1871,25 @@ describe('Hogflow Executor', () => {
                 },
             })
 
-            // There are 4 async actions, so we need to execute multiple times until finished
+            // Each execute call returns the metrics for one queue segment, and email
+            // actions route through the dedicated email queue — so we accumulate metrics
+            // across every segment to assert the total billing over the whole run.
             let result = await executor.execute(invocation)
+            const metrics = [...result.metrics]
             while (!result.finished) {
                 result = await executor.execute(result.invocation)
+                metrics.push(...result.metrics)
             }
 
             expect(result.finished).toBe(true)
             expect(result.error).toBeUndefined()
 
             // Verify we have billing metrics for both hog functions and email actions
-            const fetchBilling = result.metrics.filter(
+            const fetchBilling = metrics.filter(
                 (m) => m.metric_kind === 'fetch' && m.metric_name === 'billable_invocation'
             )
             expect(fetchBilling).toHaveLength(2)
-            const emailBilling = result.metrics.filter(
+            const emailBilling = metrics.filter(
                 (m) => m.metric_kind === 'email' && m.metric_name === 'billable_invocation'
             )
             expect(emailBilling).toHaveLength(2)
