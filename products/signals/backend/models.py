@@ -1043,8 +1043,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=1440,
         validators=[MinValueValidator(30), MaxValueValidator(43200)],
     )
-    # Stamped by the coordinator after each dispatch; drives the due-check. Written every
-    # run, so it is excluded from activity logging (see field_exclusions below).
+    # Stamped by the coordinator after dispatch; drives the due-check. Planning can move it
+    # backward to the due boundary after reaping a stale active run, so that a cap-deferred
+    # catch-up stays eligible until a child is actually dispatched. Written every run, so it is
+    # excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

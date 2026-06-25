@@ -86,6 +86,11 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   `ACTIVITY_SLACK_S`, and `WORKFLOW_HARD_CEILING_S` (`= DEFAULT_MAX_RUNTIME_S +
 ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   `start_to_close_timeout`).
+- `run_guard.py`
+  Shared stale-run recovery + active-run guard used by both the coordinator and runner.
+  It batch-scans `QUEUED` / `IN_PROGRESS` `SignalScoutRun` rows for a team, fails any
+  row older than `STALE_RUN_CUTOFF_S`, emits `signals_scout_run_reaped`, and returns
+  the skills still blocked by active runs.
 - `team_limits.py`
   Single source of truth for a team's effective scout caps + metadata, resolved from the
   `signals-scout` flag payload in one read. The same three-layer cap resolution
@@ -123,13 +128,15 @@ one sandbox session → zero or more emitted signals.
 
 - The harness inserts the bridge row at the start of a run (inside `_spawn_and_run`).
   `SignalScoutRun` is now a thin bridge to a Tasks `TaskRun` — run status / timing / error
-  live on `task_run`, not on the bridge row. Single-flight is a best-effort app-layer guard:
-  `_has_running_run` skips dispatch when a prior run for the same `(team, skill_name)` has
-  `task_run.status = IN_PROGRESS`. The old `WHERE status='running'` partial unique index was
-  dropped in the bridge simplification; `_self_heal_stale_runs` now reaps the orphan case at
-  the app layer (failing any `QUEUED`/`IN_PROGRESS` run older than `STALE_RUN_CUTOFF_S` before
-  the guard), so a worker crash no longer wedges a lane permanently. A `task_run.status`-based
-  DB constraint is still a possible follow-up for stronger single-flight guarantees.
+  live on `task_run`, not on the bridge row. Single-flight is a best-effort app-layer guard
+  shared through `run_guard.reap_stale_runs_and_find_blocked_skills()`: the coordinator calls
+  it before planning so stale lanes can catch up, moving `last_run_at` back to the due grace
+  boundary when the lane would otherwise be suppressed, and the runner calls it again as a race
+  backstop before spawning. The old `WHERE status='running'`
+  partial unique index was dropped in the bridge simplification; the guard now fails any
+  `QUEUED` / `IN_PROGRESS` run older than `STALE_RUN_CUTOFF_S` before reporting which skills
+  remain blocked. A `task_run.status`-based DB constraint is still a possible follow-up for
+  stronger single-flight guarantees.
 - The sandbox is opened with the team's MCP token plus the harness-internal tools.
   The skill body is loaded into the system prompt; each scout has its own
   `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag and
@@ -145,7 +152,7 @@ one sandbox session → zero or more emitted signals.
   `signals_scout_run_started` (the run cleared the guards and a TaskRun exists),
   `signals_scout_run_finished` (terminal: `completed`/`failed`/`cancelled` + runtime + emit
   count), and `signals_scout_run_reaped` (a stranded orphan was reaped by
-  `_self_heal_stale_runs`). They join on `run_id`/`task_run_id` and are the event-derived
+  `run_guard`). They join on `run_id`/`task_run_id` and are the event-derived
   (no-warehouse-lag) basis for throughput, stall, and worker-death alerting — a `started`
   with no `finished` is a run that died before finalize; a reaped run emits no `finished`.
 - Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()`
@@ -177,7 +184,10 @@ one sandbox session → zero or more emitted signals.
   Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose
   per-scout schedule (`run_interval_minutes`, default every 24 hours) is due, most-overdue
   first, hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to
-  drop ticks rather than queue them.
+  drop ticks rather than queue them. Before due/budget allocation it uses `run_guard` to
+  reap stale active runs and skip skills still blocked by live `QUEUED` / `IN_PROGRESS`
+  task runs; reaped lanes become low-priority catch-up candidates and stay due if caps
+  defer them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,
   `SignalProjectProfile` in `../models.py`.
 - **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with
@@ -203,10 +213,10 @@ one sandbox session → zero or more emitted signals.
   every team.
 - Run lifecycle lives on the linked `TaskRun` (`task_run.status`), managed by
   `MultiTurnSession` — the `SignalScoutRun` bridge row carries no status of its own. A
-  `TaskRun` stranded in `IN_PROGRESS` (worker SIGKILL before finalize) would block new runs
-  for that `(team, skill)` via `_has_running_run` — so `_self_heal_stale_runs` fails any such
-  run older than `STALE_RUN_CUTOFF_S` before the guard, letting the lane recover within a tick
-  or two instead of wedging until manual intervention.
+  `TaskRun` stranded in `QUEUED` / `IN_PROGRESS` (worker SIGKILL before finalize) would block
+  new runs for that `(team, skill)` — so `run_guard` fails any such run older than
+  `STALE_RUN_CUTOFF_S` before planning or spawning, letting the lane recover within a tick or
+  two instead of wedging until manual intervention.
 - Emit path goes through `emit_signal()` and only `emit_signal()` — **with one sanctioned
   carve-out**: a scout that opts into the report-authoring channel (`emit_report` / `edit_report`
   in its skill's `allowed_tools`) writes a full `SignalReport` directly. That write does NOT go

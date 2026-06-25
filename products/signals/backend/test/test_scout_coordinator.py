@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import random
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from django.apps import apps
 from django.test import override_settings
 from django.utils import timezone
 
@@ -19,9 +20,10 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
+from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 
 # The flag-payload read + per-team cap resolution live in `scout_harness/team_limits.py`; helpers
 # defined there are imported and patched there (see `_PAYLOAD_PATH` / `_IS_CLOUD_PATH`).
@@ -53,6 +55,9 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     stamp_dispatched_signals_scout_runs_activity,
 )
 from products.skills.backend.models.skills import LLMSkill
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 _PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
 _IS_CLOUD_PATH = "products.signals.backend.scout_harness.team_limits.is_cloud"
@@ -116,6 +121,18 @@ def _create_skill(team: Team, name: str, *, seeded: bool = True) -> LLMSkill:
 
 def _create_config(team: Team, skill_name: str, **kwargs: Any) -> SignalScoutConfig:
     return SignalScoutConfig.objects.create(team=team, skill_name=skill_name, **kwargs)
+
+
+def _make_task_run(team: Team) -> TaskRun:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    task = Task.objects.create(
+        team=team,
+        title="scout run",
+        description="scout run",
+        origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+    )
+    return TaskRun.objects.create(task=task, team=team)
 
 
 @pytest.fixture(autouse=True)
@@ -480,6 +497,137 @@ async def test_config_within_interval_is_not_due(ateam):
     )
 
     assert await _run_activity() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_stale_active_run_is_reaped_and_planned_as_catch_up(ateam):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
+    last_run = timezone.now()
+    config = await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-foo", enabled=True, run_interval_minutes=1440, last_run_at=last_run
+    )
+    task_run = await database_sync_to_async(_make_task_run)(ateam)
+    await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(
+        status=TaskRun.Status.IN_PROGRESS,
+        created_at=timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S + 60),
+    )
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=task_run,
+        team=ateam,
+        scout_config=config,
+        skill_name="signals-scout-foo",
+        skill_version=1,
+    )
+
+    planned = await _run_activity()
+
+    assert [(p.team_id, p.skill_name) for p in planned if p.team_id == ateam.id] == [(ateam.id, "signals-scout-foo")]
+    reaped = await database_sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    assert reaped.status == TaskRun.Status.FAILED
+    refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
+    assert refreshed.last_run_at is not None
+    assert refreshed.last_run_at < last_run
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("active_status", ["queued", "in_progress"])
+async def test_recent_active_run_blocks_planning_without_stamping(ateam, active_status):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
+    last_run = timezone.now() - timedelta(minutes=2000)
+    config = await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-foo", enabled=True, run_interval_minutes=1440, last_run_at=last_run
+    )
+    task_run = await database_sync_to_async(_make_task_run)(ateam)
+    await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(
+        status=active_status,
+        created_at=timezone.now() - timedelta(seconds=30),
+    )
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=task_run,
+        team=ateam,
+        scout_config=config,
+        skill_name="signals-scout-foo",
+        skill_version=1,
+    )
+
+    planned = await _run_activity()
+
+    assert all((p.team_id, p.skill_name) != (ateam.id, "signals-scout-foo") for p in planned)
+    still_active = await database_sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    assert still_active.status == active_status
+    refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
+    assert refreshed.last_run_at == last_run
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "cap_patch_path",
+    [
+        "products.signals.backend.scout_harness.team_limits.MAX_RUNS_PER_TEAM_PER_TICK",
+        "products.signals.backend.temporal.agentic.scout_coordinator.MAX_RUNS_PER_TICK",
+    ],
+)
+async def test_reaped_catch_up_persists_when_deferred_by_cap(ateam, cap_patch_path):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-overdue")
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-reaped")
+    await database_sync_to_async(_create_config)(
+        ateam,
+        "signals-scout-overdue",
+        enabled=True,
+        run_interval_minutes=60,
+        last_run_at=timezone.now() - timedelta(hours=4),
+    )
+    reaped_config = await database_sync_to_async(_create_config)(
+        ateam,
+        "signals-scout-reaped",
+        enabled=True,
+        run_interval_minutes=1440,
+        last_run_at=timezone.now(),
+    )
+    task_run = await database_sync_to_async(_make_task_run)(ateam)
+    await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(
+        status=TaskRun.Status.IN_PROGRESS,
+        created_at=timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S + 60),
+    )
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=task_run,
+        team=ateam,
+        scout_config=reaped_config,
+        skill_name="signals-scout-reaped",
+        skill_version=1,
+    )
+
+    with patch(cap_patch_path, 1):
+        planned = await _run_activity()
+
+        assert [(p.team_id, p.skill_name) for p in planned if p.team_id == ateam.id] == [
+            (ateam.id, "signals-scout-overdue")
+        ]
+        reaped = await database_sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        assert reaped.status == TaskRun.Status.FAILED
+        refreshed_reaped = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=reaped_config.pk)
+        assert refreshed_reaped.last_run_at is not None
+        assert refreshed_reaped.last_run_at < reaped_config.last_run_at
+
+        env = ActivityEnvironment()
+        await env.run(
+            stamp_dispatched_signals_scout_runs_activity,
+            StampDispatchedRunsInput(
+                dispatched_runs=[PlannedRun(team_id=ateam.id, skill_name="signals-scout-overdue")]
+            ),
+        )
+
+        planned_after_dispatch = await _run_activity()
+
+    assert [(p.team_id, p.skill_name) for p in planned_after_dispatch if p.team_id == ateam.id] == [
+        (ateam.id, "signals-scout-reaped")
+    ]
 
 
 @pytest.mark.asyncio

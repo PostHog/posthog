@@ -20,6 +20,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.run_guard import reap_stale_runs_and_find_blocked_skills
 
 # Per-team cap resolution + the flag-payload read live in the temporalio-free `team_limits` module
 # so the HTTP metadata surface can share them. Imported by name so the planning code below calls
@@ -55,6 +56,10 @@ COORDINATOR_INTERVAL_MINUTES = 30
 # Slack on the due-check so a scout that's a few seconds short at a tick still counts as due —
 # else stamp jitter makes it skip every other tick (a 60-min scout runs every 2h).
 DUE_GRACE_SECONDS = 60
+
+# A stale lane reaped during planning should catch up this tick if budget allows, but it should
+# never jump ahead of work that is genuinely due by schedule.
+REAPED_CATCH_UP_OVERDUE_S = float("-inf")
 
 
 @dataclass
@@ -220,13 +225,20 @@ def _collect_planned_runs(
             # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
             # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
             live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
+        guard_result = reap_stale_runs_and_find_blocked_skills(team, live_skills, now=now)
+
         # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
         for config in SignalScoutConfig.all_teams.filter(team_id=team.id, enabled=True, skill_name__in=live_skills):
+            if config.skill_name in guard_result.blocked_skill_names:
+                continue
             overdue_s = _overdue_seconds(config, now)
             if overdue_s is None:
-                continue
+                if config.skill_name not in guard_result.reaped_skill_names:
+                    continue
+                overdue_s = REAPED_CATCH_UP_OVERDUE_S
+                _mark_reaped_catch_up_due(config, now)
             due.append(_DueRun(overdue_s, str(config.pk), team.id, config.skill_name))
 
     if not due:
@@ -243,6 +255,28 @@ def _collect_planned_runs(
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
     return planned
+
+
+def _mark_reaped_catch_up_due(config: SignalScoutConfig, now: datetime) -> None:
+    """Keep a reaped, otherwise-not-due lane eligible until a child is dispatched.
+
+    `last_run_at` stays the scheduler's only durable due marker, so move it back to the
+    grace boundary instead of stamping it to now. If this catch-up is selected and dispatched,
+    `stamp_dispatched_signals_scout_runs_activity` overwrites this with the real dispatch time.
+    """
+    catch_up_last_run_at = now - timedelta(minutes=config.run_interval_minutes) + timedelta(seconds=DUE_GRACE_SECONDS)
+    updated_count = SignalScoutConfig.all_teams.filter(pk=config.pk, last_run_at=config.last_run_at).update(
+        last_run_at=catch_up_last_run_at
+    )
+    if updated_count == 0:
+        logger.warning(
+            "signals_scout coordinator: failed to persist reaped catch-up due marker",
+            team_id=config.team_id,
+            skill_name=config.skill_name,
+            scout_config_id=str(config.pk),
+            expected_last_run_at=config.last_run_at.isoformat() if config.last_run_at else None,
+            catch_up_last_run_at=catch_up_last_run_at.isoformat(),
+        )
 
 
 def _allocate_tick_budget(

@@ -17,11 +17,11 @@ ACTIVITY_SLACK_S = 60
 # Hard ceiling on how long a single agent activity can actually be running. The
 # workflow always sets `start_to_close_timeout = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S`,
 # providing a heartbeat window before Temporal's own timeout fires. The stale-RUNNING
-# self-heal in `runner.py` uses this as the staleness base.
+# self-heal in `run_guard.py` uses this as the staleness base.
 WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 
 # Age past which an in-flight scout run is treated as orphaned and reaped by the
-# stale-run self-heal in `runner.py`. A run older than the activity's hard ceiling cannot
+# stale-run self-heal in `run_guard.py`. A run older than the activity's hard ceiling cannot
 # still be legitimately executing — Temporal kills the activity at `WORKFLOW_HARD_CEILING_S`
 # — so a `QUEUED`/`IN_PROGRESS` TaskRun past this cutoff is an orphan left behind by a
 # crashed worker/sandbox that never wrote a terminal status. Set to a generous multiple of

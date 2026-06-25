@@ -300,8 +300,8 @@ Defined in `backend/temporal/agentic/scout_coordinator.py`.
 **Flow:**
 
 1. Activity `fetch_enabled_signals_scout_runs_activity` bounds candidates to the teams enrolled via the `signals-scout` feature flag's JSON payload allowlist — `guaranteed_team_ids` minus `skip_team_ids`, with a hardcoded fail-safe default (`_participating_teams` → `_enrolled_team_ids`, modeled on `posthog/temporal/ai_observability/team_discovery.py`). Enrollment is flag-driven: editing the payload in the flag UI enrolls or drains a team next tick with no manual seed. For each enrolled team it calls `sync_canonical_skills(team, prune=True)` to mirror the on-disk `signals-scout-*` skills onto the team's `LLMSkill` rows, then auto-registers a `SignalScoutConfig` for any scout skill missing one (`scout_harness/config_registry.register_missing_configs`; the `signals-scout-config-create` endpoint is the explicit upsert counterpart, so a freshly authored scout is configurable without waiting for a tick). Failures here are logged and the tick continues — a stale skill is preferable to a dead tick.
-2. For each enabled config, the coordinator computes how overdue the scout is: due when `last_run_at is None`, or `now - last_run_at >= run_interval_minutes`. There is no sampling — every due scout is planned.
-3. Due runs are sorted most-overdue-first and truncated at `MAX_RUNS_PER_TICK` (50 per tick; the cost bound — overflow catches up next tick). `last_run_at` is advanced via `.update()` for everything dispatched (bypasses `save()`, so the per-tick write never hits the activity log). Planned runs are re-sorted by `(team_id, skill_name)` for stable child IDs.
+2. For each participating team's live scout skills, the coordinator calls `scout_harness.run_guard.reap_stale_runs_and_find_blocked_skills()` before due/budget allocation. Stale `QUEUED` / `IN_PROGRESS` runs older than `STALE_RUN_CUTOFF_S` are failed and emit `signals_scout_run_reaped`; skills still blocked by a live active run are skipped entirely, so they are not dispatched or stamped. A skill reaped during this planning pass becomes eligible for catch-up even if `last_run_at` would normally suppress it: the coordinator moves `last_run_at` back to the due grace boundary so the lane stays due until a child is dispatched, while ordering it behind genuinely overdue scouts for the current tick.
+3. Due runs are allocated under the per-team, daily, and global tick caps, with each team's candidates ordered most-overdue-first. Overflow stays unstamped and catches up next tick. `last_run_at` is advanced via `.update()` only after child dispatch (bypasses `save()`, so the per-tick write never hits the activity log). Planned runs are re-sorted by `(team_id, skill_name)` for stable child IDs.
 4. Each `PlannedRun` becomes a child `RunSignalsScoutWorkflow` started with `ParentClosePolicy.ABANDON` and a deterministic workflow ID per `(team_id, skill_name, tick_id)` so retried coordinators can't double-launch within a tick.
 
 The coordinator's lifetime is seconds regardless of fan-out width; throttling happens at the Temporal task queue + worker concurrency layer. Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes` — both tunable via the `signals-scout-config-update` MCP tool.
@@ -319,12 +319,14 @@ bridge row at the start of the run; status, timing, and chat log live on the lin
 job is to spawn the activity with `start_to_close_timeout=WORKFLOW_HARD_CEILING_S`,
 a 2-minute heartbeat, and `RetryPolicy(maximum_attempts=1)` — the spec calls for "fail
 safe and silent": a bad run does not retry blindly; the next scheduled tick will try
-again. Single-flight is a best-effort app-layer guard: `_has_running_run` skips
-dispatch when a prior run for the same `(team, skill_name)` has
-`task_run.status = IN_PROGRESS`. An earlier partial unique constraint on
-`(team, skill_name) WHERE status='running'` was dropped together with the bridge
-model's own status column; active recovery of stranded `IN_PROGRESS` task runs
-(`_self_heal_stale_runs` is a no-op today) is a tracked follow-up.
+again. Single-flight is a best-effort app-layer guard shared through
+`scout_harness.run_guard`: the coordinator uses it before planning, and the runner
+uses it again before spawning as a race backstop. It treats `QUEUED` and
+`IN_PROGRESS` `TaskRun`s as active, reaps stale rows older than `STALE_RUN_CUTOFF_S`,
+and skips only skills still blocked after that recovery. An earlier partial unique
+constraint on `(team, skill_name) WHERE status='running'` was dropped together with
+the bridge model's own status column; a `task_run.status`-based DB constraint is still
+a possible follow-up for stronger single-flight guarantees.
 
 Findings emitted during the run go through the harness's `emit_signal_*` tools,
 which call `emit_signal()` with `source_product="signals_scout"` and
@@ -508,16 +510,16 @@ Per-team configuration for which signal sources are enabled.
 
 Per-scout binding for the headless **Signals agent**: one row per `(team, skill_name)`. The coordinator auto-creates a row when it discovers a `signals-scout-*` skill on a participating team. Changes are activity-logged (they drive spend); team-level participation is gated by the `signals-scout` flag at the coordinator, not here. See `backend/scout_harness/AGENTS.md` for the harness internals.
 
-| Field                  | Type                 | Description                                                                                                                                                                                                                                     |
-| ---------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `team`                 | FK → Team            | Owning team (`related_name="signal_scout_configs"`). `unique_together(team, skill_name)`.                                                                                                                                                       |
-| `skill_name`           | CharField            | The `signals-scout-*` skill this row controls. Auto-registered by the coordinator when it finds the skill on a participating team.                                                                                                              |
-| `enabled`              | Boolean              | Per-scout switch; defaults `True`. `False` pauses just this scout.                                                                                                                                                                              |
-| `emit`                 | Boolean              | Dry-run vs emit. Defaults `True`: a freshly authored scout is live from its first tick. Flip to `False` for dry-run — the scout runs and logs but `emit_finding` writes nothing — to validate it on a team before its findings reach the inbox. |
-| `run_interval_minutes` | PositiveSmallInt     | Minutes between runs. The coordinator dispatches when `last_run_at is None or now - last_run_at >= run_interval_minutes`. Default `1440` (daily). Validated `30 <= N <= 43200`.                                                                 |
-| `last_run_at`          | DateTime (nullable)  | Stamped after each dispatch; drives the due-check. Excluded from activity logging (written every run).                                                                                                                                          |
-| `created_by`           | FK → User (nullable) | Audit pointer                                                                                                                                                                                                                                   |
-| `enabled_by`           | FK → User (nullable) | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                                                                                           |
+| Field                  | Type                 | Description                                                                                                                                                                                                                                                                          |
+| ---------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `team`                 | FK → Team            | Owning team (`related_name="signal_scout_configs"`). `unique_together(team, skill_name)`.                                                                                                                                                                                            |
+| `skill_name`           | CharField            | The `signals-scout-*` skill this row controls. Auto-registered by the coordinator when it finds the skill on a participating team.                                                                                                                                                   |
+| `enabled`              | Boolean              | Per-scout switch; defaults `True`. `False` pauses just this scout.                                                                                                                                                                                                                   |
+| `emit`                 | Boolean              | Dry-run vs emit. Defaults `True`: a freshly authored scout is live from its first tick. Flip to `False` for dry-run — the scout runs and logs but `emit_finding` writes nothing — to validate it on a team before its findings reach the inbox.                                      |
+| `run_interval_minutes` | PositiveIntegerField | Minutes between runs. The coordinator dispatches when `last_run_at is None or now - last_run_at >= run_interval_minutes`. Default `1440` (daily). Validated `30 <= N <= 43200`.                                                                                                      |
+| `last_run_at`          | DateTime (nullable)  | Stamped after each dispatch; drives the due-check. When a stale active run is reaped before dispatch, the coordinator can move it back to the due grace boundary so the missed run remains eligible until a child is dispatched. Excluded from activity logging (written every run). |
+| `created_by`           | FK → User (nullable) | Audit pointer                                                                                                                                                                                                                                                                        |
+| `enabled_by`           | FK → User (nullable) | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                                                                                                                                |
 
 ### `SignalScoutRun`
 
@@ -539,7 +541,7 @@ Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it: one sc
 
 **Indexes:** `(team, skill_name)`.
 
-**Constraints:** None at the DB level today. Single-flight is a best-effort app-layer guard (`_has_running_run` against `task_run.status = IN_PROGRESS`). An earlier partial unique constraint on `(team, skill_name) WHERE status='running'` was dropped together with the bridge model's own status column; a `task_run.status`-based constraint plus active recovery of stranded `IN_PROGRESS` task runs (`_self_heal_stale_runs` is a no-op today) is a tracked follow-up.
+**Constraints:** None at the DB level today. Single-flight is a best-effort app-layer guard in `scout_harness.run_guard` against active `QUEUED` / `IN_PROGRESS` `TaskRun`s for the same `(team, skill_name)`. The guard fails stale active runs older than `STALE_RUN_CUTOFF_S` before reporting blocked skills, so crashed workers do not wedge a lane permanently. An earlier partial unique constraint on `(team, skill_name) WHERE status='running'` was dropped together with the bridge model's own status column; a `task_run.status`-based constraint is still a possible follow-up for stronger single-flight guarantees.
 
 ### `SignalScratchpad`
 
@@ -1124,6 +1126,7 @@ products/signals/
 │   │   ├── AGENTS.md
 │   │   ├── __init__.py              # Public re-exports (LoadedSkill, sync helpers, …)
 │   │   ├── runner.py                # Per-run entrypoint; owns SignalScoutRun lifecycle + sandbox loop
+│   │   ├── run_guard.py             # Shared stale-run reaper + active-run guard
 │   │   ├── prompt.py                # System prompt assembly (skill + scratchpad + profile + run history)
 │   │   ├── skill_loader.py          # Resolves signals-scout-* LLMSkill rows for a run
 │   │   ├── lazy_seed.py             # Canonical SKILL.md → LLMSkill sync (sync_canonical_skills)

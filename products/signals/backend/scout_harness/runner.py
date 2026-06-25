@@ -4,7 +4,6 @@ import time
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
@@ -18,9 +17,10 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
+from products.signals.backend.scout_harness.run_guard import reap_stale_runs_and_find_blocked_skills
 from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     load_skill_for_run,
@@ -148,24 +148,13 @@ async def arun_signals_scout(
     )
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team, skill.name)
 
-    # Stale-run recovery, before the skip-if-running guard below. A scout run writes its own
-    # terminal `task_run.status` from inside the activity; if the worker/sandbox dies hard
-    # mid-run that write never lands, leaving the TaskRun stuck `IN_PROGRESS` — which would
-    # otherwise block every future dispatch for this `(team, skill)` forever via
-    # `_has_running_run`. Reap such orphans here so the lane self-heals. Keyed on the same
-    # canonical `(team, skill_name)` the guard uses so it reaps exactly the rows the guard sees.
-    await database_sync_to_async(_self_heal_stale_runs, thread_sensitive=False)(
-        team.parent_team_id or team.id, skill.name
+    # Shared stale-run recovery + active-run guard. The coordinator calls the same helper before
+    # planning; this runner-side check remains as a race backstop for runs that start between
+    # planning and child execution.
+    guard_result = await database_sync_to_async(reap_stale_runs_and_find_blocked_skills, thread_sensitive=False)(
+        team, [skill.name]
     )
-
-    # Skip-if-running guard, keyed on (team, skill_name). Different skills for the same
-    # team are allowed to run concurrently — the coordinator can dispatch several due
-    # scouts for one team in a single tick. Best-effort — there is a race window between
-    # this check and the bridge-row insert inside _spawn_and_run (a second trigger could
-    # land in between), which we accept until a claim/lease primitive lands.
-    if await database_sync_to_async(_has_running_run, thread_sensitive=False)(
-        team_id=team.parent_team_id or team.id, skill_name=skill.name
-    ):
+    if skill.name in guard_result.blocked_skill_names:
         logger.info(
             "signals_scout: skipping trigger, prior run still in progress",
             extra={"team_id": team_id, "skill_name": skill.name},
@@ -313,9 +302,8 @@ async def arun_signals_scout(
         # activity as failed. Post-collapse the bridge row's status flows from its
         # linked TaskRun (managed by MultiTurnSession), so we don't update anything
         # here directly. A TaskRun stranded in IN_PROGRESS (e.g. SIGKILL before
-        # MultiTurnSession finalizes) blocks new runs for this (team, skill) via
-        # `_has_running_run` until it transitions out — active recovery is a deferred
-        # follow-up (see `_self_heal_stale_runs`).
+        # MultiTurnSession finalizes) blocks new runs for this (team, skill) until the
+        # shared run guard reaps it after the stale cutoff.
         runtime_s = time.monotonic() - started
         logger.warning(
             "signals_scout: run cancelled mid-flight",
@@ -497,108 +485,6 @@ def _resolve_config(team: Team, skill_name: str) -> SignalScoutConfig:
     return config
 
 
-def _has_running_run(*, team_id: int, skill_name: str) -> bool:
-    # Locked on (canonical team, skill_name) — different skills for the same team are
-    # allowed to fan out (the coordinator can dispatch several due scouts per tick). Status flows
-    # from the linked TaskRun now that SignalScoutRun is just a bridge; treat both QUEUED
-    # and IN_PROGRESS as active, since a TaskRun sits in QUEUED before transitioning and a
-    # second trigger landing in that window would otherwise slip past the guard. Not keyed
-    # on `scout_config_id`: configs are `on_delete=SET_NULL`, so a config delete/recreate
-    # mid-run would orphan the FK and silently defeat the dedupe in exactly the
-    # config-churn case it should still cover.
-    return (
-        SignalScoutRun.objects.unscoped()
-        .filter(
-            team_id=team_id,
-            skill_name=skill_name,
-            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
-        )
-        .exists()
-    )
-
-
-def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
-    """Reap orphaned in-flight runs so a dead run can't block the lane forever.
-
-    A scout run writes its own terminal `task_run.status` from inside the activity. If the
-    worker / sandbox dies hard mid-run (SIGKILL, pod eviction, sandbox loss), that write
-    never lands and the TaskRun is frozen at `QUEUED`/`IN_PROGRESS`. `_has_running_run`
-    then single-flights against that frozen row and skips every future dispatch for this
-    `(team, skill)` indefinitely — there is no other release. Nothing else reconciles it:
-    Temporal has already torn the workflow down (the activity is killed at
-    `WORKFLOW_HARD_CEILING_S` with `maximum_attempts=1`), and the Tasks cleanup path does
-    not cover a crashed worker.
-
-    A run older than `STALE_RUN_CUTOFF_S` (a generous multiple of that ceiling) cannot
-    still be legitimately executing, so it is an orphan and we mark it failed. The cutoff's
-    slack means a run merely at the wall — about to fail or finish on its own — is never
-    reaped out from under itself. Best-effort and silent: a failure to reap one row must
-    never block the new run, so each is guarded independently.
-    """
-    cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
-    stale_runs = list(
-        SignalScoutRun.objects.unscoped()
-        .filter(
-            team_id=team_id,
-            skill_name=skill_name,
-            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
-            task_run__created_at__lt=cutoff,
-        )
-        .select_related("task_run")
-    )
-    if not stale_runs:
-        return
-    # Resolve the team once, only when there is actually something to reap, so the reaped
-    # event carries the same team / groups shape as the other scout lifecycle events.
-    team = _get_team(team_id)
-    now = timezone.now()
-    for run in stale_runs:
-        try:
-            task_run = run.task_run
-            # Read the pre-reap status / age off the loaded bridge instance before the claim:
-            # the conditional update below doesn't refresh it, so these stay the original values.
-            status_before = task_run.status
-            age_seconds = (now - task_run.created_at).total_seconds()
-            # Compare-and-set claim on the status transition. Two triggers for the same
-            # `(team, skill)` can reach this self-heal concurrently and load the same stale
-            # row; the conditional UPDATE lets exactly one win — the other matches zero rows
-            # once the first commits `FAILED`. Only the winner falls through to emit, so a
-            # single stranded run can't double-count in the worker-death / mass-stall signal.
-            claimed = tasks_facade.claim_and_fail_stale_run(
-                task_run.id,
-                "Scout run abandoned: no terminal status past the runtime ceiling "
-                "(worker/sandbox lost before finalize).",
-            )
-            if not claimed:
-                continue
-            logger.warning(
-                "signals_scout: reaped stale in-progress run before dispatch",
-                extra={
-                    "team_id": team_id,
-                    "skill_name": skill_name,
-                    "run_id": str(run.id),
-                    "task_run_id": str(run.task_run_id),
-                },
-            )
-            # A reaped run never reaches the finalize path, so it emits no
-            # `signals_scout_run_finished`. This event makes the strand observable with no
-            # warehouse lag — a spike is the worker-death / mass-stall shape, caught within a
-            # tick of the cutoff rather than days late.
-            _capture_run_reaped(
-                team=team,
-                skill_name=skill_name,
-                run_id=run.id,
-                task_run_id=str(run.task_run_id),
-                status_before=status_before,
-                age_seconds=age_seconds,
-            )
-        except Exception:
-            logger.exception(
-                "signals_scout: failed to reap stale in-progress run; continuing",
-                extra={"team_id": team_id, "skill_name": skill_name, "run_id": str(run.id)},
-            )
-
-
 def _create_run_row(
     *,
     run_id: Any,
@@ -673,45 +559,6 @@ def _capture_run_started(
         logger.warning(
             "signals_scout: failed to capture run-started analytics event",
             extra={"team_id": team.id, "run_id": str(run_id), "skill_name": skill.name},
-        )
-
-
-def _capture_run_reaped(
-    *,
-    team: Team,
-    skill_name: str,
-    run_id: Any,
-    task_run_id: str,
-    status_before: str,
-    age_seconds: float,
-) -> None:
-    """Emit a scout-owned event when a stranded run is reaped (see `_self_heal_stale_runs`).
-
-    A run orphaned by a hard worker death never reaches the finalize path, so it emits no
-    `signals_scout_run_finished` — the reap is otherwise visible only in the logs. This event
-    surfaces the strand directly: a rising count is the worker-death / mass-stall shape, and
-    `status_before` + `age_seconds` distinguish a routine one-off from a fleet event. Keyed on
-    the team to match the other scout lifecycle events. Best-effort: a capture failure must
-    never block the reap or the new run.
-    """
-    try:
-        posthoganalytics.capture(
-            event="signals_scout_run_reaped",
-            distinct_id=str(team.uuid),
-            properties={
-                "skill_name": skill_name,
-                "run_id": str(run_id),
-                "task_run_id": task_run_id,
-                "status_before": status_before,
-                "age_seconds": round(age_seconds, 1),
-                "stale_cutoff_seconds": STALE_RUN_CUTOFF_S,
-            },
-            groups=groups(team.organization, team),
-        )
-    except Exception:
-        logger.warning(
-            "signals_scout: failed to capture run-reaped analytics event",
-            extra={"team_id": team.id, "run_id": str(run_id), "skill_name": skill_name},
         )
 
 
