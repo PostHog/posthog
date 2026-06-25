@@ -70,7 +70,10 @@ export function InsertTileOverlay({
     )
 }
 
-const STRIP_HEIGHT = 16
+// Generous transparent hover zone so the thin line/"+" is easy to target (the visible bits stay
+// centered on the row boundary). Larger than the inter-row gap, so it bleeds a little into the
+// adjacent tiles — that's the intended trade-off for a comfortable hit area.
+const HOVER_HIT_HEIGHT = 28
 
 function InsertionStrip({
     targetY,
@@ -91,11 +94,11 @@ function InsertionStrip({
         <div
             className="group absolute pointer-events-auto"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ left: 0, width: gridWidth, top: topPx - STRIP_HEIGHT / 2, height: STRIP_HEIGHT }}
+            style={{ left: 0, width: gridWidth, top: topPx - HOVER_HIT_HEIGHT / 2, height: HOVER_HIT_HEIGHT }}
         >
             <div
                 className={clsx(
-                    'absolute left-0 right-0 top-1/2 -translate-y-1/2 h-px bg-accent transition-opacity',
+                    'absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-accent transition-opacity',
                     revealClass
                 )}
             />
