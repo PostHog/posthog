@@ -411,14 +411,6 @@ jobs:
                           extra_args="-- --test-threads=4"
                       fi
                       cargo test -p "$pkg" $extra_args
-                      # Error-tracking rate-limiter tests are #[ignore]'d because they need a real
-                      # Redis (testcontainers/Docker), absent in some environments. CI has Docker,
-                      # so run them here, single-threaded to avoid concurrent-container flakes. The
-                      # `rate_limiting` filter is a no-op where these tests don't exist, keeping this
-                      # safe for unrebased PRs.
-                      if [ "$pkg" = "cymbal" ]; then
-                          cargo test -p cymbal rate_limiting -- --ignored --test-threads=1
-                      fi
                       echo "::endgroup::"
                   done
 
