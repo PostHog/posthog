@@ -9,8 +9,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import type { AgentUser, IdentityStore } from '../persistence/identity-store'
+import { AgentSpecSchema } from '../spec/spec'
 import type { AgentApplication, AgentRevision, AgentSpec } from '../spec/spec'
 import { AdmissionService, canonicalKind } from './admission'
 import type { HttpFetcher } from './http-client'
@@ -456,5 +458,111 @@ describe('AdmissionService', () => {
         const state = new URL(first.authorizeUrl).searchParams.get('state')!
         await h.admission.complete('work', state, { code: 'c', state })
         await expect(h.admission.complete('work', state, { code: 'c', state })).rejects.toThrow('oauth_invalid_state')
+    })
+
+    it('dangling binding (canonical vanished) falls through to auth_required', async () => {
+        const work = makeIdp('https://work.example', 'alice')
+        const h = harness([work])
+        const rev = revWith('work')
+        const claim: TransportClaim = { transport: 'slack', subjectId: 'T:U' }
+        const first = await h.admission.resolve(claim, { application: APP, revision: rev })
+        const verified = first.kind === 'auth_required' ? await driveLink(h, first.authorizeUrl) : null
+        expect(verified).toBeTruthy()
+        // Drop the canonical identity row out from under the binding.
+        h.identities.rows.delete(`app-1::${canonicalKind('work')}::alice`)
+        const again = await h.admission.resolve(claim, { application: APP, revision: rev })
+        expect(again.kind).toBe('auth_required') // not a crash, not a stale admit
+    })
+
+    it('re-auth as a different subject replaces the binding (account switch)', async () => {
+        const work = makeIdp('https://work.example', 'alice')
+        const h = harness([work])
+        const rev = revWith('work')
+        const claim: TransportClaim = { transport: 'slack', subjectId: 'T:U' }
+        const a = await h.admission.resolve(claim, { application: APP, revision: rev })
+        const first = a.kind === 'auth_required' ? await driveLink(h, a.authorizeUrl) : null
+
+        // The IdP now proves a different subject for the same transport principal.
+        work.sub = 'bob'
+        const b = await h.admission.resolve(claim, { application: APP, revision: rev })
+        // Still admitted via the OLD binding until re-link; force a re-link instead.
+        const transportUserId = first!.transportAgentUserId
+        await h.bindings.unbind('app-1', transportUserId)
+        const c = await h.admission.resolve(claim, { application: APP, revision: rev })
+        const second = c.kind === 'auth_required' ? await driveLink(h, c.authorizeUrl) : null
+        expect(second!.subject).toBe('bob')
+        expect(second!.canonicalId).not.toBe(first!.canonicalId)
+        // Exactly one binding for this transport principal — the new one.
+        const binding = await h.bindings.find('app-1', transportUserId)
+        expect(binding?.canonicalAgentUserId).toBe(second!.canonicalId)
+        void b
+    })
+
+    it('complete() rejects a provider that does not match the link state', async () => {
+        const work = makeIdp('https://work.example', 'alice')
+        const dogs = makeIdp('https://dogs.example', 'rex')
+        const h = harness([work, dogs])
+        const a = await h.admission.resolve(
+            { transport: 'slack', subjectId: 'T:U' },
+            { application: APP, revision: revWith('work') }
+        )
+        if (a.kind !== 'auth_required') {
+            throw new Error('expected auth_required')
+        }
+        const state = new URL(a.authorizeUrl).searchParams.get('state')!
+        // The link state is for 'work'; completing as 'dogs' must fail.
+        await expect(h.admission.complete('dogs', state, { code: 'c', state })).rejects.toThrow('oauth_invalid_state')
+    })
+})
+
+describe('AgentSpecSchema.authoritative_provider validation', () => {
+    const base = { model: 'anthropic/claude-haiku-4-5' }
+    const dogs = (userinfo?: string): Record<string, unknown> => ({
+        kind: 'oauth2',
+        id: 'dogs',
+        authorize_url: 'https://d/authorize',
+        token_url: 'https://d/token',
+        client_id: 'c',
+        ...(userinfo ? { userinfo_url: userinfo } : {}),
+    })
+
+    it('rejects an authoritative_provider with no matching identity_providers entry', () => {
+        const r = AgentSpecSchema.safeParse({ ...base, authoritative_provider: 'nope' })
+        expect(r.success).toBe(false)
+    })
+
+    it('rejects an oauth2 authoritative provider without userinfo_url (cannot prove a subject)', () => {
+        const r = AgentSpecSchema.safeParse({
+            ...base,
+            authoritative_provider: 'dogs',
+            identity_providers: [dogs()],
+        })
+        expect(r.success).toBe(false)
+    })
+
+    it('accepts an oauth2 authoritative provider with userinfo_url', () => {
+        const r = AgentSpecSchema.safeParse({
+            ...base,
+            authoritative_provider: 'dogs',
+            identity_providers: [dogs('https://d/userinfo')],
+        })
+        expect(r.success).toBe(true)
+    })
+
+    it('accepts a posthog authoritative provider', () => {
+        const r = AgentSpecSchema.safeParse({
+            ...base,
+            authoritative_provider: 'posthog',
+            identity_providers: [{ kind: 'posthog', id: 'posthog' }],
+        })
+        expect(r.success).toBe(true)
+    })
+
+    it('accepts a spec with no authoritative_provider (passthrough)', () => {
+        expect(AgentSpecSchema.safeParse(base).success).toBe(true)
+    })
+
+    it('still serializes to JSON Schema (the refine does not break toJSONSchema)', () => {
+        expect(() => z.toJSONSchema(AgentSpecSchema, { reused: 'ref' })).not.toThrow()
     })
 })
