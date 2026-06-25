@@ -18,6 +18,7 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import RepoRef, WorkflowHealthBucket, WorkflowHealthItem
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
 
 Granularity = Literal["hour", "day", "week"]
 
@@ -124,6 +125,7 @@ def query_workflow_health(
             bucket_start=key, run_count=run_count, completed=completed, successes=successes, failures=failures
         )
 
+    cost_by_workflow = query_workflow_window_costs(curated=curated, date_from=date_from, date_to=date_to, branch=branch)
     window = _window_buckets(date_from, date_to, granularity)
     return [
         WorkflowHealthItem(
@@ -147,6 +149,12 @@ def query_workflow_health(
                 )
                 for bucket in window
             ],
+            billable_minutes=(
+                cost_by_workflow[workflow_name].billable_seconds / 60 if workflow_name in cost_by_workflow else None
+            ),
+            estimated_cost_usd=(
+                cost_by_workflow[workflow_name].estimated_cost_usd if workflow_name in cost_by_workflow else None
+            ),
         )
         for repo_owner, repo_name, workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion in response.results
     ]

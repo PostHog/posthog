@@ -534,6 +534,18 @@ export const WorkflowHealthItemApi = zod.object({
     granularity: zod
         .string()
         .describe("Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'."),
+    billable_minutes: zod
+        .number()
+        .nullish()
+        .describe(
+            "Billable (self-hosted) minutes over this workflow's jobs in the window. Null when the job-level source isn't synced."
+        ),
+    estimated_cost_usd: zod
+        .number()
+        .nullish()
+        .describe(
+            "Estimated cost in USD over this workflow's jobs in the window. Null when nothing was costable or the job source isn't synced."
+        ),
 })
 
 export type WorkflowHealthItemApi = zod.input<typeof WorkflowHealthItemApi>

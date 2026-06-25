@@ -355,4 +355,14 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
             "granularity": {
                 "help_text": "Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'."
             },
+            "billable_minutes": {
+                "help_text": "Billable (self-hosted) minutes over this workflow's jobs in the window. Null when "
+                "the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated cost in USD over this workflow's jobs in the window. Null when nothing "
+                "was costable or the job source isn't synced.",
+                "allow_null": True,
+            },
         }

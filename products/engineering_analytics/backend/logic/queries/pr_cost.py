@@ -10,6 +10,7 @@ column). When the jobs source isn't synced, ``jobs_source()`` is None and this r
 
 import json
 from collections import defaultdict
+from datetime import datetime
 from typing import Any
 
 from posthog.hogql import ast
@@ -113,6 +114,62 @@ def query_pr_list_costs(*, curated: CuratedGitHubSource) -> dict[tuple[str, str,
             _expand_jobs(_parse_labels(labels), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
         )
     return {key: aggregate_pr_cost(jobs) for key, jobs in by_pr.items()}
+
+
+# Per-workflow billable cost over a window (Workflows tab). Same grouped+expand shape as the PR list,
+# but keyed by workflow_name and filtered by the run window + optional branch.
+_WINDOW_COST_SELECT = """
+    SELECT
+        r.workflow_name, j.labels,
+        countIf(j.duration_seconds IS NOT NULL) AS finished,
+        sumIf(j.duration_seconds, j.duration_seconds IS NOT NULL) AS elapsed,
+        countIf(j.duration_seconds IS NULL) AS unfinished
+    FROM __JOBS_SOURCE__ AS j
+    INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
+    WHERE r.run_started_at >= {date_from} __DATE_TO__ __BRANCH__
+    GROUP BY r.workflow_name, j.labels
+    LIMIT 1000000
+"""
+
+
+def query_workflow_window_costs(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    branch: str | None,
+) -> dict[str, PRCostAggregate]:
+    """Per-workflow billable cost over [date_from, date_to] (optional branch), keyed by workflow_name.
+
+    Empty when the jobs source isn't synced. Mirrors the PR-list cost: grouped per workflow×label in SQL,
+    expanded back through aggregate_pr_cost.
+    """
+    jobs_source = curated.jobs_source()
+    if jobs_source is None:
+        return {}
+    branch = branch.strip() if branch else None
+    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    date_to_clause = ""
+    if date_to is not None:
+        date_to_clause = "AND r.run_started_at <= {date_to}"
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    branch_clause = ""
+    if branch:
+        branch_clause = "AND r.head_branch = {branch}"
+        placeholders["branch"] = ast.Constant(value=branch)
+    sql = (
+        _WINDOW_COST_SELECT.replace("__JOBS_SOURCE__", jobs_source)
+        .replace("__RUNS_SOURCE__", curated.run_source())
+        .replace("__DATE_TO__", date_to_clause)
+        .replace("__BRANCH__", branch_clause)
+    )
+    response = curated.run(sql, query_type="engineering_analytics.workflow_window_costs", placeholders=placeholders)
+    by_workflow: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
+    for workflow_name, labels, finished, elapsed, unfinished in response.results or []:
+        by_workflow[workflow_name or ""].extend(
+            _expand_jobs(_parse_labels(labels), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
+        )
+    return {workflow: aggregate_pr_cost(jobs) for workflow, jobs in by_workflow.items()}
 
 
 def _expand_jobs(

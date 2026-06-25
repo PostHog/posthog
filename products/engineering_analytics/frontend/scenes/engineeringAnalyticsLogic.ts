@@ -381,6 +381,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     // response predates this field — degrade to 0, don't compute NaN bars.
                                     failures: b.failures ?? 0,
                                 })),
+                                billableMinutes: it.billable_minutes ?? null,
+                                estimatedCostUsd: it.estimated_cost_usd ?? null,
                             })
                         )
                     },

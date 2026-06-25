@@ -90,6 +90,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                 rows={workflowHealth}
                 loading={workflowHealthLoading}
                 sourceId={sourceId}
+                showCost={workflowHealth.some((row) => row.billableMinutes != null || row.estimatedCostUsd != null)}
                 emptyState={
                     appliedBranch
                         ? `No workflow runs on '${appliedBranch}' in this window.`

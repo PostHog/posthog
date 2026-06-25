@@ -626,6 +626,28 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.run_count == 2
         assert ci.success_rate == 0.5  # 1 success of 2 completed
         assert ci.last_failure_at is not None
+        assert ci.billable_minutes is None  # no jobs source seeded → no cost figure
+
+    def test_workflow_health_includes_cost_when_jobs_synced(self) -> None:
+        # With the jobs source synced, each workflow carries its windowed billable cost + minutes.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(80, "alice", "open", 0, _ago(1), head_sha="sha80")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9500, "CI", "sha80", "completed", "success", _ago(1), _ago(1))],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [_job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
+        )
+        ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
+        assert ci.estimated_cost_usd is not None and ci.estimated_cost_usd > 0
+        assert ci.billable_minutes is not None and ci.billable_minutes > 0
 
     def test_workflow_health_daily_failures_exclude_non_failures(self) -> None:
         # The daily failure count is decisive failures only — skipped / cancelled / action_required

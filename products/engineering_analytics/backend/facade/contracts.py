@@ -365,3 +365,7 @@ class WorkflowHealthItem:
     granularity: str
     # Run history across the whole window, oldest first, zero-filled, bucketed by `granularity`.
     buckets: list[WorkflowHealthBucket]
+    # Billable (self-hosted) minutes + estimated cost over this workflow's jobs in the window; None when
+    # the job-level source isn't synced (run-level health alone carries no runner tier).
+    billable_minutes: float | None = None
+    estimated_cost_usd: float | None = None

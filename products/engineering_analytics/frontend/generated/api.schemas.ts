@@ -360,6 +360,16 @@ export interface WorkflowHealthItemApi {
     latest_run_conclusion: string | null
     /** Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'. */
     granularity: string
+    /**
+     * Billable (self-hosted) minutes over this workflow's jobs in the window. Null when the job-level source isn't synced.
+     * @nullable
+     */
+    billable_minutes?: number | null
+    /**
+     * Estimated cost in USD over this workflow's jobs in the window. Null when nothing was costable or the job source isn't synced.
+     * @nullable
+     */
+    estimated_cost_usd?: number | null
 }
 
 export interface WorkflowJobApi {
