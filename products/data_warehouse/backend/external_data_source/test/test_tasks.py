@@ -71,12 +71,15 @@ class TestSoftDeleteOrphanedExternalDataSchemas:
         schema = ExternalDataSchema.objects.create(
             name="Charge", team=team, source=source, status=ExternalDataSchema.Status.FAILED
         )
+        stale = dt.datetime(2020, 1, 1, tzinfo=dt.UTC)
+        ExternalDataSchema.objects.filter(id=schema.id).update(updated_at=stale)
 
         soft_delete_orphaned_external_data_schemas()
 
         schema.refresh_from_db()
         assert schema.deleted == expected_deleted
         assert (schema.deleted_at is not None) == expected_deleted
+        assert (schema.updated_at > stale) == expected_deleted
 
     def test_does_not_restamp_already_deleted_schema(self):
         team, source = _create_team_and_source(deleted=True)

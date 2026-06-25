@@ -96,8 +96,10 @@ def soft_delete_orphaned_external_data_schemas() -> None:
     digest. Soft-delete them in bulk (mirrors migration 0018_fix_orphaned_schemas)
     so they drop out. Cross-team maintenance, hence the scope-audit skip.
     """
+    # Stamp updated_at too: the bulk update bypasses the auto_now save() path that
+    # the model's soft_delete() uses, so without this updated_at would stay frozen.
     count = ExternalDataSchema.objects.filter(source__deleted=True, deleted=False).update(
-        deleted=True, deleted_at=Now()
+        deleted=True, deleted_at=Now(), updated_at=Now()
     )
     if count:
         logger.info("Soft-deleted orphaned external data schemas", count=count)

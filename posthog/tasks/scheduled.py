@@ -442,8 +442,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Retire schemas orphaned by a deleted source so they stop showing as failing.
+    # Runs just before the catch-up digest below so swept rows never reach a digest build.
     sender.add_periodic_task(
-        crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="45"),
+        crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="5"),
         soft_delete_orphaned_external_data_schemas.s(),
         name="soft-delete orphaned external data schemas",
     )
