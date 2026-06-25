@@ -27,10 +27,12 @@ class LoadedSkill:
     version: int
     body: str
     description: str
-    # Portable skill metadata — opaque to the harness. Logged on spawn for observability,
-    # not consulted at runtime. Downstream consumers (e.g. Claude Code) may read this list
-    # to narrow their own tool exposure; the scout harness itself gates via
-    # `posthog_mcp_scopes` at the OAuth/MCP boundary (scope-level), not tool-level.
+    # Portable skill metadata. Tool *exposure* in the sandbox is scope-level
+    # (`posthog_mcp_scopes` at the OAuth/MCP boundary), not tool-level — so this list does not
+    # hide tools from the agent. It IS the opt-in gate for the report channel: the
+    # `emit-report` / `edit-report` viewset actions reject a write unless the run's skill lists
+    # `emit_report` / `edit_report` here (see `views.SignalScoutRunViewSet._assert_report_tool_opted_in`).
+    # Downstream consumers (e.g. Claude Code) may also read this list to narrow their own exposure.
     allowed_tools: list[str]
     files: list[LoadedSkillFile]
     skill_id: str

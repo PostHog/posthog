@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 27 enabled ops
+ * PostHog API - MCP 30 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -517,6 +517,42 @@ export const SignalsScoutRunsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary edits are best-effort: the pipeline may later re-research and overwrite them.
+ * @summary Edit an existing report for a run
+ */
+export const SignalsScoutEditReportParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
+})
+
+export const signalsScoutEditReportBodyTitleMax = 300
+
+export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
+    .object({
+        report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
+        title: zod
+            .string()
+            .max(signalsScoutEditReportBodyTitleMax)
+            .nullish()
+            .describe('Optional new title. The pipeline may later re-research and overwrite it.'),
+        summary: zod
+            .string()
+            .nullish()
+            .describe('Optional new summary (markdown allowed). The pipeline may later re-research and overwrite it.'),
+        append_note: zod
+            .string()
+            .nullish()
+            .describe("Optional free-form note to append to the report's work log (attributed to this scout)."),
+    })
+    .describe(
+        "Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."
+    )
+
+/**
  * Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and the deterministic `source_id` that joins back to the underlying signal. Lets a team and its agents see *what* a run surfaced without parsing `emitted_finding_ids` or scanning the signal store. Strictly team-scoped — a run UUID belonging to another team returns 404.
  * @summary List a run's emitted findings
  */
@@ -541,6 +577,74 @@ export const SignalsScoutRunsEmissionReportsParams = /* @__PURE__ */ zod.object(
         ),
     run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
 })
+
+/**
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * @summary Author a full report for a run
+ */
+export const SignalsScoutEmitReportParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
+})
+
+export const signalsScoutEmitReportBodyTitleMax = 300
+
+export const signalsScoutEmitReportBodyEvidenceItemWeightMin = 0
+
+export const signalsScoutEmitReportBodyAlreadyAddressedDefault = false
+
+export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(signalsScoutEmitReportBodyTitleMax)
+            .describe('One-line PR-style report title the inbox shows.'),
+        summary: zod.string().describe('The report body the inbox shows (markdown allowed). Authored by the scout.'),
+        evidence: zod
+            .array(
+                zod
+                    .object({
+                        description: zod
+                            .string()
+                            .describe(
+                                'Prose for this observation. Embedded and rendered to the safety/research surfaces.'
+                            ),
+                        source_id: zod
+                            .string()
+                            .describe(
+                                'Stable id for this observation within the report (lets a later edit address it).'
+                            ),
+                        weight: zod
+                            .number()
+                            .min(signalsScoutEmitReportBodyEvidenceItemWeightMin)
+                            .optional()
+                            .describe('Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.'),
+                    })
+                    .describe('One observation backing an authored report — becomes a bound signal row on the report.')
+            )
+            .min(1)
+            .describe('The observations backing the report — each becomes a bound signal. At least one.'),
+        actionability_explanation: zod
+            .string()
+            .describe('2-3 sentence evidence-grounded justification for the actionability call below.'),
+        actionability: zod
+            .enum(['immediately_actionable', 'requires_human_input', 'not_actionable'])
+            .describe(
+                '* `immediately_actionable` - immediately_actionable\n* `requires_human_input` - requires_human_input\n* `not_actionable` - not_actionable'
+            )
+            .describe(
+                "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.\n\n* `immediately_actionable` - immediately_actionable\n* `requires_human_input` - requires_human_input\n* `not_actionable` - not_actionable"
+            ),
+        already_addressed: zod
+            .boolean()
+            .default(signalsScoutEmitReportBodyAlreadyAddressedDefault)
+            .describe('Whether the issue already appears fixed in recent changes (tracked separately).'),
+    })
+    .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')
 
 /**
  * Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so do not retry an emit that may have already succeeded.
@@ -643,6 +747,51 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * The dedup read tool: list the project's reports so a scout can find one it already authored (or a matching pipeline report) and `edit-report` it instead of authoring a duplicate. Filter by title substring (`query`) and/or `statuses`. Read-only and team-scoped.
+ * @summary Search the project's existing reports
+ */
+export const SignalsScoutSearchReportsParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const signalsScoutSearchReportsQueryLimitDefault = 20
+export const signalsScoutSearchReportsQueryLimitMax = 100
+
+export const SignalsScoutSearchReportsQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsScoutSearchReportsQueryLimitMax)
+        .default(signalsScoutSearchReportsQueryLimitDefault)
+        .describe('Max reports to return (1-100, default 20).'),
+    query: zod.string().nullish().describe('Optional case-insensitive title substring filter.'),
+    statuses: zod
+        .array(
+            zod
+                .enum([
+                    'potential',
+                    'candidate',
+                    'in_progress',
+                    'pending_input',
+                    'ready',
+                    'resolved',
+                    'failed',
+                    'deleted',
+                    'suppressed',
+                ])
+                .describe(
+                    '* `potential` - potential\n* `candidate` - candidate\n* `in_progress` - in_progress\n* `pending_input` - pending_input\n* `ready` - ready\n* `resolved` - resolved\n* `failed` - failed\n* `deleted` - deleted\n* `suppressed` - suppressed'
+                )
+        )
+        .optional()
+        .describe('Optional lifecycle-status filter (e.g. `ready`, `suppressed`).'),
+})
 
 /**
  * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 500.

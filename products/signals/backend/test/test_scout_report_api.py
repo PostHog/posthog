@@ -10,9 +10,11 @@ from posthog.models import Organization, Team
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
+from products.skills.backend.models.skills import LLMSkill
 
 JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
+REPORT_TOOLS = ["emit_report", "edit_report", "search_scout_reports"]
 
 
 def _safe_judge(choice: bool = True, explanation: str = ""):
@@ -29,6 +31,15 @@ class TestScoutReportAPI(APIBaseTest):
             source_product="signals_scout",
             source_type="cross_source_issue",
             defaults={"enabled": True},
+        )
+        # The report channel is opt-in: `_make_run` defaults to skill `signals-scout-general` v1, so the
+        # gate needs a matching LLMSkill row that lists the report tools in `allowed_tools`.
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="opted-in scout",
+            body="# scout",
+            allowed_tools=REPORT_TOOLS,
         )
         _authenticate_as_scout(self)
 
@@ -96,6 +107,19 @@ class TestScoutReportAPI(APIBaseTest):
         run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
         response = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_emit_report_denied_when_skill_not_opted_in(self) -> None:
+        # Opt-in is enforced server-side: a run whose skill omits `emit_report` from allowed_tools is
+        # rejected even though the MCP token's scope can reach the endpoint.
+        LLMSkill.objects.create(
+            team=self.team, name="signals-scout-noreport", description="not opted in", body="# x", allowed_tools=[]
+        )
+        run = _make_run(self.team, skill_name="signals-scout-noreport")
+        with _safe_judge(), patch(EMBED_PATH) as embed_mock:
+            response = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        embed_mock.assert_not_called()
+        assert SignalReport.objects.filter(team=self.team).count() == 0
 
     def test_emit_report_rejects_invalid_actionability(self) -> None:
         run = _make_run(self.team)

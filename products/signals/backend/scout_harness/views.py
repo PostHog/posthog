@@ -87,6 +87,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
 )
+from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError, load_skill_for_run
 from products.signals.backend.scout_harness.team_limits import (
     resolve_sync_seed_inputs,
     resolve_team_metadata,
@@ -481,14 +482,21 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
-    def _resolve_in_progress_run(self, kwargs: dict) -> SignalScoutRun:
-        """Resolve the run for an authoring action: team-scoped lookup + the same in-progress guard
-        `emit_signal` uses. A report is authored *during* a run, so a finished run can't author one."""
+    def _resolve_in_progress_run(self, kwargs: dict, *, required_tool: str) -> SignalScoutRun:
+        """Resolve the run for a report-channel write action: team-scoped lookup + the same in-progress
+        guard `emit_signal` uses, plus the `allowed_tools` opt-in gate. A report is authored *during* a
+        run, so a finished run can't author one.
+
+        The report channel is opt-in by `allowed_tools` (see `tools/report.py`), but MCP tool exposure is
+        scope-level, not tool-level (`posthog_mcp_scopes`), so every scout with `signal_scout_internal:write`
+        can *see* these tools. This is the real fail-closed enforcement of the opt-in: reject the write
+        unless the run's skill lists `required_tool` in its `allowed_tools`. Read-only `search-reports` is
+        not gated here — it carries no run context and is already scope-gated."""
         run_id = _parse_run_id_or_404(kwargs)
         from products.tasks.backend.facade import api as tasks_facade
 
         run = (
-            SignalScoutRun.objects.select_related("scout_config", "task_run")
+            SignalScoutRun.objects.select_related("scout_config", "task_run", "team")
             .filter(team_id=_canonical_team_id(self), id=run_id)
             .first()
         )
@@ -498,7 +506,27 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError(
                 {"status": f"Reports can only be authored on in-progress runs (current: {run.task_run.status})."}
             )
+        self._assert_report_tool_opted_in(run, required_tool)
         return run
+
+    def _assert_report_tool_opted_in(self, run: SignalScoutRun, required_tool: str) -> None:
+        """Fail closed unless the run's skill opted into `required_tool` via `allowed_tools`. Loads the
+        exact skill version the run snapshotted so the gate matches what actually ran; a missing/unloadable
+        skill is treated as not-opted-in (deny)."""
+        # `run.team` is the canonical team the run was resolved on (the query above filters on
+        # `_canonical_team_id`), and is where the scout's `LLMSkill` rows are seeded.
+        try:
+            skill = load_skill_for_run(run.team, run.skill_name, version=run.skill_version)
+        except SkillNotFoundError:
+            raise exceptions.PermissionDenied(
+                f"Report channel is opt-in; skill '{run.skill_name}' (v{run.skill_version}) could not be "
+                "resolved to verify its allowed_tools."
+            )
+        if required_tool not in skill.allowed_tools:
+            raise exceptions.PermissionDenied(
+                f"Report channel is opt-in: skill '{run.skill_name}' must list '{required_tool}' in its "
+                "allowed_tools to use this tool."
+            )
 
     @validated_request(
         request_serializer=EmitReportRequestSerializer,
@@ -529,7 +557,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def emit_report(self, request: Request, **kwargs) -> Response:
-        run = self._resolve_in_progress_run(kwargs)
+        run = self._resolve_in_progress_run(kwargs, required_tool="emit_report")
         data = request.validated_data
         evidence = [
             ReportEvidence(
@@ -589,7 +617,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def edit_report(self, request: Request, **kwargs) -> Response:
-        run = self._resolve_in_progress_run(kwargs)
+        run = self._resolve_in_progress_run(kwargs, required_tool="edit_report")
         data = request.validated_data
         try:
             result = edit_report_sync(
