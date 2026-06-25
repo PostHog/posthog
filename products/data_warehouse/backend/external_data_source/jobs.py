@@ -5,8 +5,6 @@ from django.db import transaction
 from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
 
-from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES, emit_data_import_app_metrics
-
 from products.data_warehouse.backend.tasks import (
     EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS,
     EXTERNAL_DATA_FAILURE_DIGEST_SCHEDULED_COUNTER,
@@ -14,6 +12,10 @@ from products.data_warehouse.backend.tasks import (
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    TERMINAL_JOB_STATUSES,
+    emit_data_import_app_metrics,
+)
 
 JOB_STATUS_TRANSITION_REJECTED = Counter(
     "dwh_job_status_transition_rejected",

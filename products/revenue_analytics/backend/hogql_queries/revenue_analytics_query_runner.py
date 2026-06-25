@@ -28,7 +28,6 @@ from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsChargeView,
@@ -42,6 +41,7 @@ from products.revenue_analytics.backend.views.schemas import (
     Schema as RevenueAnalyticsSchema,
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 # This is the placeholder that we use for the breakdown_by field when the breakdown is not present
 NO_BREAKDOWN_PLACEHOLDER = "<none>"

@@ -3965,10 +3965,10 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
 
 class TestGoogleSearchConsoleSitesEndpoint:
     _SESSION_PATH = (
-        "posthog.temporal.data_imports.sources.google_search_console."
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console."
         "google_search_console.google_search_console_session"
     )
-    _LIST_SITES_PATH = "posthog.temporal.data_imports.sources.google_search_console.google_search_console.list_sites"
+    _LIST_SITES_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites"
 
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):

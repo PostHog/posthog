@@ -85,7 +85,8 @@ export class SessionBatchRecorder {
         private readonly sessionFilter: SessionFilter,
         private readonly keyStore: KeyStore,
         private readonly encryptor: RecordingEncryptor,
-        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
+        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER,
+        private readonly featuresRolloutPercentage: number = 100
     ) {
         this.batchId = uuidv7()
         this.rateLimiter = new SessionRateLimiter(maxEventsPerSessionPerBatch)
@@ -196,7 +197,7 @@ export class SessionBatchRecorder {
             sessions.set(teamSessionKey, [
                 new SnappySessionRecorder(sessionId, teamId, this.batchId),
                 new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore),
-                new SessionFeatureRecorder(sessionId, teamId, this.batchId),
+                new SessionFeatureRecorder(sessionId, teamId, this.batchId, this.featuresRolloutPercentage),
                 sessionKey,
             ])
         }
