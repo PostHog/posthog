@@ -138,7 +138,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                 />
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
-                {displayedGroups.length === 0 ? (
+                {displayedGroups.length === 0 && facetNameSearch.trim() ? (
                     <div className="px-1 text-xs text-muted">No matching facets</div>
                 ) : (
                     displayedGroups.map(([group, facets]) => (
