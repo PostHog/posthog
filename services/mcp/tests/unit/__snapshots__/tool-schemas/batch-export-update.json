@@ -77,7 +77,7 @@
                                 "file_format": {
                                     "default": "JSONLines",
                                     "description": "File format used for exported objects.\n\n* `JSONLines` - JSONLines\n* `Parquet` - Parquet",
-                                    "enum": ["JSONLines", "Parquet"],
+                                    "enum": ["Parquet", "JSONLines"],
                                     "type": "string"
                                 },
                                 "max_file_size_mb": {
@@ -187,6 +187,161 @@
                         }
                     },
                     "required": ["type", "integration_id", "config"],
+                    "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating an AWS S3 batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for an AWS S3 batch-export destination.\n\nAWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of\n`AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "bucket_name": {
+                                    "description": "Name of the destination bucket.",
+                                    "type": "string"
+                                },
+                                "compression": {
+                                    "anyOf": [
+                                        {
+                                            "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
+                                            "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd"
+                                },
+                                "encryption": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms')."
+                                },
+                                "file_format": {
+                                    "default": "JSONLines",
+                                    "description": "File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+                                    "enum": ["Parquet", "JSONLines"],
+                                    "type": "string"
+                                },
+                                "kms_key_id": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "KMS key ID to use when encryption is 'aws:kms'."
+                                },
+                                "max_file_size_mb": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB."
+                                },
+                                "prefix": {
+                                    "description": "Object key prefix applied to every exported file.",
+                                    "type": "string"
+                                },
+                                "region": {
+                                    "description": "Region the bucket is in (e.g. 'us-east-1').",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["bucket_name", "region", "prefix"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["AwsS3"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "config"],
+                    "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating an S3-compatible batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "bucket_name": {
+                                    "description": "Name of the destination bucket.",
+                                    "type": "string"
+                                },
+                                "compression": {
+                                    "anyOf": [
+                                        {
+                                            "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
+                                            "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd"
+                                },
+                                "file_format": {
+                                    "default": "JSONLines",
+                                    "description": "File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+                                    "enum": ["Parquet", "JSONLines"],
+                                    "type": "string"
+                                },
+                                "max_file_size_mb": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB."
+                                },
+                                "prefix": {
+                                    "description": "Object key prefix applied to every exported file.",
+                                    "type": "string"
+                                },
+                                "region": {
+                                    "description": "Region the bucket is in (e.g. 'us-east-1').",
+                                    "type": "string"
+                                },
+                                "use_virtual_style_addressing": {
+                                    "default": false,
+                                    "description": "Use virtual-hosted-style addressing rather than path-style.",
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": ["bucket_name", "region", "prefix"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["S3Compatible"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "config"],
                     "type": "object"
                 }
             ],
