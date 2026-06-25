@@ -199,6 +199,7 @@ dependencies = [
     "scrubadub~=2.0.1",
     "braintrust-core>=0.0.59,<1",
     "wrapt==1.17.3",
+    "limits==5.8.0",
 ]
 
 [dependency-groups]
