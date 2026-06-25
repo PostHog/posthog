@@ -220,8 +220,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         ],
         recalculationProgress: [
             (s) => [s.currentRecalculation],
+            // "completed" here means resolved: a failed metric is done too, so it counts toward progress.
+            // Without this, a run where every metric fails sits at 0/N forever and looks stuck.
             (recalc): { completed: number; total: number } => ({
-                completed: recalc?.completed_metrics ?? 0,
+                completed: (recalc?.completed_metrics ?? 0) + (recalc?.failed_metrics ?? 0),
                 total: recalc?.total_metrics ?? 0,
             }),
         ],
