@@ -13,24 +13,24 @@ import * as crypto from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { AIObservabilityConfig } from '../ai-observability/config'
-import { EvaluationManagerService } from '../ai-observability/services/evaluation-manager.service'
-import { ProviderKeyManagerService } from '../ai-observability/services/provider-key-manager.service'
-import { TaggerManagerService } from '../ai-observability/services/tagger-manager.service'
+import { AIObservabilityConfig } from '~/ai-observability/config'
+import { EvaluationManagerService } from '~/ai-observability/services/evaluation-manager.service'
+import { ProviderKeyManagerService } from '~/ai-observability/services/provider-key-manager.service'
+import { TaggerManagerService } from '~/ai-observability/services/tagger-manager.service'
 import {
     TemporalService,
     TemporalServiceConfig,
     isEvaluationWorkflowRuntime,
-} from '../ai-observability/services/temporal.service'
-import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '../ai-observability/types'
-import { execHog } from '../cdp/utils/hog-exec'
-import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
-import { createKafkaConsumer } from '../kafka/consumer'
-import { PluginServerService, RawKafkaEvent } from '../types'
-import { PostgresRouter } from '../utils/db/postgres'
-import { parseJSON } from '../utils/json-parse'
-import { logger } from '../utils/logger'
-import { PubSub } from '../utils/pubsub'
+} from '~/ai-observability/services/temporal.service'
+import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '~/ai-observability/types'
+import { execHog } from '~/cdp/utils/hog-exec'
+import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, prefix as KAFKA_PREFIX } from '~/config/kafka-topics'
+import { createKafkaConsumer } from '~/kafka/consumer'
+import { PluginServerService, RawKafkaEvent } from '~/types'
+import { PostgresRouter } from '~/utils/db/postgres'
+import { parseJSON } from '~/utils/json-parse'
+import { logger } from '~/utils/logger'
+import { PubSub } from '~/utils/pubsub'
 
 export type EvaluationSchedulerConfig = TemporalServiceConfig &
     Pick<AIObservabilityConfig, 'LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING'>

@@ -8,6 +8,7 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
+import { startEvaluationScheduler } from './ai-observability/evaluation-scheduler/evaluation-scheduler'
 import { initializePrometheusLabels } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
@@ -38,7 +39,6 @@ import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.ser
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
-import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
