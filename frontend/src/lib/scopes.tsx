@@ -318,6 +318,7 @@ export const getScopeDescription = (scope: string): string | undefined => {
     }
 
     if (scope === 'introspection') {
+        // Intentionally hidden — callers use .filter(Boolean) to exclude it from display.
         return undefined
     }
 
@@ -328,31 +329,11 @@ export const getScopeDescription = (scope: string): string | undefined => {
     }
 
     const scopeObject = API_SCOPES.find((s) => s.key === object)
-    if (!scopeObject) {
-        // Unknown / hidden scope — call sites .filter(Boolean) the result.
-        return undefined
-    }
     const actionWord = action === 'write' ? 'Write' : 'Read'
-
-    return `${actionWord} access to ${scopeObject.objectPlural}`
-}
-
-/**
- * Like getScopeDescription but always returns a string. Falls back to a formatted
- * version of the raw scope string for hidden/unknown scopes (e.g. `wizard_session:write`
- * → "Write access to wizard session") so the OAuth consent screen never shows raw identifiers.
- */
-export const formatScopeDescription = (scope: string): string => {
-    const known = getScopeDescription(scope)
-    if (known !== undefined) {
-        return known
-    }
-    const [object, action] = scope.split(':')
-    if (!object || !action) {
-        return scope
-    }
-    const actionWord = action === 'write' ? 'Write' : 'Read'
-    return `${actionWord} access to ${object.replace(/_/g, ' ')}`
+    // Fall back to a formatted label for hidden/unknown scopes (e.g. wizard_session:write →
+    // "Write access to wizard session") so the consent screen never shows raw identifiers.
+    const objectLabel = scopeObject ? scopeObject.objectPlural : object.replace(/_/g, ' ')
+    return `${actionWord} access to ${objectLabel}`
 }
 
 export const getMinimumEquivalentScopes = (scopes: string[]): string[] => {
