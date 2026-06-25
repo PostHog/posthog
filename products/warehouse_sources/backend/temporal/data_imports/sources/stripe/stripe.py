@@ -57,6 +57,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
 
+_JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
+_OPEN_BRACE = ord("{")
+_CLOSE_BRACE = ord("}")
+
 
 def _is_retryable_connection_reset(error: stripe_lib.APIConnectionError) -> bool:
     """A connection reset *mid-response* surfaces from ``requests`` as a ``ChunkedEncodingError``
@@ -88,13 +92,21 @@ def _is_truncated_stripe_list_response(body: Any) -> bool:
         raw = body
     else:
         return False
-    stripped = raw.strip()
-    head = stripped[:64]
+    # `_should_retry` runs on every successful list page during a sync, so we scan for the first
+    # and last non-whitespace bytes in place rather than `raw.strip()`-ing a full-body copy.
+    start = 0
+    end = len(raw) - 1
+    while start <= end and raw[start] in _JSON_WHITESPACE:
+        start += 1
+    while end >= start and raw[end] in _JSON_WHITESPACE:
+        end -= 1
+    if start > end or raw[start] != _OPEN_BRACE or raw[end] == _CLOSE_BRACE:
+        return False
+    head = raw[start : start + 64]
     # Match the specific `"object": "list"` field, not just the tokens "object" and "list"
     # appearing anywhere in the head — otherwise a truncated single-object response with "list"
     # in a URL or type (e.g. `"type": "list.updated"`) would be retried as if it were a list read.
-    has_list_marker = b'"object": "list"' in head or b'"object":"list"' in head
-    return stripped.startswith(b"{") and has_list_marker and not stripped.endswith(b"}")
+    return b'"object": "list"' in head or b'"object":"list"' in head
 
 
 class _RateLimitRetryingRequestsClient(RequestsClient):
