@@ -44,8 +44,8 @@ function FilterPopover({
                 type="button"
                 aria-label={`${label}: ${value}`}
                 // Quiet at rest: an unused filter is a muted, borderless chip showing its category
-                // (e.g. "Source"). Once active it gains a solid border, its selected value, and the
-                // accent dot — so the bar only draws attention to filters actually in use.
+                // (e.g. "Source"). Once active it gains a solid border and its selected value — so
+                // the bar only draws attention to filters actually in use.
                 className={`flex h-8 shrink-0 items-center gap-1.5 rounded border px-2.5 text-sm transition-colors ${
                     active
                         ? 'border-primary bg-surface-primary text-default hover:border-secondary hover:bg-surface-secondary'
@@ -54,7 +54,6 @@ function FilterPopover({
             >
                 <span className="flex shrink-0 items-center text-tertiary [&>svg]:size-3.5">{icon}</span>
                 <span className="max-w-[150px] truncate">{active ? value : label}</span>
-                {active && <span className="size-1.5 shrink-0 rounded-full bg-accent" />}
                 <IconChevronDown className="shrink-0 text-sm text-tertiary" />
             </button>
         </LemonDropdown>
