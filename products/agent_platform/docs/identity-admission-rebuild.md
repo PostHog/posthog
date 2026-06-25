@@ -20,11 +20,23 @@
 - `transportBindings` wired through ingress `index.ts` + harness `cluster.ts`.
 - `admission-cluster-e2e.test.ts` (2): Slack unbound → auth_required (no run) → link → admitted → agent runs; + passthrough runs immediately. agent-ingress: 141 pass; identity e2e suite: no regression.
 
-**Follow-ups (tracked):**
-- Slack auth-block delivery is in-thread; make it ephemeral/DM (T2 link-hijack). `TODO(admission)` in slack.ts.
-- Chat/HTTP transport: `authoritative_provider` is NOT yet enforced on the chat path (it relies on `auth.modes` for per-request identity). Wire admission there — the `verifyBearer` seam exists (unit-tested) but isn't connected to a transport.
-- e2e proving a secondary provider link resolves under the canonical identity through the runner (re-key end-to-end).
-- See `CODE_REVIEW.md` for the review pass + testing-gap list.
+## Follow-ups (post-review, tracked)
+
+Code review pass done (see `CODE_REVIEW.md`, untracked). Addressed: authoritative-provider
+validation (superRefine + tests) and the P0 edge-case unit tests (dangling binding, re-auth
+account switch, complete() provider mismatch). Remaining, in priority order:
+
+**Security / correctness**
+- **T2 link delivery:** Slack posts the auth link in-thread (`TODO(admission)` in slack.ts) — make it ephemeral/DM so a channel member can't complete another user's link.
+- **T1 per-sender on resume:** admission stamps the canonical id on the session-owner principal; on a shared/participant thread, secondary credentials should resolve per *message sender*, not the owner. Pre-existing ACL concern; thread the sender through.
+- **Chat/HTTP admission:** `authoritative_provider` is enforced only on the Slack path today. Wire it into chat/MCP (the `verifyBearer` seam exists + is unit-tested but isn't connected to a transport). Decide whether a per-request posthog bearer satisfies the authoritative provider.
+
+**Testing gaps (maximize integration/e2e)**
+- **P1 (real-PG / runner integration):** secondary provider link resolves under the *canonical* identity *through the runner* (proves the `agentUserIdForPrincipal` re-key end-to-end, not just at unit level).
+- **P1 (real-PG):** re-auth-replaces-binding orphaning the prior canonical's secondary creds — the account-switch/takeover boundary, currently only unit-tested.
+- **P2 (cluster e2e):** assert the auth link is delivered via `postEphemeral` (once T2 is fixed) — the harness already intercepts `slack.com/api/`, so assert the method/recipient.
+- **P2 (cluster e2e):** concurrent first-contact race (two messages before any binding) → at most one canonical identity, no duplicate-key error.
+- **Python:** `spec_schema.py` can't express the cross-field authoritative_provider rule in pure JSON Schema (the janitor's zod gate enforces it). If a Django-side guard is wanted, add it in the promote/validate path.
 
 ## What changes, in one paragraph
 
