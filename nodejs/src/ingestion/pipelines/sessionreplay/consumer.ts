@@ -1,10 +1,19 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
 
+import { buildIntegerMatcher } from '~/common/config/config'
+import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { DlqOutput, IngestionWarningsOutput, LogEntriesOutput, OverflowOutput, TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { buildIntegerMatcher } from '~/config/config'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '~/common/utils/event-ingestion-restrictions'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
@@ -23,16 +32,7 @@ import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
-import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
 import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '~/types'
-import { PostgresRouter } from '~/utils/db/postgres'
-import {
-    EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerComponent,
-} from '~/utils/event-ingestion-restrictions'
-import { logger } from '~/utils/logger'
-import { captureException } from '~/utils/posthog'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 import { SessionRecordingApiConfig, SessionRecordingConfig, SessionReplayOutputsConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
