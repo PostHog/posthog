@@ -1,16 +1,32 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -80,6 +96,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['setInsight', 'setInsightMetadata', 'loadInsightSuccess'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
+            insightsModel,
+            ['renameInsightSuccess'],
         ],
         logic: [insightDataTimingLogic(props), insightUsageLogic(props)],
     })),
@@ -90,6 +108,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         toggleQueryEditorPanel: true,
         toggleDebugPanel: true,
         cancelChanges: true,
+        persistDisplayOptions: (query: Node) => ({ query }),
     }),
 
     reducers({
@@ -274,6 +293,23 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        persistDisplayOptions: async ({ query }, breakpoint) => {
+            // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
+            // only cancels concurrent saves for THIS insight — not unrelated tiles.
+            await breakpoint(700)
+            try {
+                const updatedItem = await insightsApi.update(values.insight.id, { query })
+                // Drop the response if a newer save started while this request was in flight.
+                await breakpoint(0)
+                actions.renameInsightSuccess(updatedItem)
+                lemonToast.success('Insight updated')
+            } catch (e) {
+                if (!isBreakpoint(e)) {
+                    lemonToast.error('Failed to update insight')
+                }
+            }
+        },
+
         generateInsightMetadataSuccess: ({ generatedInsightMetadata }) => {
             if (generatedInsightMetadata) {
                 actions.setInsightMetadata({

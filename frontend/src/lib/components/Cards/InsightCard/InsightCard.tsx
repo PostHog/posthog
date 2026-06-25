@@ -3,16 +3,14 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -25,14 +23,12 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightsApi } from 'scenes/insights/utils/api'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { insightsModel } from '~/models/insightsModel'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
-import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -50,7 +46,6 @@ import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
-const DISPLAY_OPTIONS_PERSIST_DEBOUNCE_MS = 700
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -178,52 +173,34 @@ function InsightCardInternal(
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
     const { theme } = useValues(themeLogic)
-    const { renameInsightSuccess } = useActions(insightsModel)
 
-    // Display options edited from the card ⋯ menu mutate the saved insight directly (no per-tile
-    // override), mirroring the legend/labels/annotations quick toggles. Debounced so rapid edits
-    // (e.g. typing an axis label) collapse into a single PATCH.
-    //
-    // saveGenRef: only apply a PATCH response if it's still the latest one. Without this, an
-    // earlier in-flight PATCH returning after a newer one fires triggers propsChanged in
-    // insightDataLogic and resets the local query to stale data (options visually deselect).
-    const insightRef = useRef(insight)
-    insightRef.current = insight
-    const saveGenRef = useRef(0)
     const canEditInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
         : true
     const canPersistDisplayOptions = !!dashboardId && canEditInsight
-    const persistDisplayOptions = useDebouncedCallback((node: Node) => {
-        const gen = ++saveGenRef.current
-        void insightsApi.update(insightRef.current.id, { query: node }).then(
-            (updatedItem) => {
-                // Skip if a newer save has started (gen mismatch) OR a newer save is still
-                // queued in the debounce (isPending). Either way the response is stale.
-                if (gen === saveGenRef.current && !persistDisplayOptions.isPending()) {
-                    renameInsightSuccess(updatedItem)
-                    lemonToast.success('Insight updated')
-                }
-            },
-            () => {
-                if (gen === saveGenRef.current && !persistDisplayOptions.isPending()) {
-                    lemonToast.error('Failed to update insight')
-                }
-            }
-        )
-    }, DISPLAY_OPTIONS_PERSIST_DEBOUNCE_MS)
 
-    // Stable reference so the memoized viz below isn't invalidated on every grid re-render.
-    const insightLogicProps: InsightLogicProps = useMemo(
+    // Base props without setQuery — used to mount insightDataLogic and retrieve the
+    // persistDisplayOptions action before wiring it back in as setQuery below.
+    const insightLogicPropsBase: InsightLogicProps = useMemo(
         () => ({
             dashboardItemId: insight.short_id,
             dashboardId: dashboardId,
             cachedInsight: insight,
             loadPriority,
             doNotLoad,
+        }),
+        [insight, dashboardId, loadPriority, doNotLoad]
+    )
+
+    const { persistDisplayOptions } = useActions(insightDataLogic(insightLogicPropsBase))
+
+    // Stable reference so the memoized viz below isn't invalidated on every grid re-render.
+    const insightLogicProps: InsightLogicProps = useMemo(
+        () => ({
+            ...insightLogicPropsBase,
             setQuery: canPersistDisplayOptions ? persistDisplayOptions : undefined,
         }),
-        [insight, dashboardId, loadPriority, doNotLoad, canPersistDisplayOptions, persistDisplayOptions]
+        [insightLogicPropsBase, canPersistDisplayOptions, persistDisplayOptions]
     )
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
