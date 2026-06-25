@@ -719,7 +719,12 @@ class DockerSandbox(SandboxBase):
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        event_ingest_url: str | None = None,
     ) -> str:
+        # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
+        # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
+        if event_ingest_url:
+            event_ingest_url = DockerSandbox._transform_url_for_docker(event_ingest_url)
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
             runtime_adapter=runtime_adapter,
@@ -727,6 +732,7 @@ class DockerSandbox(SandboxBase):
             model=model,
             reasoning_effort=reasoning_effort,
             event_ingest_token=event_ingest_token,
+            event_ingest_url=event_ingest_url,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
@@ -789,6 +795,7 @@ class DockerSandbox(SandboxBase):
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        event_ingest_url: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -835,6 +842,7 @@ class DockerSandbox(SandboxBase):
             mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
+            event_ingest_url=event_ingest_url,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -868,6 +876,7 @@ class DockerSandbox(SandboxBase):
                 mcp_servers_arg=mcp_servers_arg,
                 allowed_domains=allowed_domains,
                 event_ingest_token=event_ingest_token,
+                event_ingest_url=event_ingest_url,
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")

@@ -1,6 +1,7 @@
 import type { DashboardWidgetCatalogKey } from '../../widget_types/catalog'
 import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { activityEventsSampleEvents } from '../../widgets/activity/activityEventsSampleData'
+import { logsWidgetSampleLogLines } from '../../widgets/logs/logsWidgetSampleData'
 
 export type WidgetOverviewDemoState = {
     title?: string
@@ -230,7 +231,42 @@ export const experimentResultsSamplePayload = {
             error: null,
         },
     ],
+    secondaryMetrics: [
+        {
+            uuid: 'secondary-1',
+            name: 'Revenue per user',
+            metric: {
+                kind: 'ExperimentMetric',
+                metric_type: 'mean',
+                uuid: 'secondary-1',
+                name: 'Revenue per user',
+                source: { kind: 'EventsNode', event: 'purchase' },
+            },
+            result: {
+                baseline: {
+                    key: 'control',
+                    number_of_samples: 4321,
+                    sum: 8600,
+                    sum_squares: 21400,
+                },
+                variant_results: [
+                    {
+                        key: 'test',
+                        method: 'bayesian',
+                        number_of_samples: 4287,
+                        sum: 9120,
+                        sum_squares: 23900,
+                        chance_to_win: 0.78,
+                        credible_interval: [-0.004, 0.061],
+                        significant: false,
+                    },
+                ],
+            },
+            error: null,
+        },
+    ],
     totalMetricsCount: 1,
+    totalSecondaryMetricsCount: 1,
 }
 
 /** New widget types: add a case here. See products/dashboards/CONTRIBUTING.md. */
@@ -306,6 +342,21 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                 config: { ...defaultConfig, experimentId: 101 },
                 loading: false,
                 result: experimentResultsSamplePayload,
+            }
+        case 'logs_list':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig },
+                loading: false,
+                result: {
+                    results: logsWidgetSampleLogLines,
+                    hasMore: true,
+                    limit: 10,
+                    totalCount: 25,
+                    totalCountCapped: true,
+                },
             }
         default: {
             const exhaustiveCheck: never = catalogKey

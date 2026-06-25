@@ -1,5 +1,6 @@
 import abc
 import enum
+import time
 import typing
 import asyncio
 import collections.abc
@@ -17,6 +18,9 @@ from products.batch_exports.backend.temporal.utils import cast_record_batch_json
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
+
+# Determines how frequently we log export progress.
+PROGRESS_LOG_STEP_PCT = 10
 
 
 class _WaitResult(enum.Enum):
@@ -39,12 +43,18 @@ class Consumer:
         self.external_logger = EXTERNAL_LOGGER.bind()
         self.model = model
 
+        # Total rows expected for this run (from the staged ClickHouse count). When set, the
+        # consumer logs export progress as a percentage of records delivered to the destination.
+        self.records_total: int | None = None
+
         # Progress tracking
         self.total_record_batches_count = 0
         self.total_records_count = 0
         self.total_record_batch_bytes_count = 0
         self.total_file_bytes_count = 0
         self.records_failed_count = 0
+        self._start_monotonic: float | None = None
+        self._next_progress_pct = PROGRESS_LOG_STEP_PCT
 
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:
@@ -62,6 +72,8 @@ class Consumer:
         self.total_record_batch_bytes_count = 0
         self.total_file_bytes_count = 0
         self.records_failed_count = 0
+        self._start_monotonic = None
+        self._next_progress_pct = PROGRESS_LOG_STEP_PCT
 
     async def start(
         self,
@@ -90,6 +102,7 @@ class Consumer:
         """
 
         self.reset_tracking()
+        self._start_monotonic = time.monotonic()
 
         self.logger.info("Starting consumer from internal S3 stage")
 
@@ -206,6 +219,36 @@ class Consumer:
 
         self.total_record_batches_count += 1
 
+        self._maybe_log_progress()
+
+    def _maybe_log_progress(self) -> None:
+        """Log export progress whenever a 10% step is crossed.
+
+        Progress is measured in records delivered to the destination against the total
+        staged for this run (from ClickHouse), so it reflects how far through the export
+        we actually are. We report the actual percentage reached (e.g. ~11%) rather than
+        the floored step, then advance the threshold to the next 10% boundary above the
+        current position. Silent when the total is unknown (e.g. the stage couldn't
+        report a count).
+        """
+        # `_start_monotonic` is set by `start()` before the consume loop, and this is only
+        # called from within it, so it should always be set during a run.
+        if not self.records_total or self._start_monotonic is None:
+            return
+
+        records = min(self.total_records_count, self.records_total)
+        pct = records / self.records_total * 100
+        if pct < self._next_progress_pct:
+            return
+
+        elapsed = time.monotonic() - self._start_monotonic
+        rows_per_second = int(records / elapsed) if elapsed > 0 else 0
+        self.logger.info(
+            f"Exported ~{int(pct)}% to destination "
+            f"({records:,} of ~{self.records_total:,} records), ~{rows_per_second:,} rows/s"
+        )
+        self._next_progress_pct = (int(pct // PROGRESS_LOG_STEP_PCT) + 1) * PROGRESS_LOG_STEP_PCT
+
     @abc.abstractmethod
     async def consume_chunk(self, data: bytes):
         """Consume a chunk of data."""
@@ -231,6 +274,7 @@ async def run_consumer_from_stage(
     producer_task: asyncio.Task[None],
     transformer: ChunkTransformerProtocol,
     json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
+    records_total: int | None = None,
 ) -> BatchExportResult:
     """Run a record batch consumer to batch export to a destination.
 
@@ -243,6 +287,8 @@ async def run_consumer_from_stage(
         producer_task: The task that produces record batches.
         transformer: The transformer used to convert record batches into their desired
             export format.
+        records_total: Total rows staged for this run (from ClickHouse). When provided, the
+            consumer logs export progress as a percentage of records delivered.
 
     Returns:
         BatchExportResult (A tuple containing):
@@ -250,6 +296,7 @@ async def run_consumer_from_stage(
             - The total number of bytes exported (this is the size of the actual data
                 exported, which takes into account the file type and compression).
     """
+    consumer.records_total = records_total
     result = await consumer.start(
         queue=queue,
         producer_task=producer_task,

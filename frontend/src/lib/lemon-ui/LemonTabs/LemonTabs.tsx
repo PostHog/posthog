@@ -13,6 +13,8 @@ export interface AbstractLemonTab<T extends string | number> {
     key: T
     label: string | JSX.Element
     tooltip?: string | JSX.Element
+    /** When set, the tab is shown but greyed out and not selectable; the reason is its tooltip. */
+    disabledReason?: string
     /** URL of the tab if it can be linked to (which is usually a good practice). */
     link?: string
     tooltipDocLink?: string
@@ -96,6 +98,7 @@ export function LemonTabs<T extends string | number>({
                     })}
                 >
                     {realTabs.map((tab) => {
+                        const disabled = !!tab.disabledReason
                         const content = (
                             <div className="relative flex items-center gap-1" data-attr={tab['data-attr']}>
                                 {tab.label}
@@ -111,19 +114,24 @@ export function LemonTabs<T extends string | number>({
                         return (
                             <Tooltip
                                 key={tab.key}
-                                title={tab.tooltip}
+                                title={tab.disabledReason || tab.tooltip}
                                 placement="top"
                                 offset={0}
                                 docLink={tab.tooltipDocLink}
                             >
                                 <li
-                                    className={cn('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
-                                    onClick={onChange ? () => onChange(tab.key) : undefined}
+                                    className={cn(
+                                        'LemonTabs__tab',
+                                        tab.key === activeKey && 'LemonTabs__tab--active',
+                                        disabled && 'LemonTabs__tab--disabled'
+                                    )}
+                                    onClick={onChange && !disabled ? () => onChange(tab.key) : undefined}
                                     role="tab"
                                     aria-selected={tab.key === activeKey}
-                                    tabIndex={0}
+                                    aria-disabled={disabled || undefined}
+                                    tabIndex={disabled ? -1 : 0}
                                     onKeyDown={
-                                        onChange
+                                        onChange && !disabled
                                             ? (e) => {
                                                   if (e.key === 'Enter') {
                                                       onChange(tab.key)

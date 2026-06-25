@@ -17,9 +17,6 @@ def register_routes(routers: RouterRegistry) -> None:
         r"signals/reports", signals.SignalReportViewSet, "environment_signal_reports", ["team_id"]
     )
     signal_reports_router.register(
-        r"tasks", signals.SignalReportTaskViewSet, "environment_signal_report_tasks", ["team_id", "report_id"]
-    )
-    signal_reports_router.register(
         r"artefacts",
         signals.SignalReportArtefactViewSet,
         "environment_signal_report_artefacts",

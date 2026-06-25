@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { KeyboardEvent, useEffect, useRef, useState } from 'react'
 
 import { IconSend, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTextArea, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import {
@@ -117,6 +117,15 @@ export function NotebookDiscussionComment({
         setDraft('')
     }
 
+    const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+        event.stopPropagation()
+
+        if (event.key === 'Enter' && !event.nativeEvent.isComposing && !event.shiftKey) {
+            event.preventDefault()
+            submitReply()
+        }
+    }
+
     return (
         <div
             className="MarkdownNotebook__discussion-comment"
@@ -149,17 +158,21 @@ export function NotebookDiscussionComment({
             </div>
             {isEditable ? (
                 <div className="MarkdownNotebook__discussion-comment-composer">
-                    <LemonTextArea
-                        value={draft}
-                        onChange={setDraft}
-                        onPressEnter={submitReply}
-                        placeholder={replies.length ? 'Reply...' : 'Comment...'}
-                        minRows={1}
-                        maxRows={6}
-                        autoFocus={wasNotebookNodeJustInserted(node.id)}
-                        stopPropagation
-                        data-attr="notebook-discussion-comment-input"
-                    />
+                    <div className="flex flex-col rounded input-like">
+                        <textarea
+                            className="LemonTextArea MarkdownNotebook__discussion-comment-input w-full rounded"
+                            value={draft}
+                            onChange={(event) => {
+                                event.stopPropagation()
+                                setDraft(event.currentTarget.value)
+                            }}
+                            onKeyDown={handleComposerKeyDown}
+                            placeholder={replies.length ? 'Reply...' : 'Comment...'}
+                            rows={1}
+                            autoFocus={wasNotebookNodeJustInserted(node.id)}
+                            data-attr="notebook-discussion-comment-input"
+                        />
+                    </div>
                     <div className="MarkdownNotebook__discussion-comment-actions">
                         {isEditable ? (
                             <LemonButton

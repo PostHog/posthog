@@ -1,4 +1,5 @@
 import os
+import json
 import uuid
 import random
 import asyncio
@@ -18,6 +19,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot
+from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_USER_SECONDS, WARM_IDLE_TIMEOUT
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities import (
     CreateSandboxForRepositoryOutput,
@@ -38,6 +40,10 @@ from products.tasks.backend.temporal.process_task.activities import (
     start_agent_server,
     track_workflow_event,
     update_task_run_status,
+)
+from products.tasks.backend.temporal.process_task.credential_refresh import (
+    SANDBOX_GONE_ERROR_MESSAGE,
+    CredentialRefreshExitReason,
 )
 from products.tasks.backend.temporal.process_task.workflow import (
     PendingFollowup,
@@ -336,6 +342,39 @@ class TestProcessTaskWorkflowUnit:
 
         assert workflow._should_forward_pending_user_message() is expected
 
+    @pytest.mark.parametrize(
+        "payload, expected_prewarmed",
+        [
+            ({"run_id": "r1"}, False),
+            ({"run_id": "r1", "prewarmed": False}, False),
+            ({"run_id": "r1", "prewarmed": True}, True),
+        ],
+    )
+    def test_parse_inputs_reads_prewarmed(self, payload: dict, expected_prewarmed: bool):
+        parsed = ProcessTaskWorkflow.parse_inputs([json.dumps(payload)])
+        assert parsed.prewarmed is expected_prewarmed
+
+    def test_warm_idle_timeout_is_shorter_than_active_inactivity(self):
+        assert WARM_IDLE_TIMEOUT < timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS)
+
+    async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        logger = Mock()
+        refresh_loop_mock = AsyncMock(return_value=CredentialRefreshExitReason.SANDBOX_GONE)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
+        monkeypatch.setattr(process_task_workflow_module, "run_credential_refresh_loop", refresh_loop_mock)
+
+        await workflow._run_credential_refresh_until_sandbox_gone("sandbox-123")
+
+        assert workflow._sandbox_gone is True
+        refresh_loop_mock.assert_awaited_once_with(workflow.context, "sandbox-123")
+        logger.warning.assert_called_once_with(
+            "sandbox_gone_detected",
+            extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
+        )
+
     async def test_run_cleans_up_sandbox_when_provisioning_fails_after_creation(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         get_task_processing_context_mock = AsyncMock(return_value=_build_context(github_integration_id=123))
@@ -448,6 +487,61 @@ class TestProcessTaskWorkflowUnit:
 
         assert result.success is True
         relay_sandbox_events_mock.assert_not_awaited()
+
+    async def test_run_completes_when_credential_refresh_detects_sandbox_gone(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        context = _build_context(github_integration_id=123)
+        update_task_run_status_mock = AsyncMock()
+        cleanup_sandbox_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
+        monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
+        monkeypatch.setattr(workflow, "_track_workflow_event", AsyncMock())
+        monkeypatch.setattr(workflow, "_post_slack_update", AsyncMock())
+        monkeypatch.setattr(workflow, "_read_sandbox_logs", AsyncMock())
+        monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_sandbox_mock)
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", AsyncMock())
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", AsyncMock())
+        monkeypatch.setattr(
+            workflow,
+            "_get_sandbox_for_repository",
+            AsyncMock(
+                return_value=GetSandboxForRepositoryOutput(
+                    sandbox_id="sandbox-123",
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                    used_snapshot=False,
+                    should_create_snapshot=False,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow,
+            "_start_agent_server",
+            AsyncMock(
+                return_value=StartAgentServerOutput(
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                )
+            ),
+        )
+        monkeypatch.setattr(workflow, "_relay_sandbox_events", AsyncMock())
+        monkeypatch.setattr(workflow, "_run_credential_refresh_until_sandbox_gone", AsyncMock())
+        monkeypatch.setattr(
+            workflow, "_wait_for_event", AsyncMock(return_value=process_task_workflow_module.TaskEvent.SANDBOX_GONE)
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+
+        result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        assert result.success is True
+        assert workflow._completion_status == "completed"
+        update_task_run_status_mock.assert_any_await(
+            "completed",
+            error_message=SANDBOX_GONE_ERROR_MESSAGE,
+        )
+        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
 
     @pytest.mark.parametrize(
         "patched, expected_post_slack_calls",

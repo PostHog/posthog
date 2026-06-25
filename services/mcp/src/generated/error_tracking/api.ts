@@ -51,6 +51,7 @@ export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesixTyp
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesevenTypeDefault = `error_tracking_issue`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `revenue_analytics`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwooneTypeDefault = `workflow_variable`
+export const errorTrackingAssignmentRulesCreateBodyOrderKeyDefault = 0
 
 export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -1002,6 +1003,12 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                 .describe('User ID when `type` is `user`, or role UUID when `type` is `role`.'),
         })
         .describe('User or role to assign matching issues to.'),
+    order_key: zod
+        .number()
+        .default(errorTrackingAssignmentRulesCreateBodyOrderKeyDefault)
+        .describe(
+            'Evaluation priority among rules; lower is evaluated first and the first matching rule wins. Defaults to 0. Pass distinct ascending values when creating several rules at once to give them a deterministic order.'
+        ),
 })
 
 export const ErrorTrackingGroupingRulesListParams = /* @__PURE__ */ zod.object({
@@ -2984,7 +2991,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -3005,7 +3012,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesMergeCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -3018,7 +3025,7 @@ export const ErrorTrackingIssuesMergeCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesSplitCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -5570,7 +5577,7 @@ export const ErrorTrackingSymbolSetsListQueryParams = /* @__PURE__ */ zod.object
 })
 
 export const ErrorTrackingSymbolSetsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking symbol set.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -5582,7 +5589,7 @@ export const ErrorTrackingSymbolSetsRetrieveParams = /* @__PURE__ */ zod.object(
  * Return a presigned URL for downloading the symbol set's source map.
  */
 export const ErrorTrackingSymbolSetsDownloadRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking symbol set.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

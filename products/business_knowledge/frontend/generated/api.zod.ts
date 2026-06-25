@@ -11,6 +11,8 @@ import * as zod from 'zod'
 
 export const businessKnowledgeSourcesCreateBodyNameMax = 255
 
+export const businessKnowledgeSourcesCreateBodyAlwaysIncludeDefault = false
+
 export const BusinessKnowledgeSourcesCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -20,6 +22,12 @@ export const BusinessKnowledgeSourcesCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             'Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL\/file support in Stage 2\/3.'
+        ),
+    always_include: zod
+        .boolean()
+        .default(businessKnowledgeSourcesCreateBodyAlwaysIncludeDefault)
+        .describe(
+            "When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction)."
         ),
 })
 
@@ -33,9 +41,15 @@ export const BusinessKnowledgeSourcesPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe('New human label for the source.'),
         text: zod.string().optional().describe('Replacement text. Omit to keep the existing content.'),
+        always_include: zod
+            .boolean()
+            .optional()
+            .describe(
+                "When true, this source's content is injected into every support reply prompt as general context."
+            ),
     })
     .describe(
-        'PATCH payload for text sources. Both fields optional, at least one\nrequired. `text` triggers a re-chunk; `name` alone does not.'
+        'PATCH payload for text sources. All fields optional, at least one\nrequired. `text` triggers a re-chunk; `name` or `always_include` alone does not.'
     )
 
 export const BusinessKnowledgeSourcesRefreshCreateBody = /* @__PURE__ */ zod.looseObject({})

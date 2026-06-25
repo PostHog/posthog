@@ -23,8 +23,9 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Element, Organization, Person, PropertyDefinition, User
+from posthog.models import Element, Organization, PropertyDefinition, User
 from posthog.models.event.legacy_events_query import _execute_events_list_query
+from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
@@ -175,7 +176,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert sorted(r["properties"]["$browser"] for r in response["results"]) == ["Chrome", "Safari"]
 
     def test_filter_events_by_precalculated_cohort(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+        create_person(team=self.team, distinct_ids=["p1"], properties={"key": "value"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -183,7 +184,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:00Z",
         )
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key": "value"})
+        create_person(team=self.team, distinct_ids=["p2"], properties={"key": "value"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -191,7 +192,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:00Z",
         )
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+        create_person(team=self.team, distinct_ids=["p3"], properties={"key_2": "value_2"})
         _create_event(
             team=self.team,
             event="$pageview",

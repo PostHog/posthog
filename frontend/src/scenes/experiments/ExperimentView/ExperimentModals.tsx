@@ -62,7 +62,7 @@ function ConclusionForm(): JSX.Element {
                 <LemonTextArea
                     className="w-full border rounded p-2"
                     minRows={6}
-                    maxLength={400}
+                    maxLength={4000}
                     placeholder="Optional details about why this conclusion was selected..."
                     value={experiment.conclusion_comment || ''}
                     onChange={(value) =>

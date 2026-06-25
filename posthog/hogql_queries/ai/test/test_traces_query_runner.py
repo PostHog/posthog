@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from posthog.schema import (
     DateRange,
@@ -197,6 +198,38 @@ def _create_ai_embedding_event(
     )
 
 
+def _create_ai_sentiment_evaluation_event(
+    *,
+    trace_id: str,
+    generation_id: str,
+    team: Team | None = None,
+    distinct_id: str | None = None,
+    timestamp: datetime | None = None,
+) -> None:
+    _create_event(
+        event="$ai_evaluation",
+        distinct_id=distinct_id,
+        team=team,
+        timestamp=timestamp,
+        properties={
+            "$ai_trace_id": trace_id,
+            "$ai_evaluation_runtime": "sentiment",
+            "$ai_target_event_id": generation_id,
+            "$ai_sentiment_label": "negative",
+            "$ai_sentiment_score": 0.8,
+            "$ai_sentiment_scores": {"positive": 0.1, "neutral": 0.1, "negative": 0.8},
+            "$ai_sentiment_messages": {
+                "0": {
+                    "label": "negative",
+                    "score": 0.8,
+                    "scores": {"positive": 0.1, "neutral": 0.1, "negative": 0.8},
+                }
+            },
+            "$ai_sentiment_message_count": 1,
+        },
+    )
+
+
 class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -307,6 +340,72 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(trace.events), 0)
 
     # test_trace_id_filter removed - TracesQuery no longer supports traceId parameter
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    def test_stored_sentiment_evaluations_are_mapped_to_trace_and_generation(self):
+        event_uuid = uuid.uuid4()
+        generation_id = "generation-id-1"
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            input="Foo",
+            output="Bar",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0),
+            event_uuid=event_uuid,
+            properties={"$ai_parent_id": "trace1", "$ai_generation_id": generation_id},
+        )
+        _create_ai_sentiment_evaluation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            generation_id=generation_id,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 1),
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                includeSentiment=True,
+                dateRange=DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T02:00:00Z"),
+            ),
+        ).calculate()
+
+        assert len(response.results) == 1
+        trace = response.results[0]
+        assert trace.sentiment is not None
+        assert trace.sentiment.label == "negative"
+        assert trace.sentiment.score == 0.8
+        assert trace.sentiment.messages is not None
+        assert trace.sentiment.messages[f"{generation_id}:0"].label == "negative"
+        assert len(trace.events) == 1
+        assert trace.events[0].sentiment is None
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    @patch("posthog.hogql_queries.ai.traces_query_runner.load_trace_sentiment_evaluations")
+    def test_stored_sentiment_evaluation_lookup_is_opt_in(self, mock_load_sentiment):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            input="Foo",
+            output="Bar",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0),
+            properties={"$ai_parent_id": "trace1"},
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T02:00:00Z"),
+            ),
+        ).calculate()
+
+        assert len(response.results) == 1
+        assert response.results[0].sentiment is None
+        mock_load_sentiment.assert_not_called()
 
     @freeze_time("2025-01-16T00:00:00Z")
     @snapshot_clickhouse_queries

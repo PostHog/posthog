@@ -39,7 +39,7 @@ import {
     ExternalDataSourcesWebhookInfoRetrieveParams,
 } from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataWarehouseSourceConnectLinkSchema = ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({
@@ -262,7 +262,13 @@ const externalDataSchemasList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/data-management/sources')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, ['table.columns', 'available_columns'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/data-management/sources')
     },
 })
 
@@ -653,7 +659,13 @@ const externalDataSourcesList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/data-management/sources')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, ['schemas.*.table.columns', 'schemas.*.available_columns'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/data-management/sources')
     },
 })
 
