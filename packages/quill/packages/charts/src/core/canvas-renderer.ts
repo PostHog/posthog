@@ -10,6 +10,8 @@ export interface DrawContext {
     xScale: (label: string) => number | undefined
     yScale: ScaleLinear<number, number> | ScaleLogarithmic<number, number>
     labels: string[]
+    /** Smooth the line/area with monotone-cubic interpolation instead of straight segments. */
+    smooth?: boolean
 }
 
 export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
@@ -122,25 +124,118 @@ function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
     return strokes
 }
 
-/** Walks data from [start, end] inclusive, emitting moveTo/lineTo. Caller owns beginPath/stroke. */
+/** Walks data from [start, end] inclusive. Emits straight segments, or monotone-cubic curves when
+ *  `drawCtx.smooth` is set. NaN/out-of-domain points break the line into separate subpaths. Caller
+ *  owns beginPath/stroke. */
 function tracePath(drawCtx: DrawContext, data: number[], start: number, end: number): void {
-    const { ctx, xScale, yScale, labels } = drawCtx
-    let started = false
+    const { ctx, xScale, yScale, labels, smooth } = drawCtx
+    let xs: number[] = []
+    let ys: number[] = []
+    const flush = (): void => {
+        if (xs.length === 0) {
+            return
+        }
+        ctx.moveTo(xs[0], ys[0])
+        if (smooth && xs.length > 1) {
+            curveForward(ctx, xs, ys)
+        } else {
+            for (let k = 1; k < xs.length; k++) {
+                ctx.lineTo(xs[k], ys[k])
+            }
+        }
+        xs = []
+        ys = []
+    }
     for (let i = start; i <= end; i++) {
         const x = xScale(labels[i])
         const y = yScale(data[i])
         if (x == null || !isFinite(y)) {
-            // Reset so the next valid point starts a fresh subpath rather than
+            // A gap ends the current subpath so the next valid point starts fresh rather than
             // connecting straight across the NaN gap.
-            started = false
+            flush()
             continue
         }
-        if (!started) {
-            ctx.moveTo(x, y)
-            started = true
+        xs.push(x)
+        ys.push(y)
+    }
+    flush()
+}
+
+/** Monotone-cubic (Fritsch–Carlson) tangents for points with strictly increasing x. Matches d3's
+ *  `curveMonotoneX`: preserves monotonicity between points, so the curve never overshoots the data
+ *  (no spurious wiggles or dips past a peak/trough). */
+function monotoneTangents(xs: number[], ys: number[]): number[] {
+    const n = xs.length
+    const h: number[] = new Array(n - 1)
+    const s: number[] = new Array(n - 1)
+    for (let i = 0; i < n - 1; i++) {
+        h[i] = xs[i + 1] - xs[i]
+        s[i] = h[i] !== 0 ? (ys[i + 1] - ys[i]) / h[i] : 0
+    }
+    const m: number[] = new Array(n)
+    if (n === 2) {
+        m[0] = s[0]
+        m[1] = s[0]
+        return m
+    }
+    for (let i = 1; i < n - 1; i++) {
+        const s0 = s[i - 1]
+        const s1 = s[i]
+        if (s0 * s1 <= 0) {
+            m[i] = 0
         } else {
-            ctx.lineTo(x, y)
+            const p = (s0 * h[i] + s1 * h[i - 1]) / (h[i - 1] + h[i])
+            m[i] = (Math.sign(s0) + Math.sign(s1)) * Math.min(Math.abs(s0), Math.abs(s1), 0.5 * Math.abs(p))
         }
+    }
+    m[0] = (3 * s[0] - m[1]) / 2
+    m[n - 1] = (3 * s[n - 2] - m[n - 2]) / 2
+    return m
+}
+
+interface CurveSegment {
+    cp1x: number
+    cp1y: number
+    cp2x: number
+    cp2y: number
+}
+
+// Control-arm length as a fraction of the segment width. 1/3 is the standard monotone-cubic arm
+// (full curve); shortening it pulls the curve closer to the straight chord between points for a
+// gentler bend. Crucially this keeps the *same* tangent direction at each point, so adjacent
+// segments still meet smoothly there — the data points stay rounded, only the mid-segment bow shrinks.
+const SMOOTH_ARM = 1 / 6
+
+function monotoneSegments(xs: number[], ys: number[]): CurveSegment[] {
+    const m = monotoneTangents(xs, ys)
+    const segs: CurveSegment[] = []
+    for (let i = 0; i < xs.length - 1; i++) {
+        const arm = (xs[i + 1] - xs[i]) * SMOOTH_ARM
+        segs.push({
+            cp1x: xs[i] + arm,
+            cp1y: ys[i] + m[i] * arm,
+            cp2x: xs[i + 1] - arm,
+            cp2y: ys[i + 1] - m[i + 1] * arm,
+        })
+    }
+    return segs
+}
+
+/** Emit monotone bezier segments from the first point forward. Assumes the current path point is
+ *  already at (xs[0], ys[0]). */
+function curveForward(ctx: CanvasRenderingContext2D, xs: number[], ys: number[]): void {
+    const segs = monotoneSegments(xs, ys)
+    for (let i = 0; i < segs.length; i++) {
+        ctx.bezierCurveTo(segs[i].cp1x, segs[i].cp1y, segs[i].cp2x, segs[i].cp2y, xs[i + 1], ys[i + 1])
+    }
+}
+
+/** Emit the same monotone curve traversed last→first (control points swapped). Assumes the current
+ *  path point is already at (xs[n-1], ys[n-1]). Used for an area's bottom edge. */
+function curveReverse(ctx: CanvasRenderingContext2D, xs: number[], ys: number[]): void {
+    const segs = monotoneSegments(xs, ys)
+    for (let i = segs.length - 1; i >= 0; i--) {
+        ctx.bezierCurveTo(segs[i].cp2x, segs[i].cp2y, segs[i].cp1x, segs[i].cp1y, xs[i], ys[i])
     }
 }
 
@@ -202,7 +297,7 @@ export function drawArea(
     yValues?: number[],
     bottomValues?: number[]
 ): void {
-    const { ctx, xScale, yScale, labels, dimensions } = drawCtx
+    const { ctx, xScale, yScale, labels, dimensions, smooth } = drawCtx
     const data = yValues ?? series.data
     const opacity = series.fill?.opacity ?? 0.5
     const baseline = dimensions.plotTop + dimensions.plotHeight
@@ -262,7 +357,7 @@ export function drawArea(
 
         if (useGradient || (dashedFrom === null && dashedTo === null)) {
             ctx.fillStyle = gradient ?? series.color
-            fillAreaPath(ctx, top, bottom)
+            fillAreaPath(ctx, top, bottom, smooth)
             continue
         }
 
@@ -276,14 +371,14 @@ export function drawArea(
 
         if (wholeSegmentLeading || wholeSegmentTrailing) {
             ctx.fillStyle = hatch
-            fillAreaPath(ctx, top, bottom)
+            fillAreaPath(ctx, top, bottom, smooth)
             continue
         }
 
         if (dashedTo !== null && toSplit > 0) {
             const leadingEnd = Math.min(top.length, toSplit + 1)
             ctx.fillStyle = hatch
-            fillAreaPath(ctx, top.slice(0, leadingEnd), bottom.slice(0, leadingEnd))
+            fillAreaPath(ctx, top.slice(0, leadingEnd), bottom.slice(0, leadingEnd), smooth)
         }
 
         const solidStart = toSplit === -1 ? 0 : toSplit
@@ -294,13 +389,13 @@ export function drawArea(
         // segment and the shaded region stops a step past where the line turns dashed.
         if (solidEnd - solidStart >= 2) {
             ctx.fillStyle = series.color
-            fillAreaPath(ctx, top.slice(solidStart, solidEnd), bottom.slice(solidStart, solidEnd))
+            fillAreaPath(ctx, top.slice(solidStart, solidEnd), bottom.slice(solidStart, solidEnd), smooth)
         }
 
         if (dashedFrom !== null && fromSplit > 0) {
             const hatchStart = Math.max(0, fromSplit - 1)
             ctx.fillStyle = hatch
-            fillAreaPath(ctx, top.slice(hatchStart), bottom.slice(hatchStart))
+            fillAreaPath(ctx, top.slice(hatchStart), bottom.slice(hatchStart), smooth)
         }
     }
 
@@ -310,15 +405,26 @@ export function drawArea(
 function fillAreaPath(
     ctx: CanvasRenderingContext2D,
     top: { x: number; y: number }[],
-    bottom: { x: number; y: number }[]
+    bottom: { x: number; y: number }[],
+    smooth?: boolean
 ): void {
     ctx.beginPath()
     ctx.moveTo(top[0].x, top[0].y)
-    for (let i = 1; i < top.length; i++) {
-        ctx.lineTo(top[i].x, top[i].y)
+    if (smooth && top.length > 1) {
+        curveForward(ctx, top.map((p) => p.x), top.map((p) => p.y))
+    } else {
+        for (let i = 1; i < top.length; i++) {
+            ctx.lineTo(top[i].x, top[i].y)
+        }
     }
-    for (let i = bottom.length - 1; i >= 0; i--) {
-        ctx.lineTo(bottom[i].x, bottom[i].y)
+    // Down the right edge, then back along the bottom to close the band.
+    ctx.lineTo(bottom[bottom.length - 1].x, bottom[bottom.length - 1].y)
+    if (smooth && bottom.length > 1) {
+        curveReverse(ctx, bottom.map((p) => p.x), bottom.map((p) => p.y))
+    } else {
+        for (let i = bottom.length - 2; i >= 0; i--) {
+            ctx.lineTo(bottom[i].x, bottom[i].y)
+        }
     }
     ctx.closePath()
     ctx.fill()
@@ -358,9 +464,10 @@ export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): v
     ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
     ctx.lineWidth = 1
     ctx.setLineDash([])
-    // +0.5 / -0.5 pixel snapping keeps the 1px strokes crisp and inside the plot rect (see drawGrid).
-    const axisX = Math.round(dimensions.plotLeft) + 0.5
-    const axisY = Math.round(dimensions.plotTop + dimensions.plotHeight) - 0.5
+    // Snap the corner to the rounded plot edge so the L lines up with the zero baseline and the first
+    // tick mark (which anchor to the plot edge) rather than sitting a pixel inside it.
+    const axisX = Math.round(dimensions.plotLeft)
+    const axisY = Math.round(dimensions.plotTop + dimensions.plotHeight)
     // Route both strokes through the shared, snapped corner (axisX, axisY) so the L meets cleanly
     // even when plotLeft/plotHeight are fractional.
     ctx.beginPath()
@@ -593,13 +700,15 @@ export interface LineSeriesLayerOptions {
     /** `per-series`: area then line+points per series (LineChart). `areas-first`: every area, then
      *  every line+points (ComboChart) so a later area can't paint over an earlier line. */
     zOrder?: 'per-series' | 'areas-first'
+    /** Smooth lines/areas with monotone-cubic interpolation instead of straight segments. */
+    smooth?: boolean
 }
 
 /** Draw a line/area layer (clipped vertically) — the per-series area/line/points orchestration shared
  *  by LineChart and ComboChart. Callers supply the y-value source (raw vs stacked tops), the fill
  *  predicate, and the z-order; the loop, clip, and primitive calls live here. */
 export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
-    const { ctx, dimensions, labels, series, xScale, resolveYScale } = options
+    const { ctx, dimensions, labels, series, xScale, resolveYScale, smooth } = options
     const yValuesFor = options.yValuesFor ?? (() => undefined)
     const bottomFor = options.bottomFor ?? ((s: ResolvedSeries) => s.fill?.lowerData)
     const shouldFill = options.shouldFill ?? ((s: ResolvedSeries) => !!s.fill)
@@ -610,13 +719,13 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
         if (!shouldFill(s)) {
             return
         }
-        drawArea({ ctx, dimensions, labels, xScale, yScale: resolveYScale(s) }, s, yValuesFor(s), bottomFor(s))
+        drawArea({ ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth }, s, yValuesFor(s), bottomFor(s))
     }
     const paintLine = (s: ResolvedSeries): void => {
         if (s.fill?.lowerData) {
             return
         }
-        const drawCtx: DrawContext = { ctx, dimensions, labels, xScale, yScale: resolveYScale(s) }
+        const drawCtx: DrawContext = { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth }
         drawLine(drawCtx, s, yValuesFor(s))
         drawPoints(drawCtx, s, yValuesFor(s))
     }

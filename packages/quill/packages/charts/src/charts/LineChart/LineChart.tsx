@@ -81,7 +81,9 @@ function LineChartInner<Meta = unknown>({
         valueDomain,
         floatBaseline = false,
         yAxes,
+        curve,
     } = config ?? {}
+    const smooth = curve === 'monotone'
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
 
@@ -176,10 +178,10 @@ function LineChartInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
+            // Grid sits behind the data; the L-axis is drawn after the series (below) so the line
+            // doesn't paint over the baseline where it meets the axis.
             if (showGrid) {
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
-            } else if (showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
             }
 
             // Area then line+points per series, clipped vertically (shared with ComboChart). Areas use
@@ -195,9 +197,14 @@ function LineChartInner<Meta = unknown>({
                 bottomFor: (s) => s.fill?.lowerData ?? stackedData?.get(s.key)?.bottom,
                 shouldFill: (s) => !!s.fill,
                 zOrder: 'per-series',
+                smooth,
             })
+
+            if (!showGrid && showAxisLines) {
+                drawAxes(baseDrawCtx, { axisColor: theme.axisColor ?? theme.gridColor })
+            }
         },
-        [showGrid, showAxisLines, stackedData]
+        [showGrid, showAxisLines, stackedData, smooth]
     )
 
     const drawHover = useCallback(
