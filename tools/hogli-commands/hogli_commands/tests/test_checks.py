@@ -25,6 +25,7 @@ from hogli_commands.product.checks import (
     validate_interface_blocks,
     validate_tach_references,
 )
+from hogli_commands.product.isolation import has_narrowed_turbo_inputs, routes_in_turbo_inputs
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -263,6 +264,17 @@ _NARROWED_TURBO = {
     },
 }
 
+_NARROWED_TURBO_WITH_ROUTES = {
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": ["backend/facade/**", "backend/presentation/**", "backend/routes.py"],
+            "outputs": [],
+            "cache": True,
+        }
+    },
+}
+
 chain_check = IsolationChainCheck()
 
 
@@ -325,6 +337,101 @@ class TestIsolationChainTurnOn:
         ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
         result = chain_check.run(ctx)
         assert not any("inert" in i for i in result.issues)
+
+
+class TestIsolationChainRoutes:
+    def test_narrowed_with_routes_not_in_inputs_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "routes.py").write_text("")
+        (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        result = chain_check.run(ctx)
+        assert any("routes.py" in i for i in result.issues)
+        assert result.file == "products/my_product/turbo.json"
+
+    def test_narrowed_with_routes_in_inputs_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "routes.py").write_text("")
+        (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO_WITH_ROUTES))
+        result = chain_check.run(ctx)
+        assert not result.issues
+
+    def test_narrowed_with_routes_package_dir_not_in_inputs_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # routes/ as a package directory (not a routes.py file) is the other form has_routes_module
+        # accepts — it must be demanded in the inputs the same way.
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "routes").mkdir()
+        (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        result = chain_check.run(ctx)
+        # the message must point at the package glob, not backend/routes.py
+        assert any("backend/routes/**" in i for i in result.issues)
+
+    def test_narrowed_without_routes_module_is_not_demanded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No routes.py at all — nothing to watch, so the routes demand must not fire.
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        result = chain_check.run(ctx)
+        assert not any("routes.py" in i for i in result.issues)
+
+    def test_unnarrowed_with_routes_is_not_demanded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Not narrowed (no turbo.json) — contract-check still watches all of backend/, so routes.py
+        # is already covered and the routes demand must not fire.
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "routes.py").write_text("")
+        result = chain_check.run(ctx)
+        assert not any("routes.py" in i for i in result.issues)
+
+
+class TestNarrowedTurboDetection:
+    @pytest.mark.parametrize(
+        "inputs, expected",
+        [
+            (["backend/facade/**", "backend/presentation/**"], True),
+            (["backend/facade/**", "backend/presentation/**", "backend/routes.py"], True),
+            (["backend/presentation/**"], True),
+            (["backend/facade/**", "!backend/facade/**/__pycache__/**"], True),
+            # a broad glob alongside a surface glob keeps the skip inert — must not count as narrowed
+            (["backend/**", "backend/facade/**"], False),
+            (["backend/**"], False),
+            (["**/*.py"], False),
+            ([], False),
+            # near-misses must not pass as surface (anchored on the path separator)
+            (["backend/facade_legacy/**"], False),
+            (["backend/routesmap/**"], False),
+            # a routes input whose path merely contains "presentation" is not a facade/presentation surface
+            (["backend/routes/presentation_router.py"], False),
+        ],
+    )
+    def test_has_narrowed_turbo_inputs(self, tmp_path: Path, inputs: list[str], expected: bool) -> None:
+        (tmp_path / "turbo.json").write_text(json.dumps({"tasks": {"backend:contract-check": {"inputs": inputs}}}))
+        assert has_narrowed_turbo_inputs(tmp_path) is expected
+
+
+class TestRoutesInTurboInputs:
+    @pytest.mark.parametrize(
+        "inputs, expected",
+        [
+            (["backend/facade/**", "backend/routes.py"], True),
+            (["backend/routes/**"], True),
+            (["backend/facade/**", "backend/presentation/**"], False),
+            # 'routes' substring in an unrelated glob must NOT count as watching the routes module
+            (["backend/presentation/routes_views.py"], False),
+            (["backend/logic/routes_helpers/**"], False),
+            # a negated routes exclusion must NOT count as watched
+            (["backend/facade/**", "!backend/routes.py"], False),
+        ],
+    )
+    def test_routes_in_turbo_inputs(self, tmp_path: Path, inputs: list[str], expected: bool) -> None:
+        (tmp_path / "turbo.json").write_text(json.dumps({"tasks": {"backend:contract-check": {"inputs": inputs}}}))
+        assert routes_in_turbo_inputs(tmp_path) is expected
 
 
 # ---------------------------------------------------------------------------

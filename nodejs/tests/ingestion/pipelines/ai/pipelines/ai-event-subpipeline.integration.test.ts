@@ -1,7 +1,13 @@
 import { DateTime } from 'luxon'
 
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
+import {
+    AI_EVENTS_OUTPUT,
+    EVENTS_OUTPUT,
+    PERSONS_OUTPUT,
+    PERSON_DISTINCT_IDS_OUTPUT,
+    PERSON_MERGE_EVENTS_OUTPUT,
+} from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
@@ -88,6 +94,8 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
             PERSON_MERGE_ASYNC_ENABLED: false,
             PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+            PERSON_MERGE_EVENTS_ENABLED: false,
+            PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
             PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
             PERSON_PROPERTIES_UPDATE_ALL: false,
             FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
@@ -136,6 +144,7 @@ type AiOutputs =
     | typeof INGESTION_WARNINGS_OUTPUT
     | typeof PERSONS_OUTPUT
     | typeof PERSON_DISTINCT_IDS_OUTPUT
+    | typeof PERSON_MERGE_EVENTS_OUTPUT
 
 function getProduceCall(mockOutputs: jest.Mocked<IngestionOutputs<AiOutputs>>) {
     expect(mockOutputs.produce).toHaveBeenCalledTimes(1)

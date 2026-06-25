@@ -765,6 +765,9 @@ export class CdpApi {
                 return res.status(400).json({ error: 'Only batch Workflows are supported for batch jobs' })
             }
 
+            const maxAudienceSize =
+                typeof req.body.max_audience_size === 'number' ? req.body.max_audience_size : undefined
+
             const batchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
@@ -773,6 +776,7 @@ export class CdpApi {
                     properties: hogFlow.trigger.filters.properties || [],
                     filter_test_accounts: req.body.filters?.filter_test_accounts || false,
                 },
+                maxAudienceSize,
             }
 
             await this.outputs.produce(BATCH_HOGFLOW_REQUESTS_OUTPUT, {

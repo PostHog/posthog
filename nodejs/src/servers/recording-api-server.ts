@@ -3,6 +3,10 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 import {
+    getDefaultSessionRecordingApiConfig,
+    getDefaultSessionRecordingConfig,
+} from '~/ingestion/pipelines/sessionreplay/config'
+import {
     KafkaSessionreplayProducerEnvConfig,
     getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
@@ -41,6 +45,8 @@ export class RecordingApiServer implements NodeServer {
     constructor(config: Partial<RecordingApiServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultSessionRecordingConfig()),
+            ...overrideConfigWithEnv(getDefaultSessionRecordingApiConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaSessionreplayProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultRecordingApiOutputsConfig()),
             ...config,

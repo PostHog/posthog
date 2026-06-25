@@ -23,6 +23,7 @@ from posthog.hogql.database.schema.account_aggregates import (
     account_notebooks_lazy_join,
     account_tags_lazy_join,
 )
+from posthog.hogql.database.schema.information_schema import information_schema_node
 from posthog.hogql.parser import parse_expr
 
 from posthog.scopes import APIScopeObject
@@ -227,6 +228,8 @@ dashboard_tiles: PostgresTable = PostgresTable(
     name="dashboard_tiles",
     postgres_table_name="posthog_dashboardtile",
     access_scope="dashboard",
+    # Child of dashboard: object-level access control applies to the parent dashboard, not the tile's own id.
+    access_control_id_field="dashboard_id",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -361,6 +364,8 @@ source_schemas: PostgresTable = PostgresTable(
     name="source_schemas",
     postgres_table_name="posthog_externaldataschema",
     access_scope="external_data_source",
+    # Child of external_data_source: object-level access control applies to the parent source, not the schema's own id.
+    access_control_id_field="source_id",
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -384,6 +389,8 @@ source_sync_jobs: PostgresTable = PostgresTable(
     name="source_sync_jobs",
     postgres_table_name="posthog_externaldatajob",
     access_scope="external_data_source",
+    # Child of external_data_source: object-level access control applies to the parent source, not the job's own id.
+    access_control_id_field="pipeline_id",
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -403,6 +410,8 @@ endpoint_versions: PostgresTable = PostgresTable(
     name="data_modeling_endpoint_versions",
     postgres_table_name="endpoints_endpointversion",
     access_scope="endpoint",
+    # Child of endpoint: object-level access control applies to the parent endpoint, not the version's own id.
+    access_control_id_field="endpoint_id",
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -632,6 +641,28 @@ exports: PostgresTable = PostgresTable(
         "export_format": StringDatabaseField(name="export_format"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "export_context": StringJSONDatabaseField(name="export_context"),
+    },
+)
+
+# The project's virtual file tree (posthog_filesystem). Channels are folders and
+# tasks/canvases are filed under them by `path`; `surface` separates products
+# (e.g. "web" vs "desktop"). Scoped to a channel via startsWith(path, ...).
+file_system: PostgresTable = PostgresTable(
+    name="file_system",
+    postgres_table_name="posthog_filesystem",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "path": StringDatabaseField(name="path"),
+        "depth": IntegerDatabaseField(name="depth", nullable=True),
+        "type": StringDatabaseField(name="type"),
+        "ref": StringDatabaseField(name="ref", nullable=True),
+        "href": StringDatabaseField(name="href", nullable=True),
+        "meta": StringJSONDatabaseField(name="meta", nullable=True),
+        "surface": StringDatabaseField(name="surface", nullable=True),
+        "shortcut": BooleanDatabaseField(name="shortcut", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
     },
 )
 
@@ -1014,6 +1045,8 @@ trace_review_scores: PostgresTable = PostgresTable(
     name="trace_review_scores",
     postgres_table_name="llm_analytics_tracereviewscore",
     access_scope="llm_analytics",
+    # Child of trace_review: object-level access control applies to the parent review, not the score's own id.
+    access_control_id_field="review_id",
     fields={
         "id": UUIDDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -1287,8 +1320,10 @@ class SystemTables(TableNode):
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
+        "file_system": TableNode(name="file_system", table=file_system),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
+        "information_schema": information_schema_node(),
         "hog_flows": TableNode(name="hog_flows", table=hog_flows),
         "hog_functions": TableNode(name="hog_functions", table=hog_functions),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),

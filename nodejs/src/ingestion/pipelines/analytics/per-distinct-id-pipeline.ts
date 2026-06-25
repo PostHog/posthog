@@ -15,14 +15,26 @@ import { TopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { Team } from '~/types'
 
 import { EventSubpipelineInput, createEventSubpipeline } from './event-subpipeline'
-import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+} from './outputs'
 
 export type PerDistinctIdPipelineInput = EventSubpipelineInput & AiEventSubpipelineInput
 
 export interface PerDistinctIdPipelineConfig {
     options: EventPipelineRunnerOptions
     outputs: IngestionOutputs<
-        EventOutput | AiEventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
+        | EventOutput
+        | AiEventOutput
+        | IngestionWarningsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
     aiSubpipelineFactory: AiEventSubpipelineFactory

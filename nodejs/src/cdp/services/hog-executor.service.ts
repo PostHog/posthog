@@ -28,6 +28,7 @@ import type {
     MinimalLogEntry,
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
+import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
@@ -793,7 +794,32 @@ export class HogExecutorService {
             }
         }
 
-        const fetchParams: FetchOptions = { method, headers }
+        // AWS SigV4 signatures expire after ~5 minutes. Sign immediately before the
+        // fetch (every attempt — including retries) so a request that sat in the
+        // backoff queue or whose first attempt timed out cannot reach AWS with a
+        // stale signature. Signing artifacts (Authorization, X-Amz-Date) are
+        // regenerated here and never persisted back to queueParameters. Credential
+        // resolution + missing-input handling live in `aws-sigv4.ts` — see
+        // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
+        let signedHeaders = headers
+        if (params.aws_sigv4) {
+            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
+            if (!resolved.ok) {
+                addLog('error', resolved.error)
+                result.error = new Error(resolved.error)
+                result.finished = true
+                return result
+            }
+            signedHeaders = signAwsRequest({
+                method,
+                url: params.url,
+                body: params.body ?? '',
+                headers,
+                credentials: resolved.credentials,
+            })
+        }
+
+        const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body

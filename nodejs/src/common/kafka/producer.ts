@@ -131,11 +131,14 @@ export class KafkaProducerWrapper {
         key,
         topic,
         headers,
+        partition,
     }: {
         value: MessageValue
         key: MessageKey
         topic: string
         headers?: Record<string, string>
+        /** Explicit target partition. When omitted, librdkafka's default partitioner picks one. */
+        partition?: number
     }): Promise<void> {
         const labels: Record<string, string> = { topic_name: topic }
         if (this.name) {
@@ -167,7 +170,7 @@ export class KafkaProducerWrapper {
                     new Promise((resolve, reject) => {
                         this.producer.produce(
                             topic,
-                            null,
+                            partition ?? null,
                             value,
                             key,
                             Date.now(),

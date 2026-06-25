@@ -12,9 +12,11 @@ on:
                 required: false
                 type: string
     schedule:
-        # Daily: merge the latest CI timing artifacts and refresh the Actions cache that
-        # ci-backend / ci-dagster restore for sharding. This is the day-to-day freshness.
-        - cron: '0 3 * * *'
+        # Every 6 hours: merge the latest CI timing artifacts and refresh the Actions cache
+        # that ci-backend / ci-dagster restore for sharding. Frequent refresh keeps splits
+        # balanced even after large batches of new tests land mid-day. Cheap (~90s on
+        # depot-ubuntu-latest, no test execution).
+        - cron: '0 3,9,15,21 * * *'
         # Monthly (1st): same merge, but this run also commits the .test_durations fallback
         # via PR. The committed file is only the cold-start / cache-miss floor, so it doesn't
         # need a daily commit. Distinguished from the daily run via github.event.schedule
@@ -197,6 +199,27 @@ jobs:
                   # to the script — see test_optimize_test_durations.py.
                   uv run .github/scripts/optimize_test_durations.py .test_durations \
                       --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
+
+                  # Additionally emit nodeid-clean per-segment files for
+                  # --split-granularity=file. The shared .test_durations above is a union
+                  # across every CI job, so a Core file-mode plan scoped to it budgets weight
+                  # for tests that never run in Core (other segments' param variants,
+                  # product-routed files) — that mis-scoping is the imbalance file-mode hit.
+                  # --scope-to-junit trims each file to exactly the nodeids that segment's
+                  # JUnit saw run; the run-set is already in the artifacts, so this adds no
+                  # collection. The union above is untouched (item-mode + turbo-discover still
+                  # read it); these are purely additive, cached per-segment below.
+                  # Non-fatal: --scope-to-junit hard-exits if a segment's JUnit is missing,
+                  # but the union .test_durations above is already built and MUST still be
+                  # cached/committed below. A JUnit miss just skips that segment's per-segment
+                  # file for the day; ci-backend then falls back to scoping the union.
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts .test_durations.core \
+                      --segment Core --junit-dir junit_artifacts --scope-to-junit \
+                      || echo "::warning::Core per-segment durations skipped (no JUnit?) — file-mode falls back to union scoping"
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts .test_durations.temporal \
+                      --segment Temporal --junit-dir junit_artifacts --scope-to-junit \
+                      || echo "::warning::Temporal per-segment durations skipped (no JUnit?) — file-mode falls back to union scoping"
+
                   # Also drop junit_artifacts — ghcommit-action defaults file_pattern
                   # to "." and chokes on leftover download dirs ("read junit_artifacts/:
                   # is a directory"). The commit steps below also pin file_pattern as a
@@ -210,11 +233,14 @@ jobs:
                   REF: ${{ github.ref }}
                   SCHEDULE: ${{ github.event.schedule }}
               run: |
-                  # Per-day cache key → one new entry per day. Restores match by prefix and only
-                  # ever touch the newest entry, so each prior day's entry ages out 7 days after
-                  # it stops being newest: up to ~7 daily entries (~1 MB zstd each, ~7 MB total)
-                  # coexist before eviction. Tiny, self-pruning, no shared-budget pressure.
-                  echo "cache_key=posthog-test-durations-$(date -u +%F)" >> "$GITHUB_OUTPUT"
+                  # Full ISO-8601 cache key → each run writes its own entry. Restores match by
+                  # prefix and only ever touch the newest entry, so prior entries age out 7 days
+                  # after they stop being newest. This ensures a manual workflow_dispatch can
+                  # refresh the cache intra-day (GitHub Actions cache keys are immutable, so a
+                  # per-day key blocked same-day updates). ~1 MB zstd each; tiny footprint.
+                  NOW=$(date -u +%FT%H%M%SZ)
+                  echo "date=$NOW" >> "$GITHUB_OUTPUT"
+                  echo "cache_key=posthog-test-durations-$NOW" >> "$GITHUB_OUTPUT"
                   # Every run refreshes the cache; only the monthly cron (or a manual dispatch)
                   # also commits the repo fallback, so the daily runs don't churn the 11 MB file.
                   # SCHEDULE is the cron that triggered the run — keep it in sync with the monthly
@@ -237,6 +263,22 @@ jobs:
               with:
                   path: .test_durations
                   key: ${{ steps.durations-meta.outputs.cache_key }}
+
+            - name: Save per-segment durations to Actions cache
+              # Nodeid-clean per-segment files for --split-granularity=file, restored by
+              # ci-backend via the posthog-segment-durations- prefix. The prefix MUST NOT
+              # start with posthog-test-durations- : the union restores match that prefix and
+              # take the newest entry, so a shared prefix would shadow the union .test_durations
+              # across every backend + dagster shard. Same per-day key shape as the union; a
+              # miss makes file-mode fall back to scoping the union (still correct, just the
+              # pre-fix balance). continue-on-error so a cache hiccup never fails the merge.
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              continue-on-error: true
+              with:
+                  path: |
+                      .test_durations.core
+                      .test_durations.temporal
+                  key: posthog-segment-durations-${{ steps.durations-meta.outputs.date }}-${{ github.run_id }}
 
             - name: Check for changes
               id: check-changes

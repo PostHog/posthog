@@ -6,6 +6,8 @@ export type IngestionOutputMessage = {
     key?: MessageKey
     headers?: Record<string, string>
     teamId?: number
+    /** Explicit target partition. Required for topics whose consumer pins a non-default partitioner. */
+    partition?: number
 }
 
 /**

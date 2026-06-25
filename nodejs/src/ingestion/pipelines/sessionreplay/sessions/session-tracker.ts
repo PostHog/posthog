@@ -47,6 +47,7 @@ export class SessionTracker {
 
         SessionBatchMetrics.incrementSessionTrackerCacheMiss()
 
+        const startTime = performance.now()
         let client
         try {
             client = await this.redisPool.acquire()
@@ -83,6 +84,7 @@ export class SessionTracker {
             if (client) {
                 await this.redisPool.release(client)
             }
+            SessionBatchMetrics.observeSessionTrackerRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 

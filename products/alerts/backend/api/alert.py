@@ -41,6 +41,7 @@ from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
@@ -225,7 +226,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to "
             "the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, "
             "'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and "
-            "label_column (labels rows in breach messages for any_row)."
+            "label_column (names the evaluated row(s) in breach messages, in every evaluation mode)."
         ),
     )
     detector_config = DetectorConfigField(required=False, allow_null=True)
@@ -684,16 +685,28 @@ class AlertSimulateSerializer(serializers.Serializer):
     detector_config = DetectorConfigField(
         help_text="Detector configuration to simulate.",
     )
+    # TODO: fold series_index and date_from into a per-kind range on `config` once a second insight
+    # kind needs a range knob. They stay flat today because date_from is a preview-only range with
+    # no home in the persisted alert config, and trends is the only kind with a range knob — but the
+    # duplication (series_index already lives in TrendsAlertConfig) should be removed at that point.
     series_index = serializers.IntegerField(
         default=0,
-        help_text="Zero-based index of the series to analyze.",
+        help_text="Zero-based index of the series to analyze (trends insights only).",
     )
     date_from = serializers.CharField(
         required=False,
         allow_null=True,
         default=None,
         help_text="Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). "
-        "If not provided, uses the detector's minimum required samples.",
+        "If not provided, uses the detector's minimum required samples. Trends insights only — a SQL "
+        "query's own rows are the series.",
+    )
+    config = AlertConfigField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Per-insight-kind alert config. For SQL insights, selects the evaluated column and "
+        "read direction (last_row/first_row) so the preview matches the alert; ignored for trends.",
     )
 
     def validate_insight(self, value):
@@ -974,7 +987,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: AlertSimulateResponseSerializer},
         description="Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.",
     )
-    @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read"])
+    # Returns an insight's computed result series, so it requires insight read in addition to
+    # alert read — an alert-scoped token must not read insight/query data it isn't scoped for.
+    # (Object-level insight viewer access is enforced separately in AlertSimulateSerializer.)
+    @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read", "insight:read"])
     def simulate(self, request, *args, **kwargs):
         serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
@@ -983,6 +999,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detector_config = serializer.validated_data["detector_config"]
         series_index = serializer.validated_data["series_index"]
         date_from = serializer.validated_data.get("date_from")
+        config = serializer.validated_data.get("config")
 
         try:
             result = simulate_detector_on_insight(
@@ -992,8 +1009,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 series_index=series_index,
                 date_from=date_from,
                 user=cast(User, request.user),
+                config=config,
             )
-        except (ValueError, IndexError) as e:
+        except (ValueError, IndexError, AlertExtractionError) as e:
             raise ValidationError(str(e))
         except RuntimeError:
             raise ValidationError("Simulation failed: unable to compute results for this insight.")

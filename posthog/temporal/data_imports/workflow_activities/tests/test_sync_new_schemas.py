@@ -58,3 +58,12 @@ def test_get_schemas_error_handling(error_msg, non_retryable, expected_exc):
     else:
         with pytest.raises(Exception, match=expected_exc):
             _run_activity(source_mock)
+
+
+def test_unparseable_config_is_skipped():
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.side_effect = TypeError("Cannot build 'MySQLSourceConfig' from str; expected a mapping")
+
+    _run_activity(source_mock)
+
+    source_mock.get_schemas.assert_not_called()

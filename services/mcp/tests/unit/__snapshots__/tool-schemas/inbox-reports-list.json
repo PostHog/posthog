@@ -36,6 +36,10 @@
         "suggested_reviewers": {
             "description": "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.",
             "type": "string"
+        },
+        "task_id": {
+            "description": "Only reports associated with this task (via the report's task associations).",
+            "type": "string"
         }
     },
     "type": "object"

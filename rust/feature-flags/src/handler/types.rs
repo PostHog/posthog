@@ -1,5 +1,6 @@
 use axum::{extract::State, http::HeaderMap};
 use bytes::Bytes;
+use chrono_tz::Tz;
 use serde::Serialize;
 use serde_json::Value;
 use std::{
@@ -62,6 +63,9 @@ pub struct RequestPropertyOverrides {
 /// Represents all context required for evaluating a set of feature flags.
 pub struct FeatureFlagEvaluationContext {
     pub team_id: i32,
+    /// Team timezone, used to interpret naive datetime filter values consistently
+    /// with HogQL/ClickHouse cohort evaluation.
+    pub team_timezone: Tz,
     pub distinct_id: String,
     pub device_id: Option<String>,
     pub feature_flags: FeatureFlagList,

@@ -56,6 +56,8 @@ export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickho
 export const KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS = `${prefix}clickhouse_prefiltered_events${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = `${prefix}clickhouse_precalculated_person_properties${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
+// Cross-partition merge protocol trigger consumed by the cohort-stream-processor (Rust).
+export const KAFKA_PERSON_MERGE_EVENTS = `${prefix}person_merge_events${suffix}`
 export const KAFKA_CDP_BATCH_HOGFLOW_REQUESTS = `${prefix}cdp_batch_hogflow_requests${suffix}`
 
 // Error tracking topics

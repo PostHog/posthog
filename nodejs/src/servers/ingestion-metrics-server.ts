@@ -9,6 +9,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import {
     MetricsIngestionConsumerConfig,
     MetricsIngestionOutputsConfig,
+    getDefaultMetricsIngestionConsumerConfig,
     getDefaultMetricsIngestionOutputsConfig,
 } from '~/ingestion/pipelines/metrics/config'
 import { MetricsIngestionConsumer } from '~/ingestion/pipelines/metrics/metrics-ingestion-consumer'
@@ -59,6 +60,7 @@ export class IngestionMetricsServer implements NodeServer {
     constructor(config: Partial<IngestionMetricsServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultMetricsIngestionConsumerConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamMetricsProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultMetricsIngestionOutputsConfig()),

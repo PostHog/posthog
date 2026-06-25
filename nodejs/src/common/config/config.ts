@@ -8,13 +8,6 @@ import {
 } from '~/cdp/outputs/producers'
 import { getDefaultCommonConfig } from '~/common/config'
 import { stringToBoolean } from '~/common/utils/env-utils'
-import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
-import { getDefaultErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
-import { getDefaultMetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
-import {
-    getDefaultSessionRecordingApiConfig,
-    getDefaultSessionRecordingConfig,
-} from '~/ingestion/pipelines/sessionreplay/config'
 import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '~/logs/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '~/types'
 
@@ -28,13 +21,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         ...getDefaultCommonConfig(),
         ...getDefaultCdpConfig(),
         ...getDefaultAIObservabilityConfig(),
-        ...getDefaultIngestionConsumerConfig(),
         ...getDefaultLogsIngestionConsumerConfig(),
-        ...getDefaultMetricsIngestionConsumerConfig(),
         ...getDefaultTracesIngestionConsumerConfig(),
-        ...getDefaultErrorTrackingConsumerConfig(),
-        ...getDefaultSessionRecordingConfig(),
-        ...getDefaultSessionRecordingApiConfig(),
         ...getDefaultKafkaWarpstreamIngestionProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(),

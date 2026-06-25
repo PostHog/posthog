@@ -20,6 +20,7 @@ import { PluginServerService, RedisPool } from '../types'
 
 export type BaseServerConfig = {
     INTERNAL_API_SECRET: string
+    INTERNAL_API_SECRET_FALLBACKS: string
     INSTRUMENT_THREAD_PERFORMANCE: boolean
     HTTP_SERVER_PORT: number
     POD_TERMINATION_ENABLED: boolean
@@ -69,7 +70,10 @@ export class ServerLifecycle {
     private processListeners: Map<string, (...args: any[]) => void> = new Map()
 
     constructor(private config: BaseServerConfig) {
-        this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
+        this.expressApp = setupExpressApp({
+            internalApiSecret: this.config.INTERNAL_API_SECRET,
+            internalApiSecretFallbacks: this.config.INTERNAL_API_SECRET_FALLBACKS,
+        })
         this.nodeInstrumentation = new NodeInstrumentation(this.config.INSTRUMENT_THREAD_PERFORMANCE)
         configureEventLoopYield(this.config.EVENT_LOOP_YIELD_THRESHOLD_MS)
         this.setupContinuousProfiling()

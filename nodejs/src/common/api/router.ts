@@ -9,7 +9,10 @@ import { HealthCheckResultError, PluginServerService } from '~/types'
 
 prometheus.collectDefaultMetrics()
 
-export function initializePrometheusLabels(ingestionPipeline: string | null, ingestionLane: string | null): void {
+export function initializePrometheusLabels(
+    ingestionPipeline: string | null = null,
+    ingestionLane: string | null = null
+): void {
     const labels: Record<string, string> = {}
     if (ingestionPipeline) {
         labels['ingestion_pipeline'] = ingestionPipeline
@@ -24,6 +27,8 @@ export function initializePrometheusLabels(ingestionPipeline: string | null, ing
 
 export interface SetupExpressAppOptions {
     internalApiSecret?: string
+    // Comma-separated previous secrets still accepted for verification during rotation.
+    internalApiSecretFallbacks?: string
 }
 
 export function setupCommonRoutes(
@@ -49,7 +54,15 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
 
     // Add internal API authentication middleware for defense-in-depth.
     // Primary protection comes from Contour routing at the infra level.
-    app.use(createInternalApiAuthMiddleware({ secret: options.internalApiSecret || '' }))
+    app.use(
+        createInternalApiAuthMiddleware({
+            secret: options.internalApiSecret || '',
+            fallbacks: (options.internalApiSecretFallbacks || '')
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean),
+        })
+    )
 
     app.use(
         express.json({

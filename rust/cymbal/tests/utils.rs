@@ -5,8 +5,8 @@ use axum::{body::Body, http::Request};
 use bytes::Bytes;
 use common_redis::MockRedisClient;
 use cymbal::{
-    app_context::AppContext, config::Config, error::UnhandledError, router::get_router,
-    symbolication::symbol_store::BlobClient,
+    app_context::AppContext, error::UnhandledError, modes::processing::ProcessingConfig,
+    router::get_router, symbolication::symbol_store::BlobClient,
 };
 
 use async_trait::async_trait;
@@ -45,10 +45,10 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     storage_bucket: String,
     request_factory: impl Fn() -> Request<Body>,
     s3_client: Arc<MockS3Client>,
-    configure: impl FnOnce(&mut Config),
+    configure: impl FnOnce(&mut ProcessingConfig),
 ) -> (StatusCode, T) {
-    let mut config = Config::init_with_defaults().unwrap();
-    config.object_storage_bucket = storage_bucket.clone();
+    let mut config = ProcessingConfig::init_with_defaults().unwrap();
+    config.resolver.object_storage_bucket = storage_bucket.clone();
     configure(&mut config);
 
     let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
@@ -82,8 +82,8 @@ pub(crate) async fn get_raw_response(
     request_factory: impl Fn() -> Request<Body>,
     s3_client: Arc<MockS3Client>,
 ) -> (StatusCode, String) {
-    let mut config = Config::init_with_defaults().unwrap();
-    config.object_storage_bucket = storage_bucket.clone();
+    let mut config = ProcessingConfig::init_with_defaults().unwrap();
+    config.resolver.object_storage_bucket = storage_bucket.clone();
 
     let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
 

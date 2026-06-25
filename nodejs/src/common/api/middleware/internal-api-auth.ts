@@ -19,21 +19,26 @@ const PUBLIC_PATH_PREFIXES = ['/public/', '/_health', '/_ready', '/_metrics', '/
 
 export interface InternalApiAuthOptions {
     secret: string
+    // Previous secrets still accepted for verification during zero-downtime rotation.
+    fallbacks?: string[]
     excludedPathPrefixes?: string[]
 }
 
 export function createInternalApiAuthMiddleware(options: InternalApiAuthOptions) {
-    const { secret, excludedPathPrefixes = [] } = options
+    const { secret, fallbacks = [], excludedPathPrefixes = [] } = options
     const allExcludedPrefixes = [...PUBLIC_PATH_PREFIXES, ...excludedPathPrefixes]
+    // Accept the primary plus any still-trusted fallbacks (zero-downtime rotation). Trim so a
+    // mounted secret's trailing newline can't cause a spurious mismatch between sender and receiver.
+    const acceptedSecrets = [secret, ...fallbacks].map((s) => s.trim()).filter(Boolean)
 
     return (req: Request, res: Response, next: NextFunction): void => {
-        // Skip auth if no secret is configured (for backwards compatibility and local dev)
-        if (!secret) {
+        // Skip auth if no secret is configured (defense-in-depth only — Contour fronts these endpoints).
+        if (acceptedSecrets.length === 0) {
             next()
             return
         }
 
-        // Skip auth for excluded paths
+        // Health/metrics/public endpoints never require auth.
         if (allExcludedPrefixes.some((prefix) => req.path.startsWith(prefix))) {
             next()
             return
@@ -53,11 +58,18 @@ export function createInternalApiAuthMiddleware(options: InternalApiAuthOptions)
             return
         }
 
-        // Use timing-safe comparison to prevent timing attacks
-        const secretBuffer = Buffer.from(secret)
-        const providedBuffer = Buffer.from(providedSecret)
+        // Use timing-safe comparison to prevent timing attacks. Compare against every accepted
+        // secret (count is fixed and non-sensitive) so a match on any current-or-fallback value passes.
+        const providedBuffer = Buffer.from(providedSecret.trim())
+        const matches = acceptedSecrets.some((candidate) => {
+            const candidateBuffer = Buffer.from(candidate)
+            return (
+                candidateBuffer.length === providedBuffer.length &&
+                crypto.timingSafeEqual(candidateBuffer, providedBuffer)
+            )
+        })
 
-        if (secretBuffer.length !== providedBuffer.length || !crypto.timingSafeEqual(secretBuffer, providedBuffer)) {
+        if (!matches) {
             logger.warn('Internal API request with invalid secret', {
                 path: req.path,
                 method: req.method,

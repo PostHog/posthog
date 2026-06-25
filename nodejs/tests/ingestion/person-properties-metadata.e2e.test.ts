@@ -18,10 +18,12 @@ import { UUIDT } from '~/common/utils/utils'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
-import { Hub, PipelineEvent, PluginsServerConfig, ProjectId, Team } from '~/types'
+import { PipelineEvent, PluginsServerConfig, ProjectId, Team } from '~/types'
+import { UUIDT } from '~/common/utils/utils'
 
 jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
@@ -138,17 +140,17 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
         config: { teamOverrides?: Partial<Team>; pluginServerConfig?: Partial<PluginsServerConfig> } = {},
         testFn: (
             ingester: IngestionConsumer,
-            hub: Hub,
+            infra: IngestionTestInfra,
             team: Team,
             kafkaProducer: KafkaProducerWrapper
         ) => Promise<void>
     ) => {
         test(name, async () => {
-            const hub = await createHub({
+            const infra = await createIngestionTestInfra({
                 ...baseConfig,
                 ...config.pluginServerConfig,
             })
-            const kafkaProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+            const kafkaProducer = await KafkaProducerWrapper.create(infra.config.KAFKA_CLIENT_RACK)
 
             const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
             const userId = teamId
@@ -167,7 +169,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             const organizationMembershipId = new UUIDT().toString()
 
             await createUserTeamAndOrganization(
-                hub.postgres,
+                infra.postgres,
                 newTeam.id,
                 userId,
                 userUuid,
@@ -176,17 +178,17 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
                 config.teamOverrides
             )
 
-            const fetchedTeam = await hub.teamManager.getTeam(newTeam.id)
+            const fetchedTeam = await infra.teamManager.getTeam(newTeam.id)
             if (!fetchedTeam) {
                 throw new Error(`Failed to fetch team ${newTeam.id} from database`)
             }
 
             const outputs = createTestIngestionOutputs(kafkaProducer)
-            const ingester = new IngestionConsumer(hub, {
-                ...hub,
+            const ingester = new IngestionConsumer(infra.config, {
+                ...infra,
                 aiSubpipelineFactory: createAiEventSubpipeline,
-                hogTransformer: createHogTransformerService(hub, {
-                    ...hub,
+                hogTransformer: createHogTransformerService(infra.config, {
+                    ...infra,
                     monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),
                 }),
                 outputs,
@@ -200,10 +202,10 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
 
             await ingester.start()
             currentToken = fetchedTeam.api_token
-            await testFn(ingester, hub, fetchedTeam, kafkaProducer)
+            await testFn(ingester, infra, fetchedTeam, kafkaProducer)
             await ingester.stop()
             await kafkaProducer.disconnect()
-            await closeHub(hub)
+            await infra.close()
         })
     }
 }
@@ -224,7 +226,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
     testWithTeamIngester(
         'does set properties_last_updated_at and properties_last_operation when creating person via $set',
         {},
-        async (ingester, hub, team, _kafkaProducer) => {
+        async (ingester, infra, team, _kafkaProducer) => {
             const distinctId = new UUIDT().toString()
             const timestamp = DateTime.now().toMillis()
 
@@ -243,7 +245,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
 
                 const person = persons[0]
@@ -270,7 +272,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
     testWithTeamIngester(
         'does set properties_last_updated_at and properties_last_operation when creating person via $identify',
         {},
-        async (ingester, hub, team, _kafkaProducer) => {
+        async (ingester, infra, team, _kafkaProducer) => {
             const distinctId = new UUIDT().toString()
             const timestamp = DateTime.now().toMillis()
 
@@ -290,7 +292,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
 
                 const person = persons[0]
@@ -317,7 +319,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
     testWithTeamIngester(
         'DOES NOT update properties_last_updated_at when updating existing property after person creation',
         {},
-        async (ingester, hub, team, _kafkaProducer) => {
+        async (ingester, infra, team, _kafkaProducer) => {
             const distinctId = new UUIDT().toString()
             const t1 = DateTime.now().toMillis()
             const t2 = t1 + 60000 // 1 minute later
@@ -339,7 +341,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             // Wait for person to be created and capture the initial timestamp
             let initialTimestamp: string | undefined
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
                 expect(persons[0].properties.email).toBe('original@example.com')
                 initialTimestamp = persons[0].properties_last_updated_at?.email
@@ -362,7 +364,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
 
             // Verify property was updated but timestamp was NOT
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
 
                 const person = persons[0]
@@ -381,7 +383,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
     testWithTeamIngester(
         'DOES NOT add properties_last_updated_at entry when adding NEW property after person creation',
         {},
-        async (ingester, hub, team, _kafkaProducer) => {
+        async (ingester, infra, team, _kafkaProducer) => {
             const distinctId = new UUIDT().toString()
             const t1 = DateTime.now().toMillis()
             const t2 = t1 + 60000 // 1 minute later
@@ -401,7 +403,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
                 expect(persons[0].properties_last_updated_at?.email).toBeDefined()
             })
@@ -421,7 +423,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
 
                 const person = persons[0]
@@ -443,7 +445,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
     testWithTeamIngester(
         'DOES NOT update properties_last_operation when updating existing property after person creation',
         {},
-        async (ingester, hub, team, _kafkaProducer) => {
+        async (ingester, infra, team, _kafkaProducer) => {
             const distinctId = new UUIDT().toString()
             const t1 = DateTime.now().toMillis()
             const t2 = t1 + 60000 // 1 minute later
@@ -463,7 +465,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
                 expect(persons[0].properties.initial_value).toBe('first')
                 expect(persons[0].properties_last_operation?.initial_value).toBe('set_once')
@@ -488,7 +490,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
 
                 const person = persons[0]
@@ -510,7 +512,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
     testWithTeamIngester(
         'DOES NOT add properties_last_operation entry when adding NEW property after person creation',
         {},
-        async (ingester, hub, team, _kafkaProducer) => {
+        async (ingester, infra, team, _kafkaProducer) => {
             const distinctId = new UUIDT().toString()
             const t1 = DateTime.now().toMillis()
             const t2 = t1 + 60000 // 1 minute later
@@ -530,7 +532,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
                 expect(persons[0].properties_last_operation?.email).toBe('set')
             })
@@ -550,7 +552,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
 
                 const person = persons[0]
@@ -572,7 +574,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
     testWithTeamIngester(
         '$set can overwrite a property that was set with $set_once',
         {},
-        async (ingester, hub, team, _kafkaProducer) => {
+        async (ingester, infra, team, _kafkaProducer) => {
             const distinctId = new UUIDT().toString()
             const t1 = DateTime.now().toMillis()
             const t2 = t1 + 60000 // 1 minute later
@@ -592,7 +594,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
                 expect(persons[0].properties.favorite_color).toBe('blue')
                 expect(persons[0].properties_last_operation?.favorite_color).toBe('set_once')
@@ -613,7 +615,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
 
                 const person = persons[0]
@@ -631,7 +633,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
     testWithTeamIngester(
         '$unset can delete a property that was set with $set_once',
         {},
-        async (ingester, hub, team, _kafkaProducer) => {
+        async (ingester, infra, team, _kafkaProducer) => {
             const distinctId = new UUIDT().toString()
             const t1 = DateTime.now().toMillis()
             const t2 = t1 + 60000 // 1 minute later
@@ -652,7 +654,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
                 expect(persons[0].properties.temp_setting).toBe('initial_value')
                 expect(persons[0].properties.email).toBe('test@example.com')
@@ -674,7 +676,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
             await waitForKafkaMessages(_kafkaProducer)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
                 expect(persons.length).toBe(1)
 
                 const person = persons[0]

@@ -30,7 +30,6 @@ describe('AgentSpecSchema', () => {
             ],
             mcps: [{ id: 'posthog', url: 'https://app.posthog.com/api/mcp' }],
             skills: [{ id: 'deep-research', path: 'skills/deep-research/SKILL.md' }],
-            integrations: ['slack:T01'],
             secrets: ['ACME_KEY'],
             limits: { max_turns: 10, max_tool_calls: 50, max_wall_seconds: 300 },
             entrypoint: 'agent.md',
@@ -252,9 +251,8 @@ describe('AgentSpecSchema', () => {
                 throw new Error('expected native tool')
             }
             expect(t.requires_approval).toBe(false)
-            expect(t.approval_policy.approvers).toEqual(['team_admins'])
+            expect(t.approval_policy.type).toBe('principal')
             expect(t.approval_policy.allow_edit).toBe(false)
-            expect(t.approval_policy.allow_agent_approver).toBe(false)
             expect(t.approval_policy.ttl_ms).toBe(24 * 60 * 60 * 1000)
         })
 
@@ -278,8 +276,7 @@ describe('AgentSpecSchema', () => {
             expect(t.approval_policy.allow_edit).toBe(true)
             expect(t.approval_policy.ttl_ms).toBe(60 * 60 * 1000)
             // unspecified fields still defaulted
-            expect(t.approval_policy.approvers).toEqual(['team_admins'])
-            expect(t.approval_policy.allow_agent_approver).toBe(false)
+            expect(t.approval_policy.type).toBe('principal')
         })
 
         it('rejects ttl_ms below 1 minute', () => {
@@ -314,26 +311,9 @@ describe('AgentSpecSchema', () => {
             ).toThrow()
         })
 
-        it('rejects empty approvers list', () => {
-            expect(() =>
-                AgentSpecSchema.parse({
-                    model: 'x',
-                    tools: [
-                        {
-                            kind: 'native',
-                            id: '@posthog/team-delete',
-                            requires_approval: true,
-                            approval_policy: { approvers: [] },
-                        },
-                    ],
-                })
-            ).toThrow()
-        })
-
-        it('parses session_principal as an approver scope', () => {
-            // PR 7 widened the v0 enum from `['team_admins']` to add
-            // `['session_principal']` so the concierge can route gated
-            // calls back to the session owner via the per-asker fast path.
+        it('back-compat: an unmappable legacy approvers list falls back to the default principal type', () => {
+            // An empty (or unrecognised) legacy `approvers` derives no `type`, so
+            // it lands on the `principal` default rather than throwing.
             const spec = AgentSpecSchema.parse({
                 model: 'x',
                 tools: [
@@ -341,7 +321,7 @@ describe('AgentSpecSchema', () => {
                         kind: 'native',
                         id: '@posthog/team-delete',
                         requires_approval: true,
-                        approval_policy: { approvers: ['session_principal'] },
+                        approval_policy: { approvers: [] },
                     },
                 ],
             })
@@ -349,10 +329,58 @@ describe('AgentSpecSchema', () => {
             if (t.kind === 'client') {
                 throw new Error('expected native tool')
             }
-            expect(t.approval_policy.approvers).toEqual(['session_principal'])
+            expect(t.approval_policy.type).toBe('principal')
         })
 
-        it('rejects approver scopes not yet supported in v0', () => {
+        it('parses an explicit agent type', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/team-delete',
+                        requires_approval: true,
+                        approval_policy: { type: 'agent' },
+                    },
+                ],
+            })
+            const t = spec.tools[0]
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
+            expect(t.approval_policy.type).toBe('agent')
+        })
+
+        it.each([
+            { approvers: ['session_principal'], type: 'principal' },
+            { approvers: ['team_admins'], type: 'agent' },
+        ])('back-compat: maps legacy approvers $approvers to type $type', ({ approvers, type }) => {
+            // Specs frozen before the principal/agent split carry `approvers[]`
+            // (+ `allow_agent_approver`); the preprocess derives `type` and drops
+            // the legacy keys so old revisions keep validating.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/team-delete',
+                        requires_approval: true,
+                        approval_policy: { approvers, allow_agent_approver: false, ttl_ms: 900_000 },
+                    },
+                ],
+            })
+            const t = spec.tools[0]
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
+            expect(t.approval_policy.type).toBe(type)
+            expect(t.approval_policy.ttl_ms).toBe(900_000)
+            // Legacy keys are gone from the parsed shape.
+            expect('approvers' in t.approval_policy).toBe(false)
+            expect('allow_agent_approver' in t.approval_policy).toBe(false)
+        })
+
+        it('rejects an invalid approval type', () => {
             expect(() =>
                 AgentSpecSchema.parse({
                     model: 'x',
@@ -361,7 +389,7 @@ describe('AgentSpecSchema', () => {
                             kind: 'native',
                             id: '@posthog/team-delete',
                             requires_approval: true,
-                            approval_policy: { approvers: ['session_owner'] },
+                            approval_policy: { type: 'session_owner' },
                         },
                     ],
                 })
@@ -379,7 +407,6 @@ describe('AgentSpecSchema', () => {
                     {
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
-                        auth: { integration: 'linear:T01' },
                         secrets: ['LINEAR_TOKEN'],
                         tools: ['create-issue', 'list-issues'],
                     },
@@ -388,7 +415,6 @@ describe('AgentSpecSchema', () => {
             const m = spec.mcps[0]
             expect(m.id).toBe('linear')
             expect(m.url).toBe('https://mcp.linear.app/sse')
-            expect(m.auth?.integration).toBe('linear:T01')
             expect(m.secrets).toEqual(['LINEAR_TOKEN'])
             expect(m.tools).toEqual(['create-issue', 'list-issues'])
         })
@@ -405,7 +431,7 @@ describe('AgentSpecSchema', () => {
                             {
                                 name: 'agent-applications-revisions-promote-create',
                                 requires_approval: true,
-                                approval_policy: { approvers: ['session_principal'], ttl_ms: 900_000 },
+                                approval_policy: { type: 'principal', ttl_ms: 900_000 },
                             },
                         ],
                     },
@@ -419,7 +445,7 @@ describe('AgentSpecSchema', () => {
             }
             expect(gated.name).toBe('agent-applications-revisions-promote-create')
             expect(gated.requires_approval).toBe(true)
-            expect(gated.approval_policy.approvers).toEqual(['session_principal'])
+            expect(gated.approval_policy.type).toBe('principal')
             expect(gated.approval_policy.ttl_ms).toBe(900_000)
             // Unspecified fields fall through to the approval-policy defaults.
             expect(gated.approval_policy.allow_edit).toBe(false)
@@ -726,6 +752,25 @@ describe('AgentSpecSchema', () => {
             ],
         ])('%s', (_label, stored, incoming, expected) => {
             expect(principalsMatch(stored, incoming)).toBe(expected)
+        })
+    })
+
+    describe('identity_providers[] binding', () => {
+        it('accepts the per-asker `principal` binding (defaulting when omitted)', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                identity_providers: [{ kind: 'posthog' }],
+            })
+            expect(spec.identity_providers[0]?.binding).toBe('principal')
+        })
+
+        it('rejects the unimplemented `agent` binding (the runtime seam exists, but a spec cannot select it)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    identity_providers: [{ kind: 'posthog', binding: 'agent' }],
+                })
+            ).toThrow()
         })
     })
 })

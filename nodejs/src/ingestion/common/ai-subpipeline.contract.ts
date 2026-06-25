@@ -8,6 +8,7 @@ import {
     EventOutput,
     IngestionWarningsOutput,
     PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
     PersonsOutput,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -34,7 +35,12 @@ export interface AiEventSubpipelineInput {
 export interface AiEventSubpipelineConfig {
     options: EventPipelineRunnerOptions
     outputs: IngestionOutputs<
-        EventOutput | AiEventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
+        | EventOutput
+        | AiEventOutput
+        | IngestionWarningsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
