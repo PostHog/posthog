@@ -37,9 +37,6 @@ async fn handle_issue_created(
 ) -> Result<(), UnhandledError> {
     let issue = load_issue(context, issue_created.team_id, issue_created.issue_id).await?;
 
-    context
-        .signal_client
-        .emit_issue_created(&issue, &issue_created.event_properties);
     send_new_fingerprint_event_to_producer(
         &context.immediate_producer,
         &context.embedding_worker_topic,
@@ -57,10 +54,14 @@ async fn handle_issue_created(
         &context.internal_events_topic,
         &issue,
         issue_created.assignee,
-        issue_created.event_properties,
+        &issue_created.event_properties,
         &parse_notification_timestamp(&issue_created.event_timestamp, issue_created.event_uuid),
     )
     .await?;
+
+    context
+        .signal_client
+        .emit_issue_created(&issue, &issue_created.event_properties);
 
     capture_issue_created(
         issue_created.team_id,
@@ -77,19 +78,22 @@ async fn handle_issue_reopened(
 ) -> Result<(), UnhandledError> {
     let issue = load_issue(context, issue_reopened.team_id, issue_reopened.issue_id).await?;
 
-    context
-        .signal_client
-        .emit_issue_reopened(&issue, &issue_reopened.event_properties);
-    capture_issue_reopened(issue_reopened.team_id, issue_reopened.issue_id);
     send_issue_reopened_alert_to_producer(
         &context.cyclotron_producer,
         &context.internal_events_topic,
         &issue,
         issue_reopened.assignee,
-        issue_reopened.event_properties,
+        &issue_reopened.event_properties,
         &parse_notification_timestamp(&issue_reopened.event_timestamp, Uuid::nil()),
     )
-    .await
+    .await?;
+
+    context
+        .signal_client
+        .emit_issue_reopened(&issue, &issue_reopened.event_properties);
+    capture_issue_reopened(issue_reopened.team_id, issue_reopened.issue_id);
+
+    Ok(())
 }
 
 async fn handle_issue_spiking(
@@ -99,13 +103,6 @@ async fn handle_issue_spiking(
     let issue = load_issue(context, issue_spiking.team_id, issue_spiking.issue_id).await?;
 
     persist_spike_event(context, &issue_spiking).await?;
-    context.signal_client.emit_issue_spiking(
-        &issue,
-        &issue_spiking.event_properties,
-        issue_spiking.computed_baseline,
-        issue_spiking.current_bucket_value,
-    );
-
     send_issue_spiking_alert_to_producer(
         &context.cyclotron_producer,
         &context.internal_events_topic,
@@ -114,6 +111,13 @@ async fn handle_issue_spiking(
         issue_spiking.current_bucket_value,
     )
     .await?;
+
+    context.signal_client.emit_issue_spiking(
+        &issue,
+        &issue_spiking.event_properties,
+        issue_spiking.computed_baseline,
+        issue_spiking.current_bucket_value,
+    );
 
     Ok(())
 }

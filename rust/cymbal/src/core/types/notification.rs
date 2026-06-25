@@ -22,6 +22,22 @@ pub enum IngestionNotification {
     IssueSpiking(IssueSpiking),
 }
 
+impl IngestionNotification {
+    pub fn partition_key(&self) -> String {
+        match self {
+            IngestionNotification::IssueCreated(issue_created) => {
+                format!("{}:{}", issue_created.team_id, issue_created.issue_id)
+            }
+            IngestionNotification::IssueReopened(issue_reopened) => {
+                format!("{}:{}", issue_reopened.team_id, issue_reopened.issue_id)
+            }
+            IngestionNotification::IssueSpiking(issue_spiking) => {
+                format!("{}:{}", issue_spiking.team_id, issue_spiking.issue_id)
+            }
+        }
+    }
+}
+
 /// Payload for [`IngestionNotification::IssueCreated`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueCreated {

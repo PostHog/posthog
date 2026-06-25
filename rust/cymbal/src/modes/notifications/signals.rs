@@ -170,7 +170,8 @@ impl SignalClient {
     }
 }
 
-/// Wraps an optional SignalClient. When signals are disabled, all calls are no-ops.
+/// Wraps an optional SignalClient. Signals are best-effort: callers should emit
+/// them after durable side effects, and failures only affect signal metrics/logs.
 #[derive(Clone)]
 pub struct MaybeSignalClient(Option<Arc<SignalClient>>);
 

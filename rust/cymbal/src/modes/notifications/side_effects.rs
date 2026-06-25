@@ -50,7 +50,7 @@ pub async fn send_issue_created_alert_to_producer<I: NotificationIssue>(
     internal_events_topic: &str,
     issue: &I,
     assignee: Option<String>,
-    output_props: OutputErrProps,
+    output_props: &OutputErrProps,
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     send_internal_event_with_producer(
@@ -70,7 +70,7 @@ pub async fn send_issue_reopened_alert_to_producer<I: NotificationIssue>(
     internal_events_topic: &str,
     issue: &I,
     assignee: Option<String>,
-    output_props: OutputErrProps,
+    output_props: &OutputErrProps,
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     send_internal_event_with_producer(
@@ -130,7 +130,7 @@ async fn send_internal_event_with_producer<I: NotificationIssue>(
     event: &str,
     issue: &I,
     assignee: Option<String>,
-    output_props: OutputErrProps,
+    output_props: &OutputErrProps,
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     let mut event = InternalEventEvent::new(event, issue.id(), Utc::now(), None);

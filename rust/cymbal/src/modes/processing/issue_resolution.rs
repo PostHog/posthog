@@ -1,7 +1,9 @@
 use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
-use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
+use common_kafka::kafka_producer::{
+    send_iter_to_kafka, send_keyed_iter_to_kafka, KafkaProduceError,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -403,10 +405,11 @@ async fn publish_ingestion_notification(
     context: &AppContext,
     notification: IngestionNotification,
 ) -> Result<(), UnhandledError> {
-    send_iter_to_kafka(
+    send_keyed_iter_to_kafka(
         &context.immediate_producer,
         &context.config.ingestion_notifications_topic,
-        &[notification],
+        |notification| Some(notification.partition_key()),
+        std::iter::once(notification),
     )
     .await
     .into_iter()
