@@ -238,4 +238,27 @@ describe('queryHandler — result shape for UI rendering', () => {
         expect(result.query).toEqual({ kind: 'TrendsQuery' })
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(formatted)
     })
+
+    it.each([
+        ['RetentionQuery', [{ date: '2024-01-01', label: 'Day 0', values: [{ count: 10 }] }]],
+        ['LifecycleQuery', [{ status: 'new', data: [1, 2], days: ['a', 'b'] }]],
+        ['StickinessQuery', [{ count: 5, data: [1, 2], labels: ['1 day', '2 days'] }]],
+        ['PathsQuery', [{ source: '0_a', target: '1_b', value: 3 }]],
+    ])('passes the raw results array through for %s insights', async (kind, chartResults) => {
+        const { context } = createContext({
+            getData: {
+                id: 42,
+                short_id: 'abc12345',
+                query: { kind: 'InsightVizNode', source: { kind } },
+            },
+            queryData: { results: chartResults },
+        })
+
+        const result = (await queryHandler(context, { insightId: '42', output_format: 'json' })) as QueryResult
+
+        // Chart visualizers read the raw array; wrapping it in { columns, results } makes the
+        // structural guards fall through to the table renderer and show an empty table.
+        expect(result.results).toBe(chartResults)
+        expect(result.query).toEqual({ kind })
+    })
 })

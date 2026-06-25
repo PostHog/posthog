@@ -1,6 +1,8 @@
+from datetime import datetime
 from typing import Any, cast
 
 from django.db.models import QuerySet
+from django.utils.dateparse import parse_datetime
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -29,6 +31,15 @@ from .serializers import (
     MCPSessionSerializer,
     MCPToolCallSerializer,
 )
+
+
+def _parse_detail_date_from(raw: str | None) -> datetime | None:
+    """Parse the optional session-start bound for detail queries (an absolute ISO timestamp).
+
+    Returns None on missing or unparseable input so the logic layer falls back to its default
+    lookback rather than 400-ing — the bound is only a scan-pruning hint, never a filter.
+    """
+    return parse_datetime(raw) if raw else None
 
 
 class MCPAnalyticsPagination(LimitOffsetPagination):
@@ -159,7 +170,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_list",
-        description="List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.",
+        description="List MCP sessions for the current project, derived by grouping $mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.",
         parameters=[
             OpenApiParameter(
                 name="search",
@@ -179,6 +190,23 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first)."
                 ),
             ),
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Start of the window to aggregate sessions over. PostHog date string — relative "
+                    "(e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'."
+                ),
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.",
+            ),
         ],
         responses={200: MCPSessionSerializer(many=True)},
     )
@@ -190,18 +218,41 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         offset = paginator.get_offset(request)
         search = request.query_params.get("search", "")
         order_by = request.query_params.get("order_by", "")
-        page = api.list_mcp_sessions(self.team, limit=limit, offset=offset, search=search, order_by=order_by)
+        date_from = request.query_params.get("date_from") or None
+        date_to = request.query_params.get("date_to") or None
+        page = api.list_mcp_sessions(
+            self.team,
+            limit=limit,
+            offset=offset,
+            search=search,
+            order_by=order_by,
+            date_from=date_from,
+            date_to=date_to,
+        )
         serializer = self.get_serializer(page.results, many=True)
         return paginator.get_paginated_response(serializer.data, has_next=page.has_next)
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_tool_calls",
-        description="List all mcp_tool_call events that belong to a given $session_id, in chronological order.",
+        description="List all $mcp_tool_call events that belong to a given $session_id, in chronological order.",
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Absolute ISO timestamp lower bound for the event scan — pass the session's "
+                    "start so older sessions resolve. Defaults to a 7-day lookback when omitted."
+                ),
+            ),
+        ],
         responses={200: MCPToolCallSerializer(many=True)},
     )
     @action(detail=True, methods=["get"], url_path="tool_calls")
     def tool_calls(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
-        tool_calls = api.list_mcp_tool_calls(self.team, session_id=str(pk or ""))
+        date_from = _parse_detail_date_from(request.query_params.get("date_from"))
+        tool_calls = api.list_mcp_tool_calls(self.team, session_id=str(pk or ""), date_from=date_from)
         serializer = MCPToolCallSerializer(tool_calls, many=True)
         # has_next is always false: this returns the whole (capped) call list, not a page.
         # The field exists because the viewset's paginator shapes the response schema.
@@ -215,6 +266,18 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "the stored summary."
         ),
         request=None,
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Absolute ISO timestamp lower bound for the intent scan — pass the session's "
+                    "start so older sessions resolve. Defaults to a 7-day lookback when omitted."
+                ),
+            ),
+        ],
         responses={200: MCPSessionIntentSerializer},
     )
     @action(detail=True, methods=["post"], url_path="generate_intent")
@@ -222,8 +285,9 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         session_id = str(pk or "")
         if not session_id:
             return Response({"detail": "session_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        date_from = _parse_detail_date_from(request.query_params.get("date_from"))
         try:
-            intent = api.generate_session_intent(self.team, session_id=session_id)
+            intent = api.generate_session_intent(self.team, session_id=session_id, date_from=date_from)
         except contracts.IntentGenerationUnavailable:
             return Response(
                 {"detail": "Intent generation is unavailable (LLM not configured)."},

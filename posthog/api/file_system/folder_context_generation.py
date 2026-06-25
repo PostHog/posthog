@@ -2,7 +2,7 @@ from uuid import UUID
 
 from rest_framework import serializers
 
-from products.tasks.backend.models import Task
+from products.tasks.backend.facade import api as tasks_facade
 
 
 class ContextGenerationSerializer(serializers.Serializer):
@@ -25,6 +25,6 @@ class ContextGenerationSetSerializer(serializers.Serializer):
         if value is None:
             return None
         team = self.context["folder_team"]
-        if not Task.objects.filter(id=value, team=team).exists():
+        if not tasks_facade.task_exists(value, team.id):
             raise serializers.ValidationError("No task with this id exists in this team.", code="invalid")
         return value

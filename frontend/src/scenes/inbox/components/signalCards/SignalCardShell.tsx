@@ -1,5 +1,3 @@
-import { LemonTag } from '@posthog/lemon-ui'
-
 import { signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
 import type { SignalNode } from 'scenes/debug/signals/types'
 
@@ -7,7 +5,7 @@ import { getSourceProductMeta } from '../badges/sourceProductIcons'
 
 /**
  * Header shared by every signal card: the source product's brand icon, the human
- * "Product · Signal type" line, an optional label/right slot, and the weight tag.
+ * "Product · Signal type" line, and an optional label/right slot.
  */
 export function SignalCardHeader({
     signal,
@@ -17,7 +15,7 @@ export function SignalCardHeader({
     signal: SignalNode
     /** Optional bold title shown after the source line (e.g. an entity name). */
     label?: React.ReactNode
-    /** Optional content rendered before the weight tag (e.g. a severity badge). */
+    /** Optional content rendered at the end of the header (e.g. a severity badge). */
     rightSlot?: React.ReactNode
 }): JSX.Element {
     const meta = getSourceProductMeta(signal.source_product)
@@ -41,9 +39,6 @@ export function SignalCardHeader({
             {label && <span className="text-xs font-medium text-primary flex-1 truncate">{label}</span>}
             <span className="flex-1" />
             {rightSlot}
-            <LemonTag size="small" className="shrink-0">
-                Weight: {signal.weight.toFixed(1)}
-            </LemonTag>
         </div>
     )
 }

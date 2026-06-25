@@ -36,34 +36,19 @@ jobs:
               with:
                   clean: false
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-geoip-canary.yml
-                  token: ${{ github.token }}
-
             - name: Download MaxMind database
               run: ./bin/download-mmdb
 
-            - name: Install package.json dependencies with pnpm
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
             - name: Run canary against live database
               id: canary
               env:
                   GEOIP_LIVE_TEST: '1'
-              run: cd nodejs && pnpm jest src/utils/geoip-live.test.ts --runInBand --forceExit
+              run: cd nodejs && pnpm jest src/common/utils/geoip-live.test.ts --runInBand --forceExit
 
             # Only the canary test itself failing means the live GeoLite2 build dropped
             # location data for the anchor IPs — i.e. a bad MaxMind release is already

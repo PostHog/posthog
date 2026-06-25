@@ -87,7 +87,7 @@ from posthog.utils import (
     safe_cache_set,
 )
 
-from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
+from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -839,7 +839,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @tracer.start_as_current_span("team_serializer.managed_viewsets")
     def get_managed_viewsets(self, obj):
         from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+        from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
         enabled_set = set(enabled_viewsets)
@@ -1286,6 +1286,57 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["slack_alert_channel_id"] = alert_channel.strip() or None
             else:
                 raise serializers.ValidationError({"slack_alert_channel_id": "Must be a string."})
+        # AI resolution channels: list of valid channel strings or null
+        VALID_CHANNELS = {"widget", "email", "slack", "teams", "github"}
+        if "ai_resolution_channels" in value:
+            channels = value.get("ai_resolution_channels")
+            if channels is None:
+                pass
+            elif isinstance(channels, list):
+                invalid = [c for c in channels if not isinstance(c, str) or c not in VALID_CHANNELS]
+                if invalid:
+                    raise serializers.ValidationError(
+                        {
+                            "ai_resolution_channels": f"Invalid channel(s): {', '.join(str(c) for c in invalid)}. "
+                            f"Valid options: {', '.join(sorted(VALID_CHANNELS))}."
+                        }
+                    )
+                value["ai_resolution_channels"] = channels
+            else:
+                raise serializers.ValidationError(
+                    {"ai_resolution_channels": "Must be a list of channel names or null."}
+                )
+        # AI reply modes: { channel: { ticket_type: mode } } or null
+        VALID_REPLY_MODES = {"private_note", "bot_reply"}
+        VALID_TICKET_TYPES = {"how_to", "diagnostic", "account_billing"}
+        # Only how_to replies may be published to the ticket author. diagnostic/account_billing
+        # draw on project data (events, persons, recordings, logs) and must stay private notes —
+        # there's no per-author authorization that the customer is entitled to that data.
+        BOT_REPLY_TICKET_TYPES = {"how_to"}
+        if "ai_reply_modes" in value:
+            modes = value.get("ai_reply_modes")
+            if modes is None:
+                pass
+            elif isinstance(modes, dict):
+                cleaned_modes: dict[str, dict[str, str]] = {}
+                for ch, type_map in modes.items():
+                    if ch not in VALID_CHANNELS or not isinstance(type_map, dict):
+                        continue
+                    cleaned_map: dict[str, str] = {}
+                    for tt, mode in type_map.items():
+                        if tt not in VALID_TICKET_TYPES or mode not in VALID_REPLY_MODES:
+                            continue
+                        # Demote bot_reply to private_note for ticket types that may never be
+                        # published (diagnostic/account_billing). Coerce rather than reject so a
+                        # stale value doesn't block unrelated settings saves.
+                        if mode == "bot_reply" and tt not in BOT_REPLY_TICKET_TYPES:
+                            mode = "private_note"
+                        cleaned_map[tt] = mode
+                    if cleaned_map:
+                        cleaned_modes[ch] = cleaned_map
+                value["ai_reply_modes"] = cleaned_modes
+            else:
+                raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
@@ -1589,7 +1640,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if "events" in validated_data:
             from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-            from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+            from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=instance,
@@ -2362,6 +2413,12 @@ def validate_team_attrs(
 ) -> dict[str, Any]:
     if instance is not None:
         admin_fields_touched = TEAM_CONFIG_ADMIN_FIELDS_SET & attrs.keys()
+        # `app_urls` (the toolbar / web analytics authorized URLs) carries a `field_access_control`
+        # tying it to web analytics editor access. When access controls are enabled, defer to that
+        # field-level check instead of the blanket project-admin gate, so a web analytics editor can
+        # manage authorized URLs. Without access controls we keep the stricter admin-only behavior.
+        if view.user_access_control.access_controls_supported:
+            admin_fields_touched = admin_fields_touched - {"app_urls"}
         if admin_fields_touched:
             team_for_check = instance if isinstance(instance, Team) else instance.passthrough_team
             level = view.user_permissions.team(team_for_check).effective_membership_level

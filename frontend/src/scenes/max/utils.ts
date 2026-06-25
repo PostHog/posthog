@@ -41,6 +41,7 @@ import { MODE_DEFINITIONS } from './max-constants'
 import { EnhancedToolCall } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import {
+    EvaluationRuntime,
     InsightWithQuery,
     MaxActionContext,
     MaxContextType,
@@ -258,7 +259,7 @@ export const evaluationToMaxContextPayload = (evaluation: {
     id: string
     name?: string | null
     description?: string | null
-    evaluation_type: 'hog' | 'llm_judge'
+    evaluation_type: EvaluationRuntime
     hog_source?: string | null
 }): MaxEvaluationContext => ({
     type: MaxContextType.EVALUATION,
@@ -283,7 +284,7 @@ export interface MaxOpenContext {
         id: string
         name?: string | null
         description?: string | null
-        evaluation_type: 'hog' | 'llm_judge'
+        evaluation_type: EvaluationRuntime
         hog_source?: string | null
     }
 }

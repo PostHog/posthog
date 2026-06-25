@@ -10,7 +10,14 @@ from posthog.models.utils import UUIDTModel
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 
+class EvaluationReportQuerySet(models.QuerySet):
+    def deliverable(self) -> "EvaluationReportQuerySet":
+        return self.filter(enabled=True, deleted=False, evaluation__deleted=False)
+
+
 class EvaluationReport(UUIDTModel):
+    objects = EvaluationReportQuerySet.as_manager()
+
     class Frequency(models.TextChoices):
         # Time-based, driven by the `rrule` string (e.g. "FREQ=WEEKLY;BYDAY=MO,FR").
         SCHEDULED = "scheduled"

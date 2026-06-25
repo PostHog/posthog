@@ -14,7 +14,6 @@ from django.db.models.signals import post_delete, post_save
 
 import pytz
 import pydantic
-import posthoganalytics
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
@@ -33,11 +32,12 @@ from posthog.models.utils import (
     sane_repr,
     validate_rate_limit,
 )
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
 
-from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
+from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
@@ -311,7 +311,7 @@ class Team(UUIDTClassicModel):
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
     app_urls: ArrayField = field_access_control(
-        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "project", "admin"
+        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "web_analytics", "editor"
     )
     name = models.CharField(
         max_length=200,
@@ -414,7 +414,7 @@ class Team(UUIDTClassicModel):
     conversations_enabled = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
     conversations_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
 
-    # Proactive tasks (#team-signals)
+    # Proactive tasks (#team-self-driving)
     proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
 
     # Surveys
@@ -736,9 +736,7 @@ class Team(UUIDTClassicModel):
 
     @cached_property
     def customer_analytics_config(self):
-        from products.customer_analytics.backend.models.team_customer_analytics_config import (
-            TeamCustomerAnalyticsConfig,
-        )
+        from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 
         return get_or_create_team_extension(
             self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
@@ -798,7 +796,7 @@ class Team(UUIDTClassicModel):
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 "persons-on-events-person-id-no-override-properties-on-events",
                 str(self.uuid),
                 groups={"project": str(self.id)},
@@ -824,7 +822,7 @@ class Team(UUIDTClassicModel):
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 "persons-on-events-v2-reads-enabled",
                 str(self.uuid),
                 groups={"organization": str(self.organization_id)},

@@ -195,6 +195,15 @@ export interface PullRequestListItemApi {
     open_to_merge_seconds: number | null
     /** GitHub label names on the pull request. */
     labels: string[]
+    /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
+    pushes: number
+    /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+    rerun_cycles: number
+    /**
+     * Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.
+     * @nullable
+     */
+    estimated_cost_usd?: number | null
 }
 
 export interface PullRequestListApi {
@@ -204,6 +213,102 @@ export interface PullRequestListApi {
     truncated: boolean
     /** Maximum number of pull requests returned in `items`. */
     limit: number
+}
+
+/**
+ * * `run` - RUN
+ * * `skip` - SKIP
+ */
+export type QuarantineModeEnumApi = (typeof QuarantineModeEnumApi)[keyof typeof QuarantineModeEnumApi]
+
+export const QuarantineModeEnumApi = {
+    Run: 'run',
+    Skip: 'skip',
+} as const
+
+/**
+ * * `active` - ACTIVE
+ * * `expiring_soon` - EXPIRING_SOON
+ * * `in_grace` - IN_GRACE
+ * * `overdue` - OVERDUE
+ */
+export type LifecycleEnumApi = (typeof LifecycleEnumApi)[keyof typeof LifecycleEnumApi]
+
+export const LifecycleEnumApi = {
+    Active: 'active',
+    ExpiringSoon: 'expiring_soon',
+    InGrace: 'in_grace',
+    Overdue: 'overdue',
+} as const
+
+/**
+ * * `product` - PRODUCT
+ * * `file` - FILE
+ * * `directory` - DIRECTORY
+ * * `test` - TEST
+ */
+export type SelectorKindEnumApi = (typeof SelectorKindEnumApi)[keyof typeof SelectorKindEnumApi]
+
+export const SelectorKindEnumApi = {
+    Product: 'product',
+    File: 'file',
+    Directory: 'directory',
+    Test: 'test',
+} as const
+
+export interface QuarantineEntryApi {
+    /** Test selector: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
+    id: string
+    /** Test runner the selector targets, e.g. 'pytest' or 'jest'. */
+    runner: string
+    /** Why the test was quarantined. */
+    reason: string
+    /** GitHub team or user handle responsible for the fix. */
+    owner: string
+    /** Tracking issue URL, or empty when none was filed. */
+    issue: string
+    /** ISO date the entry was added. */
+    added: string
+    /** ISO date the quarantine expires; past it the test blocks CI normally again. */
+    expires: string
+    /** 'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all).
+     *
+     * * `run` - RUN
+     * * `skip` - SKIP */
+    mode: QuarantineModeEnumApi
+    /** Expiry classification: 'active' (>7 days left), 'expiring_soon' (0-7 days left), 'in_grace' (expired up to 7 days ago), 'overdue' (expired beyond the grace period).
+     *
+     * * `active` - ACTIVE
+     * * `expiring_soon` - EXPIRING_SOON
+     * * `in_grace` - IN_GRACE
+     * * `overdue` - OVERDUE */
+    lifecycle: LifecycleEnumApi
+    /** Days until the entry expires; negative once past expiry. */
+    days_until_expiry: number
+    /** What the selector covers: 'test' (contains '::'), 'file', 'directory', or 'product'.
+     *
+     * * `product` - PRODUCT
+     * * `file` - FILE
+     * * `directory` - DIRECTORY
+     * * `test` - TEST */
+    selector_kind: SelectorKindEnumApi
+}
+
+export interface QuarantineFileApi {
+    /** Quarantined selectors, most urgent first (overdue, in_grace, expiring_soon, active), then by soonest expiry. */
+    entries: QuarantineEntryApi[]
+    /** Repository the file was read from. Null in local-dev mode, where the server's own checkout is read. */
+    repo: RepoRefApi | null
+    /** False when the repository has no quarantine file (not an error) or it could not be fetched. */
+    available: boolean
+    /** Contract violations (malformed JSON, bad entries) or fetch failures. Malformed entries are dropped; well-formed ones are kept. */
+    parse_errors: string[]
+    /** Forward-compatibility notices, e.g. unknown entry fields. */
+    parse_warnings: string[]
+    /** GitHub blob URL of the quarantine file, or empty when read locally or unavailable. */
+    source_url: string
+    /** When this snapshot was computed (UTC); expiry math uses this clock. */
+    generated_at: string
 }
 
 export interface GitHubSourceApi {
@@ -224,6 +329,8 @@ export interface WorkflowHealthDayApi {
     completed: number
     /** Completed runs with conclusion 'success' that day. */
     successes: number
+    /** Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+    failures: number
 }
 
 export interface WorkflowHealthItemApi {
@@ -251,7 +358,7 @@ export interface WorkflowHealthItemApi {
      */
     p95_seconds: number | null
     /**
-     * When the most recent run with conclusion 'failure' started, or null.
+     * When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.
      * @nullable
      */
     last_failure_at: string | null
@@ -290,7 +397,22 @@ export type EngineeringAnalyticsPullRequestsParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsQuarantineParams = {
+    /**
+     * Optional 'owner/name' repository to read the quarantine file from. Defaults to the connected GitHub source's most active repo over the last 30 days.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsWorkflowHealthParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */

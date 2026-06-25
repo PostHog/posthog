@@ -17,6 +17,8 @@ from rest_framework.response import Response
 
 from posthog.schema import RetentionQuery
 
+from posthog.hogql.errors import QueryError
+
 from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
@@ -33,7 +35,7 @@ from products.endpoints.backend.services.materialization import (
     prepare_executable_query,
 )
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
 
@@ -324,6 +326,30 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         # Should indicate variable metadata issue
         self.assertIn("Cannot materialize endpoint", response.json()["detail"])
+
+    def test_enable_materialization_user_query_error_returns_400(self):
+        endpoint = create_endpoint_with_version(
+            name="test_hogql_error",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with mock.patch.object(
+            EndpointMaterializationService,
+            "_enable_materialization_inner",
+            autospec=True,
+            side_effect=QueryError("Unresolved placeholder: {variables.event_id}"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 86400},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("Unresolved placeholder", str(response.json()))
 
     @parameterized.expand(
         [
@@ -1453,7 +1479,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn(BREAKDOWN_OTHER_STRING_LABEL, hogql_text)
 
     def test_materialization_failure_after_query_change_returns_success_with_error(self):
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         initial_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"}
         endpoint = create_endpoint_with_version(

@@ -20,6 +20,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestList,
     WorkflowHealthItem,
 )
+from products.engineering_analytics.backend.logic.quarantine import build_quarantine as build_quarantine
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
@@ -63,14 +64,18 @@ def build_pull_request_list(*, curated: CuratedGitHubSource, date_from: str | No
 
 
 def build_workflow_health(
-    *, curated: CuratedGitHubSource, date_from: str | None = None, date_to: str | None = None
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowHealthItem]:
     parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
     parsed_to = _parse_date(curated.team, date_to) if date_to else None
     span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
     if span_days > _MAX_WINDOW_DAYS:
         raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
-    return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to)
+    return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=branch)
 
 
 def _parse_date(team: Team, value: str) -> datetime:

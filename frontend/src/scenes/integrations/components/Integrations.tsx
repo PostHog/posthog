@@ -9,6 +9,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { IntegrationKind, IntegrationType } from '~/types'
@@ -50,12 +51,14 @@ const OAuthIntegration = ({
     connectText: string
     next?: string
 }): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const settingsPath = next ?? urls.settings('environment-integrations')
     const authorizationUrl = api.integrations.authorizeUrl({
-        next: next ?? urls.settings('environment-integrations'),
+        next: currentTeam?.id ? urls.project(currentTeam.id, settingsPath) : settingsPath,
         kind,
     })
 

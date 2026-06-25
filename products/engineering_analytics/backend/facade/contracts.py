@@ -81,6 +81,32 @@ class PRLifecycleEventKind(StrEnum):
     CLOSED = "closed"
 
 
+class QuarantineMode(StrEnum):
+    # "run": the test still executes but cannot fail the suite. "skip": not run at all.
+    RUN = "run"
+    SKIP = "skip"
+
+
+class QuarantineLifecycle(StrEnum):
+    """Where an entry sits relative to its expiry: ``active`` (more than 7 days
+    left), ``expiring_soon`` (7 days or fewer left), ``in_grace`` (expired up to
+    7 days ago — inert, but its removal is not yet mandatory), ``overdue``
+    (expired beyond the 7-day grace period).
+    """
+
+    ACTIVE = "active"
+    EXPIRING_SOON = "expiring_soon"
+    IN_GRACE = "in_grace"
+    OVERDUE = "overdue"
+
+
+class QuarantineSelectorKind(StrEnum):
+    PRODUCT = "product"
+    FILE = "file"
+    DIRECTORY = "directory"
+    TEST = "test"
+
+
 @dataclass(frozen=True)
 class GitHubSource:
     """A connected GitHub warehouse source the team can analyze. ``id`` is what a
@@ -185,6 +211,15 @@ class PullRequestListItem:
     open_to_merge_seconds: int | None
     labels: list[str]
     ci: CIStatusRollup
+    # CI triggers attributed to this PR: distinct head SHAs across its workflow runs (a run
+    # carries the PR it ran for in ``pull_requests``). Fork-PR runs are unattributed.
+    pushes: int
+    # Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).
+    rerun_cycles: int
+    # Estimated Depot CI cost in USD. None until the job-level warehouse source
+    # (``github_workflow_jobs``) lands (SPEC §6): run-level data carries no runner tier, so
+    # no honest dollar figure exists yet. The cost model that will populate it is in logic/cost.py.
+    estimated_cost_usd: float | None = None
 
 
 @dataclass(frozen=True)
@@ -217,12 +252,55 @@ class CICardSummary:
 
 @dataclass(frozen=True)
 class WorkflowHealthDay:
-    """One day of a workflow's run history; days without runs are zero-filled."""
+    """One day of a workflow's run history; days without runs are zero-filled.
+    ``failures`` is decisive failures only (failure / timed_out), matching the CI
+    rollup — skipped, cancelled, and action_required runs are neither successes nor
+    failures, so they must not be treated as non-passing.
+    """
 
     day: date
     run_count: int
     completed: int
     successes: int
+    failures: int
+
+
+@dataclass(frozen=True)
+class QuarantineEntry:
+    """One selector from a repo's checked-in ``.test_quarantine.json``, enriched
+    with read-side expiry classification."""
+
+    id: str
+    runner: str
+    reason: str
+    owner: str
+    issue: str
+    added: date
+    expires: date
+    mode: QuarantineMode
+    lifecycle: QuarantineLifecycle
+    # Negative once past expiry.
+    days_until_expiry: int
+    selector_kind: QuarantineSelectorKind
+
+
+@dataclass(frozen=True)
+class QuarantineFile:
+    """A repo's parsed quarantine file. ``available`` is False when no file
+    exists — that is not an error. Parsing is fail-open to match the enforcement
+    readers: malformed entries land in ``parse_errors`` while well-formed ones
+    are kept, and unknown entry fields only warn.
+    """
+
+    available: bool
+    # Most urgent first (overdue, in_grace, expiring_soon, active), then by expiry.
+    entries: list[QuarantineEntry]
+    parse_errors: list[str]
+    parse_warnings: list[str]
+    # None in local-dev mode, where the server's own checkout is read.
+    repo: RepoRef | None
+    source_url: str
+    generated_at: datetime
 
 
 @dataclass(frozen=True)

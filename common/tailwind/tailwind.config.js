@@ -744,6 +744,10 @@ const config = {
                 warning: 'var(--color-text-warning)',
                 error: 'var(--color-text-error)',
             },
+            fill: {
+                // theme-aware SVG fill, mirrors text-primary (flips with [theme="dark"])
+                primary: 'var(--color-text-primary)',
+            },
             borderColor: {
                 ...commonColors,
 

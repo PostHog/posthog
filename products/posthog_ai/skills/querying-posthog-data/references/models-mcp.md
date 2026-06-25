@@ -2,6 +2,8 @@
 
 Any MCP server instrumented with the `@posthog/mcp` SDK — and PostHog's own MCP server — emits a `$mcp_tool_call` event on the shared `events` table every time an agent invokes a tool. There is **no dedicated ClickHouse table** — all fields live as `$mcp_*` properties on `events`, queried directly with `posthog:execute-sql`. This is the data behind the MCP analytics dashboard, tool-quality, and tool-detail screens; every metric on those screens is reproducible as HogQL over this event.
 
+Query the canonical `$`-prefixed event name. Servers instrumented with the `@posthog/mcp` SDK emit only `$mcp_tool_call` / `$mcp_initialize`; PostHog's own hosted server additionally dual-emits legacy un-prefixed `mcp_tool_call` / `mcp_initialize` aliases through a transition shim. Match the canonical name only — an `event IN ('mcp_tool_call', '$mcp_tool_call')` would double-count PostHog's own server.
+
 **HogQL is the primary path here.** Session listing, per-session tool calls, tool-level metrics (error rate, latency, adoption), harness breakdowns, time series, and co-occurrence are all just aggregations over this event — query them with `execute-sql`. The only typed tools are for things SQL can't express: `posthog:mcp-analytics-intent-clusters-retrieve` / `...-recompute` (embedding-based intent clustering) and `posthog:mcp-analytics-sessions-generate-intent` (LLM session summary).
 
 ## Key properties
@@ -25,7 +27,7 @@ Any MCP server instrumented with the `@posthog/mcp` SDK — and PostHog's own MC
 coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))
 ```
 
-**Failures with detail.** `$mcp_tool_call` carries `$mcp_is_error` + `$mcp_error_message`; richer stack/exception data is on `$exception` events (`$exception_message`), correlated by `$session_id` and timestamp.
+**Failures with detail.** `$mcp_tool_call` carries `$mcp_is_error` + `$mcp_error_message`; richer stack/exception data is on `$exception` events (`$exception_message`), correlated by `$mcp_session_id` / `$session_id` and timestamp.
 
 ## Example queries
 
@@ -77,7 +79,11 @@ GROUP BY day ORDER BY day
 
 ### Harness (client) bucketing
 
-`$mcp_client_name` is the raw client string the MCP client sends (`claude-code/1.2.3`, `Anthropic/ClaudeAI`, `windsurf`, sometimes with a `(via mcp-remote …)` suffix). A bare `GROUP BY properties.$mcp_client_name` therefore fragments a single harness across version/variant strings. To group by harness, normalize the raw client name in an inner subquery, then bucket it with `multiIf`. This mapping mirrors `HARNESS_CATEGORIES` / `categorizeHarness()` in `products/mcp_analytics/frontend/mcpDashboardOverviewLogic.ts` — keep the two in sync until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
+A "harness" is the friendly product label for the MCP client that made a call — "Claude Agent SDK", "OpenAI Codex", "Cursor", … It is resolved **server-side** by `MCPHarnessBreakdownQueryRunner`, the single source of truth (`products/mcp_analytics/backend/mcp_harness.py`).
+
+**Prefer the typed tool.** For "which harnesses use our MCP, and how reliably?", call the `query-mcp-harness-breakdown` tool (gated behind the `mcp-analytics` flag). It returns calls / errors / error-rate / sessions per harness and accepts the same `dateRange` / `properties` / `filterTestAccounts` filters as the dashboard, so results match the UI exactly — no hand-written bucketing needed. (The session/feedback REST tools — `mcp-analytics-sessions-list` etc. — are disabled, so anything the typed tool doesn't express drops to `execute-sql` below.)
+
+**Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Resolution is two steps: resolve a normalized token from the strongest signal available, then bucket it. An event carries only raw signals — the `x-anthropic-client` header (`mcp_vendor_client`) is the only thing separating Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design); Claude Code's build (cli / sdk / vscode / desktop) rides in the User-Agent; the posthog-node MCP analytics SDK reports its `clientInfo.name` as `$mcp_client_name`, and the hosted server's session-pinned `mcp_session_client_name` covers everyone else; `$mcp_client_user_agent` and `$mcp_oauth_client_name` are last fallbacks. The SQL below mirrors `harness_label_sql` / `HARNESS_TOKEN_SQL` in `mcp_harness.py`; keep them in step until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
 
 **Share of users by harness** (answers "what % of my users are on Claude Code"):
 
@@ -93,10 +99,19 @@ FROM (
     SELECT
         distinct_id,
         multiIf(
+            h = 'claude-code claude-desktop', 'Claude Desktop',
+            h = 'claude-code claude-vscode', 'Claude Code (VS Code)',
+            startsWith(h, 'claude-code sdk'), 'Claude Agent SDK',
             startsWith(h, 'claude-code'), 'Claude Code',
-            h IN ('claude-ai', 'anthropic/claudeai'), 'Claude.ai',
+            h IN ('claude-ai', 'anthropic/claudeai', 'claude-user'), 'Claude.ai',
             h = 'anthropic/api', 'Anthropic API',
-            startsWith(h, 'codex') OR startsWith(h, 'openai-mcp'), 'OpenAI Codex',
+            h = 'cowork', 'Cowork',
+            h = 'claude-design', 'Claude Design',
+            h = 'openai-mcp chatgpt', 'ChatGPT',
+            h = 'openai-mcp agent builder', 'OpenAI Agent Builder',
+            h = 'openai-mcp responses api', 'OpenAI Responses API',
+            startsWith(h, 'openai-mcp'), 'OpenAI',
+            startsWith(h, 'codex'), 'OpenAI Codex',
             startsWith(h, 'cursor'), 'Cursor',
             startsWith(h, 'visual studio code'), 'VS Code',
             h = 'windsurf', 'Windsurf',
@@ -105,6 +120,10 @@ FROM (
             h = 'manus', 'Manus',
             h = 'coderabbit', 'CodeRabbit',
             startsWith(h, 'notion'), 'Notion',
+            startsWith(h, 'linear'), 'Linear',
+            position(h, 'librechat') > 0, 'LibreChat',
+            startsWith(h, 'pi-client'), 'Pi',
+            startsWith(h, 'antigravity'), 'Antigravity',
             h = 'poke', 'Poke',
             h = 'opencode', 'opencode',
             startsWith(h, 'kiro'), 'Kiro',
@@ -114,7 +133,29 @@ FROM (
     FROM (
         SELECT
             distinct_id,
-            lower(trim(replaceRegexpOne(toString(properties.$mcp_client_name), '\\s*\\(via mcp-remote[^)]*\\)\\s*', ''))) AS h
+            trim(replaceRegexpAll(lower(
+                coalesce(
+                    multiIf(
+                        lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
+                        lower(toString(properties.mcp_vendor_client)) = 'claudeai', 'claude-ai',
+                        lower(toString(properties.mcp_vendor_client)) = 'cowork', 'cowork',
+                        lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
+                        NULL
+                    ),
+                    if(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')) = 'claude-code',
+                       trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
+                       NULL),
+                    nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
+                    nullIf(nullIf(toString(properties.mcp_session_client_name), ''), 'mcp'),
+                    nullIf(trim(concat(
+                        extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'),
+                        ' ',
+                        extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')
+                    )), ''),
+                    nullIf(toString(properties.$mcp_oauth_client_name), ''),
+                    ''
+                )
+            ), '\\s*\\(via mcp-remote[^)]*\\)\\s*', '')) AS h
         FROM events
         WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 30 DAY
     )

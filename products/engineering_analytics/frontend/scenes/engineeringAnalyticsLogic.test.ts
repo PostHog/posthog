@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { initKeaTests } from '~/test/init'
@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import {
     engineeringAnalyticsCiCards,
     engineeringAnalyticsPullRequests,
+    engineeringAnalyticsQuarantine,
     engineeringAnalyticsSources,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
@@ -15,23 +16,31 @@ import type {
     CICardSummaryApi,
     GitHubSourceApi,
     PullRequestListItemApi,
+    QuarantineEntryApi,
+    QuarantineFileApi,
     WorkflowHealthItemApi,
 } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
 import { summarizeLifecycle, workflowRuns } from '../lib/lifecycle'
 import {
     DEFAULT_FILTERS,
+    DEFAULT_QUARANTINE_FILTERS,
     PullRequestRow,
+    QuarantineEntryRow,
     engineeringAnalyticsLogic,
     filterPullRequests,
+    filterQuarantineEntries,
+    quarantineCountsOf,
     workflowTrendSeries,
 } from './engineeringAnalyticsLogic'
+import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
 import { sortRunsForTriage } from './pullRequestDetailLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsCiCards: jest.fn(),
     engineeringAnalyticsPrLifecycle: jest.fn(),
     engineeringAnalyticsPullRequests: jest.fn(),
+    engineeringAnalyticsQuarantine: jest.fn(),
     engineeringAnalyticsSources: jest.fn(),
     engineeringAnalyticsWorkflowHealth: jest.fn(),
 }))
@@ -43,7 +52,65 @@ const mockPullRequests = engineeringAnalyticsPullRequests as jest.MockedFunction
 const mockWorkflowHealth = engineeringAnalyticsWorkflowHealth as jest.MockedFunction<
     typeof engineeringAnalyticsWorkflowHealth
 >
+const mockQuarantine = engineeringAnalyticsQuarantine as jest.MockedFunction<typeof engineeringAnalyticsQuarantine>
 const mockSources = engineeringAnalyticsSources as jest.MockedFunction<typeof engineeringAnalyticsSources>
+
+function apiQuarantineEntry(overrides: Partial<QuarantineEntryApi> = {}): QuarantineEntryApi {
+    return {
+        id: 'posthog/api/test/test_foo.py::TestFoo::test_bar',
+        runner: 'pytest',
+        reason: 'flaky ordering assertion',
+        owner: '@PostHog/team-foo',
+        issue: '',
+        added: '2026-06-01',
+        expires: '2026-06-20',
+        mode: 'run',
+        lifecycle: 'active',
+        days_until_expiry: 8,
+        selector_kind: 'test',
+        ...overrides,
+    }
+}
+
+function qRow(overrides: Partial<QuarantineEntryRow> = {}): QuarantineEntryRow {
+    return {
+        id: 'posthog/api/test/test_foo.py::TestFoo::test_bar',
+        runner: 'pytest',
+        reason: 'flaky',
+        owner: '@PostHog/team-foo',
+        issue: '',
+        added: '2026-06-01',
+        expires: '2026-06-20',
+        mode: 'run',
+        lifecycle: 'active',
+        daysUntilExpiry: 8,
+        selectorKind: 'test',
+        ...overrides,
+    }
+}
+
+const QUARANTINE: QuarantineFileApi = {
+    available: true,
+    entries: [
+        apiQuarantineEntry({ id: 'a-overdue', lifecycle: 'overdue', days_until_expiry: -10, owner: '@team/x' }),
+        apiQuarantineEntry({ id: 'b-grace', lifecycle: 'in_grace', days_until_expiry: -2, owner: '@team/y' }),
+        apiQuarantineEntry({ id: 'c-soon', lifecycle: 'expiring_soon', days_until_expiry: 3, owner: '@team/x' }),
+        apiQuarantineEntry({ id: 'd-active', lifecycle: 'active', days_until_expiry: 20, owner: '@team/z' }),
+        apiQuarantineEntry({
+            id: 'product:e',
+            lifecycle: 'active',
+            mode: 'skip',
+            selector_kind: 'product',
+            owner: '@team/z',
+            reason: 'teardown hang',
+        }),
+    ],
+    parse_errors: [],
+    parse_warnings: [],
+    repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
+    source_url: 'https://github.com/PostHog/posthog/blob/HEAD/.test_quarantine.json',
+    generated_at: '2026-06-12T00:00:00Z',
+}
 
 function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
     return {
@@ -64,6 +131,9 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         passing: 0,
         failing: 0,
         pending: 0,
+        pushes: 0,
+        rerunCycles: 0,
+        estimatedCostUsd: null,
         ...overrides,
     }
 }
@@ -81,13 +151,16 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
         merged_at: null,
         open_to_merge_seconds: null,
         labels: [],
+        pushes: 0,
+        rerun_cycles: 0,
+        estimated_cost_usd: null,
         ...overrides,
     }
 }
 
 const CARDS: CICardSummaryApi = { open_prs: 18, repos: 10, stuck: 6, failing_ci: 4 }
 const PRS: PullRequestListItemApi[] = [
-    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 } }),
+    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 }, pushes: 7, rerun_cycles: 2 }),
     apiPr({
         number: 102,
         title: 'fix: y',
@@ -103,7 +176,7 @@ const PRS: PullRequestListItemApi[] = [
 const WORKFLOWS: WorkflowHealthItemApi[] = [
     {
         repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
-        daily: [{ day: '2026-05-30', run_count: 100, completed: 95, successes: 90 }],
+        daily: [{ day: '2026-05-30', run_count: 100, completed: 95, successes: 90, failures: 4 }],
         workflow_name: 'CI',
         run_count: 100,
         success_rate: 0.95,
@@ -128,6 +201,7 @@ describe('engineeringAnalyticsLogic', () => {
         mockCiCards.mockResolvedValue(CARDS)
         mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
         mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
+        mockQuarantine.mockResolvedValue(QUARANTINE)
         // Most tests are single- or no-source; the picker tests override with SOURCES.
         mockSources.mockResolvedValue([])
     })
@@ -208,16 +282,11 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.activeCard).toBeNull()
     })
 
-    it('keeps filter state isolated per internal tab', () => {
-        const tabA = engineeringAnalyticsLogic({ tabId: 'tab-a' })
-        const tabB = engineeringAnalyticsLogic({ tabId: 'tab-b' })
-        tabA.mount()
-        tabB.mount()
-
-        tabA.actions.setStateFilter('merged')
-
-        expect(tabA.values.stateFilter).toBe('merged')
-        expect(tabB.values.stateFilter).toBe(DEFAULT_FILTERS.state)
+    it('scene logic mounts without a tabId so /engineering-analytics resolves instead of 404ing', () => {
+        // #62051 collapsed sceneLogic to single-scene state and stopped threading a tabId into
+        // scene logics. A tab-aware scene logic then throws "must have a tabId prop" on mount,
+        // sceneLogic's catch falls back to Error404, and every visit to the scene 404s.
+        expect(() => engineeringAnalyticsSceneLogic().mount()).not.toThrow()
     })
 
     it('maps the three endpoints into typed rows and defaults to the open filter', async () => {
@@ -233,15 +302,20 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.pullRequests).toHaveLength(2)
         expect(logic.values.pullRequests[0].authorHandle).toBe('alice')
         expect(ciStatusOf(logic.values.pullRequests[0])).toBe('failing')
+        expect(logic.values.pullRequests[0].pushes).toBe(7)
+        expect(logic.values.pullRequests[0].rerunCycles).toBe(2)
+        expect(logic.values.pullRequests[0].estimatedCostUsd).toBeNull()
         expect(logic.values.pullRequests[1].openToMergeSeconds).toBe(86400)
         expect(logic.values.workflowHealth).toHaveLength(1)
         expect(logic.values.workflowHealth[0].successRate).toBe(0.95)
         expect(logic.values.workflowHealth[0].daily).toEqual([
-            { day: '2026-05-30', runCount: 100, completed: 95, successes: 90 },
+            { day: '2026-05-30', runCount: 100, completed: 95, successes: 90, failures: 4 },
         ])
         // Default state filter is "open", so only the open PR survives.
         expect(logic.values.filteredPullRequests).toHaveLength(1)
-        expect(logic.values.loadFailed).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
     })
 
     it('reloads workflow health when the date range changes', async () => {
@@ -257,6 +331,43 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.setWorkflowDateRange('2026-01-01', '2026-03-01')
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
+    })
+
+    it('filters workflow health by branch server-side, only reloading on a real change', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d' })
+
+        // Typing only stages the value — no reload until applied.
+        logic.actions.setBranchFilter('main')
+        expect(logic.values.branchInput).toBe('main')
+        expect(logic.values.appliedBranch).toBe('')
+
+        // Applying promotes it and reloads with the branch param (trimmed).
+        logic.actions.setBranchFilter('  main  ')
+        logic.actions.applyBranchFilter()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
+        expect(logic.values.appliedBranch).toBe('main')
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d', branch: 'main' })
+
+        // Re-applying an unchanged value (e.g. a blur with no edit) does not reload.
+        mockWorkflowHealth.mockClear()
+        logic.actions.applyBranchFilter()
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadWorkflowHealth'])
+        expect(mockWorkflowHealth).not.toHaveBeenCalled()
+
+        // The applied branch persists across a date-range reload.
+        logic.actions.setWorkflowDateRange('-90d', null)
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', branch: 'main' })
+
+        // Clearing the box (e.g. the search × button, which only fires onChange('')) applies
+        // immediately — no Enter/blur needed — and drops the filter.
+        logic.actions.setBranchFilter('')
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(logic.values.appliedBranch).toBe('')
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 
     it('exposes source options and the multi-source flag only when more than one source exists', async () => {
@@ -325,9 +436,21 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it.each([
-        ['a bad day spikes', { completed: 25, successes: 22 }, 0.12, 'Jun 5 · 3 of 25 non-passing'],
-        ['an all-green day stays flat', { completed: 25, successes: 25 }, 0, 'Jun 5 · 0 of 25 non-passing'],
-        ['a day with nothing completed stays flat', { completed: 0, successes: 0 }, 0, 'Jun 5 · no completed runs'],
+        ['a bad day spikes', { completed: 25, successes: 22, failures: 3 }, 0.12, 'Jun 5 · 3 of 25 failed'],
+        ['an all-green day stays flat', { completed: 25, successes: 25, failures: 0 }, 0, 'Jun 5 · 0 of 25 failed'],
+        // Skipped/cancelled/action_required runs are completed but not failures — they must not spike the bar.
+        [
+            'skipped/cancelled runs are not failures',
+            { completed: 25, successes: 20, failures: 0 },
+            0,
+            'Jun 5 · 0 of 25 failed',
+        ],
+        [
+            'a day with nothing completed stays flat',
+            { completed: 0, successes: 0, failures: 0 },
+            0,
+            'Jun 5 · no completed runs',
+        ],
     ])('workflowTrendSeries: %s', (_label, counts, value, label) => {
         const series = workflowTrendSeries([{ day: '2026-06-05', runCount: 30, ...counts }])
         expect(series).toEqual({ values: [value], labels: [label] })
@@ -414,15 +537,161 @@ describe('engineeringAnalyticsLogic', () => {
         expect(sortRunsForTriage(runs).map((run) => run.conclusion)).toEqual(['failure', null, 'success', 'success'])
     })
 
-    it('flags loadFailed when no GitHub source is connected (cards endpoint 400s)', async () => {
-        mockCiCards.mockRejectedValue(new Error('Connect a GitHub data warehouse source to use engineering analytics.'))
-        mockPullRequests.mockResolvedValue({ items: [], truncated: false, limit: 0 })
-        mockWorkflowHealth.mockResolvedValue([])
-
+    it('flags notConnected when no GitHub source is connected (cards 400s)', async () => {
+        mockCiCards.mockRejectedValue(
+            new ApiError('Connect a GitHub data warehouse source to use engineering analytics.', 400)
+        )
         logic = engineeringAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadCardsFailure'])
 
-        expect(logic.values.loadFailed).toBe(true)
+        expect(logic.values.notConnected).toBe(true)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
+    })
+
+    it('flags notConnected from the workflow-health loader too (the Workflows scene renders no cards)', async () => {
+        // notConnected must react to any loader's 400, not cards alone — else the Workflows scene
+        // could miss the connect prompt.
+        mockWorkflowHealth.mockRejectedValue(new ApiError('Connect a GitHub data warehouse source.', 400))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthFailure'])
+
+        expect(logic.values.notConnected).toBe(true)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
+    })
+
+    it('a cards/PR 500 errors the PR scene only — not the Workflows scene', async () => {
+        mockCiCards.mockRejectedValue(new ApiError('Internal Server Error', 500))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCardsFailure'])
+
+        expect(logic.values.pullRequestsLoadError).toBe(true)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
+    })
+
+    it('a workflow-health 500 errors the Workflows scene only — not the PR scene', async () => {
+        mockWorkflowHealth.mockRejectedValue(new ApiError('Internal Server Error', 500))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthFailure'])
+
+        expect(logic.values.workflowHealthLoadError).toBe(true)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
+    })
+
+    it.each([
+        ['all', { lifecycle: 'all' as const }, ['a-overdue', 'b-grace', 'c-soon', 'd-active', 'e-skip']],
+        ['active', { lifecycle: 'active' as const }, ['d-active', 'e-skip']],
+        ['expiring_soon', { lifecycle: 'expiring_soon' as const }, ['c-soon']],
+        // past_expiry groups in_grace + overdue.
+        ['past_expiry', { lifecycle: 'past_expiry' as const }, ['a-overdue', 'b-grace']],
+        ['mode skip', { mode: 'skip' as const }, ['e-skip']],
+        ['owner', { owner: '@team/x' }, ['a-overdue', 'c-soon']],
+        ['search matches reason', { search: 'hang' }, ['e-skip']],
+        ['search matches id', { search: 'b-grace' }, ['b-grace']],
+    ])('filterQuarantineEntries: %s', (_label, partial, expectedIds) => {
+        const rows = [
+            qRow({ id: 'a-overdue', lifecycle: 'overdue', daysUntilExpiry: -10, owner: '@team/x' }),
+            qRow({ id: 'b-grace', lifecycle: 'in_grace', daysUntilExpiry: -2, owner: '@team/y' }),
+            qRow({ id: 'c-soon', lifecycle: 'expiring_soon', daysUntilExpiry: 3, owner: '@team/x' }),
+            qRow({ id: 'd-active', lifecycle: 'active', daysUntilExpiry: 20, owner: '@team/z' }),
+            qRow({ id: 'e-skip', lifecycle: 'active', mode: 'skip', owner: '@team/z', reason: 'teardown hang' }),
+        ]
+        const result = filterQuarantineEntries(rows, { ...DEFAULT_QUARANTINE_FILTERS, ...partial })
+        expect(result.map((row) => row.id)).toEqual(expectedIds)
+    })
+
+    it('quarantineCountsOf tallies lifecycle buckets, past expiry, and skips', () => {
+        const counts = quarantineCountsOf([
+            qRow({ lifecycle: 'overdue' }),
+            qRow({ lifecycle: 'in_grace' }),
+            qRow({ lifecycle: 'expiring_soon' }),
+            qRow({ lifecycle: 'active' }),
+            qRow({ lifecycle: 'active', mode: 'skip' }),
+        ])
+        expect(counts).toEqual({
+            active: 2,
+            expiringSoon: 1,
+            inGrace: 1,
+            overdue: 1,
+            pastExpiry: 2,
+            skipped: 1,
+            total: 5,
+        })
+    })
+
+    it('maps the quarantine endpoint into rows with counts and owner options', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadQuarantineSuccess'])
+
+        expect(logic.values.quarantine?.available).toBe(true)
+        expect(logic.values.quarantine?.repoFullName).toBe('PostHog/posthog')
+        expect(logic.values.quarantine?.entries).toHaveLength(5)
+        expect(logic.values.quarantineCounts).toEqual({
+            active: 2,
+            expiringSoon: 1,
+            inGrace: 1,
+            overdue: 1,
+            pastExpiry: 2,
+            skipped: 1,
+            total: 5,
+        })
+        expect(logic.values.quarantineOwnerOptions).toEqual(['@team/x', '@team/y', '@team/z'])
+        expect(logic.values.quarantineLoadFailed).toBe(false)
+    })
+
+    it('quarantine cards toggle the lifecycle and mode lens and back', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        expect(logic.values.activeQuarantineCard).toBeNull()
+
+        logic.actions.applyQuarantineCard('past_expiry')
+        expect(logic.values.activeQuarantineCard).toBe('past_expiry')
+        expect(logic.values.quarantineLifecycleFilter).toBe('past_expiry')
+        expect(logic.values.quarantineModeFilter).toBe('all')
+
+        logic.actions.applyQuarantineCard('skipped')
+        expect(logic.values.activeQuarantineCard).toBe('skipped')
+        expect(logic.values.quarantineModeFilter).toBe('skip')
+        expect(logic.values.quarantineLifecycleFilter).toBe('all')
+
+        // Clicking the active card clears the lens back to the default view.
+        logic.actions.applyQuarantineCard('skipped')
+        expect(logic.values.activeQuarantineCard).toBeNull()
+        expect(logic.values.quarantineModeFilter).toBe('all')
+    })
+
+    it('resetQuarantineFilters returns filters to defaults and clears hasActiveQuarantineFilters', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        expect(logic.values.hasActiveQuarantineFilters).toBe(false)
+
+        logic.actions.setQuarantineSearch('flake')
+        logic.actions.setQuarantineLifecycleFilter('active')
+        logic.actions.setQuarantineModeFilter('skip')
+        logic.actions.setQuarantineOwner('@team/x')
+        expect(logic.values.hasActiveQuarantineFilters).toBe(true)
+
+        logic.actions.resetQuarantineFilters()
+        expect(logic.values.quarantineFilters).toEqual(DEFAULT_QUARANTINE_FILTERS)
+        expect(logic.values.hasActiveQuarantineFilters).toBe(false)
+    })
+
+    it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
+        mockQuarantine.mockRejectedValue(
+            new Error('Connect a GitHub data warehouse source to use engineering analytics.')
+        )
+
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadQuarantineFailure'])
+
+        expect(logic.values.quarantineLoadFailed).toBe(true)
     })
 })

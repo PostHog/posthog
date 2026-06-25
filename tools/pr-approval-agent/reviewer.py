@@ -170,6 +170,13 @@ REVIEWER_SYSTEM = textwrap.dedent(
     2. Read source files only if something looks off
     3. ESCALATE if you'd need deep review to feel confident
 
+    Verify before you flag (every tier, including quick T1a reviews):
+    - Never claim a symbol "does not exist" or "will throw at runtime" from the
+      diff alone — the diff is changed lines, not the whole codebase. Grep to
+      confirm first; if you can't confirm it's missing, don't flag it. Globals
+      can be composed from many modules (e.g. `urls` is assembled from
+      per-product manifests), so absence from the obvious file is not absence.
+
     Verdicts:
     - APPROVE: no showstoppers found
     - REFUSE: concrete issue found

@@ -72,7 +72,7 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
 
     def test_classifier_true_returns_true(self):
         with (
-            patch("products.slack_app.backend.api._collect_thread_messages", return_value=[]),
+            patch("products.slack_app.backend.services.slack_messages.cached_collect_thread_messages", return_value=[]),
             patch(
                 "posthog.temporal.ai.slack_app.activities.classifiers.classify_message_is_agent_directed",
                 return_value=True,
@@ -85,7 +85,7 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
 
     def test_classifier_false_returns_false(self):
         with (
-            patch("products.slack_app.backend.api._collect_thread_messages", return_value=[]),
+            patch("products.slack_app.backend.services.slack_messages.cached_collect_thread_messages", return_value=[]),
             patch(
                 "posthog.temporal.ai.slack_app.activities.classifiers.classify_message_is_agent_directed",
                 return_value=False,
@@ -98,7 +98,7 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
         on the message text alone rather than dropping silently."""
         with (
             patch(
-                "products.slack_app.backend.api._collect_thread_messages",
+                "products.slack_app.backend.services.slack_messages.cached_collect_thread_messages",
                 side_effect=RuntimeError("slack hiccup"),
             ),
             patch(

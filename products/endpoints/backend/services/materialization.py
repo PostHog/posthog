@@ -16,6 +16,7 @@ from rest_framework.request import Request
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.printer.utils import print_prepared_ast
@@ -29,6 +30,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag, sync_saved_query_to_dag
 from products.endpoints.backend.constants import DATA_FRESHNESS_BUCKETS
 from products.endpoints.backend.materialization_transforms import (
+    MaterializationNotSupportedError,
     _extract_aggregate_name,
     analyze_variables_for_materialization,
     build_endpoint_hogql,
@@ -41,7 +43,7 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
 from products.endpoints.backend.services.activity import EndpointContext
 from products.endpoints.backend.services.strategies import apply_where_filter, strategy_for
-from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
+from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 logger = structlog.get_logger(__name__)
 
@@ -148,8 +150,29 @@ class EndpointMaterializationService:
         except ValidationError:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
             raise
-        except Exception:
+        except (ExposedHogQLError, MaterializationNotSupportedError) as e:
+            # A bad user query, not a system fault — surface as a 400. Pre-flight validation
+            # (can_materialize) normally catches these, so reaching here is a backstop.
+            ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
+            raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")
+        except Exception as e:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="error").inc()
+            # Genuine system fault (user-query limitations are handled above). Log + capture so
+            # status="error" — which the alert fires on — is never a blind spot.
+            logger.exception(
+                "Failed to enable endpoint materialization",
+                endpoint_name=endpoint.name,
+                version=version.version,
+                team_id=self.team.pk,
+            )
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team.pk,
+                    "endpoint_name": endpoint.name,
+                },
+            )
             # Not a request-validation problem — surface as a server error, not a 400.
             raise APIException("Failed to enable materialization.")
 
@@ -388,8 +411,23 @@ class EndpointMaterializationService:
                     )
                 return q
 
-            # Each call builds a fresh SelectQuery, so WHERE mutations don't leak between calls
-            execution_query_str = to_printed_hogql(_build_exec_preview(version.materialized_view_name), team=self.team)
+            # Each call builds a fresh SelectQuery, so WHERE mutations don't leak between calls.
+            # Type resolution (to_printed_hogql) needs the materialized table to exist in the
+            # database, which only holds once materialization has completed. Previewing a
+            # not-yet-materialized version means that table is absent, so we'd otherwise hit
+            # "Unknown table". Fall back to printing without type resolution in that case — the
+            # frontend uses execution_query only as a presence flag and renders the display variant.
+            if version.is_materialized:
+                execution_query_str = to_printed_hogql(
+                    _build_exec_preview(version.materialized_view_name), team=self.team
+                )
+            else:
+                execution_query_str = print_prepared_ast(
+                    node=_build_exec_preview(version.materialized_view_name),
+                    context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                    dialect="hogql",
+                    pretty=True,
+                )
 
             # Display variant uses the friendly endpoint name — printed without type resolution
             # since the friendly name isn't a real table in the database

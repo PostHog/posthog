@@ -24,20 +24,41 @@ async function slackCall(
     method: string,
     body: Record<string, unknown>
 ): Promise<unknown> {
+    // Slack's read methods (conversations.*) reject JSON — they read
+    // form-encoded params. Form works for every method, so use it throughout.
+    const form = new URLSearchParams()
+    for (const [k, v] of Object.entries(body)) {
+        if (v !== undefined && v !== null) {
+            form.append(k, String(v))
+        }
+    }
     const res = await http.fetch(`https://slack.com/api/${method}`, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Type': 'application/x-www-form-urlencoded',
             Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(body),
+        body: form.toString(),
     })
     if (!res.ok) {
         throw new Error(`slack.${method} HTTP ${res.status}`)
     }
-    const j = (await res.json()) as { ok: boolean; error?: string }
+    const j = (await res.json()) as {
+        ok: boolean
+        error?: string
+        warning?: string
+        response_metadata?: { messages?: string[] }
+    }
     if (!j.ok) {
-        throw new Error(`slack.${method} error: ${j.error ?? 'unknown'}`)
+        // Include Slack's warning + field messages so the agent can self-correct.
+        const parts = [`slack.${method} error: ${j.error ?? 'unknown'}`]
+        if (j.warning) {
+            parts.push(`warning: ${j.warning}`)
+        }
+        if (j.response_metadata?.messages?.length) {
+            parts.push(`detail: ${j.response_metadata.messages.join('; ')}`)
+        }
+        throw new Error(parts.join(' | '))
     }
     return j
 }
@@ -99,7 +120,7 @@ export const slackPostMessageV1 = defineNativeTool({
         ts: Type.String(),
         channel: Type.String(),
     }),
-    requires: { scopes: ['chat:write'] },
+    requires: { provider: { id: 'slack', scopes: ['chat:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)
@@ -121,7 +142,7 @@ export const slackUpdateMessageV1 = defineNativeTool({
         text: Type.String(),
     }),
     returns: Type.Object({ ok: Type.Boolean() }),
-    requires: { scopes: ['chat:write'] },
+    requires: { provider: { id: 'slack', scopes: ['chat:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)
@@ -146,7 +167,7 @@ export const slackReadChannelV1 = defineNativeTool({
         has_more: Type.Boolean(),
         next_cursor: Type.Optional(Type.String()),
     }),
-    requires: { scopes: ['channels:history', 'groups:history'] },
+    requires: { provider: { id: 'slack', scopes: ['channels:history', 'groups:history'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)
@@ -189,7 +210,7 @@ export const slackReadThreadV1 = defineNativeTool({
         has_more: Type.Boolean(),
         next_cursor: Type.Optional(Type.String()),
     }),
-    requires: { scopes: ['channels:history', 'groups:history'] },
+    requires: { provider: { id: 'slack', scopes: ['channels:history', 'groups:history'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)
@@ -225,7 +246,7 @@ export const slackReactV1 = defineNativeTool({
         name: Type.String(),
     }),
     returns: Type.Object({ ok: Type.Boolean() }),
-    requires: { scopes: ['reactions:write'] },
+    requires: { provider: { id: 'slack', scopes: ['reactions:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)
