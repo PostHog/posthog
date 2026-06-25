@@ -397,6 +397,12 @@ banned-module-level-imports = ["elevenlabs", "matplotlib", "trafilatura"]
 # package — runtime code (posthog/, ee/, products/) must never import from it. tools/ may
 # import itself (exempted via per-file-ignores below).
 "tools".msg = "tools/ is dev and CI tooling and must not be imported by runtime code."
+# hogli is a uv workspace member (tools/hogli), so its `hogli` package is editable-installed
+# into the runtime venv and resolves as a bare `import hogli` — which the `tools` prefix above
+# does not catch. Ban it by name too. Any other tools/ subdir that becomes a workspace member
+# must be added here. (Non-member tools — clitools, mcp, internal, etc. — aren't installed and
+# can't resolve at runtime; their names are also too generic to ban safely, e.g. `mcp` is the SDK.)
+"hogli".msg = "hogli is dev/CI tooling (tools/hogli) and must not be imported by runtime code."
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
