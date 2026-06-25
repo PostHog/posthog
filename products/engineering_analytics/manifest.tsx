@@ -45,6 +45,14 @@ export const manifest: ProductManifest = {
             description: "A single workflow's recent runs across the connected repo.",
             iconType: 'health',
         },
+        EngineeringAnalyticsAuthor: {
+            import: () => import('./frontend/scenes/EngineeringAnalyticsAuthorScene'),
+            projectBased: true,
+            name: 'Author CI',
+            layout: 'app-container',
+            description: "One author's pull requests and the CI cost they incurred.",
+            iconType: 'health',
+        },
     },
     // Detail paths mirror GitHub 1:1 (owner/repo/pull/:n, owner/repo/actions/runs/:id); the cross-repo
     // aggregate dashboards stay at the product root. Provider lives on the data (RepoRef.provider), so
@@ -64,6 +72,7 @@ export const manifest: ProductManifest = {
             'EngineeringAnalyticsWorkflowRuns',
             'engineeringAnalyticsWorkflowRuns',
         ],
+        '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     },
     redirects: {},
     urls: {
@@ -75,6 +84,8 @@ export const manifest: ProductManifest = {
             `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
         engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
             `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+        engineeringAnalyticsAuthor: (handle: string): string =>
+            `/engineering-analytics/author/${encodeURIComponent(handle)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

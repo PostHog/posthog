@@ -114,6 +114,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunDetailScene'),
     EngineeringAnalyticsWorkflowRuns: () =>
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunsScene'),
+    EngineeringAnalyticsAuthor: () =>
+        import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsAuthorScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -255,6 +257,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'EngineeringAnalyticsWorkflowRuns',
         'engineeringAnalyticsWorkflowRuns',
     ],
+    '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
@@ -685,6 +688,13 @@ export const productConfiguration: Record<string, any> = {
         description: "A single workflow's recent runs across the connected repo.",
         iconType: 'health',
     },
+    EngineeringAnalyticsAuthor: {
+        projectBased: true,
+        name: 'Author CI',
+        layout: 'app-container',
+        description: "One author's pull requests and the CI cost they incurred.",
+        iconType: 'health',
+    },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -1065,6 +1075,8 @@ export const productUrls = {
         `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
     engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
         `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+    engineeringAnalyticsAuthor: (handle: string): string =>
+        `/engineering-analytics/author/${encodeURIComponent(handle)}`,
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
@@ -1658,6 +1670,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'EngineeringAnalyticsPullRequest',
             'EngineeringAnalyticsWorkflowRun',
             'EngineeringAnalyticsWorkflowRuns',
+            'EngineeringAnalyticsAuthor',
         ],
     },
     {

@@ -123,7 +123,17 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     {row.authorAvatarUrl && (
                         <img src={row.authorAvatarUrl} alt="" className="h-5 w-5 shrink-0 rounded-full" />
                     )}
-                    <span className="text-xs">{row.authorHandle}</span>
+                    <Link
+                        to={
+                            combineUrl(
+                                urls.engineeringAnalyticsAuthor(row.authorHandle),
+                                sourceId ? { source: sourceId } : {}
+                            ).url
+                        }
+                        className="text-xs"
+                    >
+                        {row.authorHandle}
+                    </Link>
                     {row.isBot && <LemonTag type="muted">bot</LemonTag>}
                 </div>
             ),
