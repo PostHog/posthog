@@ -130,6 +130,7 @@ def resolve_from_candidates(
         defaults = list(
             SlackSettings.objects.filter(slack_workspace_id=slack_team_id)
             .filter(Q(slack_user_id=slack_user_id) | Q(slack_user_id__isnull=True))
+            .exclude(default_integration__isnull=True)
             .select_related(
                 "default_integration",
                 "default_integration__team",
