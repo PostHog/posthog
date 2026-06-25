@@ -426,6 +426,14 @@ class DebugCHQueries(viewsets.ViewSet):
             if experiment_id_filter <= 0:
                 raise exceptions.ValidationError("experiment_id must be a positive integer.")
 
+        metric_type_filter = request.query_params.get("metric_type") or None
+        if metric_type_filter is not None and metric_type_filter not in {"mean", "funnel", "ratio", "retention"}:
+            raise exceptions.ValidationError("metric_type must be one of: mean, funnel, ratio, retention.")
+
+        funnel_order_type_filter = request.query_params.get("funnel_order_type") or None
+        if funnel_order_type_filter is not None and funnel_order_type_filter not in {"ordered", "unordered", "strict"}:
+            raise exceptions.ValidationError("funnel_order_type must be one of: ordered, unordered, strict.")
+
         params: dict = {
             "cluster": CLICKHOUSE_CLUSTER,
             "hours": hours,
@@ -438,6 +446,16 @@ class DebugCHQueries(viewsets.ViewSet):
         if experiment_id_filter is not None:
             extra_filters += " AND JSONExtractInt(log_comment, 'experiment_id') = %(experiment_id)s"
             params["experiment_id"] = experiment_id_filter
+        # metric_type and funnel_order_type are tagged before the precompute builds run, so the build
+        # sub-queries carry them too and stay grouped with their parent read under these filters.
+        if metric_type_filter is not None:
+            extra_filters += " AND JSONExtractString(log_comment, 'experiment_metric_type') = %(metric_type)s"
+            params["metric_type"] = metric_type_filter
+        if funnel_order_type_filter is not None:
+            extra_filters += (
+                " AND JSONExtractString(log_comment, 'experiment_funnel_order_type') = %(funnel_order_type)s"
+            )
+            params["funnel_order_type"] = funnel_order_type_filter
 
         # Each row is one ClickHouse query. A top-level read (surface != 'precompute_build') and the
         # precompute-build INSERTs it triggered share an experiment_query_group_id (set by the runner).
