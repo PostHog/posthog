@@ -1326,13 +1326,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     for tt, mode in type_map.items():
                         if tt not in VALID_TICKET_TYPES or mode not in VALID_REPLY_MODES:
                             continue
+                        # Demote bot_reply to private_note for ticket types that may never be
+                        # published (diagnostic/account_billing). Coerce rather than reject so a
+                        # stale value doesn't block unrelated settings saves.
                         if mode == "bot_reply" and tt not in BOT_REPLY_TICKET_TYPES:
-                            raise serializers.ValidationError(
-                                {
-                                    "ai_reply_modes": f"'bot_reply' is not allowed for ticket type '{tt}'. "
-                                    f"Only {', '.join(sorted(BOT_REPLY_TICKET_TYPES))} may be sent directly to the customer."
-                                }
-                            )
+                            mode = "private_note"
                         cleaned_map[tt] = mode
                     if cleaned_map:
                         cleaned_modes[ch] = cleaned_map
