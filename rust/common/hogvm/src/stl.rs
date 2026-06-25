@@ -952,6 +952,74 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 date_trunc_impl(vm, "month", &args[0])
             }),
         ),
+        (
+            "toStartOfWeek",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "toStartOfWeek")?;
+                let (secs, zone) = hog_datetime_parts(vm, &args[0], "toStartOfWeek")?;
+                let utc = DateTime::from_timestamp(secs.floor() as i64, 0).ok_or_else(|| {
+                    VmError::NativeCallFailed("toStartOfWeek: timestamp out of range".to_string())
+                })?;
+                let n = utc.naive_utc();
+                let weekday = n.weekday().number_from_monday() as i64; // Mon=1..Sun=7
+                let start = (n.date() - chrono::Duration::days(weekday - 1))
+                    .and_hms_opt(0, 0, 0)
+                    .ok_or_else(|| VmError::NativeCallFailed("toStartOfWeek: bad date".to_string()))?;
+                make_hog_datetime(zone_local_timestamp(&zone, &start)?, &zone)
+            }),
+        ),
+        (
+            "toIntervalDay",
+            native_func(|vm, args| make_hog_interval(vm, &args, "day")),
+        ),
+        (
+            "toIntervalHour",
+            native_func(|vm, args| make_hog_interval(vm, &args, "hour")),
+        ),
+        (
+            "toIntervalMinute",
+            native_func(|vm, args| make_hog_interval(vm, &args, "minute")),
+        ),
+        (
+            "toIntervalMonth",
+            native_func(|vm, args| make_hog_interval(vm, &args, "month")),
+        ),
+        (
+            "dateAdd",
+            native_func(|vm, args| {
+                assert_argc(&args, 3, "dateAdd")?;
+                let unit: String = args[0].deref(&vm.heap)?.try_as::<str>()?.to_string();
+                let amount = args[1].deref(&vm.heap)?.try_as::<Num>()?.to_integer();
+                date_add_impl(vm, &unit, amount, &args[2])
+            }),
+        ),
+        (
+            "addDays",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "addDays")?;
+                let n = args[1].deref(&vm.heap)?.try_as::<Num>()?.to_integer();
+                apply_interval(vm, &args[0], "day", n)
+            }),
+        ),
+        (
+            "dateDiff",
+            native_func(|vm, args| {
+                assert_argc(&args, 3, "dateDiff")?;
+                let unit: String = args[0].deref(&vm.heap)?.try_as::<str>()?.to_string();
+                date_diff_impl(vm, &unit, &args[1], &args[2])
+            }),
+        ),
+        (
+            "formatDateTime",
+            native_func(|vm, args| {
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(VmError::NativeCallFailed(
+                        "formatDateTime takes 2 or 3 arguments".to_string(),
+                    ));
+                }
+                format_datetime_impl(vm, &args)
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -1428,6 +1496,164 @@ fn date_trunc_impl(vm: &HogVM, unit: &str, value: &HogValue) -> Result<HogValue,
         }
     };
     make_hog_datetime(new_secs, &zone)
+}
+
+// Epoch seconds of a naive wall-clock interpreted in `zone`.
+fn zone_local_timestamp(zone: &str, naive: &NaiveDateTime) -> Result<f64, VmError> {
+    let tz: chrono_tz::Tz = zone
+        .parse()
+        .map_err(|_| VmError::NativeCallFailed(format!("unknown timezone {zone}")))?;
+    match tz.from_local_datetime(naive) {
+        LocalResult::Single(dt) | LocalResult::Ambiguous(dt, _) => Ok(dt.timestamp() as f64),
+        LocalResult::None => Err(VmError::NativeCallFailed(
+            "local time does not exist".to_string(),
+        )),
+    }
+}
+
+// {__hogInterval__: true, value, unit} built directly so keys stay in insertion order when printed.
+fn make_hog_interval(vm: &HogVM, args: &[HogValue], unit: &str) -> Result<HogValue, VmError> {
+    assert_argc(args, 1, "toInterval")?;
+    let n = args[0].deref(&vm.heap)?.try_as::<Num>()?.clone();
+    let mut map = IndexMap::new();
+    map.insert("__hogInterval__".to_string(), HogLiteral::Boolean(true).into());
+    map.insert("value".to_string(), HogLiteral::Number(n).into());
+    map.insert("unit".to_string(), HogLiteral::String(unit.to_string()).into());
+    Ok(HogLiteral::Object(map).into())
+}
+
+// Add an interval to a DateTime. day/hour/minute/second are absolute durations; month is wall-clock
+// field math (clamping the day) re-interpreted in the value's zone.
+fn apply_interval(vm: &HogVM, dt_value: &HogValue, unit: &str, value: i64) -> Result<HogValue, VmError> {
+    let (secs, zone) = hog_datetime_parts(vm, dt_value, "dateAdd")?;
+    let new_secs = match unit {
+        "day" => secs + (value as f64) * 86400.0,
+        "hour" => secs + (value as f64) * 3600.0,
+        "minute" => secs + (value as f64) * 60.0,
+        "second" => secs + value as f64,
+        "month" => {
+            let utc = DateTime::from_timestamp(secs.floor() as i64, 0).ok_or_else(|| {
+                VmError::NativeCallFailed("dateAdd: timestamp out of range".to_string())
+            })?;
+            let n = utc.naive_utc();
+            let total = (n.year() as i64) * 12 + (n.month() as i64 - 1) + value;
+            let new_year = total.div_euclid(12) as i32;
+            let new_month = (total.rem_euclid(12) + 1) as u32;
+            let mut day = n.day();
+            let truncated = loop {
+                if let Some(d) = NaiveDate::from_ymd_opt(new_year, new_month, day)
+                    .and_then(|d| d.and_hms_opt(n.hour(), n.minute(), n.second()))
+                {
+                    break d;
+                }
+                if day <= 1 {
+                    return Err(VmError::NativeCallFailed("dateAdd: invalid date".to_string()));
+                }
+                day -= 1;
+            };
+            zone_local_timestamp(&zone, &truncated)?
+        }
+        _ => return Err(VmError::NativeCallFailed(format!("Unknown interval unit {unit}"))),
+    };
+    make_hog_datetime(new_secs, &zone)
+}
+
+fn date_add_impl(vm: &HogVM, unit: &str, amount: i64, dt_value: &HogValue) -> Result<HogValue, VmError> {
+    let (unit, amount) = match unit {
+        "day" | "hour" | "minute" | "second" | "month" => (unit, amount),
+        "week" => ("day", amount * 7),
+        "year" => ("month", amount * 12),
+        _ => {
+            return Err(VmError::NativeCallFailed(format!(
+                "Unsupported interval unit: {unit}"
+            )))
+        }
+    };
+    apply_interval(vm, dt_value, unit, amount)
+}
+
+fn date_diff_impl(vm: &HogVM, unit: &str, start_v: &HogValue, end_v: &HogValue) -> Result<HogValue, VmError> {
+    let start = temporal_seconds(vm, start_v, "dateDiff")?;
+    let end = temporal_seconds(vm, end_v, "dateDiff")?;
+    let diff = end - start;
+    let utc_year_month = |secs: f64| -> Result<(i64, i64), VmError> {
+        let dt = DateTime::from_timestamp(secs.floor() as i64, 0)
+            .ok_or_else(|| VmError::NativeCallFailed("dateDiff: timestamp out of range".to_string()))?;
+        Ok((dt.year() as i64, dt.month() as i64))
+    };
+    let result = match unit {
+        "day" => (diff / 86400.0).floor() as i64,
+        "hour" => (diff / 3600.0).floor() as i64,
+        "minute" => (diff / 60.0).floor() as i64,
+        "second" => diff as i64,
+        "week" => ((diff / 86400.0).floor() as i64) / 7,
+        "month" => {
+            let (sy, sm) = utc_year_month(start)?;
+            let (ey, em) = utc_year_month(end)?;
+            (ey * 12 + em) - (sy * 12 + sm)
+        }
+        "year" => utc_year_month(end)?.0 - utc_year_month(start)?.0,
+        _ => {
+            return Err(VmError::NativeCallFailed(format!(
+                "Unsupported unit for dateDiff: {unit}"
+            )))
+        }
+    };
+    Ok(HogLiteral::Number(Num::Integer(result)).into())
+}
+
+fn format_datetime_impl(vm: &HogVM, args: &[HogValue]) -> Result<HogValue, VmError> {
+    let (secs, dt_zone) = hog_datetime_parts(vm, &args[0], "formatDateTime")?;
+    let format: String = args[1].deref(&vm.heap)?.try_as::<str>()?.to_string();
+    let zone = if args.len() > 2 {
+        args[2].deref(&vm.heap)?.try_as::<str>()?.to_string()
+    } else {
+        dt_zone
+    };
+    let translated = translate_clickhouse_format(&format);
+    let tz: chrono_tz::Tz = zone
+        .parse()
+        .map_err(|_| VmError::NativeCallFailed(format!("formatDateTime: unknown timezone {zone}")))?;
+    let dt = match tz.timestamp_opt(secs.floor() as i64, 0) {
+        LocalResult::Single(dt) | LocalResult::Ambiguous(dt, _) => dt,
+        LocalResult::None => {
+            return Err(VmError::NativeCallFailed(
+                "formatDateTime: invalid timestamp".to_string(),
+            ))
+        }
+    };
+    Ok(HogLiteral::String(dt.format(&translated).to_string()).into())
+}
+
+// Translate the reference's ClickHouse-style format tokens (% + token) to chrono strftime codes.
+fn translate_clickhouse_format(format: &str) -> String {
+    let chars: Vec<char> = format.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '%' && i + 1 < chars.len() {
+            i += 1;
+            out.push_str(translate_format_token(chars[i]));
+        } else {
+            out.push(chars[i]);
+        }
+        i += 1;
+    }
+    out
+}
+
+fn translate_format_token(c: char) -> &'static str {
+    match c {
+        'a' => "%a", 'b' => "%b", 'c' => "%m", 'C' => "%y", 'd' => "%d",
+        'D' => "%m/%d/%y", 'e' => "%d", 'f' => "%f", 'F' => "%Y-%m-%d",
+        'g' => "%y", 'G' => "%Y", 'h' => "%I", 'H' => "%H", 'i' => "%M",
+        'I' => "%I", 'j' => "%j", 'k' => "%H", 'l' => "%I", 'm' => "%m",
+        'M' => "%B", 'n' => "\n", 'p' => "%p", 'r' => "%I:%M %p", 'R' => "%H:%M",
+        's' => "%S", 'S' => "%S", 't' => "\t", 'T' => "%H:%M:%S", 'u' => "%u",
+        'V' => "%V", 'w' => "%w", 'W' => "%A", 'y' => "%y", 'Y' => "%Y",
+        'z' => "%z", '%' => "%%",
+        _ => "",
+    }
 }
 
 fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {
