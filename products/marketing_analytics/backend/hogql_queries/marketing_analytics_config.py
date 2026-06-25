@@ -109,18 +109,19 @@ class MarketingAnalyticsConfig:
 
     @staticmethod
     def _precompute_flags(team: "Team") -> dict[str, bool]:
-        """Evaluate the marketing precompute flags once per team instance.
+        """Evaluate the conversion + cost precompute flags once per team instance.
 
         `from_team` runs in every runner's `__init__` (table + aggregated + non-integrated, and each also
         spins up a previous-period runner for compare), so a single dashboard load otherwise evaluates each
         flag ~6 times. The team model instance is shared across the runners of a query, so caching on it
         dedupes the evaluation to once per load without leaking across requests (a fresh team is loaded per
-        request). All three flags are evaluated together so the cache is populated in one pass.
+        request). The multi-touch flag is evaluated separately (see `_multi_touch_enabled`) so single-touch
+        modes never trigger its evaluation.
 
-        Test authors: the cache lives on the team instance (`team._ma_precompute_flags`). A test that reuses
-        the same team across cases (e.g. class-level setup) while mocking `feature_enabled_or_false`
-        differently per case will get the first case's stale flags. Clear it with
-        `del team._ma_precompute_flags` in setup/teardown to force re-evaluation.
+        Test authors: the cache lives on the team instance (`team._ma_precompute_flags`, and
+        `team._ma_multi_touch_flag`). A test that reuses the same team across cases (e.g. class-level setup)
+        while mocking `feature_enabled_or_false` differently per case will get the first case's stale flags.
+        Clear both attributes in setup/teardown to force re-evaluation.
         """
         cached = getattr(team, "_ma_precompute_flags", None)
         if cached is not None:
@@ -140,15 +141,29 @@ class MarketingAnalyticsConfig:
                 groups=groups,
                 group_properties=group_properties,
             ),
-            "multi_touch": feature_enabled_or_false(
-                "marketing-analytics-multi-touch-attribution",
-                str(team.uuid),
-                groups=groups,
-                group_properties=group_properties,
-            ),
         }
         team._ma_precompute_flags = flags  # type: ignore[attr-defined]
         return flags
+
+    @staticmethod
+    def _multi_touch_enabled(team: "Team") -> bool:
+        """Evaluate the multi-touch attribution flag once per team instance.
+
+        Kept out of `_precompute_flags` so single-touch modes never evaluate it (a needless flag call that
+        would otherwise fire a `$feature_flag_called` event). Cached on the team instance for the same
+        per-load dedup reason.
+        """
+        cached = getattr(team, "_ma_multi_touch_flag", None)
+        if cached is not None:
+            return cached
+        enabled = feature_enabled_or_false(
+            "marketing-analytics-multi-touch-attribution",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={"organization": {"id": str(team.organization.id)}},
+        )
+        team._ma_multi_touch_flag = enabled  # type: ignore[attr-defined]
+        return enabled
 
     @classmethod
     def from_team(cls, team: "Team") -> "MarketingAnalyticsConfig":
@@ -163,13 +178,14 @@ class MarketingAnalyticsConfig:
         config.conversion_goal_precomputation_enabled = flags["conversion"]
         config.costs_precomputation_enabled = flags["costs"]
 
-        # Gate multi-touch attribution behind its flag; fall back to last-touch when disabled.
-        if config.attribution_mode in MULTI_TOUCH_MODES and not flags["multi_touch"]:
+        # Gate multi-touch attribution behind its flag; fall back to last-touch when disabled. Evaluated
+        # only for multi-touch modes so single-touch never triggers the flag call.
+        if config.attribution_mode in MULTI_TOUCH_MODES and not cls._multi_touch_enabled(team):
             logger.warning(
                 "multi_touch_attribution_disabled",
                 team_id=team.pk,
                 requested_mode=config.attribution_mode.value,
-                flag_value=flags["multi_touch"],
+                flag_value=False,
             )
             config.attribution_mode = AttributionMode.LAST_TOUCH
 
