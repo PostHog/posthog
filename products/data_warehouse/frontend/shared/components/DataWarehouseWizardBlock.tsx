@@ -26,8 +26,8 @@ export function DataWarehouseWizardBlock(): JSX.Element {
                 ))}
             </div>
             <p className="text-xs text-muted mb-1">
-                Run this from your project root — the wizard auto-detects databases like Postgres, MySQL, Supabase and
-                MongoDB and connects them for you.
+                Run this from your project root — the wizard auto-detects databases like Postgres, MySQL, Supabase,
+                MongoDB and BigQuery and connects them for you.
             </p>
             <CommandBlock
                 command={wizardCommand}
