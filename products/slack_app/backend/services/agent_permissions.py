@@ -22,7 +22,7 @@ SLACK_PERMISSION_CONTEXT_KIND = "task_permission_request"
 SLACK_PERMISSION_CONTEXT_TTL_SECONDS = 15 * 60
 SLACK_PERMISSION_PROMPT_DEDUPE_SECONDS = SLACK_PERMISSION_CONTEXT_TTL_SECONDS
 SLACK_PERMISSION_PROMPT_INFLIGHT_SECONDS = 30
-SLACK_CARD_BODY_MAX_LENGTH = 200
+SLACK_PERMISSION_BODY_MAX_LENGTH = 2900
 
 SLACK_PERMISSION_BLOCK_ID_PREFIX = "posthog_code_permission"
 SLACK_PERMISSION_ACTION_APPROVE = "posthog_code_permission_approve"
@@ -281,11 +281,11 @@ def _extract_tool_summary(tool_call: dict[str, Any]) -> tuple[str, str | None]:
     return _truncate_slack_text(label, 150), _truncate_slack_text(detail, 1200) if detail else None
 
 
-def _build_card_body(tool_label: str, tool_detail: str | None) -> str:
+def _build_permission_body(tool_label: str, tool_detail: str | None) -> str:
     body = tool_label
     if tool_detail:
-        body = f"{body}. Command: {tool_detail}"
-    return _truncate_slack_text(body, SLACK_CARD_BODY_MAX_LENGTH)
+        body = f"{body}\n\nCommand:\n```{tool_detail}```"
+    return _truncate_slack_text(body, SLACK_PERMISSION_BODY_MAX_LENGTH)
 
 
 def _permission_option_label(option: dict[str, Any]) -> str:
@@ -475,28 +475,35 @@ def post_slack_permission_request_for_task_run(
             (option for option in autonomy_tier_options if option["value"] == current_autonomy_tier),
             _build_autonomy_tier_option(SlackAutonomyTier.ASK_BEFORE_WRITE, SlackAutonomyTier.ASK_BEFORE_WRITE.label),
         )
-        card_body = _build_card_body(tool_label, tool_detail)
+        permission_body = _build_permission_body(tool_label, tool_detail)
 
         blocks: list[dict[str, Any]] = [
             {
-                "type": "card",
-                "slack_icon": {"type": "icon", "name": "rocket"},
-                "title": {
+                "type": "section",
+                "text": {
                     "type": "mrkdwn",
-                    "text": "Agent approval needed",
+                    "text": f":rocket: *Agent approval needed*\n<@{target_slack_user_id}> can approve or deny this request.",
                     "verbatim": False,
                 },
-                "subtitle": {
+            },
+            {
+                "type": "section",
+                "text": {
                     "type": "mrkdwn",
-                    "text": f"<@{target_slack_user_id}> can approve or deny this request.",
+                    "text": permission_body,
                     "verbatim": False,
                 },
-                "body": {
-                    "type": "mrkdwn",
-                    "text": card_body,
-                    "verbatim": False,
-                },
-                "actions": [
+            },
+            {
+                "type": "actions",
+                "block_id": f"{SLACK_PERMISSION_BLOCK_ID_PREFIX}_decision:{context_token}",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": SLACK_PERMISSION_ACTION_DENY,
+                        "text": {"type": "plain_text", "text": "Deny", "emoji": False},
+                        "value": context_token,
+                    },
                     {
                         "type": "button",
                         "action_id": SLACK_PERMISSION_ACTION_APPROVE,
@@ -504,14 +511,8 @@ def post_slack_permission_request_for_task_run(
                         "text": {"type": "plain_text", "text": "Approve", "emoji": False},
                         "value": context_token,
                     },
-                    {
-                        "type": "button",
-                        "action_id": SLACK_PERMISSION_ACTION_DENY,
-                        "text": {"type": "plain_text", "text": "Deny", "emoji": False},
-                        "value": context_token,
-                    },
                 ],
-            }
+            },
         ]
         blocks.append(
             {

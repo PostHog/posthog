@@ -443,7 +443,7 @@ class TestRepoPickerOptions(TestCase):
         assert call_args.kwargs["auth_token"] == "sandbox-token"
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
-        assert mock_requests_post.call_args.kwargs["json"]["blocks"][0]["type"] == "card"
+        assert mock_requests_post.call_args.kwargs["json"]["blocks"][0]["type"] == "section"
         assert "Approved" in mock_requests_post.call_args.kwargs["json"]["text"]
         assert cache.get(_picker_context_cache_key(token)) is None
 

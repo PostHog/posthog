@@ -3240,19 +3240,12 @@ def _replace_permission_prompt(payload: dict, text: str) -> None:
                 "text": text,
                 "blocks": [
                     {
-                        "type": "card",
-                        "slack_icon": {"type": "icon", "name": "rocket"},
-                        "title": {
+                        "type": "section",
+                        "text": {
                             "type": "mrkdwn",
-                            "text": "Approval recorded",
+                            "text": f":rocket: *Approval recorded*\nNo further action is needed.\n\n{text}",
                             "verbatim": False,
                         },
-                        "subtitle": {
-                            "type": "mrkdwn",
-                            "text": "No further action is needed.",
-                            "verbatim": False,
-                        },
-                        "body": {"type": "mrkdwn", "text": text, "verbatim": False},
                     }
                 ],
             },

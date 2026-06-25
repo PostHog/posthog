@@ -116,18 +116,26 @@ class TestSlackAgentPermissionPrompt(TestCase):
         assert "<@U_ACTOR>" in call_kwargs["text"]
 
         blocks = call_kwargs["blocks"]
-        assert blocks[0]["type"] == "card"
-        assert blocks[0]["slack_icon"]["name"] == "rocket"
-        card_actions = blocks[0]["actions"]
+        assert blocks[0]["type"] == "section"
+        assert "Agent approval needed" in blocks[0]["text"]["text"]
+        assert "<@U_ACTOR>" in blocks[0]["text"]["text"]
+        assert blocks[1]["type"] == "section"
+        assert "Check available PDF generation tools" in blocks[1]["text"]["text"]
+        assert '```python3 -c "import reportlab"```' in blocks[1]["text"]["text"]
+
+        assert blocks[2]["type"] == "actions"
+        permission_actions = blocks[2]["elements"]
         approve_button = next(
-            element for element in card_actions if element["action_id"] == SLACK_PERMISSION_ACTION_APPROVE
+            element for element in permission_actions if element["action_id"] == SLACK_PERMISSION_ACTION_APPROVE
         )
-        deny_button = next(element for element in card_actions if element["action_id"] == SLACK_PERMISSION_ACTION_DENY)
+        deny_button = next(
+            element for element in permission_actions if element["action_id"] == SLACK_PERMISSION_ACTION_DENY
+        )
         assert approve_button["style"] == "primary"
         assert "style" not in deny_button
 
-        assert blocks[1]["type"] == "actions"
-        config_select = blocks[1]["elements"][0]
+        assert blocks[3]["type"] == "actions"
+        config_select = blocks[3]["elements"][0]
         assert config_select["action_id"] == SLACK_PERMISSION_ACTION_SELECT
         assert config_select["initial_option"]["value"] == SlackAutonomyTier.ASK_BEFORE_WRITE
         assert [option["value"] for option in config_select["options"]] == [
@@ -177,16 +185,16 @@ class TestSlackAgentPermissionPrompt(TestCase):
         assert call_kwargs["metadata"]["event_payload"]["request_id"] == "perm-1"
 
     @patch("products.slack_app.backend.services.agent_permissions.SlackIntegration")
-    def test_card_body_respects_slack_limit(self, mock_slack_cls: MagicMock) -> None:
+    def test_permission_body_respects_slack_limit(self, mock_slack_cls: MagicMock) -> None:
         event = self._permission_event()
-        event["toolCall"]["rawInput"]["command"] = "python3 -c " + ("'print(1)'; " * 100)
+        event["toolCall"]["rawInput"]["command"] = "python3 -c " + ("'print(1)'; " * 400)
 
         post_slack_permission_request_for_task_run(self.task_run, event)
 
         blocks = mock_slack_cls.return_value.client.chat_postMessage.call_args.kwargs["blocks"]
-        card = blocks[0]
-        assert card["type"] == "card"
-        assert len(card["body"]["text"]) <= 200
+        body = blocks[1]
+        assert body["type"] == "section"
+        assert len(body["text"]["text"]) <= 2900
 
     def test_auto_approves_non_destructive_posthog_tool_without_prompt(self) -> None:
         event = self._posthog_exec_permission_event("tasks-runs-living-artifacts-create")
