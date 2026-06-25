@@ -184,10 +184,14 @@ class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         PRIMED = "primed", "Primed"
         NEEDS_RESYNC = "needs_resync", "Needs resync"
 
+    # db_constraint=False: a real FK constraint on posthog_team locks that hot
+    # table when this table is created (HotTableAlterPolicy). The tenant link is
+    # enforced at the app level.
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="duckgres_sink_schema_states",
+        db_constraint=False,
     )
     # ExternalDataSchema id. Not a FK: the queue addresses schemas by string id
     # and the schema row may be soft-deleted while sink state must survive for
@@ -203,6 +207,17 @@ class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     chunk_count = models.IntegerField(null=True, blank=True)
     chunks_applied = models.IntegerField(default=0)
     last_error = models.TextField(null=True, blank=True)
+    # Override CreatedMetaFields.created_by to drop the DB-level FK: a real
+    # constraint on posthog_user takes a lock on that hot table when this table
+    # is created (HotTableAlterPolicy). App-level enforcement is enough for an
+    # optional audit pointer.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
 
     class Meta:
         db_table = "posthog_duckgressinkschemastate"
