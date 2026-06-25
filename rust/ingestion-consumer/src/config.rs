@@ -100,6 +100,17 @@ pub struct Config {
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
+    /// Enable Kafka static membership (pins `group.instance.id` to the pod
+    /// hostname). Off by default: this runs as a Deployment, so pod names — and
+    /// thus instance IDs — already change on every rollout, meaning static
+    /// membership never avoids a deploy rebalance, yet it makes an in-place
+    /// container restart fail fatally with `UnreleasedInstanceId` (the broker
+    /// still holds the previous incarnation's slot until its session expires).
+    /// Dynamic membership rejoins cleanly on restart. Only enable for pods with
+    /// stable names (e.g. a StatefulSet).
+    #[envconfig(from = "KAFKA_CONSUMER_STATIC_MEMBERSHIP", default = "false")]
+    pub kafka_consumer_static_membership: bool,
+
     // ---- Batching ----
     /// Maximum number of messages to collect before dispatching a batch.
     /// Matches Node.js CONSUMER_BATCH_SIZE default.
@@ -288,7 +299,10 @@ impl Config {
         .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
         .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
         .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
-        .with_sticky_partition_assignment(self.pod_hostname.as_deref())
+        .with_sticky_partition_assignment(
+            self.pod_hostname.as_deref(),
+            self.kafka_consumer_static_membership,
+        )
         .set("security.protocol", &self.kafka_security_protocol)
         .set(
             "socket.timeout.ms",

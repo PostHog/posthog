@@ -1368,6 +1368,16 @@ export interface ScratchpadEntryApi {
      * @nullable
      */
     created_by_run_id: string | null
+    /**
+     * Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.
+     * @nullable
+     */
+    created_by_skill?: string | null
+    /**
+     * Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.
+     * @nullable
+     */
+    created_by_run_url?: string | null
 }
 
 /**
@@ -1656,13 +1666,21 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     content_max_chars?: number
     /**
+     * ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.
+     */
+    date_from?: string
+    /**
+     * ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry from the prior page).
+     */
+    date_to?: string
+    /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */
     keys_only?: boolean
     /**
-     * Max rows to return (default 20, hard cap 100).
+     * Max rows to return (default 20, hard cap 500).
      * @minimum 1
-     * @maximum 100
+     * @maximum 500
      */
     limit?: number
     /**

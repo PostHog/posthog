@@ -7,6 +7,7 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import { ChartDisplayType } from '~/types'
 
 import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../../trends/shared/compareDimming'
+import { humanizeSeriesLabel } from '../../trends/shared/humanizeSeriesLabel'
 
 // Shape both IndexedTrendResult (kea) and StickinessResultItem (MCP) satisfy.
 export interface StickinessResultLike {
@@ -56,7 +57,7 @@ export function buildStickinessMainSeries<R extends StickinessResultLike, M = un
     const color = r.compare_label === 'previous' ? dimHexColor(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
     return {
         key: String(r.id),
-        label: r.label ?? '',
+        label: humanizeSeriesLabel(r.label),
         data: toPercentData(r.data, r.count),
         color,
         yAxisId,

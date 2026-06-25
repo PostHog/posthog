@@ -614,9 +614,9 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                                 header: 'Harness',
                                 expand: true,
                                 render: (r) => {
-                                    const raw = String(r[0] ?? '')
-                                    return raw ? (
-                                        <HarnessPill category={categorizeHarness(raw)} title={raw} />
+                                    const label = String(r[0] ?? '')
+                                    return label ? (
+                                        <HarnessPill category={label} title={label} />
                                     ) : (
                                         <span className="text-muted">Unknown</span>
                                     )
@@ -634,7 +634,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
-                                header: 'Users',
+                                header: 'Sessions',
                                 align: 'right',
                                 render: (r) => humanFriendlyNumber(Number(r[4] ?? 0)),
                             },
