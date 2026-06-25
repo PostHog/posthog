@@ -116,6 +116,18 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     labelnames=["origin_product"],
 )
 
+TASK_RUN_AGENT_FAILURE_TOTAL = Counter(
+    "posthog_tasks_agent_turn_failed_total",
+    "TaskRun transitions to FAILED via the API facade (agent-server turn failures)",
+    labelnames=["origin_product", "mode", "run_source", "runtime_adapter"],
+)
+
+TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
+    "posthog_tasks_followup_delivery_failed_total",
+    "Follow-up user message deliveries to a live sandbox that failed",
+    labelnames=["origin_product", "retryable"],
+)
+
 PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
     "posthog_tasks_push_dispatcher_failures_total",
     "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
@@ -226,4 +238,21 @@ def observe_task_run_failed(properties: dict[str, object]) -> None:
         temporal_activity_type=_failure_metric_label(properties.get("temporal_activity_type")),
         temporal_activity_retry_state=_failure_metric_label(properties.get("temporal_activity_retry_state")),
         cause_error_type=_failure_metric_label(properties.get("cause_error_type")),
+    ).inc()
+
+
+def observe_agent_turn_failed(task_run: "TaskRun") -> None:
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    TASK_RUN_AGENT_FAILURE_TOTAL.labels(
+        origin_product=origin_product_label(task_run),
+        mode=_bounded_metric_label(state.get("mode"), _ALLOWED_MODES),
+        run_source=_bounded_metric_label(state.get("run_source"), _ALLOWED_RUN_SOURCES),
+        runtime_adapter=_bounded_metric_label(state.get("runtime_adapter"), _ALLOWED_RUNTIME_ADAPTERS),
+    ).inc()
+
+
+def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) -> None:
+    TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL.labels(
+        origin_product=origin_product_label(task_run),
+        retryable="true" if retryable else "false",
     ).inc()
