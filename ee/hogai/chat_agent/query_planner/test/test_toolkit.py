@@ -221,7 +221,21 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             '"Paid Search", "Organic Video", "Direct" and many more distinct values.',
         )
 
-    def test_retrieve_entity_property_values_virtual_property_without_examples(self):
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.ActorsPropertyTaxonomyQueryRunner")
+    def test_retrieve_entity_property_values_virtual_property_without_examples(self, mock_runner_class):
+        # The real runner reads ClickHouse actor data, which sibling tests on the same
+        # file-sharded run can pollute (ClickHouse writes are not rolled back per test),
+        # making it return a stray "0" instead of nothing. Mock an empty result so the
+        # virtual-property fallback is asserted deterministically.
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_runner_class.return_value.run.return_value = CachedActorsPropertyTaxonomyQueryResponse(
+            cache_key="test",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[],
+            timezone="UTC",
+        )
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )
