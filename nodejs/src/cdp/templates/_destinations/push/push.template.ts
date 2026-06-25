@@ -43,6 +43,10 @@ if (inputs.ios_subtitle) apns.subtitle := inputs.ios_subtitle
 if (inputs.ios_mutableContent) apns.mutableContent := inputs.ios_mutableContent
 if (length(keys(apns)) > 0) payload.apns := apns
 
+if (not inputs.push_provider) {
+    throw Error('Push provider integration not configured')
+}
+
 let res := sendPushNotification({
     'integrationId': inputs.push_provider.$integration_id,
     'distinctId': inputs.distinctId,
