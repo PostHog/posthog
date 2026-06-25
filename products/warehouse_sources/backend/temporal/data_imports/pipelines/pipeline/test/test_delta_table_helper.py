@@ -460,13 +460,25 @@ class TestUnpartitionedTableWithPartitionKeyColumn:
         assert PARTITION_KEY in dt.schema().to_arrow().names
 
     @pytest.mark.parametrize(
-        "write_type,primary_keys",
-        [("append", None), ("incremental", ["id"])],
-        ids=["append", "incremental_merge"],
+        "write_type,primary_keys,should_overwrite,expected_ids",
+        [
+            # append/incremental keep the existing rows; full_refresh overwrites them. Each
+            # routes through a distinct write branch, all of which previously raised against
+            # the unpartitioned-but-column-present table.
+            ("append", None, False, {1, 2, 3, 4}),
+            ("incremental", ["id"], False, {1, 2, 3, 4}),
+            ("full_refresh", None, True, {2, 3, 4}),
+        ],
+        ids=["append", "incremental_merge", "full_refresh_overwrite"],
     )
     @pytest.mark.asyncio
     async def test_write_does_not_partition_unpartitioned_table(
-        self, write_type: str, primary_keys: list[str] | None, tmp_path: Path
+        self,
+        write_type: str,
+        primary_keys: list[str] | None,
+        should_overwrite: bool,
+        expected_ids: set[int],
+        tmp_path: Path,
     ) -> None:
         delta_path = str(tmp_path / "table")
         self._seed_unpartitioned_table_with_partition_column(delta_path)
@@ -478,12 +490,12 @@ class TestUnpartitionedTableWithPartitionKeyColumn:
         result = await helper.write_to_deltalake(
             data=batch,
             write_type=write_type,  # type: ignore[arg-type]
-            should_overwrite_table=False,
+            should_overwrite_table=should_overwrite,
             primary_keys=primary_keys,
         )
 
         final = result.to_pyarrow_table()
-        assert set(final.column("id").to_pylist()) == {1, 2, 3, 4}
+        assert set(final.column("id").to_pylist()) == expected_ids
         # The table stays unpartitioned — we don't fight its existing layout.
         assert result.metadata().partition_columns == []
 
