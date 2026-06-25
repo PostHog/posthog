@@ -96,7 +96,7 @@ def _snapshot_diagnostic_counts(snapshot: dict | None) -> tuple[int, int, list[s
 
 def _report_diagnostic_counts(result: AiReportResult) -> tuple[int, int, list[str]]:
     failed = [d for d in result.diagnostics if not d.ok]
-    error_types = sorted({d.error_type for d in failed if d.error_type})
+    error_types = sorted({str(d.error_type) for d in failed if d.error_type})
     return (len(failed), len(result.diagnostics), error_types)
 
 
