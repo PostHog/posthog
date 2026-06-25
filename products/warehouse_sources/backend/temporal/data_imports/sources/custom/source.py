@@ -103,11 +103,12 @@ PREVIEW_MAX_ROWS = 50
 # preview helps debug). Cap the parents walked so one preview can't fan a single
 # inline call into an unbounded request burst; a handful is plenty to eyeball a child.
 PREVIEW_MAX_FANOUT_PARENTS = 10
-# Cap on a single preview response body. The engine parses the whole page into
-# memory before the row cap trims it, so an upstream-controlled (or hostile) host
-# could otherwise return a huge page and exhaust the worker. Generous enough for a
-# real first page; a preview against a larger page fails with a clear error.
-PREVIEW_MAX_BODY_BYTES = 10 * 1024 * 1024
+# Total response bytes a single preview may buffer/parse, summed across every
+# request it makes. The engine parses each page whole before the row cap trims it,
+# and a fan-out preview makes one request per parent — so a per-response cap alone
+# still lets N requests parse N pages. This budget bounds the whole preview instead.
+# Generous for a real first page; a preview that exceeds it fails with a clear error.
+PREVIEW_MAX_TOTAL_BODY_BYTES = 20 * 1024 * 1024
 
 
 class ManifestValidationError(ValueError):
@@ -948,7 +949,7 @@ class PreviewResult(NamedTuple):
 
 
 class PreviewResponseTooLargeError(Exception):
-    """A preview response body exceeded ``PREVIEW_MAX_BODY_BYTES``."""
+    """A preview's cumulative response bytes exceeded ``PREVIEW_MAX_TOTAL_BODY_BYTES``."""
 
 
 class _PreviewSession(_NoRedirectSession):
@@ -958,23 +959,32 @@ class _PreviewSession(_NoRedirectSession):
     session level — a stalled upstream can't hang the request thread. The
     no-redirect credential pin is inherited from ``_NoRedirectSession``.
 
-    The body is streamed and read up to a hard cap rather than buffered whole: the
-    engine parses the full page before the row cap trims it, so without this a
-    hostile or misconfigured host could return a huge page and exhaust the worker.
-    ``decode_content=True`` with a bounded read also defuses a compression bomb —
-    urllib3 stops once it has that many decompressed bytes.
+    Each body is streamed and read against a budget shared across the whole preview
+    rather than buffered whole: the engine parses every page before the row cap trims
+    it, and a fan-out preview makes one request per parent, so a per-response cap
+    alone would still let N requests parse N pages. One session serves one preview, so
+    the budget carried here bounds the preview's total parse. ``decode_content=True``
+    with a bounded read also defuses a compression bomb — urllib3 stops once it has
+    that many decompressed bytes.
     """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._body_budget = PREVIEW_MAX_TOTAL_BODY_BYTES
 
     def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
         kwargs.setdefault("timeout", (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
         kwargs["stream"] = True
         response = super().send(request, **kwargs)
         try:
-            body = response.raw.read(PREVIEW_MAX_BODY_BYTES + 1, decode_content=True)
+            body = response.raw.read(self._body_budget + 1, decode_content=True)
         finally:
             response.close()
-        if len(body) > PREVIEW_MAX_BODY_BYTES:
-            raise PreviewResponseTooLargeError(f"Preview response body exceeded {PREVIEW_MAX_BODY_BYTES} bytes")
+        if len(body) > self._body_budget:
+            raise PreviewResponseTooLargeError(
+                f"Preview response bodies exceeded the {PREVIEW_MAX_TOTAL_BODY_BYTES}-byte budget"
+            )
+        self._body_budget -= len(body)
         response._content = body
         response._content_consumed = True
         return response

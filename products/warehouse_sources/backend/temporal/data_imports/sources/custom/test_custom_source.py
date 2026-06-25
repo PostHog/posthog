@@ -21,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
-    PREVIEW_MAX_BODY_BYTES,
     PREVIEW_MAX_FANOUT_PARENTS,
     PREVIEW_MAX_ROWS,
     PROBE_CONNECT_TIMEOUT,
@@ -1799,20 +1798,37 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         assert quote(secret, safe="") not in redacted
         assert "***" in redacted
 
+    @staticmethod
+    def _streamed_response(body_size: int) -> Response:
+        # `raw.read(amt)` returns at most `amt` bytes, like a real streamed body.
+        response = Response()
+        response.status_code = 200
+        response.raw = MagicMock()
+        response.raw.read.side_effect = lambda amt, **kwargs: b"x" * min(amt, body_size)
+        return response
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES", 100)
     def test_preview_session_rejects_oversized_response_body(self):
-        oversized = Response()
-        oversized.status_code = 200
-        oversized.raw = MagicMock()
-        oversized.raw.read.return_value = b"x" * (PREVIEW_MAX_BODY_BYTES + 1)
-        with patch.object(requests.Session, "send", return_value=oversized):
+        with patch.object(requests.Session, "send", return_value=self._streamed_response(500)):
             with self.assertRaises(PreviewResponseTooLargeError):
                 _PreviewSession().send(MagicMock())
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES", 100)
+    def test_preview_session_enforces_budget_across_requests(self):
+        # Each response is under the budget on its own, but together they exceed it:
+        # the budget is the whole preview's, not per response.
+        responses = [self._streamed_response(60), self._streamed_response(60)]
+        with patch.object(requests.Session, "send", side_effect=responses):
+            session = _PreviewSession()
+            session.send(MagicMock())
+            with self.assertRaises(PreviewResponseTooLargeError):
+                session.send(MagicMock())
 
     def test_preview_session_returns_capped_body(self):
         within_cap = Response()
         within_cap.status_code = 200
         within_cap.raw = MagicMock()
-        within_cap.raw.read.return_value = b'{"items": [{"id": 1}]}'
+        within_cap.raw.read.side_effect = lambda amt, **kwargs: b'{"items": [{"id": 1}]}'[:amt]
         with patch.object(requests.Session, "send", return_value=within_cap):
             response = _PreviewSession().send(MagicMock())
 
