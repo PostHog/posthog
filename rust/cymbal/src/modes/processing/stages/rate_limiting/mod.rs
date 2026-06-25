@@ -39,14 +39,6 @@ enum Outcome {
 }
 
 impl LimitKind {
-    /// Suffix used in the `app_metrics2` `app_source_id`, matching the Node.js limiter.
-    fn app_source_suffix(self) -> &'static str {
-        match self {
-            LimitKind::PerIssue => "per_issue",
-            LimitKind::Project => "global",
-        }
-    }
-
     fn label(self) -> &'static str {
         match self {
             LimitKind::PerIssue => "per_issue",
@@ -63,6 +55,12 @@ impl Outcome {
         }
     }
 }
+
+/// Tally key for one `app_metrics2` row. Per-issue rows carry their issue id so
+/// each issue gets its own `app_source_id` (matching the Node.js limiter, which
+/// keys per-issue metrics by the bare Cymbal issue id); project rows use `None`
+/// and aggregate per team under `{team}:exceptions:global`.
+type OutcomeKey = (i32, LimitKind, Option<Uuid>, Outcome);
 
 /// Drops rate-limited exception events as soon as their `issue_id` is known
 /// (right after `LinkingStage`, before `AlertingStage`). Marked-dropped events
@@ -138,7 +136,7 @@ async fn apply_rate_limits(
     settings: &HashMap<i32, RateLimitSettings>,
     enabled_teams: Option<&HashSet<i32>>,
     items: &mut [ExceptionEventPipelineItem],
-) -> HashMap<(i32, LimitKind, Outcome), u32> {
+) -> HashMap<OutcomeKey, u32> {
     // Group surviving (Ok) events by (team_id, issue_id). Vec<usize> stays in input order.
     let mut groups: HashMap<(i32, Option<Uuid>), Vec<usize>> = HashMap::new();
     for (idx, item) in items.iter().enumerate() {
@@ -150,9 +148,15 @@ async fn apply_rate_limits(
         }
     }
 
-    let mut outcomes: HashMap<(i32, LimitKind, Outcome), u32> = HashMap::new();
+    let mut outcomes: HashMap<OutcomeKey, u32> = HashMap::new();
     let mut drops: Vec<(usize, EventError)> = Vec::new();
 
+    // Group iteration order is nondeterministic (HashMap), and that's fine: per-issue
+    // buckets are independent, and the shared project bucket admits the same *total*
+    // whichever issue draws first — so every emitted metric is order-independent. Order
+    // only shuffles which issue wins the project budget when it's the binding limit, and
+    // those events are dropped either way. Within a group, input order is preserved
+    // (indices pushed in order above; classify_group keeps the lowest first).
     for ((team_id, issue_id), indices) in groups {
         // Team allowlist: when set, only listed teams are rate-limited.
         if enabled_teams.is_some_and(|allowed| !allowed.contains(&team_id)) {
@@ -198,12 +202,21 @@ async fn apply_rate_limits(
                 &mut outcomes,
                 team_id,
                 LimitKind::PerIssue,
+                issue_id,
                 allowed,
                 limited,
             );
         }
         if let Some((allowed, limited)) = group.project {
-            add_outcome(&mut outcomes, team_id, LimitKind::Project, allowed, limited);
+            // Project rows aggregate across issues, so they carry no issue id.
+            add_outcome(
+                &mut outcomes,
+                team_id,
+                LimitKind::Project,
+                None,
+                allowed,
+                limited,
+            );
         }
     }
 
@@ -219,14 +232,14 @@ async fn apply_rate_limits(
 }
 
 impl RateLimitingStage {
-    async fn emit_metrics(&self, outcomes: &HashMap<(i32, LimitKind, Outcome), u32>) {
+    async fn emit_metrics(&self, outcomes: &HashMap<OutcomeKey, u32>) {
         if outcomes.is_empty() {
             return;
         }
         let now = Utc::now();
         let mut app_metrics: Vec<AppMetric2> = Vec::with_capacity(outcomes.len());
 
-        for (&(team_id, kind, outcome), &count) in outcomes {
+        for (&(team_id, kind, issue_id, outcome), &count) in outcomes {
             counter!(
                 RATE_LIMIT_OUTCOMES,
                 "limit" => kind.label(),
@@ -234,11 +247,21 @@ impl RateLimitingStage {
             )
             .increment(count as u64);
 
+            // Match the Node.js limiter's `app_metrics2` keys exactly: per-issue
+            // rows are keyed by the bare Cymbal issue id; project rows by
+            // `{team}:exceptions:global`.
+            let app_source_id = match kind {
+                LimitKind::PerIssue => issue_id
+                    .expect("per-issue outcomes always carry an issue id")
+                    .to_string(),
+                LimitKind::Project => format!("{team_id}:exceptions:global"),
+            };
+
             app_metrics.push(AppMetric2 {
                 team_id: team_id as u32,
                 timestamp: now,
                 app_source: Source::Exceptions,
-                app_source_id: format!("{team_id}:exceptions:{}", kind.app_source_suffix()),
+                app_source_id,
                 instance_id: None,
                 metric_kind: Kind::RateLimiting,
                 metric_name: outcome.label().to_string(),
@@ -317,20 +340,21 @@ fn classify_group(
 }
 
 fn add_outcome(
-    outcomes: &mut HashMap<(i32, LimitKind, Outcome), u32>,
+    outcomes: &mut HashMap<OutcomeKey, u32>,
     team_id: i32,
     kind: LimitKind,
+    issue_id: Option<Uuid>,
     allowed: u32,
     limited: u32,
 ) {
     if allowed > 0 {
         *outcomes
-            .entry((team_id, kind, Outcome::Allowed))
+            .entry((team_id, kind, issue_id, Outcome::Allowed))
             .or_insert(0) += allowed;
     }
     if limited > 0 {
         *outcomes
-            .entry((team_id, kind, Outcome::RateLimited))
+            .entry((team_id, kind, issue_id, Outcome::RateLimited))
             .or_insert(0) += limited;
     }
 }
@@ -461,6 +485,43 @@ mod tests {
         assert!(matches!(items[2], Err(EventError::RateLimitedProject(7))));
         assert!(matches!(items[3], Err(EventError::RateLimitedPerIssue(_))));
         assert!(matches!(items[4], Err(EventError::RateLimitedPerIssue(_))));
+    }
+
+    #[tokio::test]
+    async fn per_issue_metrics_key_by_issue_global_aggregates_per_team() {
+        // Every group: per-issue admits 3 of 5, project admits 1 of those 3.
+        let runner = Arc::new(FakeScriptRunner::returning(vec![3, 1]));
+        let limiter = limiter_with(runner);
+        let (issue_a, issue_b) = (Uuid::now_v7(), Uuid::now_v7());
+        let mut items: Vec<ExceptionEventPipelineItem> = (0..5)
+            .map(|_| event(7, Some(issue_a)))
+            .chain((0..5).map(|_| event(7, Some(issue_b))))
+            .collect();
+        let mut cfg = HashMap::new();
+        cfg.insert(7, settings(Some(100), Some(100)));
+
+        let outcomes = apply_rate_limits(&limiter, &cfg, None, &mut items).await;
+
+        // Per-issue tallies are keyed by the individual issue id — one bucket per
+        // issue — so each gets its own bare-UUID `app_source_id` like Node.js.
+        assert_eq!(
+            outcomes.get(&(7, LimitKind::PerIssue, Some(issue_a), Outcome::Allowed)),
+            Some(&3)
+        );
+        assert_eq!(
+            outcomes.get(&(7, LimitKind::PerIssue, Some(issue_b), Outcome::Allowed)),
+            Some(&3)
+        );
+        // The project tally carries no issue id, so both issues fold into one
+        // per-team row (`{team}:exceptions:global`): allowed 1+1, limited 2+2.
+        assert_eq!(
+            outcomes.get(&(7, LimitKind::Project, None, Outcome::Allowed)),
+            Some(&2)
+        );
+        assert_eq!(
+            outcomes.get(&(7, LimitKind::Project, None, Outcome::RateLimited)),
+            Some(&4)
+        );
     }
 
     #[tokio::test]
