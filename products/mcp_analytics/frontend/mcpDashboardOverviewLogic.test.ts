@@ -19,7 +19,6 @@ import {
     buildKPIs,
     buildKpiWindow,
     buildToolDailySeries,
-    categorizeHarness,
     deltaPct,
     mcpDashboardOverviewLogic,
     normalizeBucket,
@@ -49,52 +48,7 @@ function session(overrides: Partial<SessionRow> & { session_id: string }): Sessi
 }
 
 describe('mcpDashboardOverviewLogic', () => {
-    describe('categorizeHarness', () => {
-        it.each([
-            ['claude-code/1.0.0', 'Claude Code'],
-            ['claude-code cli', 'Claude Code'],
-            ['claude-code claude-desktop', 'Claude Desktop'],
-            ['claude-code claude-vscode', 'Claude Code (VS Code)'],
-            ['claude-code sdk-ts', 'Claude Agent SDK'],
-            ['claude-ai', 'Claude.ai'],
-            ['anthropic/claudeai', 'Claude.ai'],
-            ['cowork', 'Cowork'],
-            ['claude-design', 'Claude Design'],
-            ['claude-user', 'Claude.ai'],
-            ['openai-mcp', 'OpenAI'],
-            ['openai-mcp chatgpt', 'ChatGPT'],
-            ['openai-mcp agent builder', 'OpenAI Agent Builder'],
-            ['openai-mcp responses api', 'OpenAI Responses API'],
-            ['cursor/0.42', 'Cursor'],
-            ['cursor darwin arm64', 'Cursor'],
-            ['codex-cli', 'OpenAI Codex'],
-            // Raw clientInfo.name tokens the harness coalesce now surfaces from
-            // mcp_session_client_name (these clients send no useful User-Agent).
-            ['codex-mcp-client', 'OpenAI Codex'],
-            ['cursor-vscode', 'Cursor'],
-            ['opencode', 'opencode'],
-            ['Lovable MCP Client', 'Lovable'],
-            ['linear-agent', 'Linear'],
-            ['@librechat/api-client', 'LibreChat'],
-            ['pi-client', 'Pi'],
-            ['antigravity-client', 'Antigravity'],
-            ['coderabbit', 'CodeRabbit'],
-            ['notion-mcp-client', 'Notion'],
-            ['replit-agent-mcp-client', 'Replit'],
-            ['windsurf', 'Windsurf'],
-            ['claude-code sdk-cli', 'Claude Agent SDK'],
-            ['claude-code sdk-py', 'Claude Agent SDK'],
-            ['visual studio code', 'VS Code'],
-            ['something-nobody-knows', 'Other'],
-            ['', 'Other'],
-        ])('maps %s -> %s', (raw, expected) => {
-            expect(categorizeHarness(raw)).toBe(expected)
-        })
-
-        it('strips the "(via mcp-remote …)" suffix before matching', () => {
-            expect(categorizeHarness('claude-code (via mcp-remote 1.2.3)')).toBe('Claude Code')
-        })
-
+    describe('harnessLogo', () => {
         it.each([
             'Claude Code',
             'OpenAI',

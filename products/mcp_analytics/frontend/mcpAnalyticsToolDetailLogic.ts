@@ -4,7 +4,13 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { HogQLQueryResponse, MCPHarnessBreakdownItem, NodeKind } from '~/queries/schema/schema-general'
+import {
+    HogQLQueryResponse,
+    MCPHarnessBreakdownItem,
+    MCPToolFailureItem,
+    MCPToolTopUserItem,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { PropertyFilterType } from '~/types'
 
 import type { mcpAnalyticsToolDetailLogicType } from './mcpAnalyticsToolDetailLogicType'
@@ -275,24 +281,19 @@ ORDER BY day
         failureRows: [
             [] as ResultRows,
             {
-                loadFailureRows: async (): Promise<ResultRows> =>
-                    queryRows(`
-SELECT
-    substring(toString(properties.$exception_message), 1, 200) AS message,
-    count() AS occurrences,
-    max(timestamp) AS last_seen,
-    arrayStringConcat(arraySort(arrayDistinct(groupArray(toString(properties.$mcp_client_name)))), ', ') AS harnesses
-FROM events
--- $exception events don't carry the new-SDK markers ($mcp_source / $mcp_exec_tool_call_name), so
--- unlike the $mcp_tool_call queries this matches the raw $mcp_tool_name without EFFECTIVE_TOOL_HOGQL/NEW_SDK_FILTER.
-WHERE event = '$exception'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND toString(properties.$mcp_tool_name) = '${escapeHogQLString(props.toolName)}'
-    AND notEmpty(toString(properties.$exception_message))
-GROUP BY message
-ORDER BY occurrences DESC
-LIMIT 20
-`),
+                // Harness labels are resolved server-side by MCPToolFailuresQuery (same source of
+                // truth as the dashboard), so the frontend only maps a label to its logo.
+                loadFailureRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolFailuresQuery,
+                        toolName: props.toolName,
+                        dateRange: {
+                            date_from: dayjs().subtract(7, 'day').toISOString(),
+                            date_to: dayjs().toISOString(),
+                        },
+                    })) as { results?: MCPToolFailureItem[] }
+                    return (response?.results ?? []).map((r) => [r.message, r.occurrences, r.last_seen, r.harnesses])
+                },
             },
         ],
         sampleIntentRows: [
@@ -362,23 +363,27 @@ LIMIT 5
         topUserRows: [
             [] as ResultRows,
             {
-                loadTopUserRows: async (): Promise<ResultRows> =>
-                    queryRows(`
-SELECT
-    argMax(tuple(distinct_id, person.created_at, person.properties), timestamp) AS person,
-    count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    arrayStringConcat(arraySort(arrayDistinct(groupArray(toString(properties.$mcp_client_name)))), ', ') AS harnesses,
-    max(timestamp) AS last_seen
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${buildToolFilter(props.toolName)}
-GROUP BY distinct_id
-ORDER BY calls DESC
-LIMIT 5
-`),
+                // Harness labels are resolved server-side by MCPToolTopUsersQuery (same source of
+                // truth as the dashboard), so the frontend only maps a label to its logo. The
+                // person tuple is rebuilt into the [distinct_id, _, properties] shape renderPersonCell expects.
+                loadTopUserRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolTopUsersQuery,
+                        toolName: props.toolName,
+                        dateRange: {
+                            date_from: dayjs().subtract(7, 'day').toISOString(),
+                            date_to: dayjs().toISOString(),
+                        },
+                    })) as { results?: MCPToolTopUserItem[] }
+                    return (response?.results ?? []).map((r) => [
+                        [r.distinct_id, '', r.person_properties],
+                        r.calls,
+                        r.errors,
+                        r.error_rate_pct,
+                        r.harnesses,
+                        r.last_seen,
+                    ])
+                },
             },
         ],
     })),

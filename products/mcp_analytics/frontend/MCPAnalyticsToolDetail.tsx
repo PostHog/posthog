@@ -49,7 +49,6 @@ import {
     ToolSummary,
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
-import { categorizeHarness } from './mcpDashboardOverviewLogic'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     component: MCPAnalyticsToolDetail,
@@ -128,22 +127,15 @@ function renderPersonCell(value: unknown): JSX.Element {
     )
 }
 
-// Deduped harness logos so the column stays one line instead of wrapping.
-function HarnessLogos({ value }: { value: string }): JSX.Element {
-    const categories = Array.from(
-        new Set(
-            value
-                .split(',')
-                .map((raw) => categorizeHarness(raw.trim()))
-                .filter(Boolean)
-        )
-    )
-    if (categories.length === 0) {
+// Harness logos for a row. Labels are resolved (deduped + sorted) server-side; the column
+// just maps each label to its logo and stays on one line.
+function HarnessLogos({ labels }: { labels: string[] }): JSX.Element {
+    if (labels.length === 0) {
         return <span className="text-muted">—</span>
     }
     return (
         <div className="flex items-center gap-1">
-            {categories.map((category) => (
+            {labels.map((category) => (
                 <HarnessLogo key={category} category={category} />
             ))}
         </div>
@@ -659,7 +651,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
                                 header: 'Harnesses',
-                                render: (r) => <HarnessLogos value={String(r[4] ?? '')} />,
+                                render: (r) => <HarnessLogos labels={(r[4] as string[]) ?? []} />,
                             },
                             { header: 'Last seen', render: (r) => <TZLabel time={String(r[5])} /> },
                         ]}
@@ -690,7 +682,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                         { header: 'Last seen', render: (r) => <TZLabel time={String(r[2])} /> },
                         {
                             header: 'Harnesses',
-                            render: (r) => <HarnessLogos value={String(r[3] ?? '')} />,
+                            render: (r) => <HarnessLogos labels={(r[3] as string[]) ?? []} />,
                         },
                     ]}
                 />

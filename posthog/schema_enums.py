@@ -2557,6 +2557,8 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
     MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
+    MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"
+    MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 

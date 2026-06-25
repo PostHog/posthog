@@ -194,6 +194,8 @@ export enum NodeKind {
 
     // MCP analytics
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
+    MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
+    MCPToolFailuresQuery = 'MCPToolFailuresQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -259,6 +261,8 @@ export type AnyDataNode =
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
     | MCPHarnessBreakdownQuery
+    | MCPToolTopUsersQuery
+    | MCPToolFailuresQuery
 
 /**
  * @discriminator kind
@@ -371,6 +375,8 @@ export type QuerySchema =
 
     // MCP analytics
     | MCPHarnessBreakdownQuery
+    | MCPToolTopUsersQuery
+    | MCPToolFailuresQuery
 
     // Property values
     | PropertyValuesQuery
@@ -2536,6 +2542,56 @@ export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQu
 }
 
 export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
+
+/** One row of the per-tool "Top users" table: a user and their activity on a tool. */
+export interface MCPToolTopUserItem {
+    distinct_id: string
+    /** JSON-encoded person.properties for the most recent call, for display. */
+    person_properties: string
+    calls: integer
+    errors: integer
+    error_rate_pct: number
+    /** Resolved harness labels seen for this user, deduped and sorted. */
+    harnesses: string[]
+    last_seen: string
+}
+
+export interface MCPToolTopUsersQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolTopUserItem[]
+}
+
+/** Top users of a single MCP tool over the last 7 days, with server-resolved harness labels. */
+export interface MCPToolTopUsersQuery extends DataNode<MCPToolTopUsersQueryResponse> {
+    kind: NodeKind.MCPToolTopUsersQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolTopUsersQueryResponse = CachedQueryResponse<MCPToolTopUsersQueryResponse>
+
+/** One row of the per-tool "Failures" table: an exception message paired with a tool. */
+export interface MCPToolFailureItem {
+    message: string
+    occurrences: integer
+    last_seen: string
+    /** Resolved harness labels seen for this exception, deduped and sorted. */
+    harnesses: string[]
+}
+
+export interface MCPToolFailuresQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolFailureItem[]
+}
+
+/** Top exception messages paired with a single MCP tool, with server-resolved harness labels. */
+export interface MCPToolFailuresQuery extends DataNode<MCPToolFailuresQueryResponse> {
+    kind: NodeKind.MCPToolFailuresQuery
+    /** The raw $mcp_tool_name to scope $exception events to. */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolFailuresQueryResponse = CachedQueryResponse<MCPToolFailuresQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',
