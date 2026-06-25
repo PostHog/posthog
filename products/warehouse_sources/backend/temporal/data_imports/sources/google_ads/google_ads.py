@@ -512,7 +512,8 @@ def _search_with_transient_retry(
     """Call ``GoogleAdsService.search``, retrying a transient gRPC ``UNAVAILABLE`` with backoff.
 
     Only retries before any page is yielded or checkpointed, so there is no partial state to
-    reconcile. Non-transient errors (including ``GoogleAdsException``) re-raise immediately so the
+    reconcile. The transient ``UNAVAILABLE`` may itself arrive wrapped in a ``GoogleAdsException``
+    (see ``_is_transient_grpc_unavailable``). Non-transient errors re-raise immediately so the
     caller's ``INVALID_PAGE_TOKEN`` handling and Temporal's retry policy still apply.
     """
     attempt = 0
