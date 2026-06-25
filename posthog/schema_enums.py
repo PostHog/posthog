@@ -21,6 +21,15 @@ class AIEventType(StrEnum):
     FIELD_AI_GENERATION_CLUSTERS = "$ai_generation_clusters"
 
 
+class AccessControlLevel(StrEnum):
+    NONE = "none"
+    MEMBER = "member"
+    ADMIN = "admin"
+    VIEWER = "viewer"
+    EDITOR = "editor"
+    MANAGER = "manager"
+
+
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -327,6 +336,11 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
+class Compare(StrEnum):
+    CURRENT = "current"
+    PREVIOUS = "previous"
+
+
 class AssistantStickinessDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
@@ -415,11 +429,6 @@ class AssistantTool(StrEnum):
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
-
-
-class Compare(StrEnum):
-    CURRENT = "current"
-    PREVIOUS = "previous"
 
 
 class Display(StrEnum):
@@ -1791,7 +1800,20 @@ class ExternalDataSourceType(StrEnum):
     LIGHTFIELD = "Lightfield"
     APPSTACK = "Appstack"
     RAZORPAY = "Razorpay"
+    NEON = "Neon"
+    NEW_RELIC = "NewRelic"
     CUSTOM = "Custom"
+    TILE38 = "Tile38"
+    CHATWOOT = "Chatwoot"
+    SANITY = "Sanity"
+    METRONOME = "Metronome"
+    JOBBER = "Jobber"
+    KNOCK = "Knock"
+    LEEXI = "Leexi"
+    RB2_B = "RB2B"
+    SUPERWALL = "Superwall"
+    LIANA = "Liana"
+    TAWK_TO = "TawkTo"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1813,6 +1835,7 @@ class FileSystemIconType(StrEnum):
     DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
     LLM_ANALYTICS = "llm_analytics"
+    AI_GATEWAY = "ai_gateway"
     PRODUCT_ANALYTICS = "product_analytics"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
@@ -1866,7 +1889,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
     HOME = "home"
-    APPS = "apps"
+    TOOLS = "tools"
     LIVE = "live"
     CHAT = "chat"
     SEARCH = "search"
@@ -1892,6 +1915,11 @@ class FileSystemIconType(StrEnum):
 class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
+
+
+class FunnelConversionMetric(StrEnum):
+    CONVERSION_FROM_START = "conversion_from_start"
+    CONVERSION_FROM_PREVIOUS = "conversion_from_previous"
 
 
 class FunnelConversionWindowTimeUnit(StrEnum):
@@ -1936,6 +1964,13 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class Position(StrEnum):
@@ -2523,6 +2558,7 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
+    MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -2663,6 +2699,7 @@ class ProductItemCategory(StrEnum):
 
 class ProductKey(StrEnum):
     ACTIONS = "actions"
+    AI_GATEWAY = "ai_gateway"
     LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
@@ -3280,13 +3317,6 @@ class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class UsageMetricDisplay(StrEnum):

@@ -347,7 +347,7 @@ export const getWebAnalyticsAchievementsRecordInteractionUrl = (projectId: strin
 }
 
 /**
- * Idempotently increments the requesting user's first-party counter for an in-product Web analytics interaction (slicing data, or opening a session recording), which drives the Data Hog and Detective Hog achievement tracks.
+ * Idempotently increments the requesting user's first-party counter for an in-product Web analytics interaction (slicing data, or opening a session recording), which drives the Explorer and Detective achievement tracks.
  * @summary Record a Web analytics interaction
  */
 export const webAnalyticsAchievementsRecordInteraction = async (

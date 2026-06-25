@@ -4,7 +4,7 @@
  * `client_tool_call` event on the bus and waits for a matching
  * `client_tool_result` event posted by the connecting client. This case
  * exercises both halves (happy path + timeout path) using the in-memory
- * bus directly — simulating the role the agent-chat package + ingress
+ * bus directly — simulating the role the chat client + ingress
  * `/client_tool_result` endpoint play in production.
  */
 

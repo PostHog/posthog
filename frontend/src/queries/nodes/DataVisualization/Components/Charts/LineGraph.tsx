@@ -46,10 +46,12 @@ import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../da
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { lineGraphLogic } from './lineGraphLogic'
 import { SqlBarGraph } from './SqlBarGraph'
+import { SqlComboGraph } from './SqlComboGraph'
 import { SqlLineGraph } from './SqlLineGraph'
 import {
     AREA_FILL_OPACITY,
     canRenderSqlBarGraph,
+    canRenderSqlComboGraph,
     canRenderSqlLineGraph,
     capYSeriesData,
     exceedsMaxSeries,
@@ -628,6 +630,10 @@ const LegacyLineGraph = ({
                     showTooltip()
 
                     pinTooltip(() => {
+                        if (!chart.canvas?.isConnected) {
+                            return
+                        }
+
                         // Hide crosshair on tooltip unpin
                         if ((chart as any).crosshair) {
                             ;(chart as any).crosshair.enabled = false
@@ -739,6 +745,9 @@ export function sqlChartComponentFor(
     }
     if (newChartsEnabled && canRenderSqlBarGraph(props)) {
         return SqlBarGraph
+    }
+    if (newChartsEnabled && canRenderSqlComboGraph(props)) {
+        return SqlComboGraph
     }
     return LegacyLineGraph
 }

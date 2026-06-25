@@ -341,6 +341,19 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 }
             )
 
+        # No default model: the team's active key is for a provider we have no default model for, and
+        # the eval left its model unset. Require an explicit model so it can't immediately re-disable.
+        if status_reason == "no_default_model":
+            has_model_configuration = bool(data.get("model_configuration")) or bool(
+                self.instance and self.instance.model_configuration_id
+            )
+            if not has_model_configuration:
+                raise serializers.ValidationError(
+                    {
+                        "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before re-enabling."
+                    }
+                )
+
     def _has_byok_key(self, data: dict) -> bool:
         """Check if the evaluation will have a BYOK key after this update."""
         model_config_data = data.get("model_configuration")
@@ -417,6 +430,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
 class EvaluationFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
+    evaluation_type = django_filters.ChoiceFilter(
+        choices=EvaluationType.choices,
+        help_text="Filter by evaluation type",
+    )
     order_by = django_filters.OrderingFilter(
         fields=(
             ("created_at", "created_at"),
@@ -435,6 +452,7 @@ class EvaluationFilter(django_filters.FilterSet):
         fields = {
             "id": ["in"],
             "enabled": ["exact"],
+            "evaluation_type": ["exact"],
         }
 
     def filter_search(self, queryset, name, value):

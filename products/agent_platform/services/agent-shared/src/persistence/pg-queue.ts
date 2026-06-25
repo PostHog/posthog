@@ -120,6 +120,19 @@ export class PgSessionQueue implements SessionQueue {
         }
     }
 
+    async countByState(): Promise<Partial<Record<AgentSession['state'], number>>> {
+        // Cheap GROUP BY over the queue's partial-state index. Sampled by the
+        // janitor singleton once per sweep, not on any hot path.
+        const res = await this.pool.query<{ state: AgentSession['state']; count: string }>(
+            `SELECT state, count(*)::bigint AS count FROM agent_session GROUP BY state`
+        )
+        const out: Partial<Record<AgentSession['state'], number>> = {}
+        for (const row of res.rows) {
+            out[row.state] = Number(row.count)
+        }
+        return out
+    }
+
     async update(sessionId: string, patch: Partial<AgentSession>): Promise<void> {
         const sets: string[] = ['updated_at = NOW()']
         const params: unknown[] = [sessionId]
@@ -365,14 +378,26 @@ export class PgSessionQueue implements SessionQueue {
         return r.rowCount ?? 0
     }
 
-    async findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null> {
+    async findByExternalKey(
+        applicationId: string,
+        externalKey: string,
+        revisionId: string
+    ): Promise<AgentSession | null> {
+        // The revision scope lives in SQL, not in JS post-filtering — the
+        // `ORDER BY updated_at DESC LIMIT 1` would otherwise return the most
+        // recent row regardless of revision, and a JS-side reject would strand
+        // any older same-revision row. Filtering in the WHERE clause guarantees
+        // the lookup never reaches a session on a different revision. See the
+        // interface docs.
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
              FROM agent_session
-             WHERE application_id = $1 AND external_key = $2
+             WHERE application_id = $1
+               AND external_key = $2
+               AND revision_id = $3
              ORDER BY updated_at DESC
              LIMIT 1`,
-            [applicationId, externalKey]
+            [applicationId, externalKey, revisionId]
         )
         if (r.rowCount === 0) {
             return null
@@ -563,6 +588,12 @@ function buildSessionFilter(
         params.push(opts.revisionId)
         where.push(`revision_id = $${params.length}`)
     }
+    if (opts.agentUserId) {
+        // Match the agent_user_id stamped on the principal JSON. Only slack
+        // sessions carry it today; other kinds simply won't match.
+        params.push(opts.agentUserId)
+        where.push(`principal->>'agent_user_id' = $${params.length}`)
+    }
     if (opts.createdAfter) {
         params.push(opts.createdAfter)
         where.push(`created_at >= $${params.length}`)
@@ -570,6 +601,15 @@ function buildSessionFilter(
     if (opts.createdBefore) {
         params.push(opts.createdBefore)
         where.push(`created_at <= $${params.length}`)
+    }
+    if (opts.search?.trim()) {
+        // id + external_key only — transcript search would scan/detoast every
+        // session's JSONB; it lands on a persisted, indexed column instead.
+        // LIKE wildcards escaped so the term matches literally.
+        const term = `%${opts.search.trim().replace(/[\\%_]/g, '\\$&')}%`
+        params.push(term)
+        const idx = params.length
+        where.push(`(id::text ILIKE $${idx} OR external_key ILIKE $${idx})`)
     }
     return { where, params }
 }

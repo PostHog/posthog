@@ -232,6 +232,11 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
+export interface OrganizationAIAccessRequestResponseApi {
+    /** Whether the access request was accepted and the organization admins were notified. */
+    success: boolean
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data

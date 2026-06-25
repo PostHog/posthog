@@ -106,3 +106,28 @@ tools:
             - blocked
             - attempted_tool
         feature_flag: mcp-analytics
+wrappers:
+    query-mcp-harness-breakdown:
+        schema_ref: MCPHarnessBreakdownQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Break down MCP tool calls by harness
+        description: >
+            Group this project's MCP tool-call activity by the resolved client harness — the friendly product label for
+            the MCP client (Claude Agent SDK, Claude Code, OpenAI Codex, Cursor, Claude.ai, …). Returns calls, error
+            count, error rate, and session count per harness. Accepts the same dateRange / properties /
+            filterTestAccounts filters as the dashboard and resolves the harness server-side over the same query runner,
+            so results match the UI exactly. Use to answer "which harnesses use our MCP, and how reliably?".
+        system_prompt_hint: MCP client/harness breakdown — calls, error rate, sessions per harness
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        feature_flag: mcp-analytics

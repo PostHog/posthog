@@ -9,7 +9,6 @@ from django.db.models import Prefetch, Q, QuerySet
 from django.utils import timezone
 
 import django_filters
-import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
@@ -26,6 +25,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
@@ -46,7 +46,7 @@ def is_trace_review_feature_enabled(user: User, team: Team) -> bool:
     organization_id = str(team.organization_id)
     project_id = str(team.id)
 
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         TRACE_REVIEW_FEATURE_FLAG,
         distinct_id,
         groups={"organization": organization_id, "project": project_id},

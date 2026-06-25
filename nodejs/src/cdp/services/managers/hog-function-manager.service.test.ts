@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { HogFunctionType } from '~/cdp/types'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
 
 import { insertHogFunction } from '../../_tests/fixtures'
 import { HogFunctionManagerService } from './hog-function-manager.service'
