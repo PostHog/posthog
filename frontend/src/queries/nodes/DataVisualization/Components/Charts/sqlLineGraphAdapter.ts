@@ -413,19 +413,14 @@ export function buildLineChartConfig({
                       buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
                           id: 'left',
                           position: 'left',
-                          gridDefault: false,
                       }),
                       buildYAxisConfig(chartSettings.rightYAxisSettings, rightSeries, chartSettings.yAxisAtZero, {
                           id: 'right',
                           position: 'right',
-                          gridDefault: false,
                       }),
                   ]
-                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
-                      gridDefault: false,
-                  }),
-        // Grid off by default for a cleaner plot; draw a crisp L-shaped axis with tick marks instead
-        // of the full frame. An explicit `showGridLines` still wins (drawGrid takes over when on).
+                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
+        showCrosshair: true,
         showAxisLines: true,
         showTickMarks: true,
         // Soften the line with a monotone-cubic curve (no overshoot — peaks stay accurate).

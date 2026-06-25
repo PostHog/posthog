@@ -201,7 +201,7 @@ function LineChartInner<Meta = unknown>({
                 smooth,
             })
 
-            if (!showGrid && showAxisLines) {
+            if (showAxisLines) {
                 drawAxes(baseDrawCtx, { axisColor: theme.axisColor ?? theme.gridColor })
             }
         },

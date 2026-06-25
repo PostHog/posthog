@@ -227,7 +227,7 @@ function YTickLabel({
         <div
             data-attr={dataAttr}
             title={title}
-            style={{ ...TICK_STYLE_BASE, ...titleStyle(title), ...edge, top: y, transform: 'translateY(-50%)', color }}
+            style={{ ...TICK_STYLE_BASE, ...titleStyle(title), ...edge, top: y, transform: 'translateY(calc(-50% + 3px))', color }}
         >
             {text}
         </div>
