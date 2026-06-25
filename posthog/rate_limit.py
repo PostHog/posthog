@@ -833,6 +833,18 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_query_{sha_hash}"
 
 
+class SetupWizardCloudRunBurstRateThrottle(UserRateThrottle):
+    # "Run the setup wizard in the cloud" provisions a Modal sandbox and runs an LLM agent per call,
+    # so cap it hard per user — a couple per hour only, with an absolute daily ceiling (sustained throttle below).
+    scope = "wizard_cloud_run_burst"
+    rate = "2/hour"
+
+
+class SetupWizardCloudRunSustainedRateThrottle(UserRateThrottle):
+    scope = "wizard_cloud_run_day"
+    rate = "5/day"
+
+
 class SymbolSetUploadBurstRateThrottle(PersonalApiKeyRateThrottle):
     scope = "symbol_set_upload_burst"
     rate = "1200/minute"

@@ -121,6 +121,12 @@ class TaskProcessingContext:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
 
+    @property
+    def wizard_config(self) -> dict | None:
+        """Config for the pre-agent setup-wizard step (set at task creation); None for normal runs."""
+        value = (self.state or {}).get("wizard_config")
+        return value if isinstance(value, dict) else None
+
     def inactivity_timeout(self) -> timedelta:
         """How long the run may sit idle before the workflow times it out.
 

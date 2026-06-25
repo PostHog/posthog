@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
@@ -35,6 +36,7 @@ from posthog.models.integration import Integration
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
+from products.tasks.backend.logic.wizard_cloud import WIZARD_PR_AGENT_PROMPT
 from products.tasks.backend.models import (
     CodeInvite,
     CodeInviteRedemption,
@@ -685,6 +687,36 @@ def create_and_run_task(
         task_id=task.id,
         team_id=task.team_id,
         latest_run=_task_run_to_dto(latest, task=task) if latest is not None else None,
+    )
+
+
+def create_wizard_cloud_run(
+    *,
+    team,
+    user_id: int,
+    repository: str,
+    branch: str | None = None,
+) -> contracts.CreatedTaskDTO:
+    """Create + run a cloud setup-wizard task.
+
+    The workflow runs the published wizard in the sandbox (it integrates PostHog), then the agent
+    commits the changes, opens a PR on the user's repo, and keeps it green — it never implements
+    PostHog itself (see the wizard PR agent prompt). The wizard authenticates with its own scoped
+    token (see ``create_wizard_oauth_access_token``), independent of the agent's sandbox token, so
+    the agent runs with read-only PostHog scopes.``wizard_config`` marks the run so the workflow runs the wizard pre-agent step.
+    """
+    return create_and_run_task(
+        team=team,
+        title="Set up PostHog",
+        description=WIZARD_PR_AGENT_PROMPT,
+        origin_product=Task.OriginProduct.ONBOARDING,
+        user_id=user_id,
+        repository=repository,
+        create_pr=True,
+        mode="background",
+        branch=branch,
+        wizard_config={},
+        posthog_mcp_scopes="read_only",
     )
 
 
@@ -1805,8 +1837,6 @@ def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID) ->
     read-via-proxy flag is enabled for the user, so rollout stays gradual and reversible. The
     server owns this decision; clients just connect to whatever URL comes back.
     """
-    from django.conf import settings  # noqa: PLC0415 — keep settings access local to this helper
-
     from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG  # noqa: PLC0415
 
     proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL

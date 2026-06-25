@@ -58,6 +58,7 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
+        ONBOARDING = "onboarding", "Onboarding"
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
@@ -343,6 +344,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
+        wizard_config: dict | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -490,6 +492,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if inactivity_timeout_seconds is not None:
             extra_state["inactivity_timeout_seconds"] = inactivity_timeout_seconds
 
+        # Marks this as a cloud setup-wizard run: the workflow runs the wizard in the sandbox before
+        # the agent (see run_wizard activity / TaskProcessingContext.wizard_config).
+        if wizard_config is not None:
+            extra_state["wizard_config"] = wizard_config
+
         return task, extra_state
 
     @staticmethod
@@ -567,6 +574,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
+        wizard_config: dict | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -593,6 +601,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
+            wizard_config=wizard_config,
         )
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)

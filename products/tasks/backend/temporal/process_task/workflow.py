@@ -45,6 +45,7 @@ from .activities.provision_sandbox import (
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .activities.run_wizard import RunWizardInput, run_wizard
 from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .activities.start_agent_server import (
     MarkRepoReadyInput,
@@ -429,6 +430,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if not workflow.patched(_PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING):
                 await self._post_slack_update()
 
+            # Run the PostHog setup wizard before the agent, when this is a cloud wizard run.
+            # The wizard integrates PostHog and dirties the working tree; the agent then commits
+            # those changes, opens the PR, and keeps it green (it never implements PostHog itself).
+            await self._run_wizard_if_configured(sandbox_output)
+
             # Start agent-server for direct connection from PostHog Code
             if sandbox_output.agent_server_launched:
                 agent_server_output = await self._await_agent_server_ready(sandbox_output)
@@ -790,6 +796,30 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 workflow.logger.info(f"Agent-server logs from sandbox {sandbox_id}:\n{logs}")
         except Exception as e:
             workflow.logger.warning(f"Failed to read sandbox logs: {e}")
+
+    async def _run_wizard_if_configured(self, sandbox_output: GetSandboxForRepositoryOutput) -> None:
+        """Run the setup wizard in the sandbox before the agent, for cloud wizard runs only.
+
+        Fails the run on a non-zero wizard exit (maximum_attempts=1, and the wizard is non-idempotent
+        once it has modified files), rather than handing a half-integrated tree to the agent.
+        """
+        repository = self.context.repository
+        # `is not None` (not truthiness): an empty config dict still means "this is a wizard run".
+        if self.context.wizard_config is None or not repository:
+            return
+
+        await self._emit_progress("wizard", "in_progress", "Running PostHog setup wizard", "setup")
+        await workflow.execute_activity(
+            run_wizard,
+            RunWizardInput(
+                context=self.context,
+                sandbox_id=sandbox_output.sandbox_id,
+                repository=repository,
+            ),
+            start_to_close_timeout=timedelta(minutes=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        await self._emit_progress("wizard", "completed", "Ran PostHog setup wizard", "setup")
 
     async def _start_agent_server(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
         return await workflow.execute_activity(

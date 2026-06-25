@@ -19,7 +19,7 @@ from products.tasks.backend.logic.services.connection_token import (
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, increment_sandbox_created, increment_snapshot_usage
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
 from products.tasks.backend.temporal.process_task.utils import (
@@ -227,6 +227,12 @@ def _build_environment_variables(
         environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
     elif run_state.handoff_resumed:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
+
+    # Cloud wizard runs get a SEPARATE token, minted under the wizard's own OAuth app with the
+    # wizard's scopes, so the wizard's access stays independent of the agent's sandbox token above.
+    # The run_wizard activity reads it from POSTHOG_WIZARD_API_KEY in the sandbox env.
+    if ctx.wizard_config is not None:
+        environment_variables["POSTHOG_WIZARD_API_KEY"] = create_wizard_oauth_access_token(task)
 
     return environment_variables
 
