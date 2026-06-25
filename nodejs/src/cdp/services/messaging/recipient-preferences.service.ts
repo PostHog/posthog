@@ -1,5 +1,5 @@
 import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'

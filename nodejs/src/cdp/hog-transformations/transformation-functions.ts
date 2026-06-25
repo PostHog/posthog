@@ -1,4 +1,4 @@
-import { GeoIp } from '~/utils/geoip'
+import { GeoIp } from '~/common/utils/geoip'
 
 import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
 
