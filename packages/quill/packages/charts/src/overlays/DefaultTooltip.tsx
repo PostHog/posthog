@@ -30,6 +30,7 @@ export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta
 export function DefaultTooltip<Meta = unknown>({
     label,
     seriesData,
+    hoverPosition,
     valueFormatter,
     labelFormatter,
     showTotal,
@@ -39,7 +40,20 @@ export function DefaultTooltip<Meta = unknown>({
     footer,
 }: DefaultTooltipProps<Meta>): React.ReactElement {
     const format = valueFormatter ?? ((value: number): string => value.toLocaleString())
-    const rows = sortedByValue ? [...seriesData].sort((a, b) => b.value - a.value) : seriesData
+    const rows = (() => {
+        // Prefer cursor-proximity ordering when y-pixel data is available.
+        if (hoverPosition != null && seriesData.some((s) => s.yPixel != null)) {
+            return [...seriesData].sort(
+                (a, b) =>
+                    Math.abs((a.yPixel ?? hoverPosition.y) - hoverPosition.y) -
+                    Math.abs((b.yPixel ?? hoverPosition.y) - hoverPosition.y)
+            )
+        }
+        if (sortedByValue) {
+            return [...seriesData].sort((a, b) => b.value - a.value)
+        }
+        return seriesData
+    })()
     const summable = rows.filter((s) => !s.series.overlay)
     const renderTotal = showTotal && summable.length > 1
     const total = summable.reduce((acc, s) => acc + s.value, 0)
@@ -62,10 +76,9 @@ export function DefaultTooltip<Meta = unknown>({
             {renderTotal && (
                 <div
                     data-attr="hog-chart-tooltip-total"
-                    className="flex items-center gap-2 mt-1 pt-1 border-t border-current/25 font-semibold"
+                    className="flex items-center gap-2 mt-2 pt-1 border-t border-current/25"
                 >
-                    <span className="w-2 shrink-0" />
-                    <span className="flex-1">{totalLabel}</span>
+                    <span className="flex-1 opacity-60">{totalLabel}</span>
                     <strong data-attr="hog-chart-tooltip-value">{formatTotal(total)}</strong>
                 </div>
             )}
