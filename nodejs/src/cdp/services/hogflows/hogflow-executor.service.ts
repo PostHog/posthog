@@ -176,7 +176,7 @@ export class HogFlowExecutorService {
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
-        const earlyExitResult = await this.shouldExitEarly(invocation)
+        const earlyExitResult = await this.shouldExitEarly(invocation, metrics)
         if (earlyExitResult) {
             return earlyExitResult
         }
@@ -264,7 +264,8 @@ export class HogFlowExecutorService {
      * Determines if the invocation should exit early based on the hogflow's exit condition
      */
     private async shouldExitEarly(
-        invocation: CyclotronJobInvocationHogFlow
+        invocation: CyclotronJobInvocationHogFlow,
+        metrics: MinimalAppMetric[]
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
         let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
@@ -299,6 +300,24 @@ export class HogFlowExecutorService {
                     'HogFlowExecutorService: Conversion filters are set but no bytecode is provided. This means we cannot evaluate the conversion filters to determine if we should exit the flow.',
                     { hogFlowId: hogFlow.id }
                 )
+            }
+        }
+        // Count property-based conversions here, regardless of exit condition, so the metric is
+        // meaningful even for flows that don't exit on conversion. Captured before the event-flag
+        // override below: event-based conversions are counted by the subscription matcher, so the
+        // executor must only emit for the property path or exit-on-conversion event flows double-count.
+        // Guarded once-per-run by `conversionCounted` since shouldExitEarly runs on every resume.
+        const propertyConversionMatched = conversionMatch === true
+        let conversionMetric: MinimalAppMetric | null = null
+        if (propertyConversionMatched && !invocation.state.conversionCounted) {
+            invocation.state.conversionCounted = true
+            conversionMetric = {
+                team_id: hogFlow.team_id,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
+                instance_id: hogFlow.id,
+                metric_kind: 'other',
+                metric_name: 'conversion',
+                count: 1,
             }
         }
         // Event-based conversion goals are evaluated by the subscription matcher (against the live
@@ -351,6 +370,14 @@ export class HogFlowExecutorService {
                 metric_name: 'early_exit',
                 count: 1,
             })
+        }
+
+        // Route the conversion metric onto whichever result is actually flushed: the early-exit
+        // result when we exit, otherwise the caller's metrics array (which becomes result.metrics
+        // once the run continues and finishes).
+        if (conversionMetric) {
+            const conversionMetricTarget = earlyExitResult?.metrics ?? metrics
+            conversionMetricTarget.push(conversionMetric)
         }
 
         return earlyExitResult

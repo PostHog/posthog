@@ -15,7 +15,7 @@ import { isEmailAction } from './hogflows/steps/types'
 import { EXIT_NODE_ID, workflowLogic } from './workflowLogic'
 import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLogicType'
 
-export type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed'
+export type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed' | 'converted'
 export type EmailMetric =
     | 'email_sent'
     | 'email_delivered'
@@ -68,6 +68,13 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
             'Total number of workflow runs completed. This may include runs that began before the selected date range but completed within it.',
         color: getColorVar('success'),
         metricNames: ['succeeded'],
+    },
+    converted: {
+        name: 'Converted',
+        description:
+            'Total number of conversions recorded for this workflow. A conversion is counted when a person matches the workflow’s conversion goal (property- or event-based), regardless of whether the workflow is set to exit on conversion.',
+        color: getColorVar('purple'),
+        metricNames: ['conversion'],
     },
 }
 
@@ -208,6 +215,37 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 },
             },
         ],
+        conversionStats: [
+            { conversions: 0, started: 0 } as {
+                conversions: number
+                started: number
+            },
+            {
+                loadConversionStats: async (_, breakpoint) => {
+                    await breakpoint(10)
+                    const timezone = values.currentTeam?.timezone ?? 'UTC'
+                    const dateRange = values.getDateRangeAbsolute()
+                    const baseRequest: AppMetricsTotalsRequest = {
+                        appSource: values.params.appSource,
+                        appSourceId: values.params.appSourceId,
+                        breakdownBy: ['metric_name'],
+                        dateFrom: dateRange.dateFrom.toISOString(),
+                        dateTo: dateRange.dateTo.toISOString(),
+                        metricName: ['conversion'],
+                    }
+                    // The two totals have no data dependency, so fetch them in parallel.
+                    const [conversionResponse, startedResponse] = await Promise.all([
+                        loadAppMetricsTotals(baseRequest, timezone),
+                        loadAppMetricsTotals({ ...baseRequest, metricName: ['triggered'] }, timezone),
+                    ])
+                    await breakpoint(10)
+
+                    const conversions = Object.values(conversionResponse).reduce((sum, r) => sum + r.total, 0)
+                    const started = Object.values(startedResponse).reduce((sum, r) => sum + r.total, 0)
+                    return { conversions, started }
+                },
+            },
+        ],
         inProgressTotal: [
             0,
             {
@@ -267,6 +305,11 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         ],
 
         summaryMetricKeys: [() => [], (): WorkflowSummaryMetric[] => SUMMARY_METRIC_KEYS],
+
+        conversionRate: [
+            (s) => [s.conversionStats],
+            ({ conversions, started }): number => (started > 0 ? conversions / started : 0),
+        ],
     }),
 
     // Separate block so these selectors can reference emailActions and metricNameBySummaryMetric via `s`
@@ -341,6 +384,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
     afterMount(({ actions }) => {
         actions.loadEmailTotals({})
         actions.loadInProgressTotal({})
+        actions.loadConversionStats({})
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -355,6 +399,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 dateTo: values.params.dateTo,
             })
             actions.loadEmailTotals({})
+            actions.loadConversionStats({})
         },
     })),
 ])
