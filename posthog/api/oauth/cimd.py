@@ -610,7 +610,10 @@ def refresh_cimd_metadata_task(url: str) -> None:
     try:
         with ph_scoped_capture() as capture_ph_event:
             fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
-    except (CIMDFetchError, CIMDValidationError) as e:
+    except CIMDValidationError as e:
+        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
+        logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
+    except CIMDFetchError as e:
         logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
         capture_exception(e)
 
@@ -637,7 +640,10 @@ def register_cimd_provisioning_application_task(url: str) -> None:
                         "organization_id": str(app.organization_id) if app.organization_id else None,
                     },
                 )
-    except (CIMDFetchError, CIMDValidationError) as e:
+    except CIMDValidationError as e:
+        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
+        logger.warning("cimd_background_registration_failed", url=url, error=str(e))
+    except CIMDFetchError as e:
         logger.warning("cimd_background_registration_failed", url=url, error=str(e))
         capture_exception(e)
 
