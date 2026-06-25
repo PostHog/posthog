@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -32,59 +33,57 @@ _SOCIAL_DOMAINS = (
     "bsky",
 )
 
-# Each persona: a stable id, a display label, a Hog-flavored emoji, a short blurb, and a brand color.
-# The blurb may contain a single `{value}` placeholder filled from the data that triggered it.
 PERSONAS: dict[str, dict[str, str]] = {
     "just_getting_started": {
-        "label": "The Newcomer",
+        "name": "The Newcomer",
         "emoji": "🐣",
         "blurb": "Every big site starts with a first visitor. The journey is underway.",
         "color": "#8f55e0",
     },
     "conversion_machine": {
-        "label": "Conversion Machine",
+        "name": "Conversion Machine",
         "emoji": "🎯",
         "blurb": "Conversions jumped {value} this week. Your funnel is firing.",
         "color": "#2f7d4f",
     },
     "traffic_magnet": {
-        "label": "Traffic Magnet",
+        "name": "Traffic Magnet",
         "emoji": "🧲",
         "blurb": "Visitors surged {value} this week. Whatever you're doing, keep doing it.",
         "color": "#e0a23b",
     },
     "crowd_favorite": {
-        "label": "Crowd Favorite",
+        "name": "Crowd Favorite",
         "emoji": "⭐",
         "blurb": "One page stole the show, pulling {value} of all your visitors.",
         "color": "#db5a9a",
     },
     "search_hog": {
-        "label": "Search Sensation",
+        "name": "Search Sensation",
         "emoji": "🔍",
         "blurb": "Search engines sent the crowd this week, and {value} led the way.",
         "color": "#3b8fe0",
     },
     "word_of_mouth": {
-        "label": "The Influencer",
+        "name": "The Influencer",
         "emoji": "📣",
         "blurb": "People are spreading the word, and {value} drove your biggest referral.",
         "color": "#e0653b",
     },
     "loyal_following": {
-        "label": "Cult Classic",
+        "name": "Cult Classic",
         "emoji": "💚",
         "blurb": "Your visitors stuck around. Engagement is up and bounce is down.",
         "color": "#2f9d7d",
     },
     "rising_star": {
-        "label": "Rising Star",
+        "name": "Rising Star",
         "emoji": "🚀",
         "blurb": "Across the board, this week beat last week. You're on the way up.",
         "color": "#6a5af0",
     },
     "steady_hog": {
-        "label": "Old Faithful",
+        "name": "Old Faithful",
         "emoji": "🦔",
         "blurb": "A calm, consistent week. Steady traffic is its own kind of win.",
         "color": "#7a8089",
@@ -145,13 +144,14 @@ def compute_persona(digest: dict) -> dict:
 
     if top_sources:
         top_source_name = top_sources[0].get("name") or ""
+        top_source_display = top_source_name or "Direct"
         top_source_share = (
             min(round((top_sources[0].get("visitors") or 0) / visitors_current * 100), 100) if visitors_current else 0
         )
         if _domain_matches(top_source_name, _SEARCH_DOMAINS):
-            return persona("search_hog", top_source_name)
+            return persona("search_hog", top_source_display)
         if _domain_matches(top_source_name, _SOCIAL_DOMAINS) or top_source_share >= 30:
-            return persona("word_of_mouth", top_source_name)
+            return persona("word_of_mouth", top_source_display)
 
     if bounce_change < 0 or duration_change > 0:
         return persona("loyal_following")
@@ -178,7 +178,7 @@ def _build_highlights(digest: dict, compare: bool = True) -> list[dict]:
                 {
                     "id": "milestone",
                     "emoji": "🎉",
-                    "label": "Milestone unlocked",
+                    "title": "Milestone unlocked",
                     "value": f"{max(crossed):,} visitors",
                     "detail": "You crossed a new visitor milestone this week.",
                 }
@@ -192,7 +192,7 @@ def _build_highlights(digest: dict, compare: bool = True) -> list[dict]:
             {
                 "id": "rising_page",
                 "emoji": "📈",
-                "label": "Rising star page",
+                "title": "Rising star page",
                 "value": rising.get("path") or "/",
                 "detail": f"Up {_signed_percent(rising)}% in visitors week over week.",
             }
@@ -205,7 +205,7 @@ def _build_highlights(digest: dict, compare: bool = True) -> list[dict]:
             {
                 "id": "top_source",
                 "emoji": "🌐",
-                "label": "Top source",
+                "title": "Top source",
                 "value": top_source.get("name") or "Direct",
                 "detail": f"{top_source.get('visitors') or 0:,} visitors came from here.",
             }
@@ -225,10 +225,10 @@ def _build_period_dates(team: Team, days: int) -> dict[str, date]:
 
 def recap_url_for_team(team: Team, *, utm_source: str, utm_medium: str | None = None) -> str:
     """The single canonical link to a team's weekly recap, with attribution params."""
-    url = f"{settings.SITE_URL}/project/{team.pk}/web/recap?utm_source={utm_source}"
+    params: dict[str, str] = {"utm_source": utm_source}
     if utm_medium:
-        url += f"&utm_medium={utm_medium}"
-    return url
+        params["utm_medium"] = utm_medium
+    return f"{settings.SITE_URL}/project/{team.pk}/web/recap?{urlencode(params)}"
 
 
 def build_team_recap(team: Team, days: int = 7, compare: bool = True) -> dict:

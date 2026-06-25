@@ -44938,7 +44938,7 @@ export namespace Schemas {
       /** Emoji for the highlight. */
       emoji: string;
       /** Short headline for the highlight, e.g. 'Rising star page'. */
-      label: string;
+      title: string;
       /** The standout value, e.g. a page path or visitor count. */
       value: string;
       /** Supporting sentence for the highlight. */
@@ -44949,7 +44949,7 @@ export namespace Schemas {
       /** Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog. */
       id: string;
       /** Display name for the persona, e.g. 'Traffic Magnet'. */
-      label: string;
+      name: string;
       /** Emoji representing the persona. */
       emoji: string;
       /** One-line explanation of why this persona was assigned this week. */

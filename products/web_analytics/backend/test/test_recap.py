@@ -118,7 +118,7 @@ class TestComputePersona(SimpleTestCase):
     def test_persona_assignment(self, _name, digest, expected_id):
         persona = compute_persona(digest)
         assert persona["id"] == expected_id
-        assert persona["label"]
+        assert persona["name"]
         assert persona["emoji"]
         assert persona["blurb"]
         assert "{value}" not in persona["blurb"]
@@ -133,6 +133,17 @@ class TestComputePersona(SimpleTestCase):
         assert persona["id"] == "crowd_favorite"
         assert "100%" in persona["blurb"]
         assert "150%" not in persona["blurb"]
+
+    def test_direct_traffic_top_source_falls_back_to_direct_label(self):
+        digest = _digest(
+            visitors=_metric(100, percent=5, direction="Up"),
+            top_pages=[{"path": "/", "visitors": 10, "change": None}],
+            top_sources=[{"name": "", "visitors": 40, "change": None}],
+        )
+        persona = compute_persona(digest)
+        assert persona["id"] == "word_of_mouth"
+        assert "Direct" in persona["blurb"]
+        assert "  " not in persona["blurb"]
 
 
 class TestBuildHighlights(SimpleTestCase):
