@@ -210,7 +210,9 @@ def main():
             label = f"{name}#{label_idx}"
             try:
                 res = execute_bytecode(bytecode)
-                expected = "\n".join(res.stdout)
+                # Smoke cases (non-deterministic fns like now()/randomFloat()) only assert the Rust VM
+                # runs them; don't persist the volatile reference output, so regen stays idempotent.
+                expected = "" if match == "smoke" else "\n".join(res.stdout)
                 entries.append(
                     {"fn": name, "label": label, "match": match, "bytecode": bytecode, "expected": expected}
                 )

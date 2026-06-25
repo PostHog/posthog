@@ -2464,7 +2464,7 @@
         "print",
         1
       ],
-      "expected": "DateTime(1782409456.804831, 'UTC')"
+      "expected": ""
     },
     {
       "fn": "today",
@@ -2480,7 +2480,7 @@
         "print",
         1
       ],
-      "expected": "Date(2026, 6, 25)"
+      "expected": ""
     },
     {
       "fn": "randomFloat",
@@ -2496,7 +2496,7 @@
         "print",
         1
       ],
-      "expected": "0.8846522572341313"
+      "expected": ""
     },
     {
       "fn": "generateUUIDv4",
@@ -2512,7 +2512,7 @@
         "print",
         1
       ],
-      "expected": "5b189091-d608-4570-8804-f61871d561e7"
+      "expected": ""
     }
   ],
   "uncovered": [

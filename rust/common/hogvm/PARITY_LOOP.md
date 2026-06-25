@@ -104,13 +104,13 @@ both already exercised by the corpus harness, plus `run` (SQL) / `extract`.
 
 Current status: **30 PASS / 95 FAIL** — the FAILs are the STL backlog below.
 
-Regenerate the oracle (needs the reference VM deps `re2` + `pytz`; flox is unavailable here):
+Regenerate the committed oracle fixtures after adding/altering cases (also rebuilds the perf
+oracle); it provisions the reference VM's `re2`+`pytz` venv first:
 ```bash
-uv venv /tmp/hogvm-venv && uv pip install --python /tmp/hogvm-venv/bin/python google-re2 pytz
-PYTHONPATH=.:common /tmp/hogvm-venv/bin/python rust/common/hogvm/scripts/gen_stl_oracle.py
+rust/common/hogvm/scripts/regen_oracles.sh
 ```
-The committed `stl_oracle.json` means the Rust test runs without the venv; you only need it to
-regenerate after adding/altering cases.
+The committed `stl_oracle.json` means the Rust test (and the loop) run without the venv; you only
+need it to regenerate after editing cases.
 
 ### 2b. Performance — three modes, ingestion-shaped
 We measure the *same* compiled program (`tests/static/perf_program.json`) over the same event
@@ -200,12 +200,27 @@ crates.io deps (allowed). Workaround: `scripts/run_parity.sh` builds hogvm in an
 that **symlinks the live `src/` and `tests/`**, so we build and edit the real source without
 resolving `cymbal`. In CI / a normal dev box this isn't needed — build hogvm directly.
 
+**Oracle bootstrap.** The reference Python VM needs `re2`+`pytz` (flox is unavailable here). These
+are provisioned idempotently by `scripts/setup_oracle.sh` into `~/.hogvm-oracle-venv`, and that
+script is chained from the web `SessionStart` hook (`.claude/hooks/setup-cloud.sh`), so the oracle
+auto-provisions on session start / after a container recycle. It's only needed to regenerate
+fixtures — the loop itself runs against the committed ones.
+
 ---
 
 ## 5. The loop
 
+**Entrypoint:** `scripts/loop.sh` — runs both correctness harnesses and prints the pass/fail counts
+and backlog (the "where are we / what's next" dashboard). Per iteration:
+1. `scripts/loop.sh` — see the backlog.
+2. Implement the next STL fn / value-model fix in `src/` to match the reference.
+3. `scripts/loop.sh` — confirm the count climbed with no regressions.
+4. Commit + push the increment.
+
+To add *new* test cases first, edit `scripts/gen_stl_oracle.py` then run `scripts/regen_oracles.sh`.
+
 Each iteration: pick the top backlog item → implement in Rust to match the reference →
-re-run `tests/parity.rs` → a program flips ERROR/MISMATCH → PASS. Repeat until the corpus is
+re-run the harness → a program flips ERROR/MISMATCH → PASS. Repeat until the corpus is
 green, then move to performance.
 
 **Phase 0 — value-model & semantics fixes (unblock whole categories):**

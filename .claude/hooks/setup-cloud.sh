@@ -23,4 +23,10 @@ uv sync 2>/dev/null
 # Root-only install: linting tools + husky, skips full workspace
 pnpm install --frozen-lockfile --filter=. 2>/dev/null
 
+# Provision the HogVM parity-loop reference oracle (re2 + pytz venv). Idempotent and non-fatal —
+# only needed to (re)generate oracle fixtures; the loop itself runs against committed fixtures.
+if [ -x rust/common/hogvm/scripts/setup_oracle.sh ]; then
+    rust/common/hogvm/scripts/setup_oracle.sh || true
+fi
+
 exit 0
