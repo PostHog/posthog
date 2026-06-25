@@ -14,7 +14,12 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.pipelines.common.extract import (
+
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     advance_xmin_state,
     cdp_producer_clear_chunks,
     cleanup_memory,
@@ -28,35 +33,36 @@ from posthog.temporal.data_imports.pipelines.common.extract import (
     validate_incremental_sync,
     write_chunk_for_cdp_producer,
 )
-from posthog.temporal.data_imports.pipelines.common.load import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     notify_revenue_analytics_that_sync_has_completed,
     supports_partial_data_loading,
 )
-from posthog.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
-from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
-from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from posthog.temporal.data_imports.pipelines.pipeline.typings import PipelineResult, ResumableData, SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DeltaTableHelper,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+    PipelineResult,
+    ResumableData,
+    SourceResponse,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
     normalize_table_column_names,
     setup_partitioning,
 )
-from posthog.temporal.data_imports.pipelines.pipeline_sync import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     set_initial_sync_complete,
     update_last_synced_at,
     validate_schema_and_update_table,
 )
-from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 
 T = TypeVar("T")
 
@@ -459,7 +465,9 @@ class PipelineNonDLT(Generic[ResumableData]):
             "cdc_only",
             "both",
         ):
-            from posthog.temporal.data_imports.pipelines.common.load import _seed_cdc_companion_from_snapshot
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
+                _seed_cdc_companion_from_snapshot,
+            )
 
             await self._logger.ainfo("Seeding CDC companion table from snapshot (V2 pipeline)")
             await _seed_cdc_companion_from_snapshot(

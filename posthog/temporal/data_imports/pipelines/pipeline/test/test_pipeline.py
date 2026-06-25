@@ -7,9 +7,12 @@ from typing import cast
 import pytest
 from unittest.mock import AsyncMock
 
-from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT, async_iterate
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import (
+    PipelineNonDLT,
+    async_iterate,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 
 _probe: contextvars.ContextVar[str | None] = contextvars.ContextVar("probe", default=None)
 
@@ -120,7 +123,7 @@ async def test_run_cleanup_failure_does_not_mask_import_error(monkeypatch):
         raise ImportError_("Can't connect to MySQL server on")
 
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.cdp_producer_clear_chunks",
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.cdp_producer_clear_chunks",
         _raise_import_error,
     )
 
