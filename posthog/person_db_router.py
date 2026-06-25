@@ -97,7 +97,14 @@ class PersonDBRouter:
         Attempts to write person models go to persons_db_writer.
         """
         if self.is_persons_model(model._meta.app_label, model._meta.model_name):
-            self._raise_if_blocked(model)
+            # Django also calls db_for_write to compute _state.db when an FK *instance*
+            # is assigned during Model.__init__ (e.g. ``GroupTypeMapping(team=team)``).
+            # In that case hints["instance"] is the *related* object — a different model
+            # — and nothing is being written, so it must not trip the block. Real writes
+            # pass the model's own instance (save/create) or no instance (queryset writes).
+            instance = hints.get("instance")
+            if instance is None or isinstance(instance, model):
+                self._raise_if_blocked(model)
             return PERSONS_DB_FOR_WRITE
         return None  # Allow default db selection
 
