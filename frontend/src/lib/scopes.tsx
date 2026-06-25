@@ -36,6 +36,7 @@ export const API_SCOPES: APIScope[] = [
     // `clickhouse_test_cluster_perf` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
+    { key: 'conversation', objectName: 'Conversation', objectPlural: 'conversations' },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
     { key: 'customer_journey', objectName: 'Customer journey', objectPlural: 'customer journeys' },
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
