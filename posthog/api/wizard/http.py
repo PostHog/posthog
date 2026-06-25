@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+from typing import cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -28,6 +29,7 @@ from posthog.api.wizard.utils import json_schema_to_gemini_schema
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.cloud_utils import get_api_host
 from posthog.exceptions_capture import capture_exception
+from posthog.models import User
 from posthog.models.project import Project
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import (
@@ -440,7 +442,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         repository = serializer.validated_data["repository"]
         branch = serializer.validated_data.get("branch") or None
 
-        visible_team_ids = UserPermissions(request.user).team_ids_visible_for_user
+        visible_team_ids = UserPermissions(cast(User, request.user)).team_ids_visible_for_user
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check below)
             project = Project.objects.get(id=project_id)
@@ -452,7 +454,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         try:
             result = tasks_facade.create_wizard_cloud_run(
                 team=project.passthrough_team,
-                user_id=request.user.id,
+                user_id=cast(User, request.user).id,
                 repository=repository,
                 branch=branch,
             )
