@@ -2609,6 +2609,13 @@ export interface PaginatedExternalDataSourceConnectionOptionListApi {
  * The request body contains source_type plus flat source-specific credential fields
  * (e.g. host, port, database, user, password, schema for Postgres). The credential
  * fields vary per source_type and are validated dynamically by the source registry.
+ *
+ * For source_type "Custom" (a user-defined REST API) the body carries `manifest_json`
+ * (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the
+ * credential for the manifest's declared auth type — `auth_token` (bearer), `auth_api_key`
+ * (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never
+ * inline in manifest_json. The returned tables mirror the manifest's resources, with
+ * detected primary keys and incremental cursors.
  */
 export interface DatabaseSchemaRequestApi {
     /** The source type to validate against.
@@ -3258,7 +3265,7 @@ export interface DatabaseSchemaRequestApi {
 }
 
 /**
- * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+ * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
  */
 export type SourceSetupApiPayload = { [key: string]: unknown }
 
@@ -3907,7 +3914,7 @@ export interface SourceSetupApi {
      * * `Superwall` - Superwall
      * * `Liana` - Liana */
     source_type: ExternalDataSourceTypeEnumApi
-    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
     /**
      * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.

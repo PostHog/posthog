@@ -3,7 +3,7 @@ import { createServer } from 'http'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
-import { CyclotronInvocationQueueParametersFetchType } from '~/schema/cyclotron'
+import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
 import { logger } from '~/utils/logger'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
@@ -21,7 +21,7 @@ import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
-import { selfLoopGuardCounter } from './self-loop-guard'
+import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -1983,19 +1983,48 @@ describe('Hog Executor', () => {
                 } as any)
             }
 
-            const setMode = (mode: 'disabled' | 'warn'): void => {
+            const setMode = (mode: 'disabled' | 'warn' | 'enforce'): void => {
                 ;(executor as any).config.selfLoopGuardMode = mode
             }
 
             const ownTokenCaptureBody = (): string =>
                 JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
 
+            // Seed this destination's own self-loop depth (keyed by its function id).
+            const setSelfLoopDepth = (invocation: CyclotronJobInvocationHogFunction, depth: number): void => {
+                invocation.state.globals.event.properties = {
+                    ...invocation.state.globals.event.properties,
+                    [SELF_LOOP_DEPTH_PROPERTY]: { [invocation.hogFunction.id]: depth },
+                }
+            }
+
+            // Seed a high depth for a DIFFERENT function - simulates an event that passed
+            // through an unrelated deep chain. Must not count toward this destination.
+            const setOtherFunctionDepth = (invocation: CyclotronJobInvocationHogFunction, depth: number): void => {
+                invocation.state.globals.event.properties = {
+                    ...invocation.state.globals.event.properties,
+                    [SELF_LOOP_DEPTH_PROPERTY]: { 'some-other-function-id': depth },
+                }
+            }
+
+            // Capture the body sent to the (mocked) ingest endpoint without a real network call.
+            const captureIngestFetch = (): { getBody: () => string | undefined } => {
+                let sentBody: string | undefined
+                ;(fetch as jest.Mock).mockImplementationOnce((_url: string, options: any) => {
+                    sentBody = options.body
+                    return Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
+                })
+                return { getBody: () => sentBody }
+            }
+
+            const readActionCount = async (mode: string, action: string): Promise<number> => {
+                const metric = await selfLoopGuardCounter.get()
+                return metric.values.find((v) => v.labels.mode === mode && v.labels.action === action)?.value ?? 0
+            }
+
             // The detected count is the production signal that drives the enforce decision,
             // so assert it actually moves - not just the human-facing log.
-            const readDetectedCount = async (): Promise<number> => {
-                const metric = await selfLoopGuardCounter.get()
-                return metric.values.find((v) => v.labels.mode === 'warn' && v.labels.action === 'detected')?.value ?? 0
-            }
+            const readDetectedCount = (): Promise<number> => readActionCount('warn', 'detected')
 
             it('detects a self-referential ingest fetch and logs + meters it without blocking (warn)', async () => {
                 setMode('warn')
@@ -2057,6 +2086,100 @@ describe('Hog Executor', () => {
 
                 // Detection failing must not surface as a destination error.
                 expect(result.error).toBeUndefined()
+            })
+
+            // Every hop under the cap is allowed and its outgoing body stamped with this
+            // destination's next depth - including hop 0 (a fresh external event), which a
+            // legitimate run always is.
+            it.each([
+                { case: 'fresh hop 0 (a legitimate external run)', depth: 0, stampedTo: 1 },
+                { case: 'mid-chain under the cap', depth: 2, stampedTo: 3 },
+                { case: 'the last hop under the cap', depth: 9, stampedTo: 10 },
+            ])('enforce: allows + stamps the next hop ($case)', async ({ depth, stampedTo }) => {
+                setMode('enforce')
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                setSelfLoopDepth(invocation, depth)
+                const sent = captureIngestFetch()
+                const blockedBefore = await readActionCount('enforce', 'blocked')
+
+                const result = await executor.executeFetch(invocation)
+
+                // Fetch proceeds, body carries this destination's incremented depth, nothing blocked.
+                expect(result.error).toBeUndefined()
+                expect(parseJSON(sent.getBody()!).properties[SELF_LOOP_DEPTH_PROPERTY][invocation.hogFunction.id]).toBe(
+                    stampedTo
+                )
+                expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
+            })
+
+            // The whole point of per-function depth: an event that arrived carrying a huge
+            // depth for a DIFFERENT function is treated as depth 0 here, so a legitimately
+            // running destination is never blocked by an unrelated deep chain.
+            it('enforce: does NOT block when the high depth belongs to another function', async () => {
+                setMode('enforce')
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                setOtherFunctionDepth(invocation, 50)
+                const sent = captureIngestFetch()
+                const blockedBefore = await readActionCount('enforce', 'blocked')
+
+                const result = await executor.executeFetch(invocation)
+
+                // Allowed, stamped as this destination's first hop, not blocked.
+                expect(result.error).toBeUndefined()
+                expect(parseJSON(sent.getBody()!).properties[SELF_LOOP_DEPTH_PROPERTY][invocation.hogFunction.id]).toBe(
+                    1
+                )
+                expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
+            })
+
+            it('enforce: breaks the chain once it reaches the cap', async () => {
+                setMode('enforce')
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                setSelfLoopDepth(invocation, 10)
+                mockRequest.mockClear()
+                const blockedBefore = await readActionCount('enforce', 'blocked')
+
+                const result = await executor.executeFetch(invocation)
+
+                // Blocked: error set, finished, no fetch attempted, metric moved.
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.finished).toBe(true)
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore + 1)
+                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
+                    expect.arrayContaining([expect.stringContaining('event-forwarding loop has already repeated')])
+                )
+            })
+
+            it('enforce: leaves a normal external fetch untouched', async () => {
+                setMode('enforce')
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/test`,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                mockRequest.mockClear()
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(mockRequest).toHaveBeenCalled()
             })
         })
     })

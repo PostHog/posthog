@@ -1,8 +1,8 @@
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
-import { HogFlow } from '~/schema/hogflow'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import {
