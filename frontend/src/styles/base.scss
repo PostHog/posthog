@@ -1659,6 +1659,13 @@
             opacity: 1 !important;
         }
 
+        // react-toastify zooms the toast icon in via `Toastify__zoomIn` (opacity 0 + scale(0.3)
+        // -> 1); the 0% keyframe leaves it invisible and shrunk, so pin both end values.
+        .Toastify__toast-icon {
+            opacity: 1 !important;
+            transform: none !important;
+        }
+
         // Hide hogfetti (JS-driven confetti animation) — Math.random + requestAnimationFrame
         // makes it inherently non-deterministic, CSS animation overrides don't help
         .Hogfetti {
