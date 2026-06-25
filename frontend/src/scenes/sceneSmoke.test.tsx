@@ -102,6 +102,12 @@ describe('high-traffic scene smoke', () => {
     let consoleErrorSpy: jest.SpyInstance
     let captureExceptionSpy: jest.SpyInstance
 
+    beforeAll(() => {
+        // jsdom has no CSS.supports; some scenes call it during render. Real browsers do.
+        const css = (global as any).CSS ?? ((global as any).CSS = {})
+        css.supports = css.supports ?? ((): boolean => false)
+    })
+
     beforeEach(() => {
         useMocks({
             post: { '/api/environments/:team_id/query/': () => [200, { results: [] }] },
@@ -129,11 +135,19 @@ describe('high-traffic scene smoke', () => {
             </CaptureBoundary>
         )
 
+        // Wait for the real scene component, not just `activeSceneId`: on a slow dynamic import
+        // sceneLogic sets the id while `activeExportedScene` is still absent (SceneHost renders
+        // null), so gating on the id alone can assert before the scene ever mounts.
         await waitFor(() => {
-            expect(sceneLogic.findMounted()?.values.activeSceneId).toBeTruthy()
+            expect(sceneLogic.findMounted()?.values.activeExportedScene?.component).toBeTruthy()
         })
 
         const activeSceneId = sceneLogic.findMounted()?.values.activeSceneId
+        // Scope: the structural de-tab class — a logic keyed on / asserting an absent tabId/panelId
+        // (the maxThreadLogic incident shape). Matched on the thrown message, plus an error-scene
+        // landing for build throws of any message. Generic data-shape render errors (a component
+        // hitting undefined fields from the deliberately-thin mock floor) are out of scope here —
+        // asserting full render health would need exact-shape mocks for every product's endpoints.
         const fromRender = renderErrors.filter((e) => MISSING_PROP_OR_KEY.test(e.message)).map((e) => e.message)
         const fromConsole = consoleErrors.filter((s) => MISSING_PROP_OR_KEY.test(s))
         const fromCapture = captureExceptionSpy.mock.calls
