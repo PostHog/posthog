@@ -1197,8 +1197,10 @@ def _resolve_project_state(integration: Integration, slack_user_id: str) -> Proj
     # Look up the workspace default's label against the full candidate list,
     # not `accessible`, so a default pointing at an inaccessible project still
     # surfaces in the UI.
+    # Guard on the FK object (not the *_id field) so mypy narrows
+    # `default_integration` from `Integration | None` to `Integration`.
     workspace_team_id = (
-        workspace_row.default_integration.team_id if workspace_row and workspace_row.default_integration_id else None
+        workspace_row.default_integration.team_id if workspace_row and workspace_row.default_integration else None
     )
     workspace_team_label: str | None = None
     if workspace_team_id is not None:
@@ -1206,9 +1208,7 @@ def _resolve_project_state(integration: Integration, slack_user_id: str) -> Proj
 
     return ProjectState(
         candidates=tuple(ProjectChoice(team_id=c.team_id, label=_label(c)) for c in accessible),
-        personal_team_id=(
-            user_row.default_integration.team_id if user_row and user_row.default_integration_id else None
-        ),
+        personal_team_id=(user_row.default_integration.team_id if user_row and user_row.default_integration else None),
         workspace_team_id=workspace_team_id,
         workspace_team_label=workspace_team_label,
     )
@@ -1324,8 +1324,9 @@ def _modal_error_response(message: str) -> JsonResponse:
 
 
 def _first_validation_message(exc: Exception) -> str:
-    if getattr(exc, "messages", None):
-        return exc.messages[0]
+    messages = getattr(exc, "messages", None)
+    if messages:
+        return messages[0]
     return "Settings could not be saved."
 
 

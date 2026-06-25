@@ -25,7 +25,7 @@ haven't opted in.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.db.models import Q
 
@@ -78,14 +78,17 @@ def resolve_ai_preferences(integration: Integration, slack_user_id: str | None) 
             Q(slack_workspace_id=slack_workspace_id) & (Q(slack_user_id__isnull=True) | user_row_filter)
         ).values("slack_user_id", "ai_preferences")
     )
-    user_prefs = (
-        next(
-            (r["ai_preferences"] for r in rows if slack_user_id is not None and r["slack_user_id"] == slack_user_id),
-            {},
-        )
-        or {}
-    )
-    workspace_prefs = next((r["ai_preferences"] for r in rows if r["slack_user_id"] is None), {}) or {}
+    # Pulled into local dicts so mypy can give them a definite type — the
+    # JSONField returns `Any | None` per row, and a `next(...) or {}` expression
+    # ends up as a wider union mypy refuses to narrow.
+    user_prefs: dict[str, Any] = {}
+    workspace_prefs: dict[str, Any] = {}
+    for r in rows:
+        payload = r["ai_preferences"] or {}
+        if r["slack_user_id"] is None:
+            workspace_prefs = payload
+        elif slack_user_id is not None and r["slack_user_id"] == slack_user_id:
+            user_prefs = payload
 
     # `validate_ai_preferences` enforces that `runtime_adapter` and `model` are
     # set together, so the presence of either one is a faithful signal that

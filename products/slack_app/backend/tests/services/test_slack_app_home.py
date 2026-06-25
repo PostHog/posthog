@@ -13,6 +13,7 @@ import sys
 import json
 from dataclasses import dataclass
 from types import ModuleType
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -148,7 +149,10 @@ def _stub_picker_facade():
         return f"Effort '{effort}' not supported on {model}."
 
     facade_name = "products.tasks.backend.facade.run_config"
-    fake = ModuleType(facade_name)
+    # `Any` annotation so mypy accepts the stub-attribute assignments below —
+    # the stdlib `ModuleType` rejects them outright, and ruff B010 reverts any
+    # `setattr` workaround back to attribute syntax.
+    fake: Any = ModuleType(facade_name)
     fake.RuntimeAdapter = _RuntimeAdapter()
     fake.get_supported_reasoning_efforts = fake_get_supported
     fake.get_reasoning_effort_error = fake_get_error
@@ -167,7 +171,7 @@ def _stub_picker_facade():
         _GatewayModel(id="gpt-5.5", owned_by="openai"),
     )
     llm_models_name = "products.slack_app.backend.services.llm_models"
-    fake_llm_models = ModuleType(llm_models_name)
+    fake_llm_models: Any = ModuleType(llm_models_name)
     fake_llm_models.list_slack_app_models = lambda: gateway_models
     fake_llm_models.GatewayModel = _GatewayModel
 
@@ -193,18 +197,26 @@ def _stub_picker_facade():
 # ---------------------------------------------------------------------------
 
 
-def _make_row(*, runtime_adapter=None, model=None, reasoning_effort=None):
-    """Plain duck-type stand-in for a SlackSettings row — keeps the renderer
-    tests off the database."""
+@dataclass
+class _Row:
+    """Duck-type stand-in for a SlackSettings row — keeps the renderer tests
+    off the database. Declared at module scope (instead of inside the helper
+    below) so mypy can resolve the dataclass-generated attribute types."""
 
-    class _Row:
-        pass
+    runtime_adapter: str | None = None
+    model: str | None = None
+    reasoning_effort: str | None = None
 
-    row = _Row()
-    row.runtime_adapter = runtime_adapter
-    row.model = model
-    row.reasoning_effort = reasoning_effort
-    return row
+
+def _make_row(
+    *,
+    runtime_adapter: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+) -> Any:
+    # Returned as Any so call sites that pass this to render_home_view /
+    # resolve_source (which expect a real `SlackSettings`) don't trip mypy.
+    return _Row(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
 
 
 def _action_ids(view: dict) -> list[str]:

@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from unittest.mock import patch
 
@@ -111,7 +113,10 @@ def _stub_task_runtime_helpers():
     from types import ModuleType
 
     module_name = "products.tasks.backend.facade.run_config"
-    fake = ModuleType(module_name)
+    # `Any` annotation so mypy accepts the stub-attribute assignments below —
+    # the stdlib `ModuleType` rejects them, and ruff B010 reverts any
+    # `setattr` workaround back to attribute syntax.
+    fake: Any = ModuleType(module_name)
     fake.get_supported_reasoning_efforts = fake_get_supported
     fake.get_reasoning_effort_error = fake_get_error
     fake.RuntimeAdapter = _RuntimeAdapter()
