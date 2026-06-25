@@ -1133,12 +1133,11 @@ def get_teams_with_ai_event_count_in_period(
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             """
-            -- Gateway events are wallet-billed; exempt them from the AIO meter. Exempt one
-            -- event per distinct verified $ai_gateway_request_id (a replayed signature reuses
-            -- one id, so it earns a single exemption and the copies stay billable). Both
-            -- markers are stamped by capture after verification (#64806), not client-settable.
-            -- A non-empty request_id is required so a verified event without one stays
-            -- billable, not blanket-exempted.
+            -- Gateway events are wallet-billed, so exempt them: subtract one per distinct
+            -- verified $ai_gateway_request_id (a replayed signature reuses one id, so it's
+            -- worth one exemption and the copies stay billable). Both markers are
+            -- capture-stamped (#64806), not client-settable; a non-empty request_id is
+            -- required so one without it stays billable.
             SELECT
                 team_id,
                 COUNT() - uniqExactIf(
