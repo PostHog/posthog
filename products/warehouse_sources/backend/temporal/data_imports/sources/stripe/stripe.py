@@ -148,6 +148,27 @@ class StripeNestedResource:
     parent: StripeResource
     parent_name: str = ""
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Optional predicate over a parent object. When set and it returns False, we skip the nested
+    # API call for that parent entirely. Stripe has no top-level list for these nested resources, so
+    # the default behaviour fans out one call per parent — most of which return nothing. A cheap
+    # signal already present on the parent object lets us avoid the calls that can't yield data.
+    parent_has_nested: Optional[Callable[[dict[str, Any]], bool]] = None
+
+
+def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
+    """Skip the per-customer balance-transactions call when the customer's credit balance is exactly 0.
+
+    A customer balance transaction is a credit/debit against the customer's stored balance, so any
+    customer that has ever had one and not netted it back to zero carries a non-zero ``balance``. The
+    vast majority of customers never touch their balance, so this turns the full per-customer sweep
+    (one call each, almost all empty) into a handful of calls.
+
+    Tradeoff: a customer whose balance was credited and then fully consumed back to 0 has ledger
+    entries but a 0 balance, so we won't fetch their history. This is rare and an accepted cost of
+    avoiding the per-customer fan-out. A missing ``balance`` (unexpected payload shape) is treated as
+    "might have" so we never silently drop data."""
+    balance = customer.get("balance")
+    return balance is None or balance != 0
 
 
 @dataclasses.dataclass
@@ -205,6 +226,7 @@ def _build_resources(
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
+            parent_has_nested=_customer_might_have_balance_transactions,
         ),
         CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
             method=client.customers.payment_methods.list,
@@ -276,8 +298,14 @@ def get_rows(
                 resource.parent.method,
                 params={**default_params, **resource.parent.params, **resume_params},
             )
+            skipped_parents = 0
             for obj in stripe_parent_objects.auto_paging_iter():
                 parent_obj_id = obj[resource.parent_id]
+                # Skip parents that a cheap signal on the parent object rules out — avoids one empty
+                # nested call per parent (the bulk of Stripe API volume for these resources).
+                if resource.parent_has_nested is not None and not resource.parent_has_nested(obj):
+                    skipped_parents += 1
+                    continue
                 try:
                     stripe_nested_objects = _call_stripe(
                         resource.method,
@@ -305,6 +333,10 @@ def get_rows(
                     if not _is_stripe_resource_missing_error(e):
                         raise
                     logger.debug(f"Stripe: skipping {resource.nested_parent_param}={parent_obj_id}, no longer exists")
+            if skipped_parents:
+                logger.debug(
+                    f"Stripe: skipped {skipped_parents} {resource.nested_parent_param}(s) with no nested data, saving that many API calls"
+                )
         else:
             stripe_objects = _call_stripe(
                 resource.method, params={**default_params, **resource.params, **resume_params}
