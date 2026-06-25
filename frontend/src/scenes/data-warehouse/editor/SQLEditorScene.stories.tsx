@@ -61,12 +61,30 @@ const SQL_RESULTS = {
     ],
 }
 
+// The empty-warehouse notice in the sidebar renders a SourceIcon per provider, each of which shows a
+// LemonSkeleton until availableSourcesLogic resolves. Without this mock the skeletons never settle and
+// the visual-regression runner times out waiting for loaders to disappear.
+const AVAILABLE_SOURCES = {
+    Postgres: { name: 'Postgres', iconPath: '/static/services/postgres.png', fields: [], caption: '', featured: true },
+    Stripe: { name: 'Stripe', iconPath: '/static/services/stripe.png', fields: [], caption: '', featured: true },
+    GoogleAds: {
+        name: 'GoogleAds',
+        iconPath: '/static/services/google-ads.png',
+        fields: [],
+        caption: '',
+        featured: true,
+    },
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Data Warehouse/SQL Editor',
     decorators: [
         grantWarehouseAccess,
         mswDecorator({
+            get: {
+                '/api/environments/:team_id/external_data_sources/wizard': () => [200, AVAILABLE_SOURCES],
+            },
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
