@@ -353,6 +353,7 @@ select = [
     "RUF019",
     "T100",
     "T2",
+    "TID251",
     "TID253",
     "TRY201",
     "TRY400",
@@ -381,7 +382,8 @@ select = [
 "posthog/**" = ["PLC0415"]
 "scripts/**" = ["PLC0415"]
 "services/stripe-mock/**" = ["PLC0415"]
-"tools/**" = ["PLC0415"]
+# TID251: tools/ may import its own submodules — the ban targets runtime code reaching into tools/.
+"tools/**" = ["PLC0415", "TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 # Heavy SDKs that noticeably slow startup. They must be imported lazily (inside the
@@ -389,6 +391,12 @@ select = [
 # Only modules with a single, already-lazy call site are listed — vendor source/destination
 # leaf modules legitimately import their own SDK at module level and are loaded on demand.
 banned-module-level-imports = ["elevenlabs", "matplotlib", "trafilatura"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# tools/ holds dev and CI tooling (hogli, codegen, infra scripts). It is not a runtime
+# package — runtime code (posthog/, ee/, products/) must never import from it. tools/ may
+# import itself (exempted via per-file-ignores below).
+"tools".msg = "tools/ is dev and CI tooling and must not be imported by runtime code."
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
