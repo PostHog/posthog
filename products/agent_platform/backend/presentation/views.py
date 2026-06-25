@@ -2459,6 +2459,19 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         derived_spec = result.get("derived_spec")
         if derived_spec is not None:
             stamp_skill_provenance(derived_spec, provenance_by_alias)
+            # Post-seal invariant: every kernel skill we injected must be present in
+            # the sealed spec. A 2xx `put_skill` whose body didn't materialize (S3
+            # eventual consistency, a future janitor derivation change) would
+            # otherwise flip a `ready` agent live while silently missing a kernel
+            # skill — e.g. `safety-and-boundaries`. Fail before the draft→ready flip
+            # so the revision stays a draft and the freeze is retriable.
+            materialized_ids = {s.get("id") for s in derived_spec.get("skills") or []}
+            missing_kernel = sorted(kernel_ids - materialized_ids)
+            if missing_kernel:
+                raise APIException(
+                    detail=f"Freeze sealed without kernel skill(s) {missing_kernel}; materialization failed — "
+                    "revision left in draft. Retry the freeze."
+                )
             fields["spec"] = derived_spec
         # Conditional draft→ready flip: only the first freeze of a draft wins, so
         # two concurrent freezes can't both stamp the row, and a `set_skill_refs`

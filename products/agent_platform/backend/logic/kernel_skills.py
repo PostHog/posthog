@@ -20,10 +20,16 @@ holding a `SKILL.md` whose YAML frontmatter carries its `description` and an
     agents: [agent-builder] # only these slugs (a per-agent skill)
     ---
 
-Adding a kernel skill is "drop a folder" — no code change here. The loader
-validates aggressively at read time (see `_all_kernel_skills`) so a malformed
-folder fails loudly at the first freeze rather than silently shipping a degraded
-or absent skill (or wedging freeze mid-injection with an opaque janitor error).
+Adding a kernel skill is "drop a folder."
+
+Two read paths, deliberately split:
+  - `_all_kernel_skills()` validates the **whole** shipped set strictly (raises on
+    any malformation). It's exercised by a unit test, so a bad folder fails CI
+    before merge.
+  - `kernel_skills_for(slug)` is the **runtime** path. It only fully validates the
+    folders that target the agent being frozen, and skips obvious non-skill
+    directories — so a malformed folder for one agent can't take down freeze for
+    every other tenant's agent.
 
 NOTE: kernel selection keys on `revision.application.slug`. Per-slug skills are
 safe to target by name only because human-readable slugs are gated behind a
@@ -94,57 +100,110 @@ def _janitor_derived_description(block: str) -> str:
     return ""
 
 
-def _all_kernel_skills() -> tuple[KernelSkill, ...]:
-    # Not cached: re-reading a handful of small files per freeze (an authoring-time
-    # action, not a hot path) keeps the set exactly in lockstep with what's on
-    # disk, with no process-lifetime staleness window.
-    skills: list[KernelSkill] = []
-    for folder in sorted(p for p in _KERNEL_SKILLS_DIR.iterdir() if p.is_dir()):
-        sid = folder.name
-        md = folder / "SKILL.md"
-        # Fail loud on a malformed folder — a silently-skipped or degraded kernel
-        # skill is the dangerous case (e.g. a dropped safety skill). Mirrors the
-        # stance the `agents` check below already takes.
-        if not md.is_file():
-            raise ValueError(f"kernel skill '{sid}' has no SKILL.md")
-        if not _RESOURCE_ID_RE.match(sid) or len(sid) > 64:
-            raise ValueError(f"kernel skill folder '{sid}' is not a valid skill id (lowercase/digits/-/_, <=64)")
-        raw = md.read_text()
-        block = _frontmatter_block(raw)
-        if block is None:
-            raise ValueError(f"kernel skill '{sid}' is missing a `---`-fenced YAML frontmatter block")
+def _normalize_agents(raw_agents: object) -> list[str]:
+    """The `agents` frontmatter as a list of strings. A bare string becomes a
+    one-element list; anything else (missing, number, mapping) becomes empty."""
+    if isinstance(raw_agents, str):
+        return [raw_agents]
+    if isinstance(raw_agents, list):
+        return [str(a) for a in raw_agents]
+    return []
+
+
+def _agents_of(folder: Path) -> list[str] | None:
+    """Cheap read of just the `agents` mapping, for runtime applicability scoping.
+    Returns None when it can't be determined — the runtime path then skips the
+    folder rather than fully validating (and possibly raising on) a folder that
+    doesn't even target the agent being frozen."""
+    md = folder / "SKILL.md"
+    if not md.is_file():
+        return None
+    block = _frontmatter_block(md.read_text())
+    if block is None:
+        return None
+    try:
         fm = yaml.safe_load(block)
-        if not isinstance(fm, dict):
-            raise ValueError(f"kernel skill '{sid}' frontmatter is not a YAML mapping")
+    except yaml.YAMLError:
+        return None
+    if not isinstance(fm, dict):
+        return None
+    return _normalize_agents(fm.get("agents"))
 
-        description = str(fm.get("description") or "").strip()
-        if not description:
-            raise ValueError(f"kernel skill '{sid}' is missing a `description` frontmatter line")
-        # The janitor re-derives the description from the body (single physical
-        # line, <=280) and discards the payload value. If the file's `description`
-        # spans multiple lines or exceeds the cap, the model would silently get a
-        # truncated load signal — refuse it here so it fails at deploy, not freeze.
-        if _janitor_derived_description(block) != description:
-            raise ValueError(
-                f"kernel skill '{sid}' description must be a single line of <= {_DESCRIPTION_MAX} chars "
-                "(the freeze derivation reads only the first physical line)"
-            )
 
-        raw_agents = fm.get("agents")
-        if isinstance(raw_agents, str):
-            agents = [raw_agents]
-        elif isinstance(raw_agents, list):
-            agents = [str(a) for a in raw_agents]
-        else:
-            raise ValueError(f"kernel skill '{sid}' needs an `agents` frontmatter mapping (a slug list or \"*\")")
-        if not agents:
-            raise ValueError(f"kernel skill '{sid}' has an empty `agents` mapping — it would reach no agent")
+def _load_skill(folder: Path) -> KernelSkill:
+    """Strict load + validate. Raises ``ValueError`` on any malformation — a
+    code-bundled set, so this is a deploy/CI-time fail-fast, not a runtime risk."""
+    sid = folder.name
+    md = folder / "SKILL.md"
+    if not md.is_file():
+        raise ValueError(f"kernel skill '{sid}' has no SKILL.md")
+    if not _RESOURCE_ID_RE.match(sid) or len(sid) > 64:
+        raise ValueError(f"kernel skill folder '{sid}' is not a valid skill id (lowercase/digits/-/_, <=64)")
+    raw_bytes = md.read_bytes()
+    # The janitor reads the raw bundle bytes from S3 (no universal-newline
+    # translation), so a CR would leave its single-line `description:` derivation
+    # holding a trailing `\r` that Python's parse never sees — a silent mismatch.
+    # Require LF. Checked on the bytes because `read_text()` strips the CR.
+    if b"\r" in raw_bytes:
+        raise ValueError(f"kernel skill '{sid}' must use LF line endings (no CR)")
+    raw = raw_bytes.decode("utf-8")
+    block = _frontmatter_block(raw)
+    if block is None:
+        raise ValueError(f"kernel skill '{sid}' is missing a `---`-fenced YAML frontmatter block")
+    fm = yaml.safe_load(block)
+    if not isinstance(fm, dict):
+        raise ValueError(f"kernel skill '{sid}' frontmatter is not a YAML mapping")
 
-        skills.append(KernelSkill(id=sid, description=description, body=raw, agents=frozenset(agents)))
-    return tuple(skills)
+    description = str(fm.get("description") or "").strip()
+    if not description:
+        raise ValueError(f"kernel skill '{sid}' is missing a `description` frontmatter line")
+    # The janitor re-derives the description from the body (single physical line,
+    # <=280) and discards the payload value. If the file's `description` spans
+    # multiple lines or exceeds the cap, the model would silently get a truncated
+    # load signal — refuse it here so it fails at deploy, not freeze.
+    if _janitor_derived_description(block) != description:
+        raise ValueError(
+            f"kernel skill '{sid}' description must be a single line of <= {_DESCRIPTION_MAX} chars "
+            "(the freeze derivation reads only the first physical line)"
+        )
+
+    agents = _normalize_agents(fm.get("agents"))
+    if not agents:
+        raise ValueError(f"kernel skill '{sid}' needs an `agents` frontmatter mapping (a slug list or \"*\")")
+    for a in agents:
+        if a != _WILDCARD and not _RESOURCE_ID_RE.match(a):
+            raise ValueError(f"kernel skill '{sid}' has an invalid agent slug {a!r} in its `agents` mapping")
+    if _WILDCARD in agents and len(agents) > 1:
+        raise ValueError(f"kernel skill '{sid}' mixes \"{_WILDCARD}\" with specific slugs — use one or the other")
+
+    return KernelSkill(id=sid, description=description, body=raw, agents=frozenset(agents))
+
+
+def _skill_dirs() -> list[Path]:
+    """Candidate skill folders. Skips `.`/`_`-prefixed directories (editor/tooling
+    cruft like `__pycache__` or `.DS_Store` dirs) so a stray directory can't wedge
+    freeze — but keeps any letter/digit-named dir so a genuinely mis-named skill
+    folder still trips `_load_skill`'s id check rather than vanishing silently."""
+    return sorted(p for p in _KERNEL_SKILLS_DIR.iterdir() if p.is_dir() and not p.name.startswith((".", "_")))
+
+
+def _all_kernel_skills() -> tuple[KernelSkill, ...]:
+    """Strictly load + validate the whole shipped set. Exercised by a unit test so
+    a malformed kernel folder fails CI before it can reach a freeze."""
+    return tuple(_load_skill(f) for f in _skill_dirs())
 
 
 def kernel_skills_for(slug: str) -> list[KernelSkill]:
     """The kernel skills an agent receives: every `*`-mapped skill (the baseline)
-    plus those naming this slug. Empty for an agent no kernel skill targets."""
-    return [k for k in _all_kernel_skills() if k.applies_to(slug)]
+    plus those naming this slug. Only folders that target this slug are fully
+    validated, so a malformed folder for one agent can't 500 the freeze of an
+    unrelated agent (the strict `_all_kernel_skills()` CI check guards the shipped
+    set). Empty for an agent no kernel skill targets."""
+    out: list[KernelSkill] = []
+    for folder in _skill_dirs():
+        agents = _agents_of(folder)
+        if agents is None:
+            continue
+        if _WILDCARD in agents or slug in agents:
+            out.append(_load_skill(folder))
+    return out

@@ -233,7 +233,14 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         }
         client.freeze.return_value = {
             "bundle_sha256": "a" * 64,
-            "derived_spec": {"model": "x", "triggers": [], "skills": [], "tools": []},
+            # The sealed spec carries the injected kernel skill (the freeze asserts
+            # every kernel id materialized before flipping to ready).
+            "derived_spec": {
+                "model": "x",
+                "triggers": [],
+                "skills": [{"id": "safety-and-boundaries", "path": "skills/safety-and-boundaries/SKILL.md"}],
+                "tools": [],
+            },
         }
 
         res = self.client.post(self.url)
