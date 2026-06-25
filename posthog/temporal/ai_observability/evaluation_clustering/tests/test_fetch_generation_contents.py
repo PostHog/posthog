@@ -1,4 +1,4 @@
-"""Strip-migration tests for the eval clustering data layer.
+"""Tests for the eval clustering data layer.
 
 `fetch_generation_contents` is the only at-risk reader in
 `evaluation_clustering/data.py` (it reads heavy `input` / `output_choices`).
@@ -43,9 +43,7 @@ class TestFetchGenerationContents:
         # No queries at all when there's nothing to fetch — guards against
         # an N×0 query that would scan the whole window.
         with (
-            patch(
-                "posthog.temporal.ai_observability.evaluation_clustering.data.execute_with_ai_events_fallback"
-            ) as mock_resolver,
+            patch("posthog.temporal.ai_observability.evaluation_clustering.data.query_ai_events") as mock_resolver,
             patch(_RESOLVE_PATH) as mock_resolve,
         ):
             result = fetch_generation_contents(
@@ -57,9 +55,7 @@ class TestFetchGenerationContents:
 
     @patch(_RESOLVE_PATH, return_value={_GENERATION_ID_1: "trace-A", _GENERATION_ID_2: "trace-B"})
     def test_returns_per_generation_dict(self, _mock_resolve, team):
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_clustering.data.execute_with_ai_events_fallback"
-        ) as mock_resolver:
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.data.query_ai_events") as mock_resolver:
             # Row tuple: (generation_id, model, input_raw, output_raw)
             mock_resolver.return_value = _resolver_response(
                 [
@@ -91,9 +87,7 @@ class TestFetchGenerationContents:
     @patch(_RESOLVE_PATH, return_value={_GENERATION_ID_1: "trace-A"})
     def test_truncates_input_and_output(self, _mock_resolve, team):
         big = "x" * 5000
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_clustering.data.execute_with_ai_events_fallback"
-        ) as mock_resolver:
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.data.query_ai_events") as mock_resolver:
             mock_resolver.return_value = _resolver_response([[_GENERATION_ID_1, "gpt-4o", big, big]])
             result = fetch_generation_contents(
                 team,
@@ -112,12 +106,9 @@ class TestFetchGenerationContents:
 
     @patch(_RESOLVE_PATH, return_value={_GENERATION_ID_1: "trace-A"})
     def test_query_reads_native_heavy_columns_from_ai_events(self, _mock_resolve, team):
-        """The whole point of the migration is that `input` / `output_choices`
-        come off the dedicated `ai_events` columns rather than NULL JSON-extracts
-        on `events.properties`. Lock the SQL shape."""
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_clustering.data.execute_with_ai_events_fallback"
-        ) as mock_resolver:
+        """Heavy `input` / `output_choices` come off the dedicated `ai_events`
+        columns, not NULL JSON-extracts on `events.properties`. Lock the SQL shape."""
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.data.query_ai_events") as mock_resolver:
             mock_resolver.return_value = _resolver_response([])
             fetch_generation_contents(
                 team, generation_ids=[_GENERATION_ID_1], window_start=_WINDOW_START, window_end=_WINDOW_END
@@ -142,9 +133,7 @@ class TestFetchGenerationContents:
         """The discovered trace_ids must land in the WHERE so the heavy fetch
         gets the full ai_events sorting-key prefix + cityHash64 sharding-key
         single-shard pruning."""
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_clustering.data.execute_with_ai_events_fallback"
-        ) as mock_resolver:
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.data.query_ai_events") as mock_resolver:
             mock_resolver.return_value = _resolver_response([])
             fetch_generation_contents(
                 team,
@@ -162,9 +151,7 @@ class TestFetchGenerationContents:
     def test_no_trace_ids_resolved_skips_heavy_fetch(self, _mock_resolve, team):
         """When the events preflight returns nothing — uuids purged or outside
         the window — skip the heavy fan-out entirely."""
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_clustering.data.execute_with_ai_events_fallback"
-        ) as mock_resolver:
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.data.query_ai_events") as mock_resolver:
             result = fetch_generation_contents(
                 team, generation_ids=[_GENERATION_ID_1], window_start=_WINDOW_START, window_end=_WINDOW_END
             )
@@ -173,9 +160,7 @@ class TestFetchGenerationContents:
 
     @patch(_RESOLVE_PATH, return_value={_GENERATION_ID_1: "trace-A"})
     def test_malformed_generation_ids_are_filtered_before_uuid_queries(self, mock_resolve, team):
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_clustering.data.execute_with_ai_events_fallback"
-        ) as mock_resolver:
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.data.query_ai_events") as mock_resolver:
             mock_resolver.return_value = _resolver_response([[_GENERATION_ID_1, "gpt-4o", "input", "output"]])
             result = fetch_generation_contents(
                 team,
