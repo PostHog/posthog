@@ -226,6 +226,7 @@ export type AgentRevisionApiSpecModels =
           mode: 'auto'
           level?: 'low' | 'medium' | 'high'
           reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          optimize_for?: 'cost' | 'availability'
       }
     | {
           mode: 'manual'
@@ -235,6 +236,7 @@ export type AgentRevisionApiSpecModels =
               model: string
               reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
           }[]
+          optimize_for?: 'cost' | 'availability'
       }
 
 export type AgentRevisionApiSpecTriggersItem =
@@ -618,6 +620,7 @@ export type PatchedAgentRevisionApiSpecModels =
           mode: 'auto'
           level?: 'low' | 'medium' | 'high'
           reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          optimize_for?: 'cost' | 'availability'
       }
     | {
           mode: 'manual'
@@ -627,6 +630,7 @@ export type PatchedAgentRevisionApiSpecModels =
               model: string
               reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
           }[]
+          optimize_for?: 'cost' | 'availability'
       }
 
 export type PatchedAgentRevisionApiSpecTriggersItem =

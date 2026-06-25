@@ -106,8 +106,14 @@ export const AgentMemoryUpdateFileBody = /* @__PURE__ */ zod
  */
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsCreateBodySpecModelsOneLevelDefault = `medium`
+export const agentApplicationsRevisionsCreateBodySpecModelsOneOptimizeForDefault = `cost`
 
-export const agentApplicationsRevisionsCreateBodySpecModelsDefault = { mode: 'auto' as const, level: 'medium' as const }
+export const agentApplicationsRevisionsCreateBodySpecModelsTwoOptimizeForDefault = `cost`
+export const agentApplicationsRevisionsCreateBodySpecModelsDefault = {
+    mode: 'auto' as const,
+    level: 'medium' as const,
+    optimize_for: 'cost' as const,
+}
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -235,6 +241,9 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                             .enum(['low', 'medium', 'high'])
                             .default(agentApplicationsRevisionsCreateBodySpecModelsOneLevelDefault),
                         reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsCreateBodySpecModelsOneOptimizeForDefault),
                     }),
                     zod.object({
                         mode: zod.literal('manual'),
@@ -246,6 +255,9 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                 })
                             )
                             .min(1),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsCreateBodySpecModelsTwoOptimizeForDefault),
                     }),
                 ])
                 .default(agentApplicationsRevisionsCreateBodySpecModelsDefault),
@@ -744,8 +756,14 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
  */
 export const agentApplicationsRevisionsUpdateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsUpdateBodySpecModelsOneLevelDefault = `medium`
+export const agentApplicationsRevisionsUpdateBodySpecModelsOneOptimizeForDefault = `cost`
 
-export const agentApplicationsRevisionsUpdateBodySpecModelsDefault = { mode: 'auto' as const, level: 'medium' as const }
+export const agentApplicationsRevisionsUpdateBodySpecModelsTwoOptimizeForDefault = `cost`
+export const agentApplicationsRevisionsUpdateBodySpecModelsDefault = {
+    mode: 'auto' as const,
+    level: 'medium' as const,
+    optimize_for: 'cost' as const,
+}
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -873,6 +891,9 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                             .enum(['low', 'medium', 'high'])
                             .default(agentApplicationsRevisionsUpdateBodySpecModelsOneLevelDefault),
                         reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsUpdateBodySpecModelsOneOptimizeForDefault),
                     }),
                     zod.object({
                         mode: zod.literal('manual'),
@@ -884,6 +905,9 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                                 })
                             )
                             .min(1),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsUpdateBodySpecModelsTwoOptimizeForDefault),
                     }),
                 ])
                 .default(agentApplicationsRevisionsUpdateBodySpecModelsDefault),
@@ -1405,10 +1429,13 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
  */
 export const agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsPartialUpdateBodySpecModelsOneLevelDefault = `medium`
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelsOneOptimizeForDefault = `cost`
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelsTwoOptimizeForDefault = `cost`
 export const agentApplicationsRevisionsPartialUpdateBodySpecModelsDefault = {
     mode: 'auto' as const,
     level: 'medium' as const,
+    optimize_for: 'cost' as const,
 }
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
@@ -1537,6 +1564,9 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                             .enum(['low', 'medium', 'high'])
                             .default(agentApplicationsRevisionsPartialUpdateBodySpecModelsOneLevelDefault),
                         reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsPartialUpdateBodySpecModelsOneOptimizeForDefault),
                     }),
                     zod.object({
                         mode: zod.literal('manual'),
@@ -1548,6 +1578,9 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                 })
                             )
                             .min(1),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsPartialUpdateBodySpecModelsTwoOptimizeForDefault),
                     }),
                 ])
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecModelsDefault),
