@@ -20,6 +20,7 @@ import { FeatureFlagFilters } from '~/types'
 
 import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
+import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
@@ -349,13 +350,11 @@ describe('featureFlagLogic', () => {
 
         it('prepends org default groups ahead of template groups when default conditions are enabled', async () => {
             const DEFAULT_GROUP = { properties: [], rollout_percentage: 10, variant: null }
-            useMocks({
-                get: {
-                    [`/api/environments/${MOCK_DEFAULT_PROJECT.id}/default_release_conditions/`]: () => [
-                        200,
-                        { enabled: true, default_groups: [DEFAULT_GROUP] },
-                    ],
-                },
+            // The shared singleton is warmed to a disabled value on mount, so seed its cache with
+            // enabled defaults before applyTemplate reads it.
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+                enabled: true,
+                default_groups: [DEFAULT_GROUP],
             })
 
             await expectLogic(logic, () => {
@@ -1029,23 +1028,56 @@ describe('featureFlagLogic', () => {
         })
     })
 
-    describe('default release conditions fallback', () => {
-        it('loads new flag successfully when default_release_conditions endpoint returns 500', async () => {
-            useMocks({
-                get: {
-                    [`/api/environments/${MOCK_DEFAULT_PROJECT.id}/default_release_conditions/`]: () => [500, {}],
-                },
+    describe('default release conditions', () => {
+        const conditionsUrl = `/api/environments/${MOCK_DEFAULT_PROJECT.id}/default_release_conditions/`
+
+        it('applies org default groups to a new flag when default conditions are enabled', async () => {
+            const DEFAULT_GROUP = { properties: [], rollout_percentage: 30, variant: null }
+            // Seed the shared singleton's cache with enabled defaults before the new-flag loader reads it
+            // (it's warmed to a disabled value on mount).
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+                enabled: true,
+                default_groups: [DEFAULT_GROUP],
             })
 
             const newLogic = featureFlagLogic({ id: 'new' })
             newLogic.mount()
-
             await expectLogic(newLogic).toDispatchActions(['loadFeatureFlagSuccess'])
 
-            // Flag still loads with the default (empty) groups — the 500 must not block creation
-            expect(newLogic.values.featureFlag.filters.groups).toEqual(NEW_FLAG.filters.groups)
+            const groups = newLogic.values.featureFlag.filters.groups
+            expect(groups[0]).toMatchObject(DEFAULT_GROUP)
+            expect(groups.length).toBe(1)
 
             newLogic.unmount()
+        })
+
+        describe('resolveDefaultReleaseConditions', () => {
+            it('returns the cached value without fetching when one is already loaded', async () => {
+                const cached = {
+                    enabled: true,
+                    default_groups: [{ properties: [], rollout_percentage: 25, variant: null }],
+                }
+                // toBe asserts the same object reference, so a fetched copy would fail the assertion.
+                await expect(resolveDefaultReleaseConditions(cached, MOCK_DEFAULT_PROJECT.id)).resolves.toBe(cached)
+            })
+
+            it('fetches directly when the cache is empty', async () => {
+                const fetched = {
+                    enabled: true,
+                    default_groups: [{ properties: [], rollout_percentage: 10, variant: null }],
+                }
+                useMocks({ get: { [conditionsUrl]: () => [200, fetched] } })
+                await expect(resolveDefaultReleaseConditions(null, MOCK_DEFAULT_PROJECT.id)).resolves.toEqual(fetched)
+            })
+
+            it('returns null without fetching when no team is available', async () => {
+                await expect(resolveDefaultReleaseConditions(null, undefined)).resolves.toBeNull()
+            })
+
+            it('returns null when the fetch fails so new flag creation is not blocked', async () => {
+                useMocks({ get: { [conditionsUrl]: () => [500, {}] } })
+                await expect(resolveDefaultReleaseConditions(null, MOCK_DEFAULT_PROJECT.id)).resolves.toBeNull()
+            })
         })
     })
 })

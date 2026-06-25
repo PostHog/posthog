@@ -1307,10 +1307,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             values.defaultReleaseConditions,
                             values.currentTeam?.id
                         )
-                        if (conditionsConfig && !values.defaultReleaseConditions) {
-                            // Warm the cache so applyTemplate doesn't issue a redundant fetch
-                            actions.loadDefaultReleaseConditionsSuccess(conditionsConfig)
-                        }
                         if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
                             baseFlagConfig = {
                                 ...baseFlagConfig,
