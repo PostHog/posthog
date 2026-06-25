@@ -14,6 +14,7 @@ Direct ORM calls skip the fake — tests will silently return empty results from
 ```python
 from posthog.test.persons import (
     create_person,          # immediate: ORM + fake
+    delete_person,          # unseed fake + delete from Postgres
     add_distinct_id,        # add a distinct ID to an existing person
     update_person,          # person.save() + re-seed fake
     create_group,

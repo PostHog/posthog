@@ -46,14 +46,17 @@ class PersonhogTestMixin:
         )
 
     def _seed_cohort_membership(self, *, person_id: int, cohort_id: int, is_member: bool = True) -> None:
+        """Seed a cohort membership in the fake personhog client."""
         if self._fake_client is not None:
             self._fake_client.add_cohort_membership(person_id=person_id, cohort_id=cohort_id, is_member=is_member)
 
     def _assert_personhog_called(self, method: str, *, times: int | None = None) -> list[Any]:
+        """Assert a personhog method was called.  Returns matched calls for inspection."""
         if self._fake_client is not None:
             return self._fake_client.assert_called(method, times=times)
         return []
 
     def _assert_personhog_not_called(self, method: str) -> None:
+        """Assert a personhog method was NOT called."""
         if self._fake_client is not None:
             self._fake_client.assert_not_called(method)

@@ -53,9 +53,9 @@ def pytest_unconfigure() -> None:
 def _activate_personhog_fake(request):
     """Force all person/group reads through the personhog fake for every test.
 
-    The fake is seeded automatically via Django post_save signals when tests
-    create data through the ORM.  Tests in personhog_client/ manage their own
-    client and are excluded.
+    The fake is seeded explicitly by the test helpers in posthog.test.persons
+    (create_person, create_group, etc.) — no signals are used.  Tests in
+    personhog_client/ manage their own client and are excluded.
     """
     if "personhog_client" in str(request.node.path):
         yield

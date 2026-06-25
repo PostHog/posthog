@@ -16,6 +16,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.test.personhog_fake import get_active_fake
 from posthog.test.persons import create_person
 
 
@@ -313,6 +314,7 @@ class TestGetPersonAndDistinctIdsForIdentifierIntegration(BaseTest):
         assert str(result_person.uuid) == str(person.uuid)
         assert result_person.properties == {"email": "test@example.com"}
         assert set(result_dids) == {"d1", "d2"}
+        get_active_fake().assert_called("get_persons_by_distinct_ids_in_team")
 
     def test_lookup_by_person_id(self):
         person = create_person(
@@ -328,6 +330,7 @@ class TestGetPersonAndDistinctIdsForIdentifierIntegration(BaseTest):
         assert result_person is not None
         assert str(result_person.uuid) == str(person.uuid)
         assert result_dids == ["d1"]
+        get_active_fake().assert_called("get_person_by_uuid")
 
     def test_person_not_found(self):
         result_person, result_dids = get_person_and_distinct_ids_for_identifier(self.team.pk, distinct_id="unknown")

@@ -223,6 +223,17 @@ def create_person(*, team: Team | None = None, distinct_ids: list[str] | None = 
     return person
 
 
+def delete_person(person: Person) -> None:
+    """Delete a person via the personhog fake (unseeds) and from Postgres."""
+    fake = _get_active_fake()
+    if fake is None:
+        person.delete()  # nosemgrep: no-direct-persons-db-orm
+        return
+    from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2  # noqa: PLC0415
+
+    fake.delete_persons(person_pb2.DeletePersonsRequest(team_id=person.team_id, person_uuids=[str(person.uuid)]))
+
+
 def update_person(person: Person) -> None:
     """Save a person to Postgres and re-seed the personhog fake."""
     person.save()  # nosemgrep: no-direct-persons-db-orm
