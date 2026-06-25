@@ -139,7 +139,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # this is a models module; the service import below pulls it anyway, but only at call time
         import temporalio.service  # noqa: PLC0415
 
-        from products.data_warehouse.backend.data_load.service import (
+        from products.data_warehouse.backend.logic.data_load.service import (
             sync_external_data_job_workflow,
             trigger_external_data_workflow,
         )

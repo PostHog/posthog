@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Patched at the defining module: update_should_sync imports these function-locally now.
-_TEMPORAL = "products.data_warehouse.backend.data_load.service"
+_TEMPORAL = "products.data_warehouse.backend.logic.data_load.service"
 
 
 class TestRepairQualifiedSchemaDuplicates(BaseTest):

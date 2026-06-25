@@ -80,7 +80,7 @@ class TestResolveDucklingTarget:
     ):
         # The control plane is the authoritative owner of the bucket name.
         with patch(
-            "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+            "products.data_warehouse.backend.presentation.views.managed_warehouse.cp_bucket_for",
             return_value="posthog-duckling-org-1-mw-prod-us",
         ) as mock_cp:
             target = _resolve_duckling_target(7)
@@ -109,7 +109,7 @@ class TestResolveDucklingTarget:
                 return_value=server,
             ),
             patch(
-                "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+                "products.data_warehouse.backend.presentation.views.managed_warehouse.cp_bucket_for",
                 return_value="posthog-duckling-org-1-mw-prod-us",
             ),
         ):
@@ -131,7 +131,7 @@ class TestResolveDucklingTarget:
                 return_value=server,
             ),
             patch(
-                "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+                "products.data_warehouse.backend.presentation.views.managed_warehouse.cp_bucket_for",
                 return_value=None,
             ),
         ):
@@ -147,7 +147,7 @@ class TestResolveDucklingTarget:
         self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
     ):
         with patch(
-            "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+            "products.data_warehouse.backend.presentation.views.managed_warehouse.cp_bucket_for",
             return_value=None,
         ):
             with pytest.raises(ValueError, match="No S3 bucket resolvable"):
