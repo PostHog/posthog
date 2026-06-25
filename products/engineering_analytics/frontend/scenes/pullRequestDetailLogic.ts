@@ -324,6 +324,22 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 })
             },
         ],
+        // Per-run cost keyed by jobCacheKey(run_id, run_attempt) — so the expanded runs table can show a
+        // cost column per attempt, rolling up to the per-workflow figure above it. Empty when the job
+        // source isn't synced (prCost.jobs_available false).
+        runCostByKey: [
+            (s) => [s.prCost],
+            (prCost): Record<string, { minutes: number | null; cost: number | null }> => {
+                const map: Record<string, { minutes: number | null; cost: number | null }> = {}
+                for (const rc of prCost?.by_run ?? []) {
+                    map[jobCacheKey(rc.run_id, rc.run_attempt)] = {
+                        minutes: rc.billable_minutes,
+                        cost: rc.estimated_cost_usd,
+                    }
+                }
+                return map
+            },
+        ],
         // Workflow health rows narrowed to the workflow-name filter.
         filteredWorkflowHealthRows: [
             (s) => [s.workflowHealthRows, s.workflowFilter],

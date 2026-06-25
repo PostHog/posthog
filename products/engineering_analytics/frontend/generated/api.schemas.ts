@@ -36,9 +36,25 @@ export interface WorkflowCostApi {
     excluded_jobs: number
 }
 
+export interface RunCostApi {
+    /** GitHub Actions run id this cost is for. */
+    run_id: number
+    /** Re-run attempt number; 1 for the first attempt. */
+    run_attempt: number
+    /** Billable (self-hosted) minutes for this run attempt. */
+    billable_minutes: number
+    /**
+     * Estimated dollar cost for this run attempt, or null when nothing was costable.
+     * @nullable
+     */
+    estimated_cost_usd: number | null
+}
+
 export interface PRCostSummaryApi {
     /** Same spend broken down per workflow. */
     by_workflow: WorkflowCostApi[]
+    /** Same spend broken down per workflow run, keyed by (run_id, run_attempt). */
+    by_run: RunCostApi[]
     /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
     jobs_available: boolean
     /** Wall-clock minutes consumed on billable (self-hosted) runners, summed across costed jobs. */

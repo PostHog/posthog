@@ -190,7 +190,7 @@ export function RunJobsTable({
             ),
         },
         {
-            title: 'Est. cost',
+            title: 'Cost',
             key: 'cost',
             width: 90,
             align: 'right',

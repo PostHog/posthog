@@ -15,12 +15,17 @@ from typing import Any
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import PRCostSummary, WorkflowCost, WorkflowRunnerCost
+from products.engineering_analytics.backend.facade.contracts import (
+    PRCostSummary,
+    RunCost,
+    WorkflowCost,
+    WorkflowRunnerCost,
+)
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate, aggregate_pr_cost, runner_descriptor
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 _SELECT = """
-    SELECT r.workflow_name, j.labels, j.duration_seconds
+    SELECT r.workflow_name, r.id AS run_id, r.run_attempt, j.labels, j.duration_seconds
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
     WHERE r.pr_number = {pr_number} AND r.repo_owner = {repo_owner} AND r.repo_name = {repo_name}
@@ -34,6 +39,7 @@ _EMPTY = PRCostSummary(
     unsettled_jobs=0,
     excluded_jobs=0,
     by_workflow=[],
+    by_run=[],
 )
 
 
@@ -59,13 +65,22 @@ def query_pr_cost(
         },
     )
     rows = response.results or []
-    overall = aggregate_pr_cost((_parse_labels(labels), _duration(duration)) for _workflow, labels, duration in rows)
+    overall = aggregate_pr_cost(
+        (_parse_labels(labels), _duration(duration)) for _workflow, _run_id, _run_attempt, labels, duration in rows
+    )
 
     by_workflow_jobs: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
-    for workflow, labels, duration in rows:
-        by_workflow_jobs[workflow or ""].append((_parse_labels(labels), _duration(duration)))
+    by_run_jobs: dict[tuple[int, int], list[tuple[list[str], float | None]]] = defaultdict(list)
+    for workflow, run_id, run_attempt, labels, duration in rows:
+        job = (_parse_labels(labels), _duration(duration))
+        by_workflow_jobs[workflow or ""].append(job)
+        by_run_jobs[(int(run_id), int(run_attempt))].append(job)
     by_workflow = [
         _to_workflow_cost(workflow, aggregate_pr_cost(jobs)) for workflow, jobs in sorted(by_workflow_jobs.items())
+    ]
+    by_run = [
+        _to_run_cost(run_id, run_attempt, aggregate_pr_cost(jobs))
+        for (run_id, run_attempt), jobs in sorted(by_run_jobs.items())
     ]
 
     return PRCostSummary(
@@ -76,6 +91,7 @@ def query_pr_cost(
         unsettled_jobs=overall.unsettled_jobs,
         excluded_jobs=overall.excluded_jobs,
         by_workflow=by_workflow,
+        by_run=by_run,
     )
 
 
@@ -238,6 +254,15 @@ def _expand_jobs(
     elapsed, so the summed cost/minutes/counts are identical to costing each real job."""
     per = (elapsed_total / finished) if finished else 0.0
     return [(labels, per)] * finished + [(labels, None)] * unfinished
+
+
+def _to_run_cost(run_id: int, run_attempt: int, aggregate: PRCostAggregate) -> RunCost:
+    return RunCost(
+        run_id=run_id,
+        run_attempt=run_attempt,
+        billable_minutes=aggregate.billable_seconds / 60,
+        estimated_cost_usd=aggregate.estimated_cost_usd,
+    )
 
 
 def _to_workflow_cost(workflow_name: str, aggregate: PRCostAggregate) -> WorkflowCost:

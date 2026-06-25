@@ -38,6 +38,19 @@ export const WorkflowCostApi = zod.object({
 export type WorkflowCostApi = zod.input<typeof WorkflowCostApi>
 export type WorkflowCostApiOutput = zod.output<typeof WorkflowCostApi>
 
+export const RunCostApi = zod.object({
+    run_id: zod.number().describe('GitHub Actions run id this cost is for.'),
+    run_attempt: zod.number().describe('Re-run attempt number; 1 for the first attempt.'),
+    billable_minutes: zod.number().describe('Billable (self-hosted) minutes for this run attempt.'),
+    estimated_cost_usd: zod
+        .number()
+        .nullable()
+        .describe('Estimated dollar cost for this run attempt, or null when nothing was costable.'),
+})
+
+export type RunCostApi = zod.input<typeof RunCostApi>
+export type RunCostApiOutput = zod.output<typeof RunCostApi>
+
 export const PRCostSummaryApi = zod.object({
     by_workflow: zod
         .array(
@@ -58,6 +71,19 @@ export const PRCostSummaryApi = zod.object({
             })
         )
         .describe('Same spend broken down per workflow.'),
+    by_run: zod
+        .array(
+            zod.object({
+                run_id: zod.number().describe('GitHub Actions run id this cost is for.'),
+                run_attempt: zod.number().describe('Re-run attempt number; 1 for the first attempt.'),
+                billable_minutes: zod.number().describe('Billable (self-hosted) minutes for this run attempt.'),
+                estimated_cost_usd: zod
+                    .number()
+                    .nullable()
+                    .describe('Estimated dollar cost for this run attempt, or null when nothing was costable.'),
+            })
+        )
+        .describe('Same spend broken down per workflow run, keyed by (run_id, run_attempt).'),
     jobs_available: zod
         .boolean()
         .describe(

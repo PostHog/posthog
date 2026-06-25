@@ -21,6 +21,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestList,
     PullRequestListItem,
     RepoRef,
+    RunCost,
     WorkflowCost,
     WorkflowHealthBucket,
     WorkflowHealthItem,
@@ -206,8 +207,25 @@ class WorkflowCostSerializer(DataclassSerializer):
         }
 
 
+class RunCostSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = RunCost
+        extra_kwargs = {
+            "run_id": {"help_text": "GitHub Actions run id this cost is for."},
+            "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
+            "billable_minutes": {"help_text": "Billable (self-hosted) minutes for this run attempt."},
+            "estimated_cost_usd": {
+                "help_text": "Estimated dollar cost for this run attempt, or null when nothing was costable.",
+                "allow_null": True,
+            },
+        }
+
+
 class PRCostSummarySerializer(DataclassSerializer):
     by_workflow = WorkflowCostSerializer(many=True, help_text="Same spend broken down per workflow.")
+    by_run = RunCostSerializer(
+        many=True, help_text="Same spend broken down per workflow run, keyed by (run_id, run_attempt)."
+    )
 
     class Meta:
         dataclass = PRCostSummary

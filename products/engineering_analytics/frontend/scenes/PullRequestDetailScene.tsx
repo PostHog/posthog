@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { Fragment, ReactNode } from 'react'
 
 import { IconExternal } from '@posthog/icons'
@@ -19,10 +20,12 @@ import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { BillableBadge } from '../components/BillableBadge'
 import { RunJobsTable, StatusDot, formatCost } from '../components/runTables'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import type { PRCostSummaryApi, PullRequestApi, WorkflowJobApi } from '../generated/api.schemas'
@@ -270,7 +273,7 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
     )
 }
 
-function MetaRow({ pullRequest }: { pullRequest: PullRequestApi }): JSX.Element {
+function MetaRow({ pullRequest, sourceId }: { pullRequest: PullRequestApi; sourceId: string | null }): JSX.Element {
     const stateTag = STATE_TAG[pullRequest.state] ?? { label: pullRequest.state, type: 'muted' as LemonTagType }
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -280,7 +283,16 @@ function MetaRow({ pullRequest }: { pullRequest: PullRequestApi }): JSX.Element 
                 {pullRequest.author.avatar_url && (
                     <img src={pullRequest.author.avatar_url} alt="" className="h-5 w-5 shrink-0 rounded-full" />
                 )}
-                <span>{pullRequest.author.handle}</span>
+                <Link
+                    to={
+                        combineUrl(
+                            urls.engineeringAnalyticsAuthor(pullRequest.author.handle),
+                            sourceId ? { source: sourceId } : {}
+                        ).url
+                    }
+                >
+                    {pullRequest.author.handle}
+                </Link>
                 {pullRequest.author.is_bot && <LemonTag type="muted">bot</LemonTag>}
             </span>
             <span className="font-mono text-xs text-secondary">
@@ -481,6 +493,9 @@ interface RunsTableProps {
     runJobsLoading: boolean
     expandedRunKeys: string[]
     setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
+    // Per-run cost keyed by jobCacheKey(run_id, run_attempt); show the cost column only when the job source is synced.
+    runCostByKey: Record<string, { minutes: number | null; cost: number | null }>
+    showCost: boolean
 }
 
 /** One workflow's runs on the PR: commit (which push) + attempt, verdict, duration; expand a row for its jobs. */
@@ -493,6 +508,8 @@ function RunsTable({
     runJobsLoading,
     expandedRunKeys,
     setRunExpanded,
+    runCostByKey,
+    showCost,
 }: RunsTableProps): JSX.Element {
     // Re-runs share a runId; number each multi-attempt run by start order to label "attempt N".
     const attemptIndexByKey = new Map<string, number>()
@@ -574,6 +591,22 @@ function RunsTable({
                     <span className="text-xs text-secondary">—</span>
                 ),
         },
+        // Per-run cost, trailing + right-aligned to match the job table below it — cost reads in the same
+        // spot at every depth (workflow → run → job) instead of jumping across the row as you drill in.
+        ...((showCost
+            ? [
+                  {
+                      title: 'Cost',
+                      key: 'cost',
+                      width: 110,
+                      align: 'right',
+                      render: (_: unknown, run: PrRunRow) => {
+                          const cost = run.runId != null ? runCostByKey[jobCacheKey(run.runId, run.runAttempt)] : null
+                          return <BillableBadge minutes={cost?.minutes ?? null} costUsd={cost?.cost ?? null} />
+                      },
+                  },
+              ]
+            : []) as LemonTableColumns<PrRunRow>),
     ]
 
     return (
@@ -647,6 +680,7 @@ export function PullRequestDetailScene(): JSX.Element {
         runJobs,
         runJobsLoading,
         expandedRunKeys,
+        runCostByKey,
     } = useValues(pullRequestDetailLogic)
     const { loadLifecycle, loadPrRuns, loadJobs, setRunExpanded, setWorkflowFilter } =
         useActions(pullRequestDetailLogic)
@@ -696,7 +730,11 @@ export function PullRequestDetailScene(): JSX.Element {
                 }
             />
 
-            {pullRequest ? <MetaRow pullRequest={pullRequest} /> : <LemonSkeleton className="h-5 w-96" />}
+            {pullRequest ? (
+                <MetaRow pullRequest={pullRequest} sourceId={sourceId} />
+            ) : (
+                <LemonSkeleton className="h-5 w-96" />
+            )}
 
             <div className="max-w-5xl">
                 <PrSummaryCards
@@ -805,6 +843,8 @@ export function PullRequestDetailScene(): JSX.Element {
                                         runJobsLoading={runJobsLoading}
                                         expandedRunKeys={expandedRunKeys}
                                         setRunExpanded={setRunExpanded}
+                                        runCostByKey={runCostByKey}
+                                        showCost={prCost?.jobs_available ?? false}
                                     />
                                 )
                             },

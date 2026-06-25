@@ -223,6 +223,19 @@ class WorkflowCost:
 
 
 @dataclass(frozen=True)
+class RunCost:
+    """One workflow run's billable CI spend within a PR — the per-run cost shown when a PR's workflow
+    row is expanded to its runs. Keyed by ``(run_id, run_attempt)`` so a re-run's attempts stay
+    distinct. Billable runners only; same exclusion rules as ``PRCostSummary``.
+    """
+
+    run_id: int
+    run_attempt: int
+    billable_minutes: float
+    estimated_cost_usd: float | None
+
+
+@dataclass(frozen=True)
 class PRCostSummary:
     """Estimated CI spend for one PR, summed over the jobs of all its workflow runs.
 
@@ -248,6 +261,9 @@ class PRCostSummary:
     excluded_jobs: int
     # Same spend broken down per workflow, so the PR's per-workflow table can show a cost column.
     by_workflow: list[WorkflowCost]
+    # Same spend broken down per workflow run, keyed by (run_id, run_attempt), so the expanded runs
+    # table under a workflow can show a per-run cost column (rolling up to the per-workflow figure).
+    by_run: list[RunCost]
 
 
 @dataclass(frozen=True)

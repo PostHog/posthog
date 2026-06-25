@@ -954,6 +954,12 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         # Per-workflow breakdown sums to the same: PR 60's runs are all the "CI" workflow.
         ci_cost = next(w for w in cost.by_workflow if w.workflow_name == "CI")
         assert ci_cost.costed_jobs == 2 and ci_cost.excluded_jobs == 1
+        # Per-run breakdown keys by (run_id, run_attempt): each of the two runs carries one billable job
+        # (run 9101's github-hosted e2e is excluded from its minutes), summing back to the PR total.
+        by_run = {rc.run_id: rc for rc in cost.by_run}
+        assert by_run[9100].billable_minutes == pytest.approx(2.0)
+        assert by_run[9101].billable_minutes == pytest.approx(2.0)
+        assert sum(rc.billable_minutes for rc in cost.by_run) == pytest.approx(cost.billable_minutes)
 
     def test_workflow_health_branch_filter(self) -> None:
         self._create_table(
