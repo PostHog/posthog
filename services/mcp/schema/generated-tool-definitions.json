@@ -4149,21 +4149,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-clustering-run-create": {
-        "description": "Trigger an asynchronous AI observability clustering workflow for the current project. Provide either explicit clustering parameters or clustering_job_id to reuse a saved job's analysis level and event filters. The response returns workflow_id and status=started; poll cluster results later by querying $ai_trace_clusters, $ai_generation_clusters, or $ai_evaluation_clusters events with execute-sql.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Trigger clustering run",
-        "title": "Trigger clustering run",
-        "required_scopes": ["llm_analytics:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "requires_ai_consent": true
-    },
     "llma-evaluation-config-get": {
         "description": "Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the team has either trial credits available or an active provider key configured — without one, llm_judge runs will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.",
         "category": "AI observability",

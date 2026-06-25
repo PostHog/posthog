@@ -18,7 +18,6 @@ import {
     LlmAnalyticsClusteringJobsPartialUpdateBody,
     LlmAnalyticsClusteringJobsPartialUpdateParams,
     LlmAnalyticsClusteringJobsRetrieveParams,
-    LlmAnalyticsClusteringRunsCreateBody,
     LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody,
     LlmAnalyticsEvaluationReportsCreateBody,
     LlmAnalyticsEvaluationReportsDestroyParams,
@@ -215,65 +214,6 @@ const llmaClusteringJobUpdate = (): ToolBase<typeof LlmaClusteringJobUpdateSchem
         const result = await context.api.request<Schemas.ClusteringJob>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/${encodeURIComponent(String(params.id))}/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LlmaClusteringRunCreateSchema = LlmAnalyticsClusteringRunsCreateBody
-
-const llmaClusteringRunCreate = (): ToolBase<typeof LlmaClusteringRunCreateSchema, Schemas.ClusteringRunRequest> => ({
-    name: 'llma-clustering-run-create',
-    schema: LlmaClusteringRunCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaClusteringRunCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.lookback_days !== undefined) {
-            body['lookback_days'] = params.lookback_days
-        }
-        if (params.max_samples !== undefined) {
-            body['max_samples'] = params.max_samples
-        }
-        if (params.embedding_normalization !== undefined) {
-            body['embedding_normalization'] = params.embedding_normalization
-        }
-        if (params.dimensionality_reduction_method !== undefined) {
-            body['dimensionality_reduction_method'] = params.dimensionality_reduction_method
-        }
-        if (params.dimensionality_reduction_ndims !== undefined) {
-            body['dimensionality_reduction_ndims'] = params.dimensionality_reduction_ndims
-        }
-        if (params.clustering_method !== undefined) {
-            body['clustering_method'] = params.clustering_method
-        }
-        if (params.min_cluster_size_fraction !== undefined) {
-            body['min_cluster_size_fraction'] = params.min_cluster_size_fraction
-        }
-        if (params.hdbscan_min_samples !== undefined) {
-            body['hdbscan_min_samples'] = params.hdbscan_min_samples
-        }
-        if (params.kmeans_min_k !== undefined) {
-            body['kmeans_min_k'] = params.kmeans_min_k
-        }
-        if (params.kmeans_max_k !== undefined) {
-            body['kmeans_max_k'] = params.kmeans_max_k
-        }
-        if (params.run_label !== undefined) {
-            body['run_label'] = params.run_label
-        }
-        if (params.visualization_method !== undefined) {
-            body['visualization_method'] = params.visualization_method
-        }
-        if (params.event_filters !== undefined) {
-            body['event_filters'] = params.event_filters
-        }
-        if (params.clustering_job_id !== undefined) {
-            body['clustering_job_id'] = params.clustering_job_id
-        }
-        const result = await context.api.request<Schemas.ClusteringRunRequest>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_runs/`,
             body,
         })
         return result
@@ -1581,7 +1521,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-clustering-job-get': llmaClusteringJobGet,
     'llma-clustering-job-list': llmaClusteringJobList,
     'llma-clustering-job-update': llmaClusteringJobUpdate,
-    'llma-clustering-run-create': llmaClusteringRunCreate,
     'llma-evaluation-config-get': llmaEvaluationConfigGet,
     'llma-evaluation-config-set-active-key': llmaEvaluationConfigSetActiveKey,
     'llma-evaluation-create': llmaEvaluationCreate,

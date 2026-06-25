@@ -134,20 +134,7 @@ tools:
         enabled: false
     llma-clustering-run-create:
         operation: llm_analytics_clustering_runs_create
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        requires_ai_consent: true
-        title: Trigger clustering run
-        description: >
-            Trigger an asynchronous AI observability clustering workflow for the current project. Provide either explicit
-            clustering parameters or clustering_job_id to reuse a saved job's analysis level and event filters. The
-            response returns workflow_id and status=started; poll cluster results later by querying $ai_trace_clusters,
-            $ai_generation_clusters, or $ai_evaluation_clusters events with execute-sql.
+        enabled: false
     llma-dataset-create:
         operation: datasets_create
         enabled: false
