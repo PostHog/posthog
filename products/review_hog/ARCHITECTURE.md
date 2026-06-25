@@ -569,20 +569,39 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
     filter) + ruff + tach green. **e2e:** only bites when the reviewed PR carries prior inline comments from other
     reviewers, so a fresh e2e shows nothing on a comment-free PR — verify opportunistically. Full design in
     _Dedup cleanup_ under Deferred / future below.
-15. ⏭️ **(after the dedup cleanup) Make the pipeline Temporal — single-turn workflow, landed as one change.** Rework
-    `run.py main()` into a single-turn **`ReviewPRWorkflow`** parent workflow with the three fan-out stages
-    (analyze / perspective review / validate) as **child workflows** and the rest as **activities**, exchanging
-    Postgres **row ids by reference** (~2 MiB payload cap). **Decided (2026-06-25):** ship it as a **single change**
-    (not incremental); partial-unit failure stays **best-effort** (`gather(return_exceptions=True)` → placeholder,
-    matching today — publish is disabled so a partial review has no blast radius). Step 8's DB-driven,
-    `head_sha`-scoped design exists precisely so this is an _orchestration_ change, not a persistence one. The
-    reviewed-`head_sha` **checkout pin** is **split out to conditional step 16** — it crosses the isolated
-    `products/tasks` boundary and has no user-facing effect while publish is off, so the workflow ships on the
-    current branch-tip checkout. The **loop-y re-check** (`continue-as-new` advanced by the `head_sha` /
-    `last_seen_comment_id` watermark), cross-turn finding identity (semantic, not the positional `issue_key`), and
-    the `task_run` / `note` work-log artefacts are deferred to a follow-up after the single-turn workflow lands.
-    Full design + the **grounded implementation map (file:line cites)** in _Everything on Temporal_ under
-    Deferred / future below.
+15. ✅ **(after the dedup cleanup) Made the pipeline Temporal — single-turn workflow, landed as one change
+    (2026-06-25; 201 backend tests + ruff + tach green; e2e ✅ #63625 ran end-to-end through Temporal,
+    exit 0 — workflow executed in the worker, `pr_snapshot` reload + resume confirmed, behavior-preserving).** `run.py main()` is now a single-turn **`ReviewPRWorkflow`**
+    parent (`backend/temporal/workflow.py`) orchestrating: `validate-integration` → `fetch` → `sync-skills` →
+    `schema-gen` → `split-chunks` activities, then the three fan-out stages **`AnalyzeChunksWorkflow` /
+    `ReviewPerspectivesWorkflow` / `ValidateIssuesWorkflow`** (child workflows, kebab names `review-pr` /
+    `review-analyze-chunks` / `review-perspectives` / `review-validate-issues`), then `combine+clean` →
+    `dedup+persist-findings` → `build-body+finalize` → gated `publish` activities. **As built / decisions that
+    landed:**
+    - **Everything by reference via a new `pr_snapshot` working-state artefact** (`{head_sha, pr_metadata,
+pr_comments, pr_files}`, migration `0004`) — the fetch activity persists it once; every stage activity reloads
+      its inputs from the DB by `(report_id, head_sha)`. So only `report_id` + `head_sha` + small unit keys / JSON
+      issue slices cross any boundary — no `pr_files` / diff / perspective-results ever do (respects the ~2 MiB cap).
+      This **subsumes** the planned "narrow validate to one file" optimization: narrowing happens _inside_ the
+      validate activity, nothing big crosses at all.
+    - **Identity is explicit** — deleted `executor.py`'s `_sandbox_identity` ContextVar / `bind_sandbox_identity` /
+      `_sandbox_context_for` and the module-global `_sandbox_semaphore`; `run_sandbox_review(team_id, user_id,
+repository, branch, …)` builds `CustomPromptSandboxContext` inline. Each fan-out child bounds its sandbox-turn
+      activities with a fresh `asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)` + `gather(return_exceptions=True)`.
+    - **Best-effort** partial-unit failure (per the decision); per-unit activities are idempotent (check-and-skip
+      already-persisted units) so resume + Temporal retries are safe. **Publish stays gated off.**
+    - **Tool modules** keep only their pure prompt builders (`build_analysis_prompt` / `build_review_prompt` /
+      `build_validation_prompt` / `generate_chunking_prompt` + `*_SYSTEM_PROMPT`); the fan-out orchestrators and
+      `run.py` are deleted (`deduplicate_issues` kept as a callable the dedup activity wraps, now taking explicit
+      identity). New `persist_pr_snapshot` / `load_pr_snapshot` / `persist_verdict` helpers.
+    - **Trigger:** `run_review` calls `backend/temporal/client.py:execute_review_pr_workflow` which **blocks**
+      (`client.execute_workflow`, `id_reuse_policy=ALLOW_DUPLICATE`) so the CLI eval loop stays intact; stage
+      progress streams in the worker log via `workflow.logger`. Registered on **`video-export-task-queue`**
+      (`start_temporal_worker.py` + `tach.toml` `posthog → products.review_hog` + the `container-images-cd.yml`
+      video-export change-detection grep). **The worker now needs `GITHUB_TOKEN` in its env** (fetch runs there).
+    - The reviewed-`head_sha` **checkout pin** stays **conditional step 16**; the **loop-y re-check**, cross-turn
+      finding identity, and `task_run` / `note` artefacts remain deferred. Design + grounded map (file:line cites)
+      in _Everything on Temporal_ below.
 16. ⏭️ **(conditional) Pin the sandbox checkout to the reviewed `head_sha` (`products/tasks` change).** Only if
     actually needed — resume-correctness, re-enabling publish, or the loop: thread a reviewed-commit SHA through the
     Tasks sandbox chain so the working tree == the injected change-set == the persisted snapshot == the finding

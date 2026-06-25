@@ -1,16 +1,13 @@
-import asyncio
 import logging
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from dotenv import load_dotenv
-
-from products.review_hog.backend.reviewer.run import main
+from products.review_hog.backend.temporal.client import execute_review_pr_workflow
 
 
 class Command(BaseCommand):
-    help = "Run a multi-pass PR review using sandbox agents"
+    help = "Run a single-turn PR review via the ReviewHog Temporal workflow"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
@@ -33,12 +30,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        # Local CLI run: load .env (for GITHUB_TOKEN) and mirror the reviewer's INFO logs to the console.
-        load_dotenv()
+        # The CLI only triggers the workflow and blocks for the result — the review runs in the
+        # Temporal worker (which needs GITHUB_TOKEN in its env), and stage progress streams there.
         logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         pr_url = options["pr_url"]
         team_id = options["team_id"]
         user_id = options["user_id"]
         self.stdout.write(self.style.MIGRATE_HEADING(f"ReviewHog ▶ starting · {pr_url} · team {team_id}"))
-        asyncio.run(main(pr_url=pr_url, team_id=team_id, user_id=user_id))
-        self.stdout.write(self.style.SUCCESS("ReviewHog ✓ finished"))
+        report_id = execute_review_pr_workflow(pr_url=pr_url, team_id=team_id, user_id=user_id)
+        self.stdout.write(self.style.SUCCESS(f"ReviewHog ✓ finished · report {report_id}"))

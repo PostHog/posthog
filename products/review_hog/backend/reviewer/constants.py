@@ -1,8 +1,9 @@
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 
 # SANDBOX
-# Global cap on concurrent sandbox agents per process — tuned for the parallel (perspective × chunk) review
-# to fan out wider; accepted tradeoff of more in-flight sandboxes for speed.
+# Per-child-workflow fan-out width: each Temporal fan-out (analyze / review / validate) bounds its
+# concurrent sandbox-turn activities with a fresh `asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)`. The
+# true global ceiling is the tasks-task-queue worker's own concurrency, where the sandboxes execute.
 MAX_CONCURRENT_SANDBOXES = 10
 
 # PUBLISH

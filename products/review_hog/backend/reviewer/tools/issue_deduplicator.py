@@ -63,6 +63,8 @@ IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema.""
 
 async def deduplicate_issues(
     *,
+    team_id: int,
+    user_id: int,
     issues: list[Issue],
     pr_metadata: PRMetadata,
     pr_comments: list[PRComment],
@@ -103,10 +105,12 @@ async def deduplicate_issues(
     )
 
     deduplication_result = await run_sandbox_review(
+        team_id=team_id,
+        user_id=user_id,
+        repository=repository,
+        branch=branch,
         prompt=prompt,
         system_prompt=_SYSTEM_PROMPT,
-        branch=branch,
-        repository=repository,
         model_to_validate=IssueDeduplication,
         step_name="dedup",
     )

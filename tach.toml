@@ -101,6 +101,7 @@ depends_on = [
     "products.replay",
     "products.replay_vision",
     "products.revenue_analytics",
+    "products.review_hog",
     "products.signals",
     "products.slack_app",
     "products.streamlit_apps",

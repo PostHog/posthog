@@ -73,6 +73,9 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         CHUNK_SET = "chunk_set"
         CHUNK_ANALYSIS = "chunk_analysis"
         PERSPECTIVE_RESULT = "perspective_result"
+        # The turn's fetched PR inputs, stored by reference so stage activities reload them from the
+        # DB instead of crossing the Temporal workflow boundary with the big pr_files payload.
+        PR_SNAPSHOT = "pr_snapshot"
 
     # Log types accumulate (each call is a new row). Findings and verdicts also append, but their
     # identity is `issue_key` — latest row per key wins at read time — so they get dedicated
@@ -82,7 +85,12 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     )
     # Working-state types accumulate per turn; the resume reads the latest per (head_sha, key).
     WORKING_STATE_ARTEFACT_TYPES: frozenset[str] = frozenset(
-        {ArtefactType.CHUNK_SET, ArtefactType.CHUNK_ANALYSIS, ArtefactType.PERSPECTIVE_RESULT}
+        {
+            ArtefactType.CHUNK_SET,
+            ArtefactType.CHUNK_ANALYSIS,
+            ArtefactType.PERSPECTIVE_RESULT,
+            ArtefactType.PR_SNAPSHOT,
+        }
     )
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")

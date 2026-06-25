@@ -18,6 +18,7 @@ from typing import Literal, cast
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.signals.backend.artefact_schemas import (
@@ -120,11 +121,26 @@ class PerspectiveResultArtefact(BaseModel):
     review: IssuesReview = Field(description="The issues this perspective found in this chunk.")
 
 
+class PRSnapshotArtefact(BaseModel):
+    """Content for a `pr_snapshot` artefact: the turn's fetched PR inputs, stored by reference.
+
+    Persisted once at fetch so the Temporal stage activities reload the PR metadata / comments /
+    files from the DB by `(report_id, head_sha)` instead of crossing the workflow boundary with the
+    big `pr_files` payload (subject to Temporal's ~2 MiB cap). Per-turn working state — head_sha
+    scopes it to its turn, latest-wins on a re-fetch.
+    """
+
+    head_sha: str = Field(description="PR head commit these inputs were fetched for (the turn key).")
+    pr_metadata: PRMetadata = Field(description="The PR's metadata (title/body/branches/labels/…).")
+    pr_comments: list[PRComment] = Field(default_factory=list, description="The PR's reviewable inline comments.")
+    pr_files: list[PRFile] = Field(default_factory=list, description="The PR's reviewable files with code context.")
+
+
 # Reused leaf models back the work-log entry types; ReviewHog adds findings + verdicts. The
 # working-state types (chunk_set / chunk_analysis / perspective_result) are per-turn pipeline
 # scaffolding the DB-driven resume reads back — head_sha-scoped, latest-wins within a turn.
 ReviewLogArtefactContent = TaskRunArtefact | Commit | CodeReference | NoteArtefact
-ReviewWorkingStateContent = ChunkSetArtefact | ChunkAnalysisArtefact | PerspectiveResultArtefact
+ReviewWorkingStateContent = ChunkSetArtefact | ChunkAnalysisArtefact | PerspectiveResultArtefact | PRSnapshotArtefact
 ReviewArtefactContent = ReviewIssueFinding | ValidationVerdict | ReviewLogArtefactContent | ReviewWorkingStateContent
 
 # Keys must match `ReviewReportArtefact.ArtefactType` values exactly (asserted by a test).
@@ -138,6 +154,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "chunk_set": ChunkSetArtefact,
     "chunk_analysis": ChunkAnalysisArtefact,
     "perspective_result": PerspectiveResultArtefact,
+    "pr_snapshot": PRSnapshotArtefact,
 }
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
 

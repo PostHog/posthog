@@ -1,14 +1,14 @@
-import logging
-
-from asgiref.sync import sync_to_async
-
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.persistence import load_chunk_set, persist_chunk_set
-from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 from products.review_hog.backend.reviewer.tools.prompt_helpers import format_pr_intent, load_template_and_schema
 
-logger = logging.getLogger(__name__)
+CHUNKING_SYSTEM_PROMPT = """You are a code review assistant analyzing GitHub PRs and organizing them into logical chunks.
+Focus on:
+- Understanding file relationships and dependencies
+- Grouping related files based on functionality
+- Creating coherent, independently reviewable chunks
+- Following the specific output format requirements
+
+IMPORTANT: Return ONLY valid JSON output without any markdown formatting or explanatory text."""
 
 
 def generate_chunking_prompt(
@@ -24,53 +24,3 @@ def generate_chunking_prompt(
         PR_FILES=[x.model_dump_json() for x in pr_files],
         OUTPUT_SCHEMA=output_schema,
     )
-
-
-async def split_pr_into_chunks(
-    *,
-    team_id: int,
-    report_id: str,
-    head_sha: str,
-    pr_metadata: PRMetadata,
-    pr_comments: list[PRComment],
-    pr_files: list[PRFile],
-    branch: str,
-    repository: str,
-) -> ChunksList:
-    """Split a GitHub PR into logical chunks for review, persisting the result for resume."""
-    # Resume: reuse this turn's chunking if it was already computed.
-    existing = await sync_to_async(load_chunk_set)(team_id=team_id, report_id=report_id, head_sha=head_sha)
-    if existing is not None:
-        logger.info("Reusing persisted chunk set for this turn")
-        return existing
-
-    try:
-        prompt = generate_chunking_prompt(pr_metadata=pr_metadata, pr_comments=pr_comments, pr_files=pr_files)
-    except (FileNotFoundError, RuntimeError) as e:
-        logger.exception(f"Error generating prompt: {e}")
-        raise
-
-    system_prompt = """You are a code review assistant analyzing GitHub PRs and organizing them into logical chunks.
-Focus on:
-- Understanding file relationships and dependencies
-- Grouping related files based on functionality
-- Creating coherent, independently reviewable chunks
-- Following the specific output format requirements
-
-IMPORTANT: Return ONLY valid JSON output without any markdown formatting or explanatory text."""
-
-    chunks = await run_sandbox_review(
-        prompt=prompt,
-        system_prompt=system_prompt,
-        branch=branch,
-        repository=repository,
-        model_to_validate=ChunksList,
-        step_name="chunking",
-    )
-    if chunks is None:
-        logger.error("Failed to generate chunks using sandbox")
-        raise RuntimeError("Failed to generate chunks using sandbox")
-
-    await sync_to_async(persist_chunk_set)(team_id=team_id, report_id=report_id, head_sha=head_sha, chunks=chunks)
-    logger.info("Chunking completed successfully!")
-    return chunks

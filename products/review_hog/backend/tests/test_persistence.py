@@ -16,12 +16,15 @@ from products.review_hog.backend.reviewer.persistence import (
     load_chunk_analyses,
     load_chunk_set,
     load_perspective_results,
+    load_pr_snapshot,
     load_valid_findings,
     persist_chunk_analyses,
     persist_chunk_set,
     persist_commit_snapshot,
     persist_findings,
     persist_perspective_results,
+    persist_pr_snapshot,
+    persist_verdict,
     persist_verdicts,
     upsert_review_report,
 )
@@ -453,3 +456,53 @@ class TestPersistCommitSnapshot(BaseTest):
         assert commit.diff is None
         assert commit.commit_sha == "sha-aaa"
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).head_sha == "sha-aaa"
+
+
+class TestPRSnapshot(BaseTest):
+    def test_round_trips_and_is_head_scoped(self) -> None:
+        # The by-reference reload the Temporal stage activities depend on: the fetch persists the PR
+        # inputs once, every later activity reloads them by (report_id, head_sha). A broken head tag
+        # or working-state load would silently strand the whole fan-out, so guard the round-trip and
+        # the head scoping.
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha1")
+        )
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(head_sha="sha1"),
+            pr_comments=[PRComment(path="a.py", line=3, body="b", diff_hunk="", user="u", created_at="2026-01-01")],
+            pr_files=[],
+        )
+
+        loaded = load_pr_snapshot(team_id=self.team.id, report_id=report_id, head_sha="sha1")
+        assert loaded is not None
+        assert loaded.pr_metadata.number == 123
+        assert [c.path for c in loaded.pr_comments] == ["a.py"]
+        # A different head returns nothing — resume reuses only the current turn's inputs.
+        assert load_pr_snapshot(team_id=self.team.id, report_id=report_id, head_sha="other") is None
+
+
+class TestPersistVerdict(BaseTest):
+    def test_persist_verdict_pairs_with_its_finding_by_issue_key(self) -> None:
+        # The per-issue validate fan-out persists one verdict per issue; it must pair 1:1 with the
+        # finding dedup wrote (shared issue_key) so load_valid_findings joins them. A drifted key would
+        # orphan the verdict and drop the finding from publish.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        issue = _issue("1-1-1")
+        persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue])
+        wrote = persist_verdict(
+            team_id=self.team.id,
+            report_id=report_id,
+            issue=issue,
+            validation=IssueValidation(is_valid=True, argumentation="reachable bug", category="bug"),
+        )
+
+        assert wrote is True
+        pairs = load_valid_findings(team_id=self.team.id, report_id=report_id)
+        assert len(pairs) == 1
+        finding, verdict = pairs[0]
+        assert verdict.is_valid is True
+        assert verdict.argumentation == "reachable bug"
+        assert verdict.issue_key == finding.issue_key

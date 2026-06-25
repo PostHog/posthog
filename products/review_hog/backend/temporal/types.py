@@ -1,0 +1,41 @@
+"""Shared inputs + id helpers for the ReviewHog Temporal workflows.
+
+Lives apart from `workflow.py` so the client (and any sync trigger) can build the workflow id and
+input without importing the workflow code (which pulls in the heavy activity dependencies).
+"""
+
+from dataclasses import dataclass
+
+
+@dataclass
+class ReviewPRWorkflowInputs:
+    """Input for one single-turn `ReviewPRWorkflow`.
+
+    `owner` / `repo` / `pr_number` are parsed from `pr_url` by the trigger so the workflow itself
+    stays free of the GitHub-URL parsing dependency. `(team_id, user_id)` are the explicit identity
+    the sandbox tasks run under (the PR's author and their team, when triggered in the cloud).
+    """
+
+    team_id: int
+    user_id: int
+    pr_url: str
+    owner: str
+    repo: str
+    pr_number: int
+
+    @property
+    def repository(self) -> str:
+        return f"{self.owner}/{self.repo}"
+
+    @property
+    def properties_to_log(self) -> dict[str, object]:
+        return {
+            "team_id": self.team_id,
+            "repository": self.repository,
+            "pr_number": self.pr_number,
+        }
+
+
+def review_pr_workflow_id(*, team_id: int, owner: str, repo: str, pr_number: int) -> str:
+    """Deterministic per-PR workflow id, so a re-trigger of the same PR review collapses by id."""
+    return f"review-pr:{team_id}:{owner}/{repo}:{pr_number}"

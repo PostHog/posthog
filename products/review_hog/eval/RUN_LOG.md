@@ -22,6 +22,24 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
 
 ---
 
+## 2026-06-25 · step 15 — Temporal single-turn workflow — PR #63625 @ `243ddf40295c`
+
+- **ReviewHog under test:** step 15 — the whole pipeline is now a Temporal `ReviewPRWorkflow` (parent +
+  3 fan-out child workflows + activities; everything by-reference via the new `pr_snapshot` artefact;
+  identity threaded explicitly, contextvar gone). `run_review` triggers + **blocks** on the workflow.
+  `signals/reviewhog`, uncommitted working tree.
+- **Ran end-to-end through Temporal (exit 0)** — the workflow executed in the `video-export` worker
+  (DEBUG-collapsed to `development-task-queue`), confirming `review-pr` + the 3 children are registered.
+  `pr_snapshot:1` proves the fetch activity ran and the stage activities reloaded PR inputs from the DB.
+- **Resume worked:** head unchanged, so `chunk_set:1` / `chunk_analysis:1` / `perspective_result:3` were
+  reused from the prior turn's rows — **no redundant sandbox calls**; only dedup + validate hit the
+  sandbox this turn (the documented recompute boundary). Final: `status idle · run_count 3 · body 4,448
+chars`. Publish gated off.
+- **Findings:** 1 this turn · **Validator:** **0 kept / 1 dropped** — same criteria-driven outcome as the
+  step-13 baseline (the `database.py:1478` finding dropped as "practically unreachable"). The kept/dropped
+  flips run-to-run on the frozen head (LLM nondeterminism); the clean signal is that **the Temporal
+  pipeline is behavior-preserving** — same stages, same finding, same validator behavior as in-process.
+
 ## 2026-06-25 · step 13 — validator-as-pulled-skill — PR #63625 @ `243ddf40295c`
 
 - **ReviewHog under test:** step 13 — the validation keep/drop **criteria moved to a pulled LLMA skill**

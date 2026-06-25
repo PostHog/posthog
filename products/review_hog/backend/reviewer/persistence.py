@@ -36,13 +36,14 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ChunkAnalysisArtefact,
     ChunkSetArtefact,
     PerspectiveResultArtefact,
+    PRSnapshotArtefact,
     ReviewArtefactContent,
     ReviewIssueFinding,
     ValidationVerdict,
     parse_artefact_content,
 )
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
-from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
@@ -209,6 +210,40 @@ def load_perspective_results(*, team_id: int, report_id: str, head_sha: str) -> 
     return out
 
 
+def persist_pr_snapshot(
+    *,
+    team_id: int,
+    report_id: str,
+    head_sha: str,
+    pr_metadata: PRMetadata,
+    pr_comments: list[PRComment],
+    pr_files: list[PRFile],
+) -> None:
+    """Append this turn's fetched PR inputs as a `pr_snapshot` artefact (stored by reference).
+
+    The Temporal stage activities reload metadata / comments / files from this row by
+    `(report_id, head_sha)` rather than carrying the big `pr_files` payload across the workflow
+    boundary. Latest-wins on a re-fetch at the same head.
+    """
+    ReviewReportArtefact.add_working_state(
+        team_id=team_id,
+        report_id=report_id,
+        content=PRSnapshotArtefact(
+            head_sha=head_sha, pr_metadata=pr_metadata, pr_comments=pr_comments, pr_files=pr_files
+        ),
+        attribution=ArtefactAttribution.system(),
+    )
+
+
+def load_pr_snapshot(*, team_id: int, report_id: str, head_sha: str) -> PRSnapshotArtefact | None:
+    """The PR inputs fetched for this turn, or None if the fetch hasn't run (latest wins per head)."""
+    latest: PRSnapshotArtefact | None = None
+    for content in _load_working_state(team_id, report_id, ReviewReportArtefact.ArtefactType.PR_SNAPSHOT, head_sha):
+        assert isinstance(content, PRSnapshotArtefact)
+        latest = content
+    return latest
+
+
 def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_sha: str) -> list[ReviewArtefactContent]:
     """Parsed working-state contents for this turn, oldest-first so callers can latest-wins them.
 
@@ -283,6 +318,31 @@ def persist_verdicts(
                 team_id=team_id, report_id=report_id, content=verdict, attribution=ArtefactAttribution.system()
             )
     return len(drafts)
+
+
+def persist_verdict(*, team_id: int, report_id: str, issue: Issue, validation: IssueValidation) -> bool:
+    """Append one issue's validation verdict as a `validation_verdict` artefact; return whether it did.
+
+    The single-issue counterpart of `persist_verdicts`, for the per-issue validate fan-out: a verdict
+    reuses its finding's `issue_key` (so latest-wins pairs them 1:1) and is only written for an issue
+    that produces a valid durable finding (the finding schema is stricter than the verdict schema, so
+    a verdict with no finding would dangle).
+    """
+    try:
+        finding = _to_finding(issue)
+        verdict = ValidationVerdict(
+            issue_key=finding.issue_key,
+            is_valid=validation.is_valid,
+            category=validation.category,
+            argumentation=validation.argumentation,
+        )
+    except ValidationError as e:
+        logger.warning("Skipping verdict for %s that failed durable validation: %s", issue.id, e)
+        return False
+    ReviewReportArtefact.append_verdict(
+        team_id=team_id, report_id=report_id, content=verdict, attribution=ArtefactAttribution.system()
+    )
+    return True
 
 
 def load_valid_findings(*, team_id: int, report_id: str) -> list[tuple[ReviewIssueFinding, ValidationVerdict]]:

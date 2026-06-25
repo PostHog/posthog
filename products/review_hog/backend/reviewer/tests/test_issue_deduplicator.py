@@ -104,6 +104,8 @@ def test_comment_line_resolves_position_or_none() -> None:
 async def test_deduplicate_empty_issues_returns_empty_without_sandbox(pr_metadata: PRMetadata) -> None:
     with patch(f"{_MODULE}.run_sandbox_review") as mock_sandbox:
         result = await deduplicate_issues(
+            team_id=1,
+            user_id=1,
             issues=[],
             pr_metadata=pr_metadata,
             pr_comments=[],
@@ -126,6 +128,8 @@ async def test_deduplicate_no_positional_collision_keeps_all_without_sandbox(pr_
 
     with patch(f"{_MODULE}.run_sandbox_review") as mock_sandbox:
         result = await deduplicate_issues(
+            team_id=1,
+            user_id=1,
             issues=issues,
             pr_metadata=pr_metadata,
             pr_comments=[],
@@ -149,6 +153,8 @@ async def test_deduplicate_drops_llm_flagged_duplicate_keeps_isolated(pr_metadat
 
     with patch(f"{_MODULE}.run_sandbox_review", create_mock_run_sandbox_review(dedup)):
         result = await deduplicate_issues(
+            team_id=1,
+            user_id=1,
             issues=issues,
             pr_metadata=pr_metadata,
             pr_comments=[],
@@ -171,6 +177,8 @@ async def test_deduplicate_prior_comment_makes_issue_a_candidate(pr_metadata: PR
 
     with patch(f"{_MODULE}.run_sandbox_review", create_mock_run_sandbox_review(dedup)):
         result = await deduplicate_issues(
+            team_id=1,
+            user_id=1,
             issues=issues,
             pr_metadata=pr_metadata,
             pr_comments=comments,
@@ -196,6 +204,8 @@ async def test_deduplicate_raises_when_sandbox_returns_none(pr_metadata: PRMetad
         pytest.raises(RuntimeError, match="Issue deduplication failed"),
     ):
         await deduplicate_issues(
+            team_id=1,
+            user_id=1,
             issues=issues,
             pr_metadata=pr_metadata,
             pr_comments=[],
