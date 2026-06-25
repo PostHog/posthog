@@ -296,6 +296,12 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault
                                             )
                                             .describe('Maximum number of events to return.'),
+                                        eventName: zod
+                                            .union([zod.string().min(1), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Limit the feed to a single event name. Omit or null for all events.'
+                                            ),
                                     }),
                                     zod.object({
                                         dateRange: zod
@@ -1093,6 +1099,10 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax)
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault)
                                     .describe('Maximum number of events to return.'),
+                                eventName: zod
+                                    .union([zod.string().min(1), zod.null()])
+                                    .optional()
+                                    .describe('Limit the feed to a single event name. Omit or null for all events.'),
                             })
                             .describe('Configuration for the recent events widget.'),
                     }),

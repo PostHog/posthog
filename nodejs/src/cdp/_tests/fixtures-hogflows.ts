@@ -1,4 +1,4 @@
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { insertRow } from '~/tests/helpers/sql'
 
 import { PostgresRouter } from '../../utils/db/postgres'

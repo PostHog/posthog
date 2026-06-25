@@ -81,6 +81,11 @@ class ActivityEventsListWidgetConfig(WidgetListConfigBase):
     limit: ActivityWidgetLimit = Field(
         default=ACTIVITY_EVENTS_DEFAULT_LIMIT, description="Maximum number of events to return."
     )
+    eventName: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Limit the feed to a single event name. Omit or null for all events.",
+    )
 
 
 class ExperimentsListWidgetConfig(BaseModel):

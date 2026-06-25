@@ -3644,6 +3644,11 @@ export interface GitHubReposRefreshResponseApi {
     repositories: GitHubRepoApi[]
 }
 
+export interface UserGitHubPrepareCallbackRequestApi {
+    /** GitHub App installation id being managed on github.com. */
+    installation_id: string
+}
+
 export interface UserGitHubLinkStartRequestApi {
     /**
      * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
@@ -3714,6 +3719,11 @@ export interface UserSlackLinkStartResponseApi {
 export interface UserAuthSessionApi {
     /** Identifier used to revoke this login session. */
     readonly id: string
+    /**
+     * When this login session was first created — the original sign-in time.
+     * @nullable
+     */
+    readonly created_at: string | null
     /** When this login session last made a request (refreshed periodically). */
     readonly last_activity: string
     /** Approximate city and country derived from the IP address, if known. */

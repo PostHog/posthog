@@ -8,13 +8,13 @@ import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-u
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -752,7 +752,7 @@ export function FeatureFlags(): JSX.Element {
                         resourceType={AccessControlResourceType.FeatureFlag}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <AppShortcut
+                        <Shortcut
                             name="NewFeatureFlag"
                             keybind={[keyBinds.new]}
                             intent="New feature flag"
@@ -779,7 +779,7 @@ export function FeatureFlags(): JSX.Element {
                             >
                                 New
                             </LemonButton>
-                        </AppShortcut>
+                        </Shortcut>
                     </AccessControlAction>
                 }
             />

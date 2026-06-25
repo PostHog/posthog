@@ -1887,7 +1887,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
     HOME = "home"
-    APPS = "apps"
+    TOOLS = "tools"
     LIVE = "live"
     CHAT = "chat"
     SEARCH = "search"
@@ -1913,6 +1913,11 @@ class FileSystemIconType(StrEnum):
 class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
+
+
+class FunnelConversionMetric(StrEnum):
+    CONVERSION_FROM_START = "conversion_from_start"
+    CONVERSION_FROM_PREVIOUS = "conversion_from_previous"
 
 
 class FunnelConversionWindowTimeUnit(StrEnum):

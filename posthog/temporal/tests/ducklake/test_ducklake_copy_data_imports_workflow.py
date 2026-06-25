@@ -101,7 +101,7 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
         return flag_enabled
 
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.posthoganalytics.feature_enabled",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.feature_enabled_or_false",
         fake_feature_enabled,
     )
 
@@ -125,7 +125,7 @@ async def test_ducklake_copy_data_imports_gate_skips_duckgres_sink_teams(monkeyp
         return True
 
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.posthoganalytics.feature_enabled",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.feature_enabled_or_false",
         fake_feature_enabled,
     )
 
@@ -1039,8 +1039,8 @@ async def test_ducklake_copy_data_imports_workflow_skips_when_feature_flag_disab
         call_counts["copy"] += 1
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         lambda *args, **kwargs: False,
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
@@ -1106,8 +1106,8 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
         return []
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         # Key-aware: the gate checks the duckgres-batch-sink exclusion first,
         # and a catch-all True would wrongly trip it.
         lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
@@ -1198,8 +1198,8 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
         call_counts["cleanup"] += 1
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         # Key-aware: the gate checks the duckgres-batch-sink exclusion first,
         # and a catch-all True would wrongly trip it.
         lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
