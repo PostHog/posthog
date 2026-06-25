@@ -14,10 +14,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 
-from products.data_warehouse.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+    PartitionFormat,
+    PartitionMode,
+)
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 type IncrementalFieldValue = str | int | float | None
 

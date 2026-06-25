@@ -81,6 +81,15 @@ function prettify(value: string): string {
     return capitalizeFirstLetter(value.replace(/[-_]/g, ' '))
 }
 
+/** Friendly labels for known dismissal reason codes; unknown values fall back to a humanized form. */
+const DISMISS_REASON_LABELS: Record<string, string> = {
+    slack_dismiss: 'Dismissed from Slack',
+}
+
+function dismissReasonLabel(reason: string): string {
+    return DISMISS_REASON_LABELS[reason] ?? prettify(reason)
+}
+
 /** A short relevance / context note above a code block. */
 function RelevanceNote({ note }: { note?: string }): JSX.Element | null {
     if (!note?.trim()) {
@@ -290,7 +299,7 @@ function ArtefactBody({
                 <div className="flex flex-col gap-1">
                     {c.reason ? (
                         <LemonTag size="small" type="muted">
-                            {prettify(c.reason)}
+                            {dismissReasonLabel(c.reason)}
                         </LemonTag>
                     ) : null}
                     {c.note ? <RelevanceNote note={c.note} /> : null}

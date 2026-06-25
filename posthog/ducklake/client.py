@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +23,9 @@ class DuckLakeQueryResult:
     results: list[list[Any]]
     sql: str
     hogql: str | None = None
+    # connect_ms includes control-plane activation of a cold tenant; query_ms is the query alone.
+    connect_ms: float | None = None
+    query_ms: float | None = None
 
 
 @dataclass
@@ -128,19 +132,25 @@ def execute_ducklake_query(
     assert sql is not None
 
     conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id)
+    _connect_start = time.monotonic()
     with psycopg.connect(conninfo) as conn:
+        connect_ms = (time.monotonic() - _connect_start) * 1000
         _set_search_path(conn)
         with conn.cursor() as cur:
+            _query_start = time.monotonic()
             cur.execute(sql, values or None)
             columns = [desc.name for desc in cur.description] if cur.description else []
             types = [str(desc.type_code) for desc in cur.description] if cur.description else []
             rows = cur.fetchall()
+            query_ms = (time.monotonic() - _query_start) * 1000
     return DuckLakeQueryResult(
         columns=columns,
         types=types,
         results=[list(r) for r in rows],
         sql=sql,
         hogql=hogql_pretty,
+        connect_ms=connect_ms,
+        query_ms=query_ms,
     )
 
 
