@@ -29,6 +29,10 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+    # Schema cache epoch. Bump to abandon every shared schema cache entry at once
+    # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
+    # between the merge-base (PR) and HEAD (push) key computations below.
+    SCHEMA_CACHE_EPOCH: v1
     DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -401,18 +405,22 @@ jobs:
                   # Exact branch-point key, kept as the fallback restore key below.
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Shared key: hash merge-base schema inputs, not PR head, so PR migrations still
-                  # apply as the pytest delta. uv.lock covers third-party migration changes.
+                  # apply as the pytest delta. uv.lock covers third-party migration changes; the
+                  # postgres image is folded in so a server-version bump invalidates the key.
                   # Non-Django migration frameworks are excluded from this Postgres schema dump.
+                  # SCHEMA_CACHE_EPOCH (workflow env) prefixes the key as a manual cache-bust knob.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
                   else
-                      MIG_HASH=$(printf '%s' "$MIG_FILES" | sha256sum | cut -c1-40)
-                      echo "migrations_key=posthog-schema-mig-${MIG_HASH}" >> $GITHUB_OUTPUT
+                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
             - name: Mint setup-action GitHub token
@@ -1481,7 +1489,7 @@ jobs:
                   key: posthog-schema-master-${{ github.sha }}
 
             - name: Compute migration-set schema key
-              # Must match the merge-base computation in turbo-discover.
+              # Must match the merge-base computation in turbo-discover (inputs, hash, and key prefix).
               if: github.event_name == 'push'
               id: mig-schema-key
               run: |
@@ -1489,12 +1497,14 @@ jobs:
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — skipping migration-set schema save"
                   else
-                      MIG_HASH=$(printf '%s' "$MIG_FILES" | sha256sum | cut -c1-40)
-                      echo "key=posthog-schema-mig-${MIG_HASH}" >> $GITHUB_OUTPUT
+                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
             - name: Save schema to Actions cache (migration-set key)
