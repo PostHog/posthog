@@ -525,7 +525,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             pinned,
             source,
         }),
-        reportDashboardMovedToFolder: (fromPath: string, toPath: string) => ({ fromPath, toPath }),
+        reportDashboardMovedToFolder: (props: {
+            fromDepth: number
+            toDepth: number
+            fromUnfiled: boolean
+            toUnfiled: boolean
+        }) => props,
         reportDashboardListSearched: (searchLength: number, resultsCount: number) => ({ searchLength, resultsCount }),
         reportDashboardsTreeFolderNavigated: (depth: number, hasSubfolders: boolean) => ({ depth, hasSubfolders }),
         reportDashboardMoveInitiated: (method: 'single' | 'bulk', count: number) => ({ method, count }),
@@ -1480,12 +1485,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
-        reportDashboardMovedToFolder: async ({ fromPath, toPath }) => {
-            // Primary-metric (folder-organization adoption) signal. The spec's `method`/`multi_select_count`
-            // props are added in the measurement increment — the shared, arm-agnostic move path can't set them.
+        reportDashboardMovedToFolder: async ({ fromDepth, toDepth, fromUnfiled, toUnfiled }) => {
+            // Primary-metric (folder-organization adoption) signal. Coarse fields only — never the folder or
+            // dashboard names, which are customer-controlled (mirrors the search/navigation events' privacy
+            // posture). method/multi_select_count live on the sibling 'dashboard move initiated' event.
             posthog.capture('dashboard moved to folder', {
-                from_path: fromPath,
-                to_path: toPath,
+                from_depth: fromDepth,
+                to_depth: toDepth,
+                moved_from_unfiled: fromUnfiled,
+                moved_to_unfiled: toUnfiled,
             })
         },
         reportDashboardListSearched: async ({ searchLength, resultsCount }) => {

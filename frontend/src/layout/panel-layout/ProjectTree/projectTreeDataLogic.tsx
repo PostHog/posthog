@@ -279,7 +279,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             if (action.item.type === 'dashboard') {
                                 // Arm-agnostic primary-metric signal for the dashboards-list-view experiment;
                                 // method/multi_select_count + undo net-out deferred to the measurement increment.
-                                eventUsageLogic.actions.reportDashboardMovedToFolder(oldPath, newPath)
+                                eventUsageLogic.actions.reportDashboardMovedToFolder({
+                                    fromDepth: splitPath(oldPath).length,
+                                    toDepth: splitPath(newPath).length,
+                                    fromUnfiled: oldPath.startsWith('Unfiled/'),
+                                    toUnfiled: newPath.startsWith('Unfiled/'),
+                                })
                             }
                             lemonToast.success('Item moved successfully', {
                                 button: {

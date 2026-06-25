@@ -86,9 +86,15 @@ describe('projectTreeDataLogic', () => {
                 'test'
             )
         }).toDispatchActions(['reportDashboardMovedToFolder'])
+        // Coarse fields only — never the folder/dashboard names (Unfiled/Dashboards/A -> Product/A).
         expect(capture).toHaveBeenCalledWith(
             'dashboard moved to folder',
-            expect.objectContaining({ from_path: 'Unfiled/Dashboards/A', to_path: 'Product/A' })
+            expect.objectContaining({
+                from_depth: 3,
+                to_depth: 2,
+                moved_from_unfiled: true,
+                moved_to_unfiled: false,
+            })
         )
 
         // A non-dashboard move still processes (movedItem) but must NOT fire the dashboard event.
