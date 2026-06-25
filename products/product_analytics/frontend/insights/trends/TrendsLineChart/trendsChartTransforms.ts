@@ -10,6 +10,7 @@ import type {
 } from '@posthog/quill-charts'
 
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
+import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { CiRangesFn, GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
@@ -64,7 +65,7 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     return {
         key: String(r.id),
-        label: r.label ?? '',
+        label: humanizeSeriesLabel(r.label),
         data: r.data,
         color: opts.getColor(r, index),
         yAxisId,
@@ -124,6 +125,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
     if (includeMa) {
         const window = opts.movingAverageIntervals as number
         out.movingAverage = results
+            .filter((r) => !opts.getHidden?.(r))
             .filter((r) => r.data.length >= window)
             .map((r) => ({ seriesKey: String(r.id), window }))
     }
@@ -140,7 +142,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
                 trendLines.push({
                     seriesKey: movingAverageKey(String(r.id)),
                     kind: 'linear',
-                    label: `${r.label ?? ''} (Moving avg)`,
+                    label: `${humanizeSeriesLabel(r.label)} (Moving avg)`,
                 })
             }
         }
@@ -156,7 +158,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
             // Self-map: applyComparisonDimming only checks key presence; the paired primary
             // id isn't carried on TrendsResultLike.
             comparisonOf[key] = key
-            if (includeMa && r.data.length >= (opts.movingAverageIntervals as number)) {
+            if (includeMa && !opts.getHidden?.(r) && r.data.length >= (opts.movingAverageIntervals as number)) {
                 comparisonOf[movingAverageKey(key)] = key
             }
         }
@@ -196,6 +198,7 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
 
     showCrosshair?: boolean
     tooltip?: TooltipConfig
+    legend?: TimeSeriesLineChartConfig['legend']
 }
 
 export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
@@ -235,5 +238,6 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         percentStackView: opts.isPercentStackView,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
+        legend: opts.legend,
     }
 }

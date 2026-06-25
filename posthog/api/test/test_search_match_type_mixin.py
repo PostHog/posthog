@@ -4,6 +4,7 @@ from rest_framework import serializers
 from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.shared import SearchMatchTypeSerializerMixin
 
+from products.alerts.backend.api.alert import AlertSerializer
 from products.cdp.backend.api.hog_function import HogFunctionMinimalSerializer, HogFunctionSerializer
 from products.dashboards.backend.api.dashboard import DashboardBasicSerializer
 from products.product_analytics.backend.api.insight import InsightBasicSerializer, InsightSerializer
@@ -21,6 +22,7 @@ SEARCH_LIST_SERIALIZERS = [
     ("hog_function", HogFunctionSerializer),
     ("survey", SurveySerializer),
     ("product_tour", ProductTourSerializer),
+    ("alert", AlertSerializer),
 ]
 
 

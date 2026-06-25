@@ -112,6 +112,7 @@ my:command:
   destructive: true # Prompts for confirmation before running
   hidden: true # Hides from --help (still runnable)
   needs_secrets: true # Triggers the configured `env.secrets.wrap` (see below)
+  untracked: true # Skips command_started/command_completed telemetry (use for exec-style commands that replace the process, so a completed event could never fire)
 ```
 
 ## Python Commands
@@ -227,7 +228,7 @@ dev:start:
 
 ### Telemetry properties
 
-Inject extra key/value pairs into the `command_completed` telemetry event. Receives the invoked command name.
+Inject extra key/value pairs into the `command_started` / `command_completed` telemetry events. Receives the invoked command name.
 
 ```python
 from hogli.hooks import register_telemetry_properties

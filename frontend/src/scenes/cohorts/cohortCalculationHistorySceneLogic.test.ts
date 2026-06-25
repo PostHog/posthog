@@ -2,9 +2,6 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
@@ -279,35 +276,6 @@ describe('cohortCalculationHistorySceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(api.get).toHaveBeenLastCalledWith('api/cohort/789/calculation_history/?limit=25&offset=50')
-        })
-    })
-
-    describe('feature flag access control', () => {
-        it('should return true for hasCalculationHistoryAccess when feature flag is enabled', async () => {
-            await initLogic({ cohortId: 123 })
-
-            // Mock feature flags with COHORT_CALCULATION_HISTORY enabled
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COHORT_CALCULATION_HISTORY]: true })
-
-            expect(logic.values.hasCalculationHistoryAccess).toBe(true)
-        })
-
-        it('should return false for hasCalculationHistoryAccess when feature flag is disabled', async () => {
-            await initLogic({ cohortId: 123 })
-
-            // Mock feature flags with COHORT_CALCULATION_HISTORY disabled
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COHORT_CALCULATION_HISTORY]: false })
-
-            expect(logic.values.hasCalculationHistoryAccess).toBe(false)
-        })
-
-        it('should return false for hasCalculationHistoryAccess when feature flag is undefined', async () => {
-            await initLogic({ cohortId: 123 })
-
-            // Mock feature flags without COHORT_CALCULATION_HISTORY
-            featureFlagLogic.actions.setFeatureFlags([], {})
-
-            expect(logic.values.hasCalculationHistoryAccess).toBe(false)
         })
     })
 })

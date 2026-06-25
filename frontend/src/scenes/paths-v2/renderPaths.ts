@@ -1,10 +1,10 @@
 import * as d3 from 'd3'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
-import sankey, { sankeyLeft, sankeyLinkHorizontal, SankeyLink, type SankeyLayout } from 'lib/d3/sankey'
 import { D3Selector } from 'lib/hooks/useD3'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
+import sankey, { sankeyLeft, sankeyLinkHorizontal, SankeyLink, type SankeyLayout } from '~/vendor/d3/sankey'
 
 import { PathNodeData, PathTargetLink, isSelectedPathStartOrEnd } from './pathUtils'
 import { Paths } from './types'

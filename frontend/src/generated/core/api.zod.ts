@@ -8958,6 +8958,22 @@ export const DesktopFileSystemPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Publish a new version of a freeform canvas's React source.
+ *
+ * Merges into the dashboard row's `meta` (never replaces it), so existing
+ * keys like `channelId`/`templateId` survive. Appends a full-file version
+ * snapshot and points `currentVersionId` at it — the server-side mirror of
+ * the app's dashboardsService.saveFreeform.
+ */
+export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        code: zod.string().optional(),
+        prompt: zod.string().optional(),
+        name: zod.string().optional(),
+    })
+    .describe("Payload for publishing a freeform canvas's React source via the agent.")
+
+/**
  * Set or clear the Task associated with this folder's CONTEXT.md generation.
  */
 export const DesktopFileSystemContextGenerationUpdateBody = /* @__PURE__ */ zod.object({
@@ -9995,6 +10011,13 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Seed personal GitHub manage callback state before opening installation settings on GitHub.
+ */
+export const UsersIntegrationsGithubPrepareCallbackCreateBody = /* @__PURE__ */ zod.object({
+    installation_id: zod.string().describe('GitHub App installation id being managed on github.com.'),
+})
+
+/**
  * Start GitHub linking: either full App install or OAuth-only (user-to-server).
  *
  * ``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
@@ -10026,6 +10049,39 @@ export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object
         .optional()
         .describe('Optional client hint (e.g. posthog_code) for return routing after OAuth.'),
 })
+
+/**
+ * Mint a Sign-in-with-Slack invite URL initiated from settings, without
+ * Slack-DM context. The returned URL takes the user through PostHog login
+ * (already satisfied here), then to Slack OAuth, then back to our callback
+ * which writes the ``UserIntegration`` row.
+ *
+ * Without body params, falls back to the user's ``current_team`` and that
+ * team's first Slack ``Integration`` — works when there's exactly one
+ * linkable workspace. With ``team_id`` + ``slack_team_id``, links against
+ * the exact pair (what the frontend uses when a picker is shown).
+ *
+ * Refuses if the target team has no matching Slack workspace, if the
+ * feature flag is off for the workspace, or if the user is already linked
+ * to it.
+ * @summary Start Slack identity link from settings
+ */
+export const UsersIntegrationsSlackStartCreateBody = /* @__PURE__ */ zod
+    .object({
+        team_id: zod
+            .number()
+            .nullish()
+            .describe("Optional team\/project id to link against; defaults to the user's current team."),
+        slack_team_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'Specific Slack workspace id to link against, scoped to the team. Disambiguates when one team has multiple Slack integrations (rare).'
+            ),
+    })
+    .describe(
+        "Settings-initiated link can target a specific PostHog team + Slack workspace.\n\nBoth are optional — when omitted we fall back to the user's ``current_team``\nand that team's first Slack ``Integration`` (mirrors ``github_start`` for\nthe simple case). The frontend passes both explicitly once it has the\nlinkable-workspace list and the user has picked a workspace."
+    )
 
 /**
  * Mark the current user as having exited onboarding with a non-delegated reason.

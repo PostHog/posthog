@@ -217,13 +217,13 @@ class Command(BaseCommand):
         self.stdout.write("\nTo verify, run these queries in the SQL editor:")
         self.stdout.write(
             """
-SELECT __preview_getTrafficType(properties.$user_agent) as traffic_type, count()
+SELECT getTrafficType(properties.$user_agent) as traffic_type, count()
 FROM events
 WHERE properties.$lib = 'bot-demo-generator'
 GROUP BY traffic_type
 ORDER BY count() DESC
 
-SELECT __preview_getTrafficCategory(properties.$user_agent) as category, count()
+SELECT getTrafficCategory(properties.$user_agent) as category, count()
 FROM events
 WHERE properties.$lib = 'bot-demo-generator'
 GROUP BY category

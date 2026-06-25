@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { alphabet, formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
+import { alphabet } from 'lib/utils/strings'
 
 import type { FeatureFlagType } from '~/types'
 

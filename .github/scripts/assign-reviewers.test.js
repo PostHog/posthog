@@ -2,6 +2,8 @@ const {
     CONFIG,
     isExcludedFile,
     classifyOwner,
+    teamSlugToLabel,
+    partitionExternalTeams,
     computeOwnerFootprints,
     isSubstantive,
     classifyOwners,
@@ -28,6 +30,9 @@ describe('assign-reviewers', () => {
             ['uv.lock', true],
             ['posthog/api/test/__snapshots__/test_survey.ambr', true],
             ['frontend/src/scenes/x/Component.test.tsx.snap', true],
+            ['nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts', true],
+            ['nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json', true],
+            ['nodejs/src/ingestion/pipelines/ai/costs/providers/manual-providers.ts', false],
             ['posthog/api/survey.py', false],
             ['frontend/src/scenes/surveys/Survey.tsx', false],
         ])('%s -> %s', (filename, expected) => {
@@ -65,6 +70,35 @@ describe('assign-reviewers', () => {
             ['not-an-owner', null],
         ])('%s', (input, expected) => {
             expect(classifyOwner(input)).toEqual(expected)
+        })
+    })
+
+    describe('teamSlugToLabel', () => {
+        test.each([
+            ['team-product-analytics', 'team/product-analytics'],
+            ['team-infra', 'team/infra'],
+            ['rafaeelaudibert', null],
+            ['', null],
+        ])('%s -> %s', (name, expected) => {
+            expect(teamSlugToLabel(name)).toBe(expected)
+        })
+    })
+
+    describe('partitionExternalTeams', () => {
+        test('labels product-analytics, still requests every other team', () => {
+            const { toLabel, toRequest } = partitionExternalTeams([
+                'team-product-analytics',
+                'team-web-analytics',
+                'team-infra',
+            ])
+            expect(toLabel).toEqual(['team-product-analytics'])
+            expect(toRequest).toEqual(['team-web-analytics', 'team-infra'])
+        })
+
+        test('no product-analytics owner → nothing labelled, all requested', () => {
+            const { toLabel, toRequest } = partitionExternalTeams(['team-web-analytics', 'team-infra'])
+            expect(toLabel).toEqual([])
+            expect(toRequest).toEqual(['team-web-analytics', 'team-infra'])
         })
     })
 

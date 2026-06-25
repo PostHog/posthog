@@ -209,7 +209,7 @@ export interface MCPIntentClusterApi {
     readonly intent_count: number
     /** Number of MCP sessions whose summarised intent belongs to this cluster. */
     readonly session_count: number
-    /** Total number of mcp_tool_call events represented by this cluster. */
+    /** Total number of $mcp_tool_call events represented by this cluster. */
     readonly call_count: number
     /** Total number of error responses observed across the cluster. */
     readonly error_count: number
@@ -309,13 +309,13 @@ export interface MCPMissingCapabilityCreateApi {
 }
 
 export interface MCPSessionApi {
-    /** $mcp_session_id grouping all mcp_tool_call events in the session. */
+    /** $mcp_session_id grouping all $mcp_tool_call events in the session. */
     readonly session_id: string
-    /** Total number of mcp_tool_call events in the session. */
+    /** Total number of $mcp_tool_call events in the session. */
     readonly tool_calls: number
-    /** Timestamp of the first mcp_tool_call event in the session. */
+    /** Timestamp of the first $mcp_tool_call event in the session. */
     readonly session_start: string
-    /** Timestamp of the most recent mcp_tool_call event in the session. */
+    /** Timestamp of the most recent $mcp_tool_call event in the session. */
     readonly session_end: string
     /** Number of distinct PostHog distinct_ids that produced events in the session. */
     readonly distinct_id_count: number
@@ -347,7 +347,7 @@ export interface MCPSessionIntentApi {
 }
 
 export interface MCPToolCallApi {
-    /** ClickHouse uuid of the mcp_tool_call event. */
+    /** ClickHouse uuid of the $mcp_tool_call event. */
     readonly event_id: string
     /** When the tool call was captured. */
     readonly timestamp: string
@@ -396,6 +396,14 @@ export type McpAnalyticsMissingCapabilitiesListParams = {
 
 export type McpAnalyticsSessionsListParams = {
     /**
+     * Start of the window to aggregate sessions over. PostHog date string — relative (e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'.
+     */
+    date_from?: string
+    /**
+     * End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.
+     */
+    date_to?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -413,7 +421,18 @@ export type McpAnalyticsSessionsListParams = {
     search?: string
 }
 
+export type McpAnalyticsSessionsGenerateIntentParams = {
+    /**
+     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     */
+    date_from?: string
+}
+
 export type McpAnalyticsSessionsToolCallsParams = {
+    /**
+     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     */
+    date_from?: string
     /**
      * Number of results to return per page.
      */

@@ -17,12 +17,18 @@ export const ColumnConfigurationsCreateBody = /* @__PURE__ */ zod.object({
     context_key: zod.string().max(columnConfigurationsCreateBodyContextKeyMax),
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsCreateBodyNameMax).optional(),
-    filters: zod.unknown().optional(),
+    filters: zod.unknown().optional().describe('Column filter state persisted with this view configuration.'),
     order_by: zod
         .array(zod.string())
         .nullish()
         .describe(
             'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
+    properties: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display).'
         ),
     visibility: zod
         .enum(['private', 'shared'])
@@ -38,12 +44,18 @@ export const ColumnConfigurationsUpdateBody = /* @__PURE__ */ zod.object({
     context_key: zod.string().max(columnConfigurationsUpdateBodyContextKeyMax),
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsUpdateBodyNameMax).optional(),
-    filters: zod.unknown().optional(),
+    filters: zod.unknown().optional().describe('Column filter state persisted with this view configuration.'),
     order_by: zod
         .array(zod.string())
         .nullish()
         .describe(
             'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
+    properties: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display).'
         ),
     visibility: zod
         .enum(['private', 'shared'])
@@ -59,12 +71,18 @@ export const ColumnConfigurationsPartialUpdateBody = /* @__PURE__ */ zod.object(
     context_key: zod.string().max(columnConfigurationsPartialUpdateBodyContextKeyMax).optional(),
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsPartialUpdateBodyNameMax).optional(),
-    filters: zod.unknown().optional(),
+    filters: zod.unknown().optional().describe('Column filter state persisted with this view configuration.'),
     order_by: zod
         .array(zod.string())
         .nullish()
         .describe(
             'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
+    properties: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display).'
         ),
     visibility: zod
         .enum(['private', 'shared'])

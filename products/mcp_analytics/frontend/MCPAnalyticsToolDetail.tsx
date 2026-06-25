@@ -20,6 +20,7 @@ import {
     Table,
     TableBody,
     TableCell,
+    TableEmpty,
     TableHead,
     TableHeader,
     TableRow,
@@ -28,7 +29,7 @@ import {
 import { buildTheme } from 'lib/charts/utils/theme'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -202,8 +203,8 @@ function ResultTable({
                         ))}
                     </TableRow>
                 </TableHeader>
-                <TableBody>
-                    {loading && rows.length === 0 ? (
+                {loading && rows.length === 0 ? (
+                    <TableBody>
                         <TableRow>
                             <TableCell colSpan={columns.length}>
                                 <div className="space-y-2 py-1">
@@ -213,14 +214,12 @@ function ResultTable({
                                 </div>
                             </TableCell>
                         </TableRow>
-                    ) : rows.length === 0 ? (
-                        <TableRow>
-                            <TableCell colSpan={columns.length} align="center" className="py-6 text-secondary">
-                                {emptyMessage}
-                            </TableCell>
-                        </TableRow>
-                    ) : (
-                        rows.map((row, i) => (
+                    </TableBody>
+                ) : rows.length === 0 ? (
+                    <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
+                ) : (
+                    <TableBody>
+                        {rows.map((row, i) => (
                             <TableRow key={i}>
                                 {columns.map((col, ci) => (
                                     <TableCell key={ci} align={col.align} expand={col.expand}>
@@ -228,9 +227,9 @@ function ResultTable({
                                     </TableCell>
                                 ))}
                             </TableRow>
-                        ))
-                    )}
-                </TableBody>
+                        ))}
+                    </TableBody>
+                )}
             </Table>
         </Card>
     )
@@ -376,7 +375,7 @@ function DescriptionBlock({
     return (
         <div className="flex flex-col gap-1 max-w-3xl">
             <span className="text-[11px] uppercase tracking-wider text-secondary">Description</span>
-            <LemonMarkdown className="text-sm leading-snug" lowKeyHeadings>
+            <LemonMarkdown className="text-sm leading-snug line-clamp-3" lowKeyHeadings>
                 {latest.description}
             </LemonMarkdown>
             {older.length > 0 ? (
@@ -615,9 +614,9 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                                 header: 'Harness',
                                 expand: true,
                                 render: (r) => {
-                                    const raw = String(r[0] ?? '')
-                                    return raw ? (
-                                        <HarnessPill category={categorizeHarness(raw)} title={raw} />
+                                    const label = String(r[0] ?? '')
+                                    return label ? (
+                                        <HarnessPill category={label} title={label} />
                                     ) : (
                                         <span className="text-muted">Unknown</span>
                                     )
@@ -635,7 +634,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
-                                header: 'Users',
+                                header: 'Sessions',
                                 align: 'right',
                                 render: (r) => humanFriendlyNumber(Number(r[4] ?? 0)),
                             },

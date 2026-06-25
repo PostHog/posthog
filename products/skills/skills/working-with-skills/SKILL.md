@@ -1,17 +1,17 @@
 ---
 name: working-with-skills
 description: >-
-  Best practices for agents managing PostHog skills via the MCP `llma-skill-*` tools —
+  Best practices for agents managing PostHog skills via the MCP `skill-*` tools —
   how to discover, read, create, update, and refactor skills efficiently, especially
   large skills with many bundled files. Use whenever you are about to call any
-  `llma-skill-*` tool, asked to author or edit a shared skill, or troubleshoot
+  `skill-*` tool, asked to author or edit a shared skill, or troubleshoot
   why a skill write was rejected. Pairs with `skills-store` (which covers the
   raw tool surface) by adding the decision-tree, efficiency, and pitfall guidance.
 ---
 
 # Working with PostHog skills
 
-This skill teaches agents how to use the `llma-skill-*` MCP tools well — minimum
+This skill teaches agents how to use the `skill-*` MCP tools well — minimum
 context, minimum round-trips, minimum mistakes. If you are not yet familiar with
 the tool surface itself, read the `skills-store` skill first for the catalog.
 This document is about _how to choose between the tools_ and _how to scale the
@@ -27,7 +27,7 @@ workflow_ when skills get big.
    or `file_edits` is cheaper, safer, and clearer in version history than a
    full body or full bundle replacement.
 3. **Reads are cheap; concurrent overwrites are not.** Always have a recent
-   `version` from `llma-skill-get` (or from the response of the previous write)
+   `version` from `skill-get` (or from the response of the previous write)
    before calling any write tool, and pass it as `base_version`.
 4. **Authoring follows the [Agent Skills spec](https://agentskills.io/specification).**
    Keep `name` kebab-case, descriptions trigger-rich, body short, bulky
@@ -37,14 +37,14 @@ workflow_ when skills get big.
 
 ```text
 Need to know what's available?
-  └─► llma-skill-list                    (names + descriptions only)
+  └─► skill-list                    (names + descriptions only)
 
 Need to use / inspect a specific skill?
-  └─► llma-skill-get                     (body + file manifest, NO file contents)
-        └─► llma-skill-file-get          (one file, on demand, only as referenced)
+  └─► skill-get                     (body + file manifest, NO file contents)
+        └─► skill-file-get          (one file, on demand, only as referenced)
 
 Authoring a brand new skill?
-  └─► llma-skill-create                  (body + all initial files in one call)
+  └─► skill-create                  (body + all initial files in one call)
 
 Editing an existing skill?
   ├─ Body change?
@@ -53,16 +53,16 @@ Editing an existing skill?
   ├─ Bundled file content change?
   │    └─ update(file_edits=[{path, edits:[...]}, ...])
   ├─ Add / remove / rename a file?
-  │    ├─ Add ............................. llma-skill-file-create
-  │    ├─ Delete .......................... llma-skill-file-delete
-  │    └─ Rename .......................... llma-skill-file-rename
+  │    ├─ Add ............................. skill-file-create
+  │    ├─ Delete .......................... skill-file-delete
+  │    └─ Rename .......................... skill-file-rename
   └─ Wholesale bundle reset (rare!) ....... update(files=[...])  # replaces ALL files
 
 Want a fork as the starting point?
-  └─► llma-skill-duplicate               (then update the copy)
+  └─► skill-duplicate               (then update the copy)
 
 Done with a skill entirely?
-  └─► llma-skill-archive                 (hides ALL versions; cannot be undone)
+  └─► skill-archive                 (hides ALL versions; cannot be undone)
 ```
 
 If you find yourself reaching for `update(body=...)` plus a sprawling `files=[...]`
@@ -73,16 +73,16 @@ to change one paragraph and one script, stop — that's two narrower calls
 ## Discover before you fetch
 
 ```json
-posthog:llma-skill-list
+posthog:skill-list
 { "search": "fractal" }
 ```
 
-`llma-skill-list` is the right tool to "find a skill" — it returns names and
+`skill-list` is the right tool to "find a skill" — it returns names and
 descriptions only. Reading the descriptions is the entire point: pick the right
 skill before pulling any body. If `search` doesn't narrow it enough, list
 without it and scan, but do not start fetching candidate bodies blindly.
 
-`llma-skill-get` should be called **once per skill per task**, not per question.
+`skill-get` should be called **once per skill per task**, not per question.
 Cache the body in your working memory; fetch again only if you suspect the
 skill changed under you (e.g. a `409` on write — see "Concurrency" below).
 
@@ -91,12 +91,12 @@ skill changed under you (e.g. a `409` on write — see "Concurrency" below).
 Big skills (long body, many bundled files) are the case where lazy loading
 matters most.
 
-1. `llma-skill-get(skill_name=...)` — read `body` + `files[]` manifest.
+1. `skill-get(skill_name=...)` — read `body` + `files[]` manifest.
 2. Scan the body's table of contents / headings. The body should already tell
    you which file goes with which task — that's why bodies stay short and
    reference files by path.
 3. For each file the body explicitly points at for _the current task_, call
-   `llma-skill-file-get(file_path=...)`. Skip everything else.
+   `skill-file-get(file_path=...)`. Skip everything else.
 4. If the body references "see scripts/X for the rare case Y" and you are not
    in case Y, do not fetch `scripts/X`.
 
@@ -104,13 +104,13 @@ When in doubt, fewer files. You can always fetch one more on the next turn.
 
 ## Authoring a new skill
 
-Use a single `llma-skill-create` call with body **and** initial files — the
+Use a single `skill-create` call with body **and** initial files — the
 skill lands at `version: 1` complete. Do not create the skill empty and then
-make N follow-up `llma-skill-file-create` calls; that's N extra versions and N
+make N follow-up `skill-file-create` calls; that's N extra versions and N
 extra round-trips for no benefit.
 
 ```json
-posthog:llma-skill-create
+posthog:skill-create
 {
   "name": "my-skill",
   "description": "What it does AND when to use it. Include trigger keywords.",
@@ -129,7 +129,7 @@ posthog:llma-skill-create
 ### Authoring rules of thumb
 
 - **`description` is the discovery surface.** It is the only thing
-  `llma-skill-list` returns. Make it trigger-rich (what the user might say) and
+  `skill-list` returns. Make it trigger-rich (what the user might say) and
   scope-honest (what the skill does and does not do).
 - **`name`** — kebab-case, max 64 chars, no leading/trailing/consecutive
   hyphens. The spec validator rejects anything else.
@@ -153,7 +153,7 @@ incomplete. Use the smallest primitive instead.
 ### Always read first, capture `version`
 
 ```json
-posthog:llma-skill-get
+posthog:skill-get
 { "skill_name": "my-skill" }
 ```
 
@@ -166,7 +166,7 @@ with that.
 Full replacement when you are restructuring the body:
 
 ```json
-posthog:llma-skill-update
+posthog:skill-update
 { "skill_name": "my-skill", "body": "# my-skill\n\nNew body...", "base_version": 7 }
 ```
 
@@ -174,7 +174,7 @@ Incremental edits when you are tweaking a few lines (preferred for small
 changes — easier to review, lower error surface):
 
 ```json
-posthog:llma-skill-update
+posthog:skill-update
 {
   "skill_name": "my-skill",
   "edits": [
@@ -195,7 +195,7 @@ carry forward unchanged. This is the right primitive when you are tweaking
 script logic or fixing a typo in a reference doc:
 
 ```json
-posthog:llma-skill-update
+posthog:skill-update
 {
   "skill_name": "my-skill",
   "file_edits": [
@@ -218,11 +218,11 @@ existing ones. For structural changes, use the per-file tools.
 ### Combining edits in a single call
 
 You can combine `edits` (body) and `file_edits` (existing files) in one
-`llma-skill-update` call to publish a single coherent version when a change
+`skill-update` call to publish a single coherent version when a change
 spans both:
 
 ```json
-posthog:llma-skill-update
+posthog:skill-update
 {
   "skill_name": "my-skill",
   "edits": [{ "old": "## Configuration", "new": "## Setup" }],
@@ -239,11 +239,11 @@ The same concept — a bundled file's path — is named differently depending on
 **where it travels in the request**, and this trips up agents working from
 memory. There is one rule:
 
-- **`file_path`** — when the path is part of the **URL** (`llma-skill-file-get`,
-  `llma-skill-file-delete`). These read/delete one file addressed by its path.
-- **`path`** — when the path is a **body field**: `llma-skill-file-create`, the
+- **`file_path`** — when the path is part of the **URL** (`skill-file-get`,
+  `skill-file-delete`). These read/delete one file addressed by its path.
+- **`path`** — when the path is a **body field**: `skill-file-create`, the
   `files=[{path, content, content_type}]` array, and `file_edits=[{path, edits}]`.
-- **`old_path` / `new_path`** — body fields on `llma-skill-file-rename`.
+- **`old_path` / `new_path`** — body fields on `skill-file-rename`.
 
 Mnemonic: `path` is the field name on a file _object_ (it sits next to
 `content`), so everything that carries a file object uses `path`; the two
@@ -256,27 +256,27 @@ tool's input schema rather than guessing — passing `path` to file-get yields a
 Each is its own call, each publishes a new version:
 
 ```json
-posthog:llma-skill-file-create
+posthog:skill-file-create
 { "skill_name": "my-skill", "path": "scripts/julia.py", "content": "...", "base_version": 7 }
 ```
 
 ```json
-posthog:llma-skill-file-delete
+posthog:skill-file-delete
 { "skill_name": "my-skill", "file_path": "scripts/old.py", "base_version": 8 }
 ```
 
 ```json
-posthog:llma-skill-file-rename
+posthog:skill-file-rename
 { "skill_name": "my-skill", "old_path": "scripts/julia.py", "new_path": "scripts/julia_set.py", "base_version": 9 }
 ```
 
-`llma-skill-file-rename` is a true move — it carries the existing content
+`skill-file-rename` is a true move — it carries the existing content
 forward without resending it. Always prefer it over delete + create when the
 content is unchanged.
 
 ### When to use `update(files=[...])` (rare)
 
-Passing `files` to `llma-skill-update` **replaces the entire bundle** —
+Passing `files` to `skill-update` **replaces the entire bundle** —
 anything not in the array is dropped. This is the right tool only when you are
 intentionally wiping and reseeding the bundle (e.g. importing a fresh local
 SKILL.md tree). For almost every other case, prefer `file_edits` plus per-file
@@ -286,13 +286,13 @@ CRUD.
 
 Skills with many files (10+) require extra discipline:
 
-- **Treat the manifest as the index.** `llma-skill-get`'s `files[]` is your map.
+- **Treat the manifest as the index.** `skill-get`'s `files[]` is your map.
   Match each task step to one file and fetch only that one.
 - **Group structural changes into a sequence, not a fork.** If you are renaming
   three files, do them sequentially: `rename → rename → rename`, each chained
   via the previous response's `version`. That gives you three small reviewable
   versions instead of one giant `update(files=[...])` blob.
-- **Keep edits localised.** A single `llma-skill-update` with `file_edits`
+- **Keep edits localised.** A single `skill-update` with `file_edits`
   targeting five files is fine. A single `update(files=[...])` carrying ten
   full file bodies is almost always a sign you should have used `file_edits`.
 - **Refactor the body itself first.** If the body has grown past ~500 lines,
@@ -306,7 +306,7 @@ Every write tool accepts `base_version`. Always pass it.
 - The server compares `base_version` to the current latest version. If they
   match, the write succeeds and the new version is `base_version + 1`.
 - If they differ, the write is rejected (someone else updated the skill).
-  Re-run `llma-skill-get`, reconcile your changes against the new body, and
+  Re-run `skill-get`, reconcile your changes against the new body, and
   retry with the fresh `version`.
 - After a successful write, the response includes the new `version`. Chain
   further edits with that — do not re-`get` between back-to-back writes you
@@ -317,15 +317,15 @@ Skipping `base_version` does _not_ speed things up — it just turns a clean
 
 ## Common pitfalls
 
-- **Calling `llma-skill-list` with no search and then fetching every body** —
+- **Calling `skill-list` with no search and then fetching every body** —
   defeats progressive disclosure. Read the descriptions first.
-- **Pre-fetching every bundled file after `llma-skill-get`** — same mistake on
+- **Pre-fetching every bundled file after `skill-get`** — same mistake on
   the inner level. Fetch on demand from the body's directives.
 - **Using `update(body=..., files=[...])` for a one-line fix** — round-trips
   the entire skill, makes diffs unreadable, and risks dropping files. Use
   `edits` / `file_edits`.
 - **Using `update(files=[...])` when you meant to add one file** — drops every
-  file you didn't include. Use `llma-skill-file-create` instead.
+  file you didn't include. Use `skill-file-create` instead.
 - **Delete + create instead of rename** — loses content history and costs an
   extra version bump.
 - **Stale `base_version` after chained writes** — read the `version` from the
@@ -333,7 +333,7 @@ Skipping `base_version` does _not_ speed things up — it just turns a clean
 - **Leaving `base_version` off** — accepts a silent overwrite. Always include
   it once you've done a `get`.
 - **Empty / vague `description`** — the skill becomes effectively undiscoverable
-  via `llma-skill-list` search. Treat the description as the trigger contract.
+  via `skill-list` search. Treat the description as the trigger contract.
 - **Long body + no bundled files** — when a body crosses ~500 lines, refactor
   into `references/` and `scripts/` rather than letting it grow.
 - **Mixing `body` and `edits` in one update call** — they're mutually exclusive.
@@ -345,18 +345,18 @@ Skipping `base_version` does _not_ speed things up — it just turns a clean
 
 ## Archiving a skill
 
-`llma-skill-archive` hides **every** active version of a skill by name. It is
+`skill-archive` hides **every** active version of a skill by name. It is
 not version-scoped and **cannot be undone** — the skill drops out of
-`llma-skill-list` and `llma-skill-get` for the whole team.
+`skill-list` and `skill-get` for the whole team.
 
 ```json
-posthog:llma-skill-archive
+posthog:skill-archive
 { "skill_name": "my-skill" }
 ```
 
-Before archiving, `llma-skill-get` the skill if you need to inspect or copy it
+Before archiving, `skill-get` the skill if you need to inspect or copy it
 first. Archiving is the right tool for retiring a skill entirely; to remove a
-single bundled file use `llma-skill-file-delete`, and to roll back content
+single bundled file use `skill-file-delete`, and to roll back content
 publish a new version rather than archiving.
 
 ## Porting a local SKILL.md tree into PostHog
@@ -369,11 +369,11 @@ When migrating a local skill folder (e.g. `my-skill/SKILL.md` plus
    frontmatter becomes `body`.
 2. Walk the bundled subdirs and gather every file as
    `{ path, content, content_type }`.
-3. Call `posthog:llma-skill-create` once with everything — the skill lands at
+3. Call `posthog:skill-create` once with everything — the skill lands at
    `version: 1` complete. Do not split this into a create + N file-create
    calls.
 
-After the create, the skill is live for everyone via `llma-skill-get`.
+After the create, the skill is live for everyone via `skill-get`.
 
 ## When a skill is the wrong answer
 

@@ -7,7 +7,7 @@ import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 

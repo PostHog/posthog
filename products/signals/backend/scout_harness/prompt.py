@@ -215,7 +215,7 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
     that lands during the run is exactly what we want the agent to see.
 
     The skill body and file manifest are NOT inlined. The agent reads them at
-    run time via `llma-skill-get` / `llma-skill-file-get` over the PostHog MCP
+    run time via `skill-get` / `skill-file-get` over the PostHog MCP
     — the bootstrap step makes that the first move. `LoadedSkill` is still
     passed in so the harness can pin the version the agent should request.
     """
@@ -236,14 +236,14 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
 
 Your bound skill is the brain of this run. Before doing anything else, call:
 
-    llma-skill-get(skill_name="{skill.name}", version={skill.version})
+    skill-get(skill_name="{skill.name}", version={skill.version})
 
 Pin to v{skill.version} explicitly — the run row, your tool resolution, and
 your budget were all snapshotted against that version. Fetching by name alone
 would race against any new version published mid-run.
 
 The body tells you what to investigate, in what order, with what hypotheses.
-Pull files on demand with `llma-skill-file-get` only when the body references
+Pull files on demand with `skill-file-get` only when the body references
 them. Don't start investigating before you've read it.
 
 # Then: orient on this project

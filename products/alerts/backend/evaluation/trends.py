@@ -28,11 +28,10 @@ from products.alerts.backend.evaluation.contract import (
     ExtractionResult,
     SeriesPoint,
     lookback_intervals_for,
+    zero_sentinel_series,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
-
-EMPTY_RESULT_LABEL = "empty result"
 
 
 class TrendsExtractor:
@@ -48,7 +47,9 @@ class TrendsExtractor:
     normalize. Relative conditions are invalid for non-time-series insights and raise.
     """
 
-    def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
+    def extract(
+        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+    ) -> ExtractionResult:
         query = TrendsQuery.model_validate(query)
         if not (alert.config and "type" in alert.config and alert.config["type"] == "TrendsAlertConfig"):
             raise ValueError(f"Unsupported alert config type: {alert.config}")
@@ -66,10 +67,6 @@ class TrendsExtractor:
         check_current_interval = bool(config.check_ongoing_interval)
         lookback_intervals = lookback_intervals_for(condition)
         interval_type = None if is_non_time_series else query.interval
-
-        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        if query.interval == IntervalType.HOUR:
-            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 
         match condition.type:
             case AlertConditionType.ABSOLUTE_VALUE:
@@ -132,7 +129,9 @@ class TrendsExtractor:
             insight,
             team=alert.team,
             execution_mode=execution_mode,
-            user=None,
+            # Scheduled alert check (no request user); attribute the read to the alert owner so
+            # warehouse HogQL access control resolves against their access.
+            user=alert.created_by,
             filters_override=filters_override,
             analytics_props={"source": EventSource.ALERT},
         )
@@ -146,21 +145,12 @@ class TrendsExtractor:
     ) -> ExtractionResult | None:
         """A ``None`` result means the query layer swallowed an error — raise to avoid a misfire.
         An empty result means no data, treated as a 0 value compared against the threshold (this
-        can fire a breach, e.g. a lower-bound alert).
-
-        Two zero points (not one) so relative conditions compute 0 - 0 = 0 rather than skipping
-        for lack of a previous point; absolute reads the same 0 at the anchor."""
+        can fire a breach, e.g. a lower-bound alert)."""
         if calculation_result.result is None:
             raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
         if not calculation_result.result:
-            sentinel = ComparableSeries(
-                label=EMPTY_RESULT_LABEL,
-                points=[SeriesPoint(date=None, value=0.0), SeriesPoint(date=None, value=0.0)],
-                current_index=1,
-                is_current_interval=False,
-            )
             return ExtractionResult(
-                series=[sentinel],
+                series=[zero_sentinel_series()],
                 is_breakdown=has_breakdown,
                 interval_type=interval_type,
                 empty_query_result=True,

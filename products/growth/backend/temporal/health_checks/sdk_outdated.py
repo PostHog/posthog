@@ -8,7 +8,14 @@ from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.redis import get_client
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
+from posthog.temporal.health_checks.framework import (
+    _SEVERITY_WEIGHT,
+    AlertContent,
+    HealthCheck,
+    Remediation,
+    SignalContent,
+    build_signal_extra,
+)
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -136,6 +143,23 @@ class SdkOutdatedCheck(HealthCheck):
             title=f"{sdk_name} SDK is outdated",
             summary=summary,
             link="/health/sdk-health",
+        )
+
+    @classmethod
+    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        sdk_name = issue.payload.get("sdk_name", "An SDK")
+        # `reason` is the assessment's allowlist-safe source of truth (see render_alert) — safe to
+        # forward verbatim. It names the in-use and target versions driving the issue.
+        reason = issue.payload.get("reason") or f"{sdk_name} is behind the latest release."
+        title = f"{sdk_name} SDK is outdated"
+        return SignalContent(
+            description=(
+                f"The {sdk_name} SDK is outdated for this project. {reason} "
+                "Outdated SDKs miss bug fixes, performance improvements, and new features, and may "
+                "carry known issues. Recommend upgrading to the latest version."
+            ),
+            weight=_SEVERITY_WEIGHT[issue.severity],
+            extra=build_signal_extra(issue, title=title, summary=reason, link="/health/sdk-health"),
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:

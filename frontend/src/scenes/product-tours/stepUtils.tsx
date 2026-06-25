@@ -2,7 +2,7 @@ import { JSONContent } from '@tiptap/core'
 
 import { IconMessage, IconQuestion } from '@posthog/icons'
 
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import {
     PRODUCT_TOUR_STEP_WIDTHS,

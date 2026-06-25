@@ -36,6 +36,13 @@ export const ToolConfigSchema = z
          * Example: "Time series, aggregations, formulas, comparisons"
          */
         system_prompt_hint: z.string().optional(),
+        /**
+         * Brief work-protocol guidance appended to the tool's *response* as `_agentNote`,
+         * so the agent sees it at point of use instead of it growing the always-loaded tool
+         * description. Keep it to a sentence or two and defer details to the referenced
+         * tools' own descriptions.
+         */
+        agent_note: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
         /**
@@ -65,6 +72,14 @@ export const ToolConfigSchema = z
                          */
                         optional: z.boolean().optional(),
                         /**
+                         * When true, strip the optionality the Orval body schema applies
+                         * to PATCH fields, so the param is required in the tool schema.
+                         * Use when the backend serializer requires the field even though
+                         * the endpoint is a PATCH (drf-spectacular marks every PATCH body
+                         * field optional). Mutually exclusive with `optional`.
+                         */
+                        required: z.boolean().optional(),
+                        /**
                          * State manager key to resolve the param from when omitted.
                          * Supported keys: 'orgId' (→ getOrgID()), 'projectId' (→ getProjectId()).
                          */
@@ -90,6 +105,9 @@ export const ToolConfigSchema = z
                     })
                     .refine((data) => !(data.optional && !data.fallback), {
                         message: 'optional requires a fallback key to resolve the value from state',
+                    })
+                    .refine((data) => !(data.optional && data.required), {
+                        message: 'optional and required are mutually exclusive',
                     })
                     .refine((data) => !(data.cast && (data.input_schema || data.schema_ref)), {
                         message:
@@ -488,6 +506,14 @@ export const CategoryConfigSchema = z
         category: z.string(),
         feature: z.string().regex(FEATURE_NAME_PATTERN, 'Feature must be lowercase snake_case: [a-z0-9_]'),
         url_prefix: z.string(),
+        /**
+         * Category-level feature flag gate, inherited by every tool that doesn't
+         * set its own `feature_flag`. Use to hide a whole not-yet-GA product
+         * from the standard MCP surface in one place. See ToolConfigSchema.feature_flag.
+         */
+        feature_flag: z.string().optional(),
+        feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        feature_flag_variant: z.string().optional(),
         tools: z.record(
             z
                 .string()

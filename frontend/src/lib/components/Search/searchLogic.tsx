@@ -6,8 +6,8 @@ import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
+import { toSentenceCase } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { urls } from 'scenes/urls'
@@ -352,7 +352,7 @@ export const searchLogic = kea<searchLogicType>([
                     )
             },
         ],
-        appsItems: [
+        toolsItems: [
             (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
             (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
@@ -373,7 +373,7 @@ export const searchLogic = kea<searchLogicType>([
                     id: `app-${product.path}`,
                     name: product.path,
                     displayName: product.displayLabel ?? product.path,
-                    category: 'apps',
+                    category: 'tools',
                     productCategory: product.category || null,
                     href: product.href || '#',
                     itemType: product.iconType || product.type || null,
@@ -389,7 +389,7 @@ export const searchLogic = kea<searchLogicType>([
                     id: 'app-activity',
                     name: 'Activity',
                     displayName: 'Activity',
-                    category: 'apps',
+                    category: 'tools',
                     productCategory: null,
                     href: urls.activity(ActivityTab.ExploreEvents),
                     icon: <IconClock />,
@@ -880,7 +880,7 @@ export const searchLogic = kea<searchLogicType>([
                 recentsHasLoaded,
                 starredLoading: !shortcutDataHasLoaded,
                 starredHasLoaded: shortcutDataHasLoaded,
-                isAppsLoading: !sceneLogViewsHasLoaded,
+                isToolsLoading: !sceneLogViewsHasLoaded,
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
                 playlistSearchResultsLoading,
@@ -890,7 +890,7 @@ export const searchLogic = kea<searchLogicType>([
             (s) => [
                 s.recentItems,
                 s.starredItems,
-                s.appsItems,
+                s.toolsItems,
                 s.dataManagementItems,
                 s.peopleItems,
                 s.healthItems,
@@ -907,7 +907,7 @@ export const searchLogic = kea<searchLogicType>([
             (
                 recentItems: SearchItem[],
                 starredItems: SearchItem[],
-                appsItems: SearchItem[],
+                toolsItems: SearchItem[],
                 dataManagementItems: SearchItem[],
                 peopleItems: SearchItem[],
                 healthItems: SearchItem[],
@@ -924,7 +924,7 @@ export const searchLogic = kea<searchLogicType>([
                     recentsHasLoaded: boolean
                     starredLoading: boolean
                     starredHasLoaded: boolean
-                    isAppsLoading: boolean
+                    isToolsLoading: boolean
                     personSearchResultsLoading: boolean
                     groupSearchResultsLoading: boolean
                     playlistSearchResultsLoading: boolean
@@ -937,7 +937,7 @@ export const searchLogic = kea<searchLogicType>([
                     recentsHasLoaded,
                     starredLoading,
                     starredHasLoaded,
-                    isAppsLoading,
+                    isToolsLoading,
                     personSearchResultsLoading,
                     groupSearchResultsLoading,
                     playlistSearchResultsLoading,
@@ -969,16 +969,16 @@ export const searchLogic = kea<searchLogicType>([
                     isLoading: isStarredLoading,
                 })
 
-                // Filter apps and data management by search
-                const filteredApps = filterBySearch(appsItems)
+                // Filter tools and data management by search
+                const filteredTools = filterBySearch(toolsItems)
                 const filteredDataManagement = filterBySearch(dataManagementItems)
 
-                // Show apps if not searching or has matching results
-                if (!hasSearch || filteredApps.length > 0) {
+                // Show tools if not searching or has matching results
+                if (!hasSearch || filteredTools.length > 0) {
                     categories.push({
-                        key: 'apps',
-                        items: isAppsLoading ? [] : filteredApps,
-                        isLoading: isAppsLoading,
+                        key: 'tools',
+                        items: isToolsLoading ? [] : filteredTools,
+                        isLoading: isToolsLoading,
                     })
                 }
 
@@ -986,8 +986,8 @@ export const searchLogic = kea<searchLogicType>([
                 if (!hasSearch || filteredDataManagement.length > 0) {
                     categories.push({
                         key: 'data-management',
-                        items: isAppsLoading ? [] : filteredDataManagement,
-                        isLoading: isAppsLoading,
+                        items: isToolsLoading ? [] : filteredDataManagement,
+                        isLoading: isToolsLoading,
                     })
                 }
 

@@ -1,0 +1,112 @@
+name: Agent Proxy Container Image CD
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - 'services/agent-proxy/**'
+            - '.github/workflows/cd-agent-proxy-image.yml'
+    workflow_dispatch:
+
+jobs:
+    build:
+        name: Build and push container image
+        if: |
+            github.repository == 'PostHog/posthog' && (
+                github.event_name == 'push' ||
+                github.event_name == 'workflow_dispatch'
+            )
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 30
+        permissions:
+            contents: read
+            packages: write
+            id-token: write
+
+        outputs:
+            sha: ${{ steps.push.outputs.digest }}
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
+
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
+              with:
+                  image-name: posthog-agent-proxy
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  push-to-dockerhub: 'false'
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Build and push container image
+              id: push
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  project: ${{ vars.AGENT_PROXY_DEPOT_PROJECT_ID }}
+                  file: ./services/agent-proxy/Dockerfile
+                  buildx-fallback: false
+                  push: ${{ github.ref == 'refs/heads/master' }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: COMMIT_HASH=${{ github.sha }}
+
+    deploy:
+        name: Trigger agent-proxy deployment
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        needs: build
+        if: github.ref == 'refs/heads/master'
+        permissions: {}
+
+        steps:
+            - name: Get deployer token
+              id: deployer
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: Get PR labels
+              id: labels
+              uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+              with:
+                  script: |
+                      const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        commit_sha: context.sha,
+                      });
+                      const labels = pulls.flatMap(pr => pr.labels.map(l => l.name));
+                      return JSON.stringify([...new Set(labels)]);
+
+            - name: Trigger agent-proxy deployment
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ needs.build.outputs.sha }}"
+                          }
+                        },
+                        "release": "agent-proxy",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.result }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }

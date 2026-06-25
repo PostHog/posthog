@@ -852,9 +852,12 @@ class ActivityLogTestHelper(APILicensedTest):
 
         # Mock the Stripe validation to avoid needing real credentials
         with (
-            patch("posthog.temporal.data_imports.sources.stripe.stripe.validate_credentials", return_value=True),
             patch(
-                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.validate_credentials",
+                return_value=True,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
                 return_value=(True, None),
             ),
             patch("products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"),

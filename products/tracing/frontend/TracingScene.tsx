@@ -56,6 +56,8 @@ function TracingSceneContents(): JSX.Element {
         totalSpansMatchingFilters,
         openTraceSpans,
         isLoadingFullTrace,
+        canLoadMoreTraceSpans,
+        traceSpansLoadingMore,
         aggregation,
         aggregationLoading,
         filters,
@@ -81,6 +83,7 @@ function TracingSceneContents(): JSX.Element {
         openCompareFlame,
         closeCompareFlame,
         fetchNextPage,
+        loadMoreTraceSpans,
         setVisibleRowRange,
         toggleExpandSpan,
         setSort,
@@ -171,14 +174,12 @@ function TracingSceneContents(): JSX.Element {
                     </div>
                 )}
                 {compareMode ? (
-                    <div className="flex flex-col flex-1 min-h-0 overflow-auto">
-                        <TraceCompareTable
-                            current={aggregation.current}
-                            previous={aggregation.previous}
-                            loading={aggregationLoading}
-                            onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
-                        />
-                    </div>
+                    <TraceCompareTable
+                        current={aggregation.current}
+                        previous={aggregation.previous}
+                        loading={aggregationLoading}
+                        onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
+                    />
                 ) : (
                     <VirtualizedSpanList
                         dataSource={rootSpans}
@@ -221,6 +222,9 @@ function TracingSceneContents(): JSX.Element {
                 ts={selectedTraceTs}
                 spans={openTraceSpans}
                 loading={isLoadingFullTrace}
+                hasMoreSpans={canLoadMoreTraceSpans}
+                loadingMoreSpans={traceSpansLoadingMore}
+                onLoadMoreSpans={loadMoreTraceSpans}
                 selectedSpanId={selectedSpanId}
                 onSelectSpan={selectSpan}
                 onClose={closeTrace}

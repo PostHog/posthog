@@ -17,6 +17,7 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
+import { SelfLoopGuardMode } from './services/self-loop-guard'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
 // CdpConfig intersects ClickhouseConfig so any consumer reading
@@ -49,11 +50,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
-    // Controls which teams route email sends to the dedicated email queue.
-    // Supports team IDs, percentage rollout, or both.
-    // Examples: '' (disabled), '123,456' (specific teams), '*:0.1' (10% of traffic),
-    //           '123,*:0.05' (team 123 + 5% of rest), '*' (all traffic)
-    CDP_EMAIL_QUEUE_ROUTING: string
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
@@ -85,11 +81,27 @@ export type CdpConfig = ClickhouseConfig & {
     // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
     CDP_VALKEY_TLS: boolean
 
+    SES_RATE_LIMITER_VALKEY_HOST: string
+    SES_RATE_LIMITER_VALKEY_PORT: number
+    SES_RATE_LIMITER_VALKEY_PASSWORD: string
+    SES_RATE_LIMITER_VALKEY_TLS: boolean
+
+    CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
+    CDP_SES_RATE_LIMIT_CAPACITY: number
+    CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
+
+    // When true, the email worker dequeues ordered by `dequeue_seq` (per-team
+    // round-robin) instead of FIFO. `dequeue_seq` is always assigned at insert
+    // (cheap), so flipping this on/off is purely a worker-side decision —
+    // rollback is a single env-var change with no SQL revert needed.
+    CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: boolean
+
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
+    CDP_SELF_LOOP_GUARD_MODE: SelfLoopGuardMode
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: CdpProducerName
@@ -168,7 +180,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-        CDP_EMAIL_QUEUE_ROUTING: '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -194,11 +205,26 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_DUAL_ENABLED: false,
         CDP_VALKEY_TLS: false,
 
+        SES_RATE_LIMITER_VALKEY_HOST: '',
+        SES_RATE_LIMITER_VALKEY_PORT: 6379,
+        SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+        SES_RATE_LIMITER_VALKEY_TLS: false,
+
+        CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
+        CDP_SES_RATE_LIMIT_CAPACITY: 50,
+        CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
+
+        CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: false,
+
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
+        // Observe-only by default. Values: 'disabled' | 'warn' | 'enforce'. 'warn' detects
+        // and emits cdp_self_loop_guard_total without blocking; 'enforce' bounds true loops
+        // at SELF_LOOP_MAX_DEPTH hops. Roll out warn -> enforce per environment.
+        CDP_SELF_LOOP_GUARD_MODE: 'warn',
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
