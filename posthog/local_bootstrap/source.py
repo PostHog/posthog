@@ -21,7 +21,7 @@ from posthog.local_bootstrap.config import (
 )
 
 if TYPE_CHECKING:
-    from mypy_boto3_s3 import S3Client
+    from types_boto3_s3 import S3Client
 
 
 def build_s3_client(location: S3Location) -> S3Client:
@@ -90,7 +90,8 @@ def _open_maybe_compressed(path: str, key: str, compression: str | None):
     if key.endswith(".br") or compression == "brotli":
         import brotli  # noqa: PLC0415 — optional dep, only needed for brotli-compressed JSONLines
 
-        data = brotli.decompress(open(path, "rb").read()).decode("utf-8")
+        with open(path, "rb") as compressed:
+            data = brotli.decompress(compressed.read()).decode("utf-8")
         import io  # noqa: PLC0415
 
         return io.StringIO(data)

@@ -19,9 +19,9 @@ from posthog.local_bootstrap.config import SUPPORTED_FILE_FORMATS
 
 def _format_bytes(num: int) -> str:
     size = float(num)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if size < 1024 or unit == "TB":
-            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{int(size)} B" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} TB"
 
