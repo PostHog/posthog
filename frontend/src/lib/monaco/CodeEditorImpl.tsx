@@ -476,6 +476,32 @@ export function CodeEditor({
                 })
             )
         }
+        // Monaco's built-in context-menu "Paste" relies on document.execCommand('paste'),
+        // which browsers block for security, so it silently does nothing (Cmd/Ctrl+V keeps
+        // working because that's a native paste event). Override it to read the clipboard
+        // via the async API instead. No keybinding is set so the native keyboard paste is
+        // left untouched as a fallback if clipboard-read permission is denied.
+        if (navigator.clipboard?.readText) {
+            monacoDisposables.current.push(
+                editor.addAction({
+                    id: 'editor.action.clipboardPasteAction',
+                    label: 'Paste',
+                    contextMenuGroupId: '9_cutcopypaste',
+                    contextMenuOrder: 3,
+                    run: async (ed) => {
+                        try {
+                            const text = await navigator.clipboard.readText()
+                            if (text) {
+                                ed.trigger('keyboard', 'type', { text })
+                            }
+                        } catch {
+                            // clipboard-read unavailable or denied — user can still use Cmd/Ctrl+V
+                        }
+                    },
+                })
+            )
+        }
+
         if (autoFocus) {
             editor.focus()
             const model = editor.getModel()
