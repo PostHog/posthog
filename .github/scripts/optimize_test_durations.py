@@ -530,6 +530,13 @@ def run_average_files(input_files: list[Path], output_file: Path, strategy: str 
         sys.exit(1)
 
     averaged = average_durations(sources, strategy=strategy)
+    # Membership anchors to the first (newest) source, so an empty newest file would
+    # empty the whole result even when older runs carry data. Refuse to write it —
+    # the workflow's `|| echo warning` then leaves file-mode to scope the union.
+    if not averaged:
+        logger.error("Averaged durations are empty (newest run scoped to nothing?) — refusing to write %s", output_file)
+        sys.exit(1)
+
     with open(output_file, "w") as f:
         json.dump(averaged, f, indent=4, sort_keys=True)
         f.write("\n")

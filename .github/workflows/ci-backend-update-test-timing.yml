@@ -81,6 +81,9 @@ jobs:
                   # JUnit de-tax still use the newest run alone (the primary). N stays small so the
                   # extra downloads stay modest.
                   N="${BACKEND_RUNS_TO_AVERAGE:-5}"
+                  # Guard a mis-set variable: a non-integer would make the `-ge` test below error
+                  # out (never breaking the loop) and silently average every candidate run.
+                  [[ "$N" =~ ^[1-9][0-9]*$ ]] || N=5
 
                   # Calculate date 14 days ago in ISO 8601 format
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)

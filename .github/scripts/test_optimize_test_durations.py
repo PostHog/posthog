@@ -13,6 +13,7 @@ from optimize_test_durations import (
     _pick_outlier,
     average_durations,
     outlier_merge_durations,
+    run_average_files,
 )
 
 # Minimal valid JUnit XML — one testcase with a CamelCase classname so
@@ -116,6 +117,18 @@ class TestAverageDurations:
         # test_a measured in 2 of 3 runs; average over just those two.
         sources = [{"test_a": 2.0}, {"test_b": 5.0}, {"test_a": 6.0}]
         assert average_durations(sources)["test_a"] == 4.0
+
+    def test_run_average_files_refuses_empty_result(self, tmp_path):
+        # Newest (anchor) run scoped to nothing must not silently wipe the plan,
+        # even when older runs still carry data — refuse to write, don't emit {}.
+        newest = tmp_path / "core_newest"
+        newest.write_text("{}")
+        older = tmp_path / "core_older"
+        older.write_text('{"test_a": 1.0}')
+        out = tmp_path / "out.core"
+        with pytest.raises(SystemExit):
+            run_average_files([newest, older], out)
+        assert not out.exists()
 
 
 class TestJUnitShardSegmentFilter:
