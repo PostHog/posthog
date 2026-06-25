@@ -68,6 +68,8 @@ export const Filled: Story = {
 /** Mid-send: the button spins and submission is blocked. */
 export const Loading: Story = {
     args: { initialValue: 'Send this follow-up', loading: true },
+    // The send button spins indefinitely while loading, which the snapshot runner waits forever to settle.
+    tags: ['test-skip'],
 }
 
 /** A caller-supplied reason disables the input beyond the built-in empty/loading gating. */
