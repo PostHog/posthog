@@ -6,7 +6,7 @@
  * `FOR UPDATE` serialises the shared row; cross-pod single-flight is deferred.
  */
 
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 
 import { EncryptedFields } from './encryption'
 import type { HttpFetcher } from './http-client'
@@ -110,11 +110,15 @@ export class PgMcpConnectionStore implements McpConnectionStore {
     }
 
     /** Refresh under a row lock, write back the rotated token, return it.
-     *  Re-checks expiry after locking (another worker may have refreshed).
-     *  Throws on transient failure; does NOT set `needs_reauth` (reserved for a
-     *  hard refresh-token rejection by the connect flow). */
+     *  Re-checks expiry after locking (another worker may have refreshed). On a
+     *  PERMANENT failure (4xx except 429 — the refresh token/client is rejected)
+     *  flags `needs_reauth` in the SAME transaction so the next session
+     *  short-circuits to "owner must reconnect" instead of re-hitting the IdP on
+     *  every run; a TRANSIENT failure (5xx / 429 / network) rolls back so the
+     *  next session retries. */
     private async refresh(connectionId: string, teamId: number): Promise<string> {
         const client = await this.pool.connect()
+        let committed = false
         try {
             await client.query('BEGIN')
             const { rows } = await client.query<InstallationRow>(`${SELECT_INSTALLATION} FOR UPDATE OF i`, [
@@ -130,6 +134,7 @@ export class PgMcpConnectionStore implements McpConnectionStore {
             // Another worker may have refreshed while we waited for the lock.
             if (current && !isTokenExpiring(sensitive)) {
                 await client.query('COMMIT')
+                committed = true
                 return current
             }
             const refreshToken = asNonEmptyString(sensitive.refresh_token)
@@ -137,9 +142,30 @@ export class PgMcpConnectionStore implements McpConnectionStore {
                 throw new Error(`mcp_connection_refresh_failed: ${connectionId} (no refresh token)`)
             }
             const ctx = this.resolveOauthContext(row, sensitive)
-            const token = await this.tokenRefreshRequest(ctx, refreshToken)
 
-            // Preserve non-token leaves (dcr_client_id/secret, needs_reauth, …).
+            let token: TokenResponse
+            try {
+                token = await this.tokenRefreshRequest(ctx, refreshToken)
+            } catch (err) {
+                // A permanent rejection (revoked/invalid refresh token) fails the
+                // same way on every future session — flag `needs_reauth` so
+                // `resolve()` short-circuits next time instead of burning a
+                // token-endpoint call each run. Transient failures fall through to
+                // the outer catch → rollback → retry on the next session.
+                if (err instanceof TokenRefreshHttpError && err.permanent) {
+                    await this.writeSensitive(client, connectionId, { ...sensitive, needs_reauth: true })
+                    await client.query('COMMIT')
+                    committed = true
+                    this.log.warn(
+                        { connection_id: connectionId, status: err.status },
+                        'mcp_connection.refresh_rejected_needs_reauth'
+                    )
+                    throw new Error(`mcp_connection_needs_reauth: ${connectionId} (refresh rejected: ${err.status})`)
+                }
+                throw err
+            }
+
+            // Preserve non-token leaves (dcr_client_id/secret, …).
             const updated: Record<string, unknown> = { ...sensitive }
             updated.access_token = token.access_token
             updated.token_retrieved_at = String(Math.floor(Date.now() / 1000))
@@ -147,20 +173,19 @@ export class PgMcpConnectionStore implements McpConnectionStore {
             if (token.expires_in !== undefined) {
                 updated.expires_in = String(token.expires_in)
             }
-            const encrypted = this.encryption.encryptJsonFieldValue(updated)
-            await client.query(
-                'UPDATE mcp_store_mcpserverinstallation SET sensitive_configuration = $1::jsonb, updated_at = NOW() WHERE id = $2',
-                [JSON.stringify(encrypted), connectionId]
-            )
+            await this.writeSensitive(client, connectionId, updated)
             await client.query('COMMIT')
+            committed = true
             this.log.info({ connection_id: connectionId }, 'mcp_connection.token_refreshed')
             return token.access_token
         } catch (err) {
-            try {
-                await client.query('ROLLBACK')
-            } catch {
-                // Original error wins; a rollback failure on a broken connection
-                // is not separately actionable.
+            if (!committed) {
+                try {
+                    await client.query('ROLLBACK')
+                } catch {
+                    // Original error wins; a rollback failure on a broken
+                    // connection is not separately actionable.
+                }
             }
             if (err instanceof Error && err.message.startsWith('mcp_connection_')) {
                 throw err
@@ -171,6 +196,20 @@ export class PgMcpConnectionStore implements McpConnectionStore {
         } finally {
             client.release()
         }
+    }
+
+    /** Re-encrypt + write the full `sensitive_configuration` jsonb (per-leaf
+     *  Fernet) within the caller's transaction. */
+    private async writeSensitive(
+        client: PoolClient,
+        connectionId: string,
+        sensitive: Record<string, unknown>
+    ): Promise<void> {
+        const encrypted = this.encryption.encryptJsonFieldValue(sensitive)
+        await client.query(
+            'UPDATE mcp_store_mcpserverinstallation SET sensitive_configuration = $1::jsonb, updated_at = NOW() WHERE id = $2',
+            [JSON.stringify(encrypted), connectionId]
+        )
     }
 
     /** Decrypt a jsonb `EncryptedJSONField` column into a plain object (string
@@ -229,13 +268,33 @@ export class PgMcpConnectionStore implements McpConnectionStore {
         })
         if (!res.ok) {
             const text = await res.text().catch(() => '')
-            throw new Error(`token_http_${res.status}: ${text.slice(0, 200)}`)
+            throw new TokenRefreshHttpError(res.status, text)
         }
         const json = (await res.json()) as TokenResponse
         if (!json.access_token) {
             throw new Error('token_no_access_token')
         }
         return json
+    }
+}
+
+/**
+ * Non-2xx from the upstream OAuth token endpoint. `permanent` marks a 4xx
+ * (except 429) — the refresh token/client is rejected and retrying won't help,
+ * so the caller flags `needs_reauth`. 5xx / 429 are transient (retry next
+ * session).
+ */
+class TokenRefreshHttpError extends Error {
+    constructor(
+        readonly status: number,
+        bodyText: string
+    ) {
+        super(`token_http_${status}: ${bodyText.slice(0, 200)}`)
+        this.name = 'TokenRefreshHttpError'
+    }
+
+    get permanent(): boolean {
+        return this.status >= 400 && this.status < 500 && this.status !== 429
     }
 }
 

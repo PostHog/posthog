@@ -177,10 +177,23 @@ describe('PgMcpConnectionStore', () => {
         await expect(store.resolve('c', 1)).resolves.toEqual({ kind: 'not_found' })
     })
 
-    it('throws mcp_connection_refresh_failed on a token-endpoint error', async () => {
-        const { pool } = makeFakePool(oauthRow({ expiring: true }))
+    it('flags needs_reauth (and stops retrying) on a permanent 4xx refresh rejection', async () => {
+        const { pool, writes } = makeFakePool(oauthRow({ expiring: true }))
         const http = makeFakeHttp(fakeResponse({ ok: false, status: 400, text: 'invalid_grant' }))
         const store = new PgMcpConnectionStore(pool, enc, http)
+        await expect(store.resolve('c', 1)).rejects.toThrow(/mcp_connection_needs_reauth/)
+        // Wrote needs_reauth back so the next resolve short-circuits instead of
+        // re-hitting the token endpoint every session.
+        expect(writes).toHaveLength(1)
+        const written = enc.decryptJsonFieldValue(JSON.parse(writes[0].values[0] as string)) as Record<string, unknown>
+        expect(written.needs_reauth).toBe('True')
+    })
+
+    it('throws a transient refresh failure without flagging needs_reauth on a 5xx', async () => {
+        const { pool, writes } = makeFakePool(oauthRow({ expiring: true }))
+        const http = makeFakeHttp(fakeResponse({ ok: false, status: 503, text: 'upstream down' }))
+        const store = new PgMcpConnectionStore(pool, enc, http)
         await expect(store.resolve('c', 1)).rejects.toThrow(/mcp_connection_refresh_failed/)
+        expect(writes).toHaveLength(0)
     })
 })
