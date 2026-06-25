@@ -121,7 +121,7 @@ async function seedPosthogApp(
         created_by_id: null,
         bundle_uri: 's3://x/',
         spec: AgentSpecSchema.parse({
-            model: 'x',
+            model: 'test/x',
             triggers: [
                 {
                     type: 'chat',
