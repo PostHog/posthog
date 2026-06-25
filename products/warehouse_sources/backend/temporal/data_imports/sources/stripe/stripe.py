@@ -82,15 +82,15 @@ def _is_truncated_stripe_list_response(body: Any) -> bool:
     Scoped to list responses — every bulk read we make is an idempotent ``.list()`` call — so the
     retry never re-issues a non-idempotent webhook write, whose responses are single objects.
     """
-    if isinstance(body, bytes):
-        stripped = body.strip()
-        head = stripped[:64]
-        return stripped.startswith(b"{") and b'"object"' in head and b'"list"' in head and not stripped.endswith(b"}")
     if isinstance(body, str):
-        stripped = body.strip()
-        head = stripped[:64]
-        return stripped.startswith("{") and '"object"' in head and '"list"' in head and not stripped.endswith("}")
-    return False
+        raw: bytes = body.encode("utf-8", "ignore")
+    elif isinstance(body, bytes):
+        raw = body
+    else:
+        return False
+    stripped = raw.strip()
+    head = stripped[:64]
+    return stripped.startswith(b"{") and b'"object"' in head and b'"list"' in head and not stripped.endswith(b"}")
 
 
 class _RateLimitRetryingRequestsClient(RequestsClient):
