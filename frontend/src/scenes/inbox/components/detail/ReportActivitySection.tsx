@@ -29,6 +29,8 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
         <RightColumnSection
             icon={<IconClockRewind />}
             title="Activity"
+            collapsible
+            defaultCollapsed
             rightSlot={
                 <span className="text-[0.6875rem] text-tertiary tabular-nums">
                     {reportArtefacts.length} {reportArtefacts.length === 1 ? 'entry' : 'entries'}

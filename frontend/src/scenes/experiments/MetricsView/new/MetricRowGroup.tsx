@@ -1,5 +1,6 @@
 import './MetricRowGroup.scss'
 
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -9,6 +10,7 @@ import { IconTrending } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
@@ -27,9 +29,15 @@ import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLo
 import { isLaunched } from '~/scenes/experiments/experimentsLogic'
 import { useColumnWidthSync } from '~/scenes/experiments/MetricsView/hooks/useColumnWidthSync'
 import { ChartEmptyState } from '~/scenes/experiments/MetricsView/shared/ChartEmptyState'
+import { SkeletonResultCells } from '~/scenes/experiments/MetricsView/shared/ChartLoadingSkeleton'
 import { ChartLoadingState } from '~/scenes/experiments/MetricsView/shared/ChartLoadingState'
 import { useChartColors } from '~/scenes/experiments/MetricsView/shared/colors'
 import { MetricHeader } from '~/scenes/experiments/MetricsView/shared/MetricHeader'
+import {
+    FIXED_HEIGHT_STYLE,
+    getMinHeightStyle,
+    getScaledHeightStyle,
+} from '~/scenes/experiments/MetricsView/shared/rowHeights'
 import {
     type ExperimentVariantResult,
     formatChanceToWinForGoal,
@@ -61,22 +69,6 @@ import { GridLines } from './GridLines'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
 import { TimeseriesModal } from './TimeseriesModal'
 import { useAxisScale } from './useAxisScale'
-
-const FIXED_HEIGHT_STYLE: React.CSSProperties = {
-    height: `${CELL_HEIGHT}px`,
-    maxHeight: `${CELL_HEIGHT}px`,
-}
-
-const getScaledHeightStyle = (rowCount: number): React.CSSProperties => {
-    const scaledHeight = `${CELL_HEIGHT * rowCount}px`
-
-    return {
-        height: scaledHeight,
-        maxHeight: scaledHeight,
-    }
-}
-
-const getMinHeightStyle = (height: number): React.CSSProperties => ({ minHeight: `${height}px` })
 
 interface BreakdownErrorStateProps {
     metric: ExperimentMetric
@@ -597,6 +589,7 @@ export function MetricRowGroup({
 
     const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric, refreshExperimentResults } =
         useActions(experimentLogic)
+    const { variants } = useValues(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isRecalculating } = useValues(experimentMetricsLogic({ experiment }))
     const { triggerRecalculation } = useActions(experimentMetricsLogic({ experiment }))
@@ -720,9 +713,76 @@ export function MetricRowGroup({
         })
     }
 
-    if (isLoading || error || !result) {
-        const hasError = !!error
-        const noResultHeight = hasError ? CELL_HEIGHT : Math.max(CELL_HEIGHT, EMPTY_STATE_ROW_MIN_HEIGHT)
+    // Skeleton-with-variants while results compute: keeps the final row layout so data fills in place
+    if (!error && (isLoading || exposuresLoading)) {
+        const skeletonVariantKeys = variants.length > 0 ? variants.map((variant) => variant.key) : ['control']
+        const bg = isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+
+        return (
+            <>
+                <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={FIXED_HEIGHT_STYLE}>
+                    {/* Metric column: real header spanning every variant row, stays interactive while loading */}
+                    <td
+                        className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
+                            !isLastMetric ? 'border-b' : ''
+                        } ${bg}`}
+                        rowSpan={skeletonVariantKeys.length}
+                        style={getScaledHeightStyle(skeletonVariantKeys.length)}
+                    >
+                        <MetricHeader
+                            displayOrder={displayOrder}
+                            metric={metric}
+                            metricType={metricType}
+                            isPrimaryMetric={!isSecondary}
+                            experiment={experiment}
+                            onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                            onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
+                            onBreakdownChange={onBreakdownChange}
+                        />
+                    </td>
+
+                    <SkeletonResultCells
+                        variantKey={skeletonVariantKeys[0]}
+                        className={clsx(bg, skeletonVariantKeys.length === 1 && 'border-b')}
+                        detailsCell={
+                            <td
+                                className={clsx(
+                                    'w-20 pt-3 align-top relative overflow-hidden',
+                                    !isLastMetric && 'border-b',
+                                    bg
+                                )}
+                                rowSpan={skeletonVariantKeys.length}
+                                style={getScaledHeightStyle(skeletonVariantKeys.length)}
+                            >
+                                {/* Reserve the Details button's footprint so the chart column doesn't shift when results land */}
+                                {showDetailsModal && (
+                                    <div className="flex justify-end">
+                                        <LemonSkeleton className="h-6 w-[74px]" />
+                                    </div>
+                                )}
+                            </td>
+                        }
+                    />
+                </tr>
+
+                {skeletonVariantKeys.slice(1).map((variantKey, index) => (
+                    <tr
+                        key={variantKey}
+                        className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
+                        style={FIXED_HEIGHT_STYLE}
+                    >
+                        <SkeletonResultCells
+                            variantKey={variantKey}
+                            className={clsx(bg, index === skeletonVariantKeys.length - 2 && 'border-b')}
+                        />
+                    </tr>
+                ))}
+            </>
+        )
+    }
+
+    if (error || !result) {
+        const noResultHeight = error ? CELL_HEIGHT : Math.max(CELL_HEIGHT, EMPTY_STATE_ROW_MIN_HEIGHT)
         const noResultStateStyle = getMinHeightStyle(noResultHeight)
 
         return (
@@ -747,7 +807,7 @@ export function MetricRowGroup({
                         />
                     </td>
 
-                    {/* Combined columns for loading/error state */}
+                    {/* Combined columns for error/empty state */}
                     <td
                         colSpan={6}
                         className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
@@ -755,18 +815,14 @@ export function MetricRowGroup({
                         }`}
                         style={noResultStateStyle}
                     >
-                        {!hasError && (isLoading || exposuresLoading) ? (
-                            <ChartLoadingState height={noResultHeight} />
-                        ) : (
-                            <ChartEmptyState
-                                height={noResultHeight}
-                                experimentStarted={isLaunched(experiment)}
-                                metric={metric}
-                                error={error}
-                                query={debugQuery}
-                                onRetry={handleRetry}
-                            />
-                        )}
+                        <ChartEmptyState
+                            height={noResultHeight}
+                            experimentStarted={isLaunched(experiment)}
+                            metric={metric}
+                            error={error}
+                            query={debugQuery}
+                            onRetry={handleRetry}
+                        />
                     </td>
                 </tr>
                 {metric.breakdownFilter?.breakdowns && metric.breakdownFilter.breakdowns.length > 0 && (

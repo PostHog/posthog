@@ -40,12 +40,12 @@ import { SidePanelTab } from '~/types'
 import { SidePanelQuestionIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelQuestionIcon'
 import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
 
-import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
-import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
-import { keyBinds } from '../AppShortcuts/shortcuts'
-import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { ThemeMenu } from '../Menus/ThemeMenu'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
+import { shortcutLogic } from '../Shortcuts/shortcutLogic'
+import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
+import { keyBinds } from '../Shortcuts/shortcuts'
+import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { healthSummaryLogic } from './healthSummaryLogic'
 import { helpMenuLogic } from './helpMenuLogic'
 import { posthogStatusLogic } from './posthogStatusLogic'
@@ -55,7 +55,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { isHelpMenuOpen, triggerBadgeContent, triggerBadgeStatus } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { toggleZenMode } = useActions(navigation3000Logic)
-    const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+    const { setShortcutMenuOpen } = useActions(shortcutLogic)
     const { user } = useValues(userLogic)
     const { isCloudOrDev, preflight } = useValues(preflightLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
@@ -363,7 +363,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                     innerClassName="primitive-menu-content-inner p-1 "
                                                 >
                                                     <Menu.Item
-                                                        onClick={() => setAppShortcutMenuOpen(true)}
+                                                        onClick={() => setShortcutMenuOpen(true)}
                                                         render={
                                                             <ButtonPrimitive
                                                                 tooltip="Open shortcut menu"
