@@ -111,9 +111,10 @@ pub fn get_release_for_maps<'a>(
 
     let mut created_release = None;
     if needs_release {
+        let release_args_were_provided = release.name.is_some() || release.version.is_some();
         let mut builder: ReleaseBuilder = release.into();
 
-        add_git_info_to_release_builder(directory, &mut builder)?;
+        add_git_info_to_release_builder(directory, &mut builder, release_args_were_provided)?;
 
         if builder.can_create() {
             created_release = Some(builder.fetch_or_create()?);
@@ -123,12 +124,21 @@ pub fn get_release_for_maps<'a>(
     Ok(created_release)
 }
 
-fn add_git_info_to_release_builder(directory: &Path, builder: &mut ReleaseBuilder) -> Result<()> {
+fn add_git_info_to_release_builder(
+    directory: &Path,
+    builder: &mut ReleaseBuilder,
+    release_args_were_provided: bool,
+) -> Result<()> {
     let needs_git_for_release_fields = !builder.can_create();
 
     match get_git_info(Some(directory.to_path_buf())) {
         Ok(Some(info)) => {
             builder.with_git(info);
+        }
+        Ok(None) if needs_git_for_release_fields && release_args_were_provided => {
+            anyhow::bail!(
+                "Release fields are incomplete and git info is unavailable. Provide both --release-name and --release-version, or run from a git repository or supported CI environment."
+            );
         }
         Ok(None) => {}
         Err(error) if needs_git_for_release_fields => {
@@ -229,7 +239,7 @@ mod tests {
         let temp_root = make_git_repo_without_branch_ref();
         let mut builder: ReleaseBuilder = release_args(Some("my-app"), Some("1.0.0")).into();
 
-        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder);
+        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder, true);
 
         assert!(result.is_ok());
         assert!(builder.can_create());
@@ -242,9 +252,35 @@ mod tests {
         let temp_root = make_git_repo_without_branch_ref();
         let mut builder: ReleaseBuilder = release_args(Some("my-app"), None).into();
 
-        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder)
+        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder, true)
             .expect_err("git failure should remain fatal when release fields are incomplete");
 
         assert!(format!("{error:#}").contains("Failed to determine git info for release"));
+    }
+
+    #[test]
+    fn missing_git_is_not_fatal_for_best_effort_release_creation() {
+        let _env_lock = lock_env();
+        let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
+        let temp_root = tempfile::tempdir().expect("failed to create temporary directory");
+        let mut builder: ReleaseBuilder = release_args(None, None).into();
+
+        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder, false);
+
+        assert!(result.is_ok());
+        assert!(!builder.can_create());
+    }
+
+    #[test]
+    fn missing_git_is_fatal_when_release_args_are_incomplete() {
+        let _env_lock = lock_env();
+        let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
+        let temp_root = tempfile::tempdir().expect("failed to create temporary directory");
+        let mut builder: ReleaseBuilder = release_args(Some("my-app"), None).into();
+
+        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder, true)
+            .expect_err("missing git should be fatal when release args are incomplete");
+
+        assert!(format!("{error:#}").contains("Release fields are incomplete"));
     }
 }
