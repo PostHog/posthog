@@ -311,6 +311,7 @@ from .leexi.source import LeexiSource
 from .lemlist.source import LemlistSource
 from .less_annoying_crm.source import LessAnnoyingCRMSource
 from .lever.source import LeverSource
+from .liana.source import LianaSource
 from .lightfield.source import LightfieldSource
 from .lightspeed_retail.source import LightspeedRetailSource
 from .linear.source import LinearSource

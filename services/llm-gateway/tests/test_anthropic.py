@@ -1,7 +1,7 @@
 import asyncio
 import os
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -502,6 +502,115 @@ class TestAnthropicMessagesEndpoint:
         assert "provider" not in call_kwargs
         assert "use_bedrock_fallback" not in call_kwargs
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_cloudflare_provider_routes_to_cloudflare(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+
+        with patch(
+            "llm_gateway.api.anthropic.make_cloudflare_anthropic_call",
+        ) as mock_make_call:
+            mock_llm_call = AsyncMock(return_value=mock_response)
+            mock_make_call.return_value = mock_llm_call
+
+            with patch(
+                "llm_gateway.api.anthropic.ensure_cloudflare_configured",
+                return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
+            ):
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/moonshotai/kimi-k2.6",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                )
+
+            assert response.status_code == 200
+            mock_make_call.assert_called_once()
+            mock_anthropic.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_cloudflare_provider_streams_through_cloudflare(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        """Exercises the streaming branch of the Cloudflare Anthropic route end to end:
+        the routed llm_call returns an async iterator of Anthropic-shaped events,
+        format_sse_stream forwards them, and the gateway emits SSE chunks to the client.
+        """
+
+        async def fake_stream():
+            yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+            yield b'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"text":"hi"}}\n\n'
+            yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+        with patch(
+            "llm_gateway.api.anthropic.make_cloudflare_anthropic_call",
+        ) as mock_make_call:
+            mock_make_call.return_value = AsyncMock(return_value=fake_stream())
+
+            with patch(
+                "llm_gateway.api.anthropic.ensure_cloudflare_configured",
+                return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
+            ):
+                with authenticated_client.stream(
+                    "POST",
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/moonshotai/kimi-k2.6",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                        "stream": True,
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                ) as response:
+                    assert response.status_code == 200
+                    body = "".join(response.iter_text())
+
+            assert "message_start" in body
+            assert "content_block_delta" in body
+            assert "message_stop" in body
+            mock_make_call.assert_called_once()
+            mock_anthropic.assert_not_called()
+
+    def test_cloudflare_provider_rejects_unpriced_model(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        with patch("llm_gateway.api.anthropic.ensure_cloudflare_configured") as mock_ensure_configured:
+            with patch("llm_gateway.api.anthropic.make_cloudflare_anthropic_call") as mock_make_call:
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/meta/llama-3.3-70b-instruct",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "@cf/meta/llama-3.3-70b-instruct" in response.json()["error"]["message"]
+        # Rejection must happen before we hand the model off to CF, otherwise the
+        # gateway eats the real CF bill while billing the user $0.01 fallback.
+        mock_ensure_configured.assert_not_called()
+        mock_make_call.assert_not_called()
+
     def test_invalid_provider_header_returns_400(
         self,
         authenticated_client: TestClient,
@@ -515,7 +624,7 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
-        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+        assert "Expected one of: anthropic, bedrock, cloudflare" in response.json()["error"]["message"]
 
     def test_invalid_fallback_header_returns_400(
         self,
@@ -1037,7 +1146,43 @@ class TestAnthropicCountTokensEndpoint:
 
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
-        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+        assert "Expected one of: anthropic, bedrock, cloudflare" in response.json()["error"]["message"]
+
+    def test_cloudflare_provider_approximates_count(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={
+                "model": "@cf/moonshotai/kimi-k2.6",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "cloudflare"},
+        )
+
+        assert response.status_code == 200
+        # Don't lock the exact value — litellm's tokenizer is the source of truth.
+        # Just assert it's a positive integer so the Claude Agent SDK gets a usable budget.
+        assert isinstance(response.json()["input_tokens"], int)
+        assert response.json()["input_tokens"] > 0
+
+    def test_cloudflare_provider_rejects_unpriced_model(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={
+                "model": "@cf/meta/llama-3.3-70b-instruct",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "cloudflare"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "@cf/meta/llama-3.3-70b-instruct" in response.json()["error"]["message"]
 
     def test_invalid_fallback_header_returns_400(
         self,
@@ -1358,7 +1503,7 @@ class TestAnthropicCircuitBreakerIntegration:
         wrapped = _wrap_stream_with_breaker(StreamingResponse(ok_iter()), breaker)
 
         async def consume() -> list[bytes]:
-            return [chunk async for chunk in wrapped.body_iterator]
+            return cast(list[bytes], [chunk async for chunk in wrapped.body_iterator])
 
         chunks = asyncio.run(consume())
         assert len(chunks) == 2
