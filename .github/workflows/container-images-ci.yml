@@ -9,7 +9,9 @@ on:
     merge_group:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # Unrelated label events (e.g. stamphog) get their own group so they don't
+    # cancel a legitimate in-progress run.
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'hobby-preview' && '-noop' || '' }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

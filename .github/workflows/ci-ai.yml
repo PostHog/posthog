@@ -4,7 +4,9 @@ on:
         types: [opened, synchronize, reopened, labeled, unlabeled]
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # Unrelated label events (e.g. stamphog) get their own group so they don't
+    # cancel a legitimate in-progress run.
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'evals-ready' && '-noop' || '' }}
     cancel-in-progress: true # We only want one AI CI run per PR concurrently
 
 env:

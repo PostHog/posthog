@@ -29,7 +29,9 @@ on:
             - '.github/rust-images.yml'
 
 concurrency:
-    group: rust-smoke-test-${{ github.event.pull_request.number || github.run_id }}
+    # Unrelated label events get their own group so they don't cancel a
+    # legitimate in-progress smoke test run.
+    group: rust-smoke-test-${{ github.event.pull_request.number || github.run_id }}${{ github.event.action == 'labeled' && !startsWith(github.event.label.name, 'smoke_test') && '-noop' || '' }}
     cancel-in-progress: true
 
 jobs:

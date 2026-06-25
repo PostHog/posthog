@@ -25,7 +25,9 @@ on:
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    # Unrelated label events (e.g. stamphog) get their own group so they don't
+    # cancel a legitimate in-progress run.
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'run-ci-backend' && '-noop' || '' }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -2682,7 +2684,12 @@ jobs:
         name: Django Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        # always() so we report even on upstream failures, but skip for unrelated
+        # label events to avoid producing a false-green required check.
+        if: >-
+            always()
+            && (github.event.action != 'labeled' && github.event.action != 'unlabeled'
+                || github.event.label.name == 'run-ci-backend')
         steps:
             - name: Summarize dependency results
               run: |
