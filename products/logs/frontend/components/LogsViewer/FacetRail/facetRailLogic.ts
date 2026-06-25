@@ -35,6 +35,8 @@ export const facetRailLogic = kea<facetRailLogicType>([
         // Free-text filter over the facet *fields* shown in the rail (not their values). URL-synced by
         // logsSceneLogic on the main scene, so deliberately not persisted here.
         setFacetNameSearch: (search: string) => ({ search }),
+        // Whether the "Add facet" picker is revealed below the search box.
+        setPickerOpen: (open: boolean) => ({ open }),
     }),
 
     reducers({
@@ -42,6 +44,12 @@ export const facetRailLogic = kea<facetRailLogicType>([
             '',
             {
                 setFacetNameSearch: (_, { search }) => search,
+            },
+        ],
+        pickerOpen: [
+            false,
+            {
+                setPickerOpen: (_, { open }) => open,
             },
         ],
         collapsedFacets: [

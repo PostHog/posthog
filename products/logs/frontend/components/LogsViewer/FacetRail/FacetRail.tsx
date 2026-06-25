@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef } from 'react'
 
-import { LemonInput } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -9,10 +10,19 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
+import { AddFacetCombobox } from './AddFacetCombobox'
+import { customFacetsLogic } from './customFacetsLogic'
 import { Facet, FacetOption } from './Facet'
 import { facetCountsLogic } from './facetCountsLogic'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetConfig, FacetFilterKey, facetsByGroup, filterFacetsByName, resourceAttributeValues } from './facets'
+import {
+    FacetConfig,
+    FacetFilterKey,
+    facetsByGroup,
+    filterFacetsByName,
+    resourceAttributeKey,
+    resourceAttributeValues,
+} from './facets'
 
 const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
@@ -26,10 +36,15 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
     const { setFacetRailCollapsed } = useActions(logsViewerConfigLogic)
     const { severityLevels, serviceNames, filterGroup } = useValues(logsViewerFiltersLogic)
-    const { facetValues, loadingFacetKeys, facetSearch, visibleFacets } = useValues(facetCountsLogic({ id }))
+    const { facetValues, loadingFacetKeys, facetSearch, visibleFacets, addableResourceKeys } = useValues(
+        facetCountsLogic({ id })
+    )
     const { setFacetSearch } = useActions(facetCountsLogic({ id }))
-    const { collapsedFacets, facetNameSearch } = useValues(facetRailLogic({ id }))
-    const { toggleFacetValue, toggleFacetCollapsed, setFacetNameSearch } = useActions(facetRailLogic({ id }))
+    const { collapsedFacets, facetNameSearch, pickerOpen } = useValues(facetRailLogic({ id }))
+    const { toggleFacetValue, toggleFacetCollapsed, setFacetNameSearch, setPickerOpen } = useActions(
+        facetRailLogic({ id })
+    )
+    const { addCustomFacet, removeCustomFacet } = useActions(customFacetsLogic)
 
     const selectedByKey: Record<FacetFilterKey, string[]> = {
         severityLevels: severityLevels ?? [],
@@ -72,6 +87,8 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
         const onToggle = (value: string): void => toggleFacetValue(source, value)
         const onToggleCollapsed = (): void => toggleFacetCollapsed(facet.key)
         const collapsed = collapsedFacets.includes(facet.key)
+        const removeKey = facet.removable ? resourceAttributeKey(facet) : null
+        const onRemove = removeKey ? () => removeCustomFacet(removeKey) : undefined
 
         if (facet.kind === 'fixed') {
             // Fixed value set from config, counts overlaid. Missing values render as a dimmed 0.
@@ -110,6 +127,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                 searchPlaceholder={facet.searchPlaceholder}
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
+                onRemove={onRemove}
                 maxHeight={facet.maxHeight}
             />
         )
@@ -126,7 +144,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
             style={{ width: desiredSize ?? DEFAULT_WIDTH_PX, minWidth: 'min-content', maxWidth: '40%' }}
             data-attr="logs-facet-rail"
         >
-            <div className="px-2 py-1 border-b">
+            <div className="px-2 py-1 border-b flex items-center gap-1">
                 <LemonInput
                     type="search"
                     size="small"
@@ -136,7 +154,24 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                     onChange={setFacetNameSearch}
                     data-attr="logs-facet-rail-search"
                 />
+                <LemonButton
+                    size="small"
+                    icon={<IconPlus />}
+                    onClick={() => setPickerOpen(!pickerOpen)}
+                    active={pickerOpen}
+                    tooltip="Add facet"
+                    data-attr="logs-facet-rail-add-button"
+                />
             </div>
+            {pickerOpen && (
+                <div className="px-2 py-1 border-b">
+                    <AddFacetCombobox
+                        availableKeys={addableResourceKeys}
+                        onAdd={(key) => addCustomFacet(key, 'resource')}
+                        onClose={() => setPickerOpen(false)}
+                    />
+                </div>
+            )}
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
                 {displayedGroups.length === 0 && facetNameSearch.trim() ? (
                     <div className="px-1 text-xs text-muted">No matching facets</div>

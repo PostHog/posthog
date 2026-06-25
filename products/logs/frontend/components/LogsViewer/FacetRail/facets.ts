@@ -8,7 +8,11 @@ import {
 
 import { SEVERITY_BAR_COLORS } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
 
+import type { CustomFacetApi } from '../../../generated/api.schemas'
 import { FacetOption } from './Facet'
+
+/** Group the user's own pinned facets render under, after the curated groups. */
+export const CUSTOM_GROUP = 'Custom'
 
 /**
  * Whether a facet's value set is known ahead of time or discovered from the data.
@@ -54,6 +58,8 @@ export interface FacetConfig {
     emptyLabel?: string
     /** Max pixel height before the value list virtualizes and scrolls. */
     maxHeight?: number
+    /** User-added facets (the "Custom" group) render a remove control; curated facets don't. */
+    removable?: boolean
 }
 
 interface LogResourceAttributeFilter {
@@ -181,6 +187,28 @@ export const FACETS: FacetConfig[] = [
     NODE_FACET,
     HOST_FACET,
 ]
+
+/** The resource-attribute key a facet targets, or null for column facets. */
+export function resourceAttributeKey(facet: FacetConfig): string | null {
+    return facet.source.type === 'resourceAttribute' ? facet.source.key : null
+}
+
+/** Resource-attribute keys already covered by a curated facet — excluded from the Add facet picker. */
+export const CURATED_RESOURCE_KEYS: string[] = FACETS.map(resourceAttributeKey).filter((k): k is string => k !== null)
+
+/**
+ * Turn a stored custom-facet entry into a rail facet. Resource attributes reuse the same builder as
+ * the curated ones (counts + selection already work for that source). Log attributes need the backend
+ * facet_attribute path and are added in a follow-up — null until then.
+ */
+export function entryToFacetConfig(entry: CustomFacetApi): FacetConfig | null {
+    if (entry.attribute_type === 'resource') {
+        // `custom:` namespaces the facet key so a user-added attribute can't collide with a curated
+        // facet's key (e.g. a raw `node` attribute vs the curated Node facet, which is keyed `node`).
+        return { ...resourceAttributeFacet(entry.key, `custom:${entry.key}`, entry.key, CUSTOM_GROUP), removable: true }
+    }
+    return null
+}
 
 /**
  * Filter facets by a free-text query matching the field name or its group (case-insensitive

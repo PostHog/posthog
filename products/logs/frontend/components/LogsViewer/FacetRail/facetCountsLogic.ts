@@ -10,8 +10,9 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 
 import { logsAttributesRetrieve, logsFacetValuesCreate } from '../../../generated/api'
 import { _LogFacetValueApi, _LogPropertyFilterApi, _LogsFacetValuesBodyApi } from '../../../generated/api.schemas'
+import { customFacetsLogic } from './customFacetsLogic'
 import type { facetCountsLogicType } from './facetCountsLogicType'
-import { FACETS, FacetConfig } from './facets'
+import { CURATED_RESOURCE_KEYS, FACETS, FacetConfig, resourceAttributeKey } from './facets'
 
 // Broad, filter-independent window for the "which resource attributes does this tenant emit" probe.
 // Cheap: keys-only group-by on the log_attributes aggregation table (no value scan).
@@ -39,6 +40,8 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
             ['filters', 'utcDateRange', 'queryFilterGroup'],
             teamLogic,
             ['currentTeamId'],
+            customFacetsLogic,
+            ['customFacets'],
         ],
     })),
 
@@ -143,7 +146,7 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                     // typing in one facet's search must not cancel a still-debouncing full reload.
                     loadFacetValuesForKey: async (facetKey: string, breakpoint) => {
                         await breakpoint(300)
-                        const facet = FACETS.find((f) => f.key === facetKey)
+                        const facet = values.visibleFacets.find((f) => f.key === facetKey)
                         const result = facet ? await mergeFetched([facet]) : values.facetValues
                         breakpoint()
                         return result
@@ -172,10 +175,24 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
 
     selectors({
         // Column facets always render; resource-attribute facets only when the tenant emits the key.
+        // The user's custom facets append after the curated set, forming the "Custom" group.
         visibleFacets: [
-            (s) => [s.presentResourceKeys],
-            (presentResourceKeys): FacetConfig[] =>
-                FACETS.filter((f) => f.source.type === 'column' || presentResourceKeys.includes(f.source.key)),
+            (s) => [s.presentResourceKeys, s.customFacets],
+            (presentResourceKeys, customFacets): FacetConfig[] => [
+                ...FACETS.filter((f) => f.source.type === 'column' || presentResourceKeys.includes(f.source.key)),
+                ...customFacets,
+            ],
+        ],
+        // Resource keys the tenant emits that aren't already a facet — the Add facet picker's options.
+        addableResourceKeys: [
+            (s) => [s.presentResourceKeys, s.customFacets],
+            (presentResourceKeys: string[], customFacets: FacetConfig[]): string[] => {
+                const taken = new Set<string>([
+                    ...CURATED_RESOURCE_KEYS,
+                    ...customFacets.map(resourceAttributeKey).filter((k): k is string => k !== null),
+                ])
+                return presentResourceKeys.filter((key) => !taken.has(key))
+            },
         ],
         // Per-facet loading state. A filter-change reload and a per-facet search have independent
         // breakpoints and can overlap, so union both sources — otherwise whichever settles first would
@@ -216,9 +233,23 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                 actions.loadFacetValues(null)
             }
         }
+        // Only newly-added custom facets need counts — removals fetch nothing, and the initial load is
+        // covered by the presence-probe reload. Refetching every facet on each change would re-run a CH
+        // scan per curated facet for no reason.
+        const fetchAddedCustomFacets = (customFacets: FacetConfig[], previous: FacetConfig[]): void => {
+            if (!values.presenceLoaded) {
+                return
+            }
+            const previousKeys = new Set((previous ?? []).map((f) => f.key))
+            const addedKeys = customFacets.filter((f) => !previousKeys.has(f.key)).map((f) => f.key)
+            if (addedKeys.length > 0) {
+                actions.loadFacetValues(addedKeys)
+            }
+        }
         return {
             filters: reloadAll,
             queryFilterGroup: reloadAll,
+            customFacets: fetchAddedCustomFacets,
         }
     }),
 ])
