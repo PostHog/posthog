@@ -5,9 +5,11 @@ from unittest.mock import MagicMock, Mock, patch
 
 from requests import HTTPError
 
-from posthog.temporal.data_imports.sources.vitally.settings import CUSTOM_OBJECT_SCHEMA_PREFIX
-from posthog.temporal.data_imports.sources.vitally.source import VitallySource
-from posthog.temporal.data_imports.sources.vitally.vitally import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.settings import (
+    CUSTOM_OBJECT_SCHEMA_PREFIX,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source import VitallySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally import (
     VitallyPaginator,
     get_custom_object_records_resource,
     get_messages,
@@ -102,7 +104,7 @@ class TestListCustomObjectDefinitions:
             pytest.param([{"results": [], "next": None}], [], 1, id="empty_results"),
         ],
     )
-    @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
     def test_returns_definitions(self, mock_session_factory, pages, expected_defs, expected_call_count):
         session = _make_session([_make_response(page) for page in pages])
         mock_session_factory.return_value = session
@@ -112,7 +114,7 @@ class TestListCustomObjectDefinitions:
         assert defs == expected_defs
         assert session.send.call_count == expected_call_count
 
-    @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
     def test_raises_on_http_error(self, mock_session_factory):
         bad = _make_response({}, status_code=401)
         bad.raise_for_status.side_effect = RuntimeError("401 Unauthorized")
@@ -123,7 +125,7 @@ class TestListCustomObjectDefinitions:
 
 
 class TestGetMessages:
-    @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
     def test_raises_http_error_instead_of_keyerror_when_conversations_request_fails(self, mock_session_factory):
         # A non-2xx conversations list response carries an error body with no "results" key.
         # Previously get_messages indexed json["results"] directly, surfacing a misleading
@@ -135,7 +137,7 @@ class TestGetMessages:
         with pytest.raises(HTTPError, match="401"):
             list(get_messages("secret", "EU", None, None, False, MagicMock()))
 
-    @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
     def test_handles_missing_results_key_without_keyerror(self, mock_session_factory):
         # Defensive: a 200 response that omits "results" must end pagination cleanly, not KeyError.
         mock_session_factory.return_value = _make_session([_make_response({"next": None})])
@@ -169,8 +171,10 @@ class TestGetCustomObjectRecordsResource:
 
 
 class TestVitallySourceCustomObjectRouting:
-    @patch("posthog.temporal.data_imports.sources.vitally.vitally.rest_api_resource")
-    @patch("posthog.temporal.data_imports.sources.vitally.vitally.list_custom_object_definitions")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.rest_api_resource")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.list_custom_object_definitions"
+    )
     def test_resolves_machine_name_to_custom_object_id(self, mock_list, mock_rest_api):
         mock_list.return_value = [FEATURE_REQUEST_DEFINITION, OPPORTUNITY_DEFINITION]
         mock_rest_api.return_value = iter([{"id": "rec-1"}, {"id": "rec-2"}])
@@ -198,7 +202,9 @@ class TestVitallySourceCustomObjectRouting:
             == "/resources/customObjects/f5dcbbd6-c69d-4402-b00e-7a34a27aded5/instances"
         )
 
-    @patch("posthog.temporal.data_imports.sources.vitally.vitally.list_custom_object_definitions")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.list_custom_object_definitions"
+    )
     def test_raises_for_unknown_custom_object(self, mock_list):
         mock_list.return_value = [OPPORTUNITY_DEFINITION]
 
@@ -226,7 +232,9 @@ class TestVitallySourceGetSchemas:
         config.region.subdomain = None
         return config
 
-    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
+    )
     def test_includes_static_endpoints_and_dynamic_custom_objects(self, mock_list):
         mock_list.return_value = [FEATURE_REQUEST_DEFINITION, OPPORTUNITY_DEFINITION]
 
@@ -245,7 +253,9 @@ class TestVitallySourceGetSchemas:
         assert feature_request.supports_append is True
         assert len(feature_request.incremental_fields) == 1
 
-    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
+    )
     def test_skips_definitions_without_a_name(self, mock_list):
         mock_list.return_value = [{"id": "abc", "name": "", "label": "empty"}, FEATURE_REQUEST_DEFINITION]
 
@@ -255,7 +265,9 @@ class TestVitallySourceGetSchemas:
         assert len(dynamic) == 1
         assert dynamic[0].name == f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest"
 
-    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
+    )
     def test_falls_back_to_machine_name_when_label_missing(self, mock_list):
         mock_list.return_value = [{"id": "abc", "name": "widget"}]
 
@@ -264,7 +276,9 @@ class TestVitallySourceGetSchemas:
         widget = next(s for s in schemas if s.name == f"{CUSTOM_OBJECT_SCHEMA_PREFIX}widget")
         assert widget.label == "widget"
 
-    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
+    )
     def test_names_filter_applies_to_both_static_and_dynamic(self, mock_list):
         mock_list.return_value = [FEATURE_REQUEST_DEFINITION]
 
@@ -276,15 +290,19 @@ class TestVitallySourceGetSchemas:
 
         assert {s.name for s in schemas} == {"Accounts", f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest"}
 
-    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
+    )
     def test_skips_discovery_when_only_static_schemas_requested(self, mock_list):
         schemas = VitallySource().get_schemas(self._make_config(), team_id=1, names=["Accounts", "Conversations"])
 
         mock_list.assert_not_called()
         assert {s.name for s in schemas} == {"Accounts", "Conversations"}
 
-    @patch("posthog.temporal.data_imports.sources.vitally.source.capture_exception")
-    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
+    )
     def test_credential_free_placeholder_config_skips_discovery(self, mock_list, mock_capture):
         # The public documentation catalog calls get_schemas with a placeholder config whose
         # `region` is an empty string, not a VitallyRegionConfig. Discovery must be skipped rather
@@ -299,8 +317,10 @@ class TestVitallySourceGetSchemas:
         assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
         assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
 
-    @patch("posthog.temporal.data_imports.sources.vitally.source.capture_exception")
-    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
+    )
     def test_static_schemas_survive_discovery_failure(self, mock_list, mock_capture):
         mock_list.side_effect = RuntimeError("Vitally API unavailable")
 
@@ -319,8 +339,10 @@ class TestVitallySourceGetSchemas:
             "403 Client Error: Forbidden for url: https://rest.vitally-eu.io/resources/customObjects?limit=100",
         ],
     )
-    @patch("posthog.temporal.data_imports.sources.vitally.source.capture_exception")
-    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
+    )
     def test_credential_errors_do_not_spam_error_tracking(self, mock_list, mock_capture, error_message):
         # A revoked/invalid token surfaces as a 401/403 during custom object discovery. Static
         # endpoints must still survive, and we must not capture the credential error to error tracking.

@@ -12,25 +12,30 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
-from posthog.temporal.data_imports.sources.vitally.settings import (
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+    SourceInputs,
+    SourceResponse,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VitallySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.settings import (
     CUSTOM_OBJECT_SCHEMA_PREFIX,
     ENDPOINTS as VITALLY_ENDPOINTS,
     INCREMENTAL_FIELDS as VITALLY_INCREMENTAL_FIELDS,
     UPDATED_AT_INCREMENTAL_FIELD,
 )
-from posthog.temporal.data_imports.sources.vitally.vitally import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally import (
     list_custom_object_definitions,
     validate_credentials as validate_vitally_credentials,
     vitally_source,
 )
-
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -42,7 +47,9 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
         return ExternalDataSourceType.VITALLY
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from posthog.temporal.data_imports.sources.vitally.canonical_descriptions import CANONICAL_DESCRIPTIONS
+        from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,
+        )
 
         return CANONICAL_DESCRIPTIONS
 
