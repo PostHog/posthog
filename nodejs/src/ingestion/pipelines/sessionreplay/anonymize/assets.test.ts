@@ -13,18 +13,23 @@ describe('anonymize/assets', () => {
         }
     })
 
-    it('replaces a remote src with the placeholder and preserves the URL', () => {
-        const attrs: Record<string, unknown> = { src: 'https://example.com/u/abc.png' }
+    it('replaces a remote src with the placeholder and stashes a host+path-scrubbed original', () => {
+        const attrs: Record<string, unknown> = { src: 'https://cdn.acme.io/users/42/avatar.png?t=secret' }
         applyBlur(ctx, attrs)
         expect(attrs.src).toBe(PLACEHOLDER_SRC)
-        expect('data-original-src' in attrs).toBe(true)
+        const stash = attrs['data-anon-original-src'] as string
+        expect(typeof stash).toBe('string')
+        expect(stash).toContain('example.com') // host rewritten
+        expect(stash).not.toContain('acme') // original host gone
+        expect(stash).not.toContain('42') // path identifier redacted
+        expect(stash).not.toContain('secret') // query dropped
     })
 
     it('replaces a data-image src with the placeholder', () => {
         const attrs: Record<string, unknown> = { src: 'data:image/png;base64,AAAA' }
         applyBlur(ctx, attrs)
         expect(attrs.src).toBe(PLACEHOLDER_SRC)
-        // data-image has no URL to preserve, so no data-original-* is added.
-        expect('data-original-src' in attrs).toBe(false)
+        // data-image has no URL to preserve, so no stash is added.
+        expect('data-anon-original-src' in attrs).toBe(false)
     })
 })

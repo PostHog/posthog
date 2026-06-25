@@ -180,7 +180,7 @@ describe('anonymize/dom', () => {
         const img = event.data.node.childNodes[0]
         expect(typeof img.attributes.src).toBe('string')
         expect((img.attributes.src as string).startsWith('data:image/svg+xml')).toBe(true)
-        expect('data-original-src' in img.attributes).toBe(true)
+        expect('data-anon-original-src' in img.attributes).toBe(true)
     })
 
     it('keeps state-token data-* (so styling survives) but redacts PII-looking values and emails', () => {
@@ -189,7 +189,7 @@ describe('anonymize/dom', () => {
             'data-scheme': 'primary', // ditto
             'data-tooltip': 'Logged in as Smithson', // free text (whitespace) → redacted
             'data-contact': 'jane@example.com', // email → redacted regardless
-            'data-original-src': 'https://example.com/u/abc.png', // our blur stash → left intact
+            'data-anon-original-src': 'https://example.com/[redacted]/[redacted]', // our stash → left intact
         }
         scrubMutation(ctx, { source: 0, attributes: [{ id: 2, attributes: attrs }] })
         expect(attrs['data-state']).toBe('active')
@@ -197,7 +197,7 @@ describe('anonymize/dom', () => {
         expect(attrs['data-tooltip']).not.toContain('Smithson')
         expect(attrs['data-contact']).not.toContain('jane')
         expect(attrs['data-contact']).not.toContain('example.com')
-        expect(attrs['data-original-src']).toBe('https://example.com/u/abc.png')
+        expect(attrs['data-anon-original-src']).toBe('https://example.com/[redacted]/[redacted]')
     })
 
     it('leaves CSS untouched: the inline style attribute and <style> text pass through verbatim', () => {

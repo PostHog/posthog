@@ -212,7 +212,7 @@ function isUserTextAttr(name: string): boolean {
 }
 
 function isDataAttr(name: string): boolean {
-    return name.startsWith('data-') && !name.startsWith('data-original-')
+    return name.startsWith('data-') && !name.startsWith('data-anon-original-')
 }
 
 function dataAttrLooksSensitive(value: string): boolean {
