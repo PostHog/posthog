@@ -420,12 +420,15 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.direct_query_enabled is expected
 
-    @patch("products.data_warehouse.backend.api.external_data_source.report_user_action")
+    @patch("posthog.event_usage.posthoganalytics.capture")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_create_external_data_source_reports_analytics_event(self, _mock_validate, mock_report):
+    def test_create_external_data_source_reports_analytics_event(self, _mock_validate, mock_capture):
+        # report_user_action runs for real (not mocked) and the request carries the MCP marker, so the
+        # test fails if the request stops being forwarded or `source` stops landing — the mcp/ui/api
+        # attribution this PR exists to deliver.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -438,36 +441,38 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                 },
             },
+            HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
         assert response.status_code == 201, response.json()
-        mock_report.assert_called_once()
-        _user, event, properties = mock_report.call_args.args
-        assert event == "data warehouse source created"
-        assert properties["created_via"] == "mcp"
+        events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "data warehouse source created"]
+        assert len(events) == 1
+        properties = events[0].kwargs["properties"]
+        assert properties["source"] == "mcp"  # request-derived transport
+        assert properties["created_via"] == "mcp"  # caller's explicit intent
         assert properties["source_type"] == "Stripe"
-        # request must be forwarded so report_user_action can derive the web/api/mcp source
-        assert mock_report.call_args.kwargs["request"] is not None
-        assert mock_report.call_args.kwargs["team"] == self.team
+        assert properties["source_id"] == str(response.json()["id"])
 
-    @patch("products.data_warehouse.backend.api.external_data_source.report_user_action")
-    def test_patch_external_data_source_reports_analytics_event(self, mock_report):
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_patch_external_data_source_reports_analytics_event(self, mock_capture):
+        # Source originally created via the UI, then edited over MCP: the event must carry both the
+        # edit's transport (source=mcp) and the unchanged original origin (created_via=web).
         source = self._create_external_data_source(created_via=ExternalDataSource.CreatedVia.WEB)
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
             data={"description": "edited"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
         assert response.status_code == 200, response.json()
-        mock_report.assert_called_once()
-        _user, event, properties = mock_report.call_args.args
-        assert event == "data warehouse source updated"
-        assert properties["source_id"] == str(source.pk)
+        events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "data warehouse source updated"]
+        assert len(events) == 1
+        properties = events[0].kwargs["properties"]
+        assert properties["source"] == "mcp"  # who performed the edit
+        assert properties["created_via"] == ExternalDataSource.CreatedVia.WEB  # original origin, preserved
         assert properties["source_type"] == "Stripe"
-        # created_via reflects the original creation origin, not the edit's — it must survive the update event
-        assert properties["created_via"] == ExternalDataSource.CreatedVia.WEB
-        assert mock_report.call_args.kwargs["request"] is not None
+        assert properties["source_id"] == str(source.pk)
 
     def test_patch_external_data_source_toggles_direct_query_enabled(self):
         source = self._create_external_data_source()
