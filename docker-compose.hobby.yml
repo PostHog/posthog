@@ -526,7 +526,7 @@ services:
             - redis7
 
     kafka-init:
-        image: ${DOCKER_REGISTRY_PREFIX:-docker.redpanda.com/}redpandadata/redpanda:v25.1.9
+        image: docker.io/redpandadata/redpanda:v25.1.9
         entrypoint: /bin/sh
         logging: *default-logging
         command:

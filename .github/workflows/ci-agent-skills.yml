@@ -17,7 +17,6 @@ concurrency:
 env:
     DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-    DOCKER_REGISTRY_PREFIX: 'docker.io/'
 
 jobs:
     changes:

@@ -14,9 +14,6 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-    DOCKER_REGISTRY_PREFIX: 'docker.io/'
-
 jobs:
     changes:
         runs-on: ubuntu-latest
