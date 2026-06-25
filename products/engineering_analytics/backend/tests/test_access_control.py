@@ -19,7 +19,7 @@ from unittest import mock
 
 from rest_framework import status
 
-from products.data_warehouse.backend.api.test._access_control_base import WarehouseAccessControlTestMixin
+from products.data_warehouse.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
