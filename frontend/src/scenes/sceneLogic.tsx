@@ -12,6 +12,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { retryImport } from 'lib/utils/retryImport'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import {
@@ -677,7 +678,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 let importedScene
                 try {
                     window.ESBUILD_LOAD_CHUNKS?.(sceneId)
-                    importedScene = await props.scenes[sceneId]()
+                    // Capture the importer in the narrowed scope; the early guard above ensures it's
+                    // defined, but that narrowing wouldn't flow into the retryImport closure.
+                    const importScene = props.scenes[sceneId]
+                    importedScene = await retryImport(() => importScene())
                 } catch (error: any) {
                     if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error

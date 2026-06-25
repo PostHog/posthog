@@ -687,7 +687,7 @@ def clear_dashboard_from_group_type_mapping(
         resp = client.get_group_type_mapping_by_dashboard_id(
             GetGroupTypeMappingByDashboardIdRequest(team_id=team_id, dashboard_id=dashboard_id)
         )
-        if resp.mapping and resp.mapping.group_type_index is not None:
+        if resp.HasField("mapping"):
             client.update_group_type_mapping(
                 UpdateGroupTypeMappingRequest(
                     project_id=resp.mapping.project_id,

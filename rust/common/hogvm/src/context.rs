@@ -18,6 +18,12 @@ pub struct ExecutionContext {
     pub max_stack_depth: usize,
     pub max_heap_size: usize,
     pub max_steps: usize,
+    /// Opt-in comparison semantics. `false` (the default) is the legacy/reference behavior shared by
+    /// every existing consumer (e.g. `cymbal`): ordering ops require numeric operands and `Eq`
+    /// compares temporals structurally. `true` makes ordering coerce across types and order temporals
+    /// by epoch, and `Eq` compare two temporals by epoch — the ClickHouse/Python-TS-aligned semantics
+    /// the realtime-cohort evaluator needs. Set via [`ExecutionContext::with_coercing_comparisons`].
+    pub(crate) coerce_comparisons: bool,
     native_fns: HashMap<String, NativeFunction>,
     symbol_table: HashMap<Symbol, ExportedFunction>, // Flattened symbol table of all imported hog modules
 }
@@ -44,6 +50,7 @@ impl ExecutionContext {
             max_stack_depth,
             max_heap_size,
             max_steps,
+            coerce_comparisons: false,
             native_fns,
             symbol_table: HashMap::new(),
         }
@@ -80,6 +87,14 @@ impl ExecutionContext {
 
     pub fn with_globals(mut self, globals: JsonValue) -> Self {
         self.globals = globals;
+        self
+    }
+
+    /// Opt into coercing comparison semantics (cross-type ordering coercion + epoch ordering/equality
+    /// of temporals). Off by default; only the realtime-cohort evaluator opts in, so existing
+    /// consumers like `cymbal` keep the legacy strict behavior. See [`Self::coerce_comparisons`].
+    pub fn with_coercing_comparisons(mut self) -> Self {
+        self.coerce_comparisons = true;
         self
     }
 

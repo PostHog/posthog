@@ -1868,11 +1868,11 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'sidebar-auto-suggest',
-                title: 'Automatically suggest new apps',
+                title: 'Automatically suggest new tools',
                 description:
-                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new product.",
+                    "When we detect you are using a new tool, we'll automatically add it to your sidebar as a suggestion. We might also suggest tools that are related to the ones you are using when we launch a new one.",
                 component: <SidebarAutoSuggestSetting />,
-                keywords: ['sidebar', 'suggest', 'products', 'apps', 'auto'],
+                keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
             },
             {
                 id: 'mcp-hints',

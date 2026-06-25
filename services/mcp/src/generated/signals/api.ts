@@ -645,7 +645,7 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
 
 /**
- * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 500.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
@@ -658,7 +658,7 @@ export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
 
 export const signalsScoutScratchpadSearchQueryContentMaxCharsMin = 0
 
-export const signalsScoutScratchpadSearchQueryLimitMax = 100
+export const signalsScoutScratchpadSearchQueryLimitMax = 500
 
 export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.object({
     content_max_chars: zod
@@ -667,6 +667,16 @@ export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.objec
         .optional()
         .describe(
             "Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`."
+        ),
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry from the prior page).'
         ),
     keys_only: zod
         .boolean()
@@ -679,7 +689,7 @@ export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.objec
         .min(1)
         .max(signalsScoutScratchpadSearchQueryLimitMax)
         .optional()
-        .describe('Max rows to return (default 20, hard cap 100).'),
+        .describe('Max rows to return (default 20, hard cap 500).'),
     text: zod
         .string()
         .optional()

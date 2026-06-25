@@ -383,8 +383,9 @@ class UserAccessControl:
         Covers both resource-level (resource_id IS NULL) and object-level (resource_id set)
         rows, so all resolvers (object, resource, queryset) share one query instead of N narrow ones.
 
-        Only team-scoped: org-scoped rows (e.g. `plugin` matched via `team__organization_id`)
-        are not in this set, so `_get_access_controls` falls back to a targeted query for those.
+        Only team-scoped: org-scoped lookups (the `project` queryset, matched via
+        `team__organization_id` across the org's teams) are not in this set, so
+        `_get_access_controls` falls back to a targeted query for those.
         """
         if not EE_AVAILABLE or not self._team:
             return []
@@ -435,8 +436,8 @@ class UserAccessControl:
 
     def _can_serve_from_preload(self, filters: dict) -> bool:
         """The preloaded set is `WHERE team_id = self._team.id` (+ the OR-3 precedence), so it
-        can only answer team-scoped lookups. Org-scoped filters (e.g. `plugin` via
-        `team__organization_id`, or the project queryset) must hit the DB directly."""
+        can only answer team-scoped lookups. The org-scoped `project` queryset filter (via
+        `team__organization_id`) must hit the DB directly."""
         return self._team is not None and filters.get("team_id") == self._team.id
 
     def _row_matches(self, ac: _AccessControl, filters: dict) -> bool:
@@ -480,14 +481,6 @@ class UserAccessControl:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
-        # Plugins are a special case because they don't belong to a team, instead they belong to an organization
-        if resource == "plugin":
-            return {
-                "team__organization_id": str(self._organization_id),
-                "resource": resource,
-                "resource_id": resource_id,
-            }
-
         return {"team_id": self._team.id, "resource": resource, "resource_id": resource_id}  # type: ignore
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
