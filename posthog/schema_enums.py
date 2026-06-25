@@ -1814,6 +1814,9 @@ class ExternalDataSourceType(StrEnum):
     SUPERWALL = "Superwall"
     LIANA = "Liana"
     TAWK_TO = "TawkTo"
+    HIGHTOUCH = "Hightouch"
+    LEMON_SQUEEZY = "LemonSqueezy"
+    IKAS = "Ikas"
 
 
 class ExternalQueryErrorCode(StrEnum):

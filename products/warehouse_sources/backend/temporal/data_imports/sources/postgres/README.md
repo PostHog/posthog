@@ -50,4 +50,4 @@ single wrap reads `>= lower OR < upper`; a multi-wrap forces a full re-read.
 ### Feature flag
 
 Gated behind `dwh-postgres-xmin` (organization-scoped). See
-`products/data_warehouse/backend/data_load/service.py:is_xmin_enabled_for_team`.
+`products/data_warehouse/backend/logic/data_load/service.py:is_xmin_enabled_for_team`.

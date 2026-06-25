@@ -134,7 +134,7 @@ export const ExperimentReloadAction = ({
     }))
 
     const loadingText =
-        progress && progress.total > 0 ? `Loading ${progress.completed} of ${progress.total}` : 'Loading…'
+        progress && progress.total > 0 ? `Loaded ${progress.completed} of ${progress.total} metrics` : 'Loading…'
 
     return (
         <div className="flex flex-col">

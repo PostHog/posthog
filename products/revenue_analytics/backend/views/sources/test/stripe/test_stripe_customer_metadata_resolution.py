@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 
 
 def _nullable_columns(basic_types: dict[str, str]) -> dict[str, dict[str, str | bool]]:
-    from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
+    from products.warehouse_sources.backend.facade.hogql import CLICKHOUSE_HOGQL_MAPPING, clean_type
 
     return {
         key: {
