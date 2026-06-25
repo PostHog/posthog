@@ -39,10 +39,16 @@ type Story = StoryObj<{}>
 // giving visual-regression coverage of the emoji display.
 export const Annotations: Story = {}
 
-export const QuillDatePickerAnnotationModal: Story = {
+const openNewAnnotationModal: Story['play'] = async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByText('New annotation'))
+}
+
+export const NewAnnotationModalLemonUIDatePicker: Story = {
+    play: openNewAnnotationModal,
+}
+
+export const NewAnnotationModalQuillDatePicker: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.QUILL_DATE_PICKER] },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('New annotation'))
-    },
+    play: openNewAnnotationModal,
 }
