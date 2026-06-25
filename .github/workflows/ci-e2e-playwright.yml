@@ -268,6 +268,8 @@ jobs:
                   export CLICKHOUSE_SERVER_IMAGE=${{ needs.changes.outputs.oldest_supported }}
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
+                  PID_FILE="${TMPDIR:-/tmp}/ci-initial-compose.pid"
+
                   (
                     max_attempts=3
                     attempt=1
@@ -279,6 +281,7 @@ jobs:
                         if docker compose -f docker-compose.dev.yml down && \
                           docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d; then
                             echo "Stack started successfully"
+                            rm -f "$PID_FILE"
                             exit 0
                         fi
 
@@ -294,8 +297,10 @@ jobs:
                     done
 
                     echo "Failed to start stack after $max_attempts attempts"
+                    rm -f "$PID_FILE"
                     exit 1
                   ) &
+                  echo $! > "$PID_FILE"
 
             - name: Add service hostnames to /etc/hosts
               shell: bash
@@ -426,6 +431,19 @@ jobs:
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Wait for initial Docker Compose to finish
+              shell: bash
+              run: |
+                  PID_FILE="${TMPDIR:-/tmp}/ci-initial-compose.pid"
+                  if [ -f "$PID_FILE" ]; then
+                      bg_pid=$(cat "$PID_FILE")
+                      if kill -0 "$bg_pid" 2>/dev/null; then
+                          echo "Waiting for background compose (pid $bg_pid) to finish..."
+                          while kill -0 "$bg_pid" 2>/dev/null; do sleep 2; done
+                      fi
+                      rm -f "$PID_FILE"
+                  fi
 
             - name: Start Docker services
               env:
