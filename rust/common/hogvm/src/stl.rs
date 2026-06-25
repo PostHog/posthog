@@ -1,7 +1,7 @@
 use core::str;
 use std::collections::HashMap;
 
-use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone};
+use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use indexmap::IndexMap;
 use rand::Rng;
 use serde::de::{MapAccess, SeqAccess, Visitor};
@@ -896,6 +896,62 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 make_hog_datetime(secs, &zone)
             }),
         ),
+        (
+            "toYear",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "toYear")?;
+                Ok(HogLiteral::Number(Num::Integer(extract_utc_field(vm, &args[0], "year", "toYear")?))
+                    .into())
+            }),
+        ),
+        (
+            "toMonth",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "toMonth")?;
+                Ok(
+                    HogLiteral::Number(Num::Integer(extract_utc_field(vm, &args[0], "month", "toMonth")?))
+                        .into(),
+                )
+            }),
+        ),
+        (
+            "toYYYYMM",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "toYYYYMM")?;
+                let y = extract_utc_field(vm, &args[0], "year", "toYYYYMM")?;
+                let m = extract_utc_field(vm, &args[0], "month", "toYYYYMM")?;
+                Ok(HogLiteral::Number(Num::Integer(y * 100 + m)).into())
+            }),
+        ),
+        (
+            "dateTrunc",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "dateTrunc")?;
+                let unit: String = args[0].deref(&vm.heap)?.try_as::<str>()?.to_string();
+                date_trunc_impl(vm, &unit, &args[1])
+            }),
+        ),
+        (
+            "toStartOfDay",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "toStartOfDay")?;
+                date_trunc_impl(vm, "day", &args[0])
+            }),
+        ),
+        (
+            "toStartOfHour",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "toStartOfHour")?;
+                date_trunc_impl(vm, "hour", &args[0])
+            }),
+        ),
+        (
+            "toStartOfMonth",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "toStartOfMonth")?;
+                date_trunc_impl(vm, "month", &args[0])
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -1303,6 +1359,75 @@ fn temporal_seconds(vm: &HogVM, value: &HogValue, name: &str) -> Result<f64, VmE
         .deref(&vm.heap)?
         .as_temporal_seconds(&vm.heap)
         .ok_or_else(|| VmError::NativeCallFailed(format!("{name} expects a Date or DateTime")))
+}
+
+// (epoch seconds, zone string) of a Hog DateTime; zone defaults to UTC (Hog Dates carry no zone).
+fn hog_datetime_parts(vm: &HogVM, value: &HogValue, name: &str) -> Result<(f64, String), VmError> {
+    let lit = value.deref(&vm.heap)?;
+    let secs = lit
+        .as_temporal_seconds(&vm.heap)
+        .ok_or_else(|| VmError::NativeCallFailed(format!("{name} expects a DateTime")))?;
+    let zone = match lit {
+        HogLiteral::Object(map) => match map.get("zone").map(|z| z.deref(&vm.heap)) {
+            Some(Ok(HogLiteral::String(s))) => s.clone(),
+            _ => "UTC".to_string(),
+        },
+        _ => "UTC".to_string(),
+    };
+    Ok((secs, zone))
+}
+
+// The reference reads the UTC wall-clock of `dt` (its localize is a no-op re-label), so year/month
+// are the UTC fields of the instant.
+fn extract_utc_field(vm: &HogVM, value: &HogValue, field: &str, name: &str) -> Result<i64, VmError> {
+    let secs = temporal_seconds(vm, value, name)?;
+    let utc = DateTime::from_timestamp(secs.floor() as i64, 0)
+        .ok_or_else(|| VmError::NativeCallFailed(format!("{name}: timestamp out of range")))?;
+    Ok(match field {
+        "year" => utc.year() as i64,
+        "month" => utc.month() as i64,
+        "day" => utc.day() as i64,
+        "hour" => utc.hour() as i64,
+        "minute" => utc.minute() as i64,
+        "second" => utc.second() as i64,
+        _ => 0,
+    })
+}
+
+// dateTrunc: truncate the UTC wall-clock to the unit, then re-interpret in the value's zone.
+fn date_trunc_impl(vm: &HogVM, unit: &str, value: &HogValue) -> Result<HogValue, VmError> {
+    let (secs, zone) = hog_datetime_parts(vm, value, "dateTrunc")?;
+    let utc = DateTime::from_timestamp(secs.floor() as i64, 0)
+        .ok_or_else(|| VmError::NativeCallFailed("dateTrunc: timestamp out of range".to_string()))?;
+    let n = utc.naive_utc();
+    let truncated = match unit {
+        "year" => NaiveDate::from_ymd_opt(n.year(), 1, 1).and_then(|d| d.and_hms_opt(0, 0, 0)),
+        "month" => {
+            NaiveDate::from_ymd_opt(n.year(), n.month(), 1).and_then(|d| d.and_hms_opt(0, 0, 0))
+        }
+        "day" => n.date().and_hms_opt(0, 0, 0),
+        "hour" => n.date().and_hms_opt(n.hour(), 0, 0),
+        "minute" => n.date().and_hms_opt(n.hour(), n.minute(), 0),
+        _ => {
+            return Err(VmError::NativeCallFailed(format!(
+                "Unsupported unit for dateTrunc: {unit}"
+            )))
+        }
+    }
+    .ok_or_else(|| VmError::NativeCallFailed("dateTrunc: invalid date".to_string()))?;
+
+    let tz: chrono_tz::Tz = zone
+        .parse()
+        .map_err(|_| VmError::NativeCallFailed(format!("dateTrunc: unknown timezone {zone}")))?;
+    let new_secs = match tz.from_local_datetime(&truncated) {
+        LocalResult::Single(dt) | LocalResult::Ambiguous(dt, _) => dt.timestamp() as f64,
+        LocalResult::None => {
+            return Err(VmError::NativeCallFailed(
+                "dateTrunc: local time does not exist".to_string(),
+            ))
+        }
+    };
+    make_hog_datetime(new_secs, &zone)
 }
 
 fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {
