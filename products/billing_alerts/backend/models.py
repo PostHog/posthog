@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from functools import cached_property
+from typing import cast
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -78,11 +79,11 @@ class BillingAlertConfiguration(TeamScopedRootMixin, UUIDModel):
         ]
 
     @property
-    def execution_team_id(self) -> int | None:
-        return self.team_id
+    def execution_team_id(self) -> int:
+        return cast(int, self.team_id)
 
     @execution_team_id.setter
-    def execution_team_id(self, value: int | None) -> None:
+    def execution_team_id(self, value: int) -> None:
         self.team_id = value
 
     def __str__(self) -> str:
