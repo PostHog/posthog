@@ -798,8 +798,10 @@
 .MarkdownNotebook__ai-prompt-form textarea.MarkdownNotebook__ai-prompt-input {
     display: block;
     height: auto;
-    overflow: hidden;
+    overflow-y: auto;
     text-overflow: clip;
+    /* stylelint-disable-next-line property-no-unknown -- Native textarea autosizing in supported browsers. */
+    field-sizing: content;
 }
 
 .MarkdownNotebook__ai-prompt-input:focus {
@@ -2016,6 +2018,14 @@ button.MarkdownNotebook__component-title:focus-visible {
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
+}
+
+.MarkdownNotebook__discussion-comment-input {
+    max-height: calc(1.4em * 6 + 1rem);
+    overflow-y: auto;
+    resize: none;
+    /* stylelint-disable-next-line property-no-unknown -- Native textarea autosizing in supported browsers. */
+    field-sizing: content;
 }
 
 .MarkdownNotebook__discussion-comment-actions {
