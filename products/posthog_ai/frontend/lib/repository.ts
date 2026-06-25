@@ -1,5 +1,4 @@
-import type { RepositoryConfig } from '../components/RepositorySelector'
-import type { Task } from '../types'
+import type { RepositoryConfig, Task } from '../types/taskTypes'
 
 export const getRepositoryConfigForTask = (task: Pick<Task, 'repository' | 'github_integration'>): RepositoryConfig => {
     return {

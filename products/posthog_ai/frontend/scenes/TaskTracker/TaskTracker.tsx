@@ -12,7 +12,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { TaskComposer } from './components/TaskComposer'
 import { TaskDetailPage } from './components/TaskDetailPage'
 import { TasksListColumn } from './components/TasksListColumn'
-import { taskTrackerSceneLogic } from './logics/taskTrackerSceneLogic'
+import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
 export interface TaskTrackerProps {
     /** From the `/tasks/:taskId` route. A UUID selects a task; `new` or absent shows the composer. */

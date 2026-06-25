@@ -9,11 +9,11 @@ import { addProductIntent } from 'lib/utils/product-intents'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
-import { Task, TaskListParams, TaskUpsertProps } from '../types'
+import { Task, TaskListParams, TaskUpsertProps } from '../types/taskTypes'
 import type { tasksLogicType } from './tasksLogicType'
 
 export const tasksLogic = kea<tasksLogicType>([
-    path(['products', 'tasks', 'frontend', 'tasksLogic']),
+    path(['products', 'posthog_ai', 'frontend', 'logics', 'tasksLogic']),
 
     actions({
         openTask: (taskId: Task['id']) => ({ taskId }),

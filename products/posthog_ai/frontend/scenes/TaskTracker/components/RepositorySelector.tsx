@@ -7,11 +7,7 @@ import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelper
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
-export interface RepositoryConfig {
-    integrationId?: number
-    /** `owner/repo` (GitHub `full_name`), same as data warehouse / Cyclotron GitHub pickers */
-    repository?: string
-}
+import type { RepositoryConfig } from '../../../types/taskTypes'
 
 export interface RepositorySelectorProps {
     value: RepositoryConfig

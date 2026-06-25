@@ -1,6 +1,6 @@
 import { type LemonBadgeProps } from '@posthog/lemon-ui'
 
-import { TaskRunStatus } from '../types'
+import { TaskRunStatus } from '../types/taskTypes'
 
 export const TASK_STATUS_CONFIG: Record<
     TaskRunStatus | 'all' | 'not_started',

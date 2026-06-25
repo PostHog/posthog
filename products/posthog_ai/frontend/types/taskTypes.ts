@@ -1,5 +1,11 @@
 import { Optional } from 'lib/utils/types'
 
+export interface RepositoryConfig {
+    integrationId?: number
+    /** `owner/repo` (GitHub `full_name`), same as data warehouse / Cyclotron GitHub pickers */
+    repository?: string
+}
+
 export enum OriginProduct {
     ERROR_TRACKING = 'error_tracking',
     EVAL_CLUSTERS = 'eval_clusters',

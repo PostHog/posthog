@@ -5,9 +5,9 @@ import { ApiError } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
-import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../types'
+import { tasksLogic } from '../../logics/tasksLogic'
+import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskDetailSceneLogic } from './taskDetailSceneLogic'
-import { tasksLogic } from './tasksLogic'
 
 const createMockTask = (id: string): Task => ({
     id,

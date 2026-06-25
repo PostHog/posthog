@@ -11,8 +11,8 @@ import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
-import { tasksLogic } from '../logics/tasksLogic'
-import { Task, TaskRunStatus } from '../types'
+import { tasksLogic } from '../../../logics/tasksLogic'
+import { Task, TaskRunStatus } from '../../../types/taskTypes'
 
 const IN_PROGRESS_STATUSES = new Set<TaskRunStatus>([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])
 

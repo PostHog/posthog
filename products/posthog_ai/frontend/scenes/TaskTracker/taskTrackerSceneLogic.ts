@@ -5,9 +5,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import type { RepositoryConfig } from '../components/RepositorySelector'
-import { OriginProduct, TaskUpsertProps } from '../types'
-import { tasksLogic } from './tasksLogic'
+import { tasksLogic } from '../../logics/tasksLogic'
+import type { RepositoryConfig } from '../../types/taskTypes'
+import { OriginProduct, TaskUpsertProps } from '../../types/taskTypes'
 import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
 
 export type TaskCreateForm = {
@@ -24,7 +24,7 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
 }
 
 export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
-    path(['products', 'tasks', 'frontend', 'taskTrackerSceneLogic']),
+    path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskTrackerSceneLogic']),
 
     connect(() => ({
         values: [tasksLogic, ['tasks', 'repositories']],

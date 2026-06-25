@@ -7,7 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiError } from 'lib/api'
 
 import { phDebugQueryParams } from '../lib/ph-debug'
-import { Task, type TaskUpsertProps } from '../types'
+import { Task, type TaskUpsertProps } from '../types/taskTypes'
 import type { taskLogicType } from './taskLogicType'
 import { tasksLogic } from './tasksLogic'
 
@@ -33,7 +33,7 @@ function loadErrorMessage(error: string, errorObject: unknown): string {
 }
 
 export const taskLogic = kea<taskLogicType>([
-    path(['products', 'tasks', 'taskLogic']),
+    path(['products', 'posthog_ai', 'frontend', 'logics', 'taskLogic']),
     props({} as TaskLogicProps),
     key((props) => props.taskId),
     loaders(({ props, values, actions }) => ({

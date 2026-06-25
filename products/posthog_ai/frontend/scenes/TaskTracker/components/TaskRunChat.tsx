@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { RunViewer, type RunInteractionLogicProps, runInteractionLogic } from 'products/posthog_ai/frontend'
 
-import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
+import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 
 export interface TaskRunChatProps {
     taskId: string
