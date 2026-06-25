@@ -933,9 +933,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             mock_calculate_cohort_ch_si.return_value = MagicMock()
             mock_chain_instance = MagicMock()
-            mock_chain_instance.apply_async.side_effect = AttributeError(
-                "'NoneType' object has no attribute 'client'"
-            )
+            mock_chain_instance.apply_async.side_effect = AttributeError("'NoneType' object has no attribute 'client'")
             mock_chain.return_value = mock_chain_instance
 
             with self.assertRaises(CohortEnqueueError):
