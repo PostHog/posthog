@@ -3,7 +3,7 @@ import sys
 
 import structlog
 
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import assert_debug_not_in_production, get_from_env, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +25,7 @@ TEST = get_from_env(
 # level once the REPL opens, so forcing ERROR would silence its whole session. For
 # `dbshell` there is no Python REPL (it execs the DB client), so nothing to restore.
 IS_INTERACTIVE_SHELL: bool = len(sys.argv) > 1 and sys.argv[1] in ("shell", "dbshell")
+COMMAND_EXEC_AUDIT_ENABLED: bool = get_from_env("COMMAND_EXEC_AUDIT_ENABLED", not TEST, type_cast=str_to_bool)
 STATIC_COLLECTION = get_from_env("STATIC_COLLECTION", False, type_cast=str_to_bool)
 DEMO: bool = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
 CLOUD_DEPLOYMENT: str | None = get_from_env(
@@ -78,3 +79,6 @@ if DEBUG and not TEST and not IS_INTERACTIVE_SHELL:
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
         ]
     )
+
+# Hard stop: DEBUG must never run on a deployed cloud env (US/EU/DEV) — it relaxes auth and exposes debug surfaces.
+assert_debug_not_in_production(debug=DEBUG, cloud_deployment=CLOUD_DEPLOYMENT, test=TEST)

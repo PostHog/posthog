@@ -244,7 +244,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = TaxonomyAgentToolkit(self._team)
+        toolkit = TaxonomyAgentToolkit(self._team, self._user)
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
 

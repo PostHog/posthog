@@ -614,7 +614,7 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             destination_data = {
-                "type": "S3",
+                "type": "AwsS3",
                 "config": {
                     "bucket_name": "my-production-s3-bucket",
                     "region": "us-east-1",
@@ -665,7 +665,7 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             destination_data = {
-                "type": "S3",
+                "type": "AwsS3",
                 "config": {
                     "bucket_name": "my-production-s3-bucket",
                     "region": "us-east-1",
@@ -3196,6 +3196,60 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.timezone, "UTC")
         self.assertEqual(self.team.session_recording_opt_in, False)
 
+    def test_web_analytics_editor_can_write_app_urls_with_access_control(self):
+        # A web analytics editor (org member, no project-admin) must be able to manage the toolbar /
+        # web analytics authorized URLs. `app_urls` carries a web-analytics-editor field access control,
+        # and web analytics defaults to editor, so a plain member passes without any explicit grant.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
+            },
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"app_urls": ["https://app.example.com"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.app_urls, ["https://app.example.com"])
+
+    def test_web_analytics_viewer_cannot_write_app_urls_with_access_control(self):
+        # Restricting web analytics below editor must block managing authorized URLs.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
+            },
+        ]
+        self.organization.save()
+
+        # Default the whole team's web analytics access down to viewer.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="web_analytics",
+            resource_id=None,
+            access_level="viewer",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"app_urls": ["https://app.example.com"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.team.refresh_from_db()
+        self.assertNotIn("https://app.example.com", self.team.app_urls)
+
     def test_team_member_can_write_to_member_safe_team_patch_without_access_control(self):
         # See test_team_member_can_write_to_member_safe_team_config_without_access_control above:
         # member-safe fields stay writable; admin-only fields (timezone) are covered separately.
@@ -3539,10 +3593,12 @@ _MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
     f for f in _MEMBER_SAFE_TEAM_CONFIG_FIELDS if f[0] != "onboarding_tasks"
 ]
 
-# Fields the frontend treats as admin-only that previously lacked a
-# `@field_access_control` annotation on the model. Captured as a regression so
-# anyone removing the decorator (or adding a new admin-UI-gated field without one)
-# gets a failing test pointing at the right place.
+# Sensitive fields the frontend treats as admin-only that aren't part of the regular
+# TEAM_CONFIG flow. Captured as a regression so a MEMBER stays blocked from them when the
+# org has no paid access control. `app_urls` additionally carries a web-analytics-editor
+# `@field_access_control`; with access controls enabled that governs it instead (see
+# test_web_analytics_editor_can_write_app_urls_with_access_control), but without it the
+# blanket project-admin gate still applies here.
 _UNANNOTATED_SENSITIVE_FIELDS: list[tuple[str, Any, str]] = [
     ("is_demo", True, "is_demo"),
     ("app_urls", ["https://evil.example.com"], "app_urls"),

@@ -13,7 +13,7 @@ from products.endpoints.backend.tasks import (
     _deactivate_version_materialization,
     deactivate_stale_materializations,
 )
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
 

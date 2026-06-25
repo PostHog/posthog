@@ -81,7 +81,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     )
     def test_legacy_insight_endpoints_blocked_with_feature_flag(self, _name: str, path: str) -> None:
         with patch(
-            "products.product_analytics.backend.api.insight.posthoganalytics.feature_enabled", return_value=True
+            "products.product_analytics.backend.api.insight.feature_enabled_or_false", return_value=True
         ) as mock_feature_enabled:
             response = self.client.get(path.format(team_id=self.team.id))
 
@@ -94,7 +94,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_creating_legacy_filter_insight_blocked_with_feature_flag(self) -> None:
         with patch(
-            "products.product_analytics.backend.api.insight.posthoganalytics.feature_enabled", return_value=True
+            "products.product_analytics.backend.api.insight.feature_enabled_or_false", return_value=True
         ) as mock_feature_enabled:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights/",
@@ -113,7 +113,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_creating_query_insight_not_blocked_by_legacy_filter_flag(self) -> None:
         with patch(
-            "products.product_analytics.backend.api.insight.posthoganalytics.feature_enabled", return_value=True
+            "products.product_analytics.backend.api.insight.feature_enabled_or_false", return_value=True
         ) as mock_feature_enabled:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights/",
@@ -4389,6 +4389,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_insight_access_control_filtering(self) -> None:
         """Test that insights are properly filtered based on access control."""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
 
         user2 = self._create_user("test2@posthog.com")
 
@@ -4531,6 +4535,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         from posthog.models.organization import OrganizationMembership
 
         from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
 
         # Create insights with different access levels
         filter_dict = {"events": [{"id": "$pageview"}]}

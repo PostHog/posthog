@@ -15,6 +15,7 @@ export enum SignalSourceProduct {
     SIGNALS_SCOUT = 'signals_scout',
     LOGS = 'logs',
     HEALTH_CHECKS = 'health_checks',
+    REPLAY_VISION = 'replay_vision',
 }
 
 export enum SignalSourceType {
@@ -28,9 +29,11 @@ export enum SignalSourceType {
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
+    ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = 'endpoint_breakdown_limit_exceeded',
     CROSS_SOURCE_ISSUE = 'cross_source_issue',
     ALERT_STATE_CHANGE = 'alert_state_change',
     HEALTH_ISSUE = 'health_issue',
+    SCANNER_FINDING = 'scanner_finding',
 }
 
 // ── Shared optional remediation ──────────────────────────────────────────────────
@@ -300,6 +303,19 @@ export interface EndpointExecutionFailedSignalInput extends SignalInputBase {
     extra: EndpointExecutionFailedSignalExtra
 }
 
+// Endpoint breakdown limit exceeded — the 'Other' bucket appeared in results
+
+export interface EndpointBreakdownLimitExceededSignalExtra extends SignalExtraBase {
+    endpoint_name: string
+    breakdown_limit: number
+}
+
+export interface EndpointBreakdownLimitExceededSignalInput extends SignalInputBase {
+    source_type: 'endpoint_breakdown_limit_exceeded'
+    source_product: 'endpoints'
+    extra: EndpointBreakdownLimitExceededSignalExtra
+}
+
 // Signals scout — cross-source findings emitted by the headless Signals scout harness.
 
 export interface SignalsScoutEvidenceEntry {
@@ -316,6 +332,9 @@ export interface SignalsScoutSignalExtra extends SignalExtraBase {
     /** The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs`
      * LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not). */
     task_run_id: string
+    /** The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the inbox card to the
+     * run in the Tasks UI. Absent on emissions made before this linkage was captured. */
+    task_id?: string
     finding_id: string
     skill_name: string
     skill_version: number
@@ -363,6 +382,46 @@ export interface LogsAlertStateChangeSignalInput extends SignalInputBase {
     source_type: 'alert_state_change'
     source_product: 'logs'
     extra: LogsAlertStateChangeSignalExtra
+}
+
+// Replay Vision scanner finding — the optional "side mission" finding a scanner's LLM pass
+// may attach to an observation when the scanner has `emits_signals` enabled.
+
+export interface ReplayVisionScannerFindingSignalExtra extends SignalExtraBase {
+    scanner_id: string
+    scanner_name: string
+    /** Replay Vision scanner type, e.g. 'monitor' / 'classifier' / 'scorer' / 'summarizer'. Kept open so new scanner types don't fail signal validation. */
+    scanner_type: string
+    observation_id: string
+    session_id: string
+    /** The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`. */
+    confidence: number
+    /** Issue category: 'bug' / 'crash' / 'design_flaw' / 'ux_friction'. Kept open so new categories don't fail validation. */
+    problem_type: string
+    /** When the issue starts in the recording, in seconds from recording start (the footer's REC_T value). */
+    start_time: number
+    /** When the issue ends in the recording, in seconds (the footer's REC_T value). */
+    end_time: number
+    /** The page the issue happened on (the footer's URL value). */
+    url: string
+    /** The rasterized MP4 asset the scanner analysed. */
+    exported_asset_id: number
+    // Recording-level metadata, present when recording metadata is available. These are the *recording*
+    // (snapshot) bounds, which can begin well after the session does depending on customer config —
+    // `recording_start_time` is the REC_T=0 anchor for `start_time`/`end_time`.
+    distinct_id?: string
+    /** ISO 8601 recording start (the REC_T=0 anchor). */
+    recording_start_time?: string
+    /** ISO 8601 recording end. */
+    recording_end_time?: string
+    recording_duration?: number
+    recording_active_seconds?: number
+}
+
+export interface ReplayVisionScannerFindingSignalInput extends SignalInputBase {
+    source_type: 'scanner_finding'
+    source_product: 'replay_vision'
+    extra: ReplayVisionScannerFindingSignalExtra
 }
 
 // Health-check issue (instrumentation problem detected by a HealthCheck)
@@ -426,7 +485,9 @@ export type SignalInput =
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
+    | EndpointBreakdownLimitExceededSignalInput
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
     | HealthCheckSignalInput
+    | ReplayVisionScannerFindingSignalInput

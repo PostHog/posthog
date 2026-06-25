@@ -2,6 +2,7 @@ use crate::{
     api::errors::FlagError, database::get_connection_with_metrics, team::team_models::Team,
 };
 use common_database::PostgresReader;
+use tracing::warn;
 
 /// SQL fragment for selecting all Team columns
 const TEAM_COLUMNS: &str = "
@@ -10,6 +11,7 @@ const TEAM_COLUMNS: &str = "
     name,
     api_token,
     organization_id,
+    project_id,
     cookieless_server_hash_mode,
     timezone,
     autocapture_opt_out,
@@ -45,6 +47,17 @@ const TEAM_COLUMNS: &str = "
 ";
 
 impl Team {
+    /// Parses the team's stored timezone string into a `chrono_tz::Tz`, falling back to
+    /// UTC (with a warning) for an unrecognized value. Every flag-evaluation path that
+    /// interprets naive datetime filter values in the team's local time goes through here,
+    /// so the fallback policy and warning live in one place.
+    pub fn parsed_timezone(&self) -> chrono_tz::Tz {
+        self.timezone.parse().unwrap_or_else(|_| {
+            warn!(team_id = self.id, timezone = %self.timezone, "unrecognized team timezone, falling back to UTC for datetime flag evaluation");
+            chrono_tz::Tz::UTC
+        })
+    }
+
     pub async fn from_pg(client: PostgresReader, token: &str) -> Result<Team, FlagError> {
         let mut conn =
             get_connection_with_metrics(&client, "non_persons_reader", "fetch_team").await?;

@@ -50,6 +50,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Usage spikes',
         description: 'When billing detects a usage spike for one of your accounts',
     },
+    reminder: {
+        label: 'Reminders',
+        description: 'When a reminder you scheduled is due',
+    },
     web_analytics_digest: {
         label: 'Web analytics digest',
         description: 'Your weekly Web analytics summary is ready!',

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 
+import structlog
 import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import (
@@ -24,6 +25,7 @@ from temporalio.client import (
 )
 from temporalio.common import RetryPolicy
 
+from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
@@ -47,6 +49,8 @@ if TYPE_CHECKING:
 
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+logger = structlog.get_logger(__name__)
 
 
 def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, int]:
@@ -387,10 +391,17 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 
 
 def is_cdc_enabled_for_team(team: Team) -> bool:
-    import posthoganalytics
-
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "dwh-postgres-cdc",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+
+def is_xmin_enabled_for_team(team: Team) -> bool:
+    return feature_enabled_or_false(
+        "dwh-postgres-xmin",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
@@ -429,7 +440,7 @@ def get_cdc_extraction_schedule(
     The schedule runs at the source level and the interval is the minimum
     sync_frequency_interval of all CDC-enabled schemas in the source.
     """
-    from posthog.temporal.data_imports.cdc.workflows import CDCExtractionInput
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.workflows import CDCExtractionInput
 
     inputs = CDCExtractionInput(
         team_id=source.team_id,
@@ -486,16 +497,31 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
 
     if not cdc_schemas:
+        # No active CDC schemas left — dropping the schedule silently stops all CDC sync.
+        logger.info(
+            "Deleting CDC extraction schedule — no active CDC schemas",
+            source_id=str(source.id),
+            schedule_id=schedule_id,
+        )
         try:
             delete_external_data_schedule(schedule_id)
         except Exception:
-            pass
+            logger.exception("Failed to delete CDC extraction schedule", schedule_id=schedule_id)
         return
 
     min_interval = cdc_min_interval(schema.sync_frequency_interval for schema in cdc_schemas)
 
     temporal = sync_connect()
     schedule = get_cdc_extraction_schedule(source, min_interval)
+
+    logger.info(
+        "Syncing CDC extraction schedule",
+        source_id=str(source.id),
+        schedule_id=schedule_id,
+        create=create,
+        cdc_schema_count=len(cdc_schemas),
+        min_interval_seconds=min_interval.total_seconds(),
+    )
 
     if create:
         create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
@@ -573,7 +599,9 @@ def get_discover_schemas_schedule(source: ExternalDataSource) -> Schedule:
     # `delete_external_data_schedule` and `_get_discover_schemas_schedule_id` from this
     # module for self-cleanup when the source vanishes, so it imports from us at module
     # load time. Hoisting this import would deadlock the loader.
-    from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import SyncNewSchemasActivityInputs
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
+        SyncNewSchemasActivityInputs,
+    )
 
     inputs = SyncNewSchemasActivityInputs(source_id=str(source.id), team_id=source.team_id)
 
