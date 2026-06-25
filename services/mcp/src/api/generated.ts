@@ -18909,6 +18909,8 @@ export namespace Schemas {
       filters: PropertyGroupFilterValue;
       /** User or role to assign matching issues to. */
       assignee: ErrorTrackingAssignmentRuleAssigneeRequest;
+      /** Evaluation priority among rules; lower is evaluated first and the first matching rule wins. Defaults to 0. Pass distinct ascending values when creating several rules at once to give them a deterministic order. */
+      order_key?: number;
     }
 
     export interface ErrorTrackingAssignmentRuleUpdateRequest {

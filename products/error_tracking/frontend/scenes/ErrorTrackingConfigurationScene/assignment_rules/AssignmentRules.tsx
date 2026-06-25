@@ -1,6 +1,8 @@
 import { useActions } from 'kea'
 import { useCallback } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import {
@@ -13,9 +15,12 @@ import { RuleList } from '../rules/RuleList'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRuleType } from '../rules/types'
 import { AssignmentRuleModal } from './AssignmentRuleModal'
 import { assignmentRuleModalLogic } from './assignmentRuleModalLogic'
+import { CodeOwnersModal } from './CodeOwnersModal'
+import { codeOwnersModalLogic } from './codeOwnersModalLogic'
 
 export function AssignmentRules(): JSX.Element {
     const { ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
+    const { openModal: openCodeOwnersModal } = useActions(codeOwnersModalLogic)
 
     const onMount = useCallback(() => {
         ensureAssigneeTypesLoaded()
@@ -25,10 +30,20 @@ export function AssignmentRules(): JSX.Element {
         <RuleList
             ruleType={ErrorTrackingRuleType.Assignment}
             modalLogic={assignmentRuleModalLogic}
-            modal={<AssignmentRuleModal />}
+            modal={
+                <>
+                    <AssignmentRuleModal />
+                    <CodeOwnersModal />
+                </>
+            }
             taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
             pageKeyPrefix="assignment-rule"
             onMount={onMount}
+            headerActions={
+                <LemonButton type="secondary" size="small" onClick={() => openCodeOwnersModal()}>
+                    Code owners
+                </LemonButton>
+            }
             description={
                 <p>
                     Automatically assign newly created issues based on properties of the exception event the first time
