@@ -1277,17 +1277,6 @@ database "posthog" {
     }
   }
 
-  table "test_table" {
-    column "id" {
-      type = "Int64"
-    }
-    column "name" {
-      type = "String"
-    }
-    engine "merge_tree" {
-    }
-  }
-
   table "writable_query_log_archive" {
     column "hostname" {
       type = "LowCardinality(String)"

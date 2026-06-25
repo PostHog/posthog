@@ -71,14 +71,14 @@ docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
    bash $OPS/diff.sh            # committed HEAD -> working tree, per (env, role); flags UNSAFE
    ```
 
-3. **Generate the migration**:
+3. **Generate the migration** — `--auto` writes the next numbered migration and bumps `max_migration.txt`:
    ```bash
-   python $OPS/codegen/gen_migration.py --name <slug>
+   python $OPS/codegen/gen_migration.py --name <slug> --auto
    ```
-   It derives `node_roles` from composition and `sharded`/`is_alter_on_replicated_table` from the
-   engine. Save the output as the next `posthog/clickhouse/migrations/NNNN_<slug>.py` and bump
-   `posthog/clickhouse/migrations/max_migration.txt`. Add `settings.CLOUD_DEPLOYMENT` gating where a
-   statement is flagged env-specific; review any `UNSAFE` (recreate) statements by hand.
+   It derives `node_roles` from composition and `sharded`/`is_alter_on_replicated_table` from the engine.
+   Review the generated `posthog/clickhouse/migrations/NNNN_<slug>.py`: add `settings.CLOUD_DEPLOYMENT`
+   gating where a statement is flagged env-specific, and recheck any `UNSAFE` (recreate) statements by hand.
+   (Drop `--auto` to print to stdout instead.)
 
 4. **Refresh the generated artifacts** so the guard passes:
    ```bash

@@ -131,6 +131,11 @@ def main() -> None:
     ap.add_argument("--name", required=True)
     ap.add_argument("--ref", default="HEAD")
     ap.add_argument("--out", default="-")
+    ap.add_argument(
+        "--auto",
+        action="store_true",
+        help="write the next numbered migration into posthog/clickhouse/migrations/ and bump max_migration.txt",
+    )
     args = ap.parse_args()
 
     manifest = read_manifest()
@@ -198,7 +203,19 @@ def main() -> None:
         body += "\n".join(notes) + "\n\n"
     body += "operations = [\n" + "\n".join(operations) + "\n]\n"
 
-    if args.out == "-":
+    if args.auto:
+        mig_dir = os.path.join(REPO_ROOT, "posthog", "clickhouse", "migrations")
+        max_file = os.path.join(mig_dir, "max_migration.txt")
+        last = open(max_file).read().strip()
+        num = int(re.match(r"(\d+)", last).group(1)) + 1
+        name = f"{num:04d}_{args.name}"
+        path = os.path.join(mig_dir, f"{name}.py")
+        if os.path.exists(path):
+            raise SystemExit(f"ERROR: {path} already exists")
+        open(path, "w").write(body)
+        open(max_file, "w").write(name + "\n")
+        sys.stderr.write(f"wrote {os.path.relpath(path, REPO_ROOT)}\nbumped max_migration.txt -> {name}\n")
+    elif args.out == "-":
         sys.stdout.write(body)
     else:
         open(args.out, "w").write(body)

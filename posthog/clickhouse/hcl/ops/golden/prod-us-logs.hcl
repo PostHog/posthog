@@ -1361,17 +1361,6 @@ database "posthog" {
     }
   }
 
-  table "test_table" {
-    column "id" {
-      type = "Int64"
-    }
-    column "name" {
-      type = "String"
-    }
-    engine "merge_tree" {
-    }
-  }
-
   table "trace_attributes" {
     order_by     = ["team_id", "attribute_type", "time_bucket", "resource_fingerprint", "attribute_key", "attribute_value"]
     partition_by = "toDate(original_expiry_time_bucket)"
