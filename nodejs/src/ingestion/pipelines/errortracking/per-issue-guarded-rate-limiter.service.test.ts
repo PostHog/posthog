@@ -1,9 +1,9 @@
 import { register } from 'prom-client'
 
+import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest } from '~/common/services/keyed-rate-limiter.service'
-import { defaultConfig } from '~/common/config/config'
 import { logger } from '~/common/utils/logger'
 
 import { PerIssueGuardedRateLimiterService } from './per-issue-guarded-rate-limiter.service'

@@ -1,5 +1,4 @@
 import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from '~/common/outputs'
-import { parseTeamsList } from '~/common/utils/env-utils'
 import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'

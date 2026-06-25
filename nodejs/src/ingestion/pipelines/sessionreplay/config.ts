@@ -9,8 +9,8 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from '~/common/config/kafka-topics'
-import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/ingestion/common/producers'
 import { isDevEnv } from '~/common/utils/env-utils'
+import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/ingestion/common/producers'
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,
     type IngestionSessionreplayProducer,

@@ -1,4 +1,3 @@
-import { closeHub, createHub } from '~/common/utils/db/hub'
 import { RedisOverflowRepository, redisKey } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 

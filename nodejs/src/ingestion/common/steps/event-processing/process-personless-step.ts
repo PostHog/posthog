@@ -1,6 +1,5 @@
 import { DateTime } from 'luxon'
 
-import { buildIntegerMatcher } from '~/common/config/config'
 import { normalizeProcessPerson } from '~/common/utils/event'
 import {
     buildFlagCalledPersonlessMatcher,
