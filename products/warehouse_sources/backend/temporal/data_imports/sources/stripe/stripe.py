@@ -90,7 +90,11 @@ def _is_truncated_stripe_list_response(body: Any) -> bool:
         return False
     stripped = raw.strip()
     head = stripped[:64]
-    return stripped.startswith(b"{") and b'"object"' in head and b'"list"' in head and not stripped.endswith(b"}")
+    # Match the specific `"object": "list"` field, not just the tokens "object" and "list"
+    # appearing anywhere in the head — otherwise a truncated single-object response with "list"
+    # in a URL or type (e.g. `"type": "list.updated"`) would be retried as if it were a list read.
+    has_list_marker = b'"object": "list"' in head or b'"object":"list"' in head
+    return stripped.startswith(b"{") and has_list_marker and not stripped.endswith(b"}")
 
 
 class _RateLimitRetryingRequestsClient(RequestsClient):

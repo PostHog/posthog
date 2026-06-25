@@ -37,6 +37,11 @@ _TRUNCATED_LIST_BODY = (
 )
 # Webhook write responses are single objects, not lists — must never trigger the read-only retry.
 _TRUNCATED_WEBHOOK_BODY = b'{\n  "object": "webhook_endpoint",\n  "id": "we_1",\n  "url": "https://example.com/cut'
+# A truncated single object whose head contains the tokens "object" and "list" without being a
+# list response (here `"type": "list.updated"`) — must not be mistaken for a truncated list.
+_TRUNCATED_NON_LIST_WITH_LIST_TOKEN = (
+    b'{\n  "object": "event",\n  "type": "list.updated",\n  "data": {\n    "id": "evt_1'
+)
 
 
 def _list_object(items):
@@ -188,6 +193,8 @@ class TestStripeSource:
             (_TRUNCATED_LIST_BODY.decode(), True),  # str bodies behave the same as bytes
             (_COMPLETE_LIST_BODY, False),  # complete responses always close with "}"
             (_TRUNCATED_WEBHOOK_BODY, False),  # truncated, but a single object — not a list read
+            # truncated non-list whose head still contains the "object" and "list" tokens
+            (_TRUNCATED_NON_LIST_WITH_LIST_TOKEN, False),
             (b'{\n  "object": "webhook_endpoint",\n  "id": "we_1"\n}', False),
             (b"", False),
             (None, False),
@@ -207,6 +214,8 @@ class TestStripeSource:
             ((_COMPLETE_LIST_BODY, 200, {}), 0, False),
             # A truncated single-object (webhook write) body is not retried.
             ((_TRUNCATED_WEBHOOK_BODY, 200, {}), 0, False),
+            # A truncated non-list body that merely mentions "list" is not retried.
+            ((_TRUNCATED_NON_LIST_WITH_LIST_TOKEN, 200, {}), 0, False),
             # 429s stay retryable (regression guard for the existing rate-limit handling).
             ((b'{\n  "error": {}\n}', 429, {}), 0, True),
         ],
