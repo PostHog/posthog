@@ -303,18 +303,26 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "No primary key defined for table": None,
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
-            # It denotes an established SSL connection being dropped mid-stream (idle cull by a
-            # pooler, failover, network blip) — a transient condition that recovers on a fresh
-            # attempt. It is the SSL-flavoured sibling of the "consuming input failed" drops handled
-            # by `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. Marking it non-retryable
-            # permanently disabled syncs on a transient blip during schema discovery, which has no
-            # in-process reconnect. A genuinely unsupported-SSL source fails at connect time with a
-            # different message and is caught via "SSLRequiredError" / "SSL/TLS connection is required".
+            # It denotes an established SSL connection being dropped on connect or mid-stream (idle
+            # cull by a pooler, failover, network blip) — a transient condition that recovers on a
+            # fresh attempt. It is the SSL-flavoured sibling of the libpq drops in
+            # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`, where it is listed so the in-process reconnect
+            # retries it during schema discovery and sync setup instead of failing the activity.
+            # Marking it non-retryable would permanently disable syncs on a transient blip. A
+            # genuinely unsupported-SSL source fails at connect time with a different message and is
+            # caught via "SSLRequiredError" / "SSL/TLS connection is required".
             "Address not in tenant allow_list": None,
             "FATAL: no such database": None,
             "does not exist": None,
             "timestamp too small": None,
             "QueryTimeoutException": None,
+            # Activity-layer twin of the `QueryTimeoutException` key above. That key only matches once
+            # Temporal wraps the failure (the stringified ApplicationError carries the class name); the
+            # activity-level check sees the raw `str(e)`, which is the bare message with no class name.
+            # Without a message key the timeout goes unrecognised there and the activity burns its full
+            # retry budget re-running the same futile statement-timeout query before the workflow gives
+            # up. Match the index-guidance fragment every postgres statement-timeout message shares.
+            "has an appropriate index": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             # Sibling getaddrinfo failure to "Name or service not known" (EAI_NONAME): EAI_NODATA

@@ -226,8 +226,13 @@ def _to_account_notebook(notebook: Notebook) -> contracts.AccountNotebook:
     )
 
 
-def list_account_notebooks(account_id: str | UUID) -> list[contracts.AccountNotebook]:
-    return [_to_account_notebook(notebook) for notebook in logic.list_account_notebooks(account_id)]
+def list_account_notebooks(
+    account_id: str | UUID, *, search: str | None = None, order: str | None = None
+) -> list[contracts.AccountNotebook]:
+    return [
+        _to_account_notebook(notebook)
+        for notebook in logic.list_account_notebooks(account_id, search=search, order=order)
+    ]
 
 
 def get_account_notebook(account_id: str | UUID, short_id: str) -> contracts.AccountNotebook | None:

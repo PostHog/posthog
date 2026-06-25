@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-23 21:04:45 UTC
+// Generated at: 2026-06-24 11:00:05 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -48,6 +48,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
+    | 'dekallm'
     | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'digitalocean'
@@ -116,6 +117,7 @@ export type CanonicalProvider =
     | 'reka-fp8'
     | 'relace-bf16'
     | 'relace-fp8'
+    | 'sakana'
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'

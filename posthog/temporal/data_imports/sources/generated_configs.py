@@ -70,6 +70,14 @@ class HubspotCustomPropertiesConfig(config.Config):
 
 
 @config.config
+class MetabaseAuthMethodConfig(config.Config):
+    selection: Literal["api_key", "session"] = "api_key"
+    api_key: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+@config.config
 class ServiceNowAuthMethodConfig(config.Config):
     selection: Literal["basic", "api_key"] = "basic"
     username: str | None = None
@@ -192,7 +200,9 @@ class AkeneoSourceConfig(config.Config):
 
 @config.config
 class AlgoliaSourceConfig(config.Config):
-    pass
+    application_id: str
+    api_key: str
+    index_name: str
 
 
 @config.config
@@ -480,7 +490,7 @@ class BrexSourceConfig(config.Config):
 
 @config.config
 class BugsnagSourceConfig(config.Config):
-    pass
+    auth_token: str
 
 
 @config.config
@@ -490,7 +500,8 @@ class BuildBetterSourceConfig(config.Config):
 
 @config.config
 class BuildkiteSourceConfig(config.Config):
-    pass
+    api_access_token: str
+    organization: str
 
 
 @config.config
@@ -536,7 +547,7 @@ class CampaynSourceConfig(config.Config):
 
 @config.config
 class CannySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -680,7 +691,7 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class ClockifySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -736,7 +747,7 @@ class CoinGeckoSourceConfig(config.Config):
 
 @config.config
 class CoinMarketCapSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -988,7 +999,7 @@ class EZOfficeInventorySourceConfig(config.Config):
 
 @config.config
 class EasypostSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1094,7 +1105,10 @@ class FeishuSourceConfig(config.Config):
 
 @config.config
 class FilloutSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_base_url: Literal["https://api.fillout.com/v1/api", "https://eu-api.fillout.com/v1/api"] | None = config.value(
+        default="https://api.fillout.com/v1/api"
+    )
 
 
 @config.config
@@ -1231,7 +1245,8 @@ class GainsightPxSourceConfig(config.Config):
 
 @config.config
 class GiphySourceConfig(config.Config):
-    pass
+    api_key: str
+    search_query: str | None = None
 
 
 @config.config
@@ -1673,7 +1688,8 @@ class KustomerSourceConfig(config.Config):
 
 @config.config
 class LagoSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_url: str | None = None
 
 
 @config.config
@@ -1699,7 +1715,7 @@ class LeexiSourceConfig(config.Config):
 
 @config.config
 class LemlistSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1751,7 +1767,7 @@ class LinnworksSourceConfig(config.Config):
 
 @config.config
 class LobSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1869,7 +1885,8 @@ class MetaAdsSourceConfig(config.Config):
 
 @config.config
 class MetabaseSourceConfig(config.Config):
-    pass
+    host: str
+    auth_method: MetabaseAuthMethodConfig
 
 
 @config.config
@@ -2127,7 +2144,8 @@ class OpenFDASourceConfig(config.Config):
 
 @config.config
 class OpenWeatherSourceConfig(config.Config):
-    pass
+    api_key: str
+    locations: str
 
 
 @config.config
@@ -2178,7 +2196,7 @@ class OrttoSourceConfig(config.Config):
 
 @config.config
 class OuraSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -2264,7 +2282,7 @@ class PaylocitySourceConfig(config.Config):
 
 @config.config
 class PaystackSourceConfig(config.Config):
-    pass
+    secret_api_key: str
 
 
 @config.config
@@ -2634,7 +2652,7 @@ class RollbarSourceConfig(config.Config):
 
 @config.config
 class RootlySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2739,7 +2757,8 @@ class SecodaSourceConfig(config.Config):
 
 @config.config
 class SegmentSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["api", "eu1"] = config.value(default="api")
 
 
 @config.config
@@ -2946,7 +2965,7 @@ class SquareSourceConfig(config.Config):
 
 @config.config
 class SquarespaceSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3035,7 +3054,7 @@ class SystemeSourceConfig(config.Config):
 
 @config.config
 class TMDbSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3252,7 +3271,8 @@ class VeeqoSourceConfig(config.Config):
 
 @config.config
 class VercelSourceConfig(config.Config):
-    pass
+    access_token: str
+    team_id: str | None = None
 
 
 @config.config
@@ -3306,7 +3326,9 @@ class WooCommerceSourceConfig(config.Config):
 
 @config.config
 class WordpressSourceConfig(config.Config):
-    pass
+    site_url: str
+    username: str | None = None
+    application_password: str | None = None
 
 
 @config.config
@@ -3408,7 +3430,7 @@ class ZapierSupportedStorageSourceConfig(config.Config):
 
 @config.config
 class ZendeskSellSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
