@@ -3,6 +3,7 @@ import { useEffect, useMemo } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -37,6 +38,23 @@ import { useRequiredNotebookNode } from './NotebookNodeContext'
 import { UnsupportedNodePlaceholder } from './sharedNodeSupport'
 import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
+type NotebookSqlOutputToolbarVisibilityProps = {
+    componentPanelState: ReturnType<typeof useComponentPanelState>
+    expanded: boolean
+    isEditing: boolean
+}
+
+export function getNotebookSqlOutputToolbarVisibility({
+    componentPanelState,
+    expanded,
+    isEditing,
+}: NotebookSqlOutputToolbarVisibilityProps): boolean {
+    const isOutputPaneOpen = componentPanelState?.showViewPanel ?? expanded
+    const isEditorPaneOpen = componentPanelState?.showEditPanel ?? isEditing
+
+    return isOutputPaneOpen && isEditorPaneOpen
+}
+
 export const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
     source: {
@@ -63,6 +81,7 @@ const Component = ({
         canvasFiltersOverride,
     } = useValues(notebookLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
+    const componentPanelState = useComponentPanelState()
     const summarizeInsight = useSummarizeInsight()
     const sharedCachedInsight = query.kind === NodeKind.SavedInsightNode ? getSharedCachedInsight(query.shortId) : null
     const sharedCachedInlineResults =
@@ -78,9 +97,11 @@ const Component = ({
               dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
           }
     const { insightName } = useValues(insightLogic(insightLogicProps))
-    const isOutputPaneOpen = expanded
-    const isEditorPaneOpen = !!editingNodeIds[resolvedNodeId]
-    const showSqlOutputToolbar = isOutputPaneOpen && isEditorPaneOpen
+    const showSqlOutputToolbar = getNotebookSqlOutputToolbarVisibility({
+        componentPanelState,
+        expanded,
+        isEditing: !!editingNodeIds[resolvedNodeId],
+    })
 
     useEffect(() => {
         let title = 'Query'
