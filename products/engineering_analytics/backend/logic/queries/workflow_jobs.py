@@ -7,7 +7,9 @@ degrades to an empty breakdown instead of erroring. Per-job cost is derived from
 
 A re-run carries several attempts under one ``run_id``; scoping to a single ``run_attempt`` keeps a
 row's statuses, durations, and costs from merging across attempts (and double-counting cost). The
-caller passes the attempt it's showing; when omitted, the latest attempt is used.
+caller passes the attempt it's showing; when omitted, the run's latest attempt is read from the runs
+source (not the synced job rows) so a default lookup tracks the canonical attempt even when only older
+attempts' jobs have synced — returning an empty breakdown rather than stale jobs for that case.
 """
 
 import json
@@ -26,6 +28,12 @@ _SELECT = """
     ORDER BY started_at ASC, id ASC
 """
 
+_LATEST_ATTEMPT_SELECT = """
+    SELECT max(run_attempt)
+    FROM __RUNS_SOURCE__ AS r
+    WHERE id = {run_id}
+"""
+
 
 def query_workflow_jobs(
     *, curated: CuratedGitHubSource, run_id: int, run_attempt: int | None = None
@@ -42,11 +50,28 @@ def query_workflow_jobs(
     rows = list(response.results or [])
     target_attempt = run_attempt
     if target_attempt is None:
-        attempts = [int(row[2]) for row in rows if row[2] is not None]
-        target_attempt = max(attempts) if attempts else None
+        # Default to the run's latest attempt per the runs source, not the synced job rows — those can
+        # trail the run table during sync lag and silently serve an older attempt's jobs as current.
+        target_attempt = _latest_run_attempt(curated=curated, run_id=run_id)
+        if target_attempt is None:
+            # Run isn't in the runs source (shouldn't normally happen); fall back to the jobs rows.
+            attempts = [int(row[2]) for row in rows if row[2] is not None]
+            target_attempt = max(attempts) if attempts else None
     if target_attempt is not None:
         rows = [row for row in rows if row[2] is not None and int(row[2]) == target_attempt]
     return [_to_job(row) for row in rows]
+
+
+def _latest_run_attempt(*, curated: CuratedGitHubSource, run_id: int) -> int | None:
+    response = curated.run(
+        _LATEST_ATTEMPT_SELECT.replace("__RUNS_SOURCE__", curated.run_source()),
+        query_type="engineering_analytics.workflow_jobs_latest_attempt",
+        placeholders={"run_id": ast.Constant(value=run_id)},
+    )
+    rows = response.results or []
+    if not rows or rows[0][0] is None:
+        return None
+    return int(rows[0][0])
 
 
 def _to_job(row: tuple[Any, ...]) -> WorkflowJob:
