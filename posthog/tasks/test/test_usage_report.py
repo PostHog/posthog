@@ -5441,14 +5441,19 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         flush_persons_and_events()
         self.assertEqual(ai_count(), baseline_count + 3, "normal AI events should be counted")
 
-        # Gateway-verified events: excluded, so the count must not move.
+        # Gateway-verified events with distinct (signature-bound) request_ids:
+        # each earns one exemption, so the count must not move.
         for i in range(2):
             _create_event(
                 event="$ai_generation",
                 team=self.team,
                 distinct_id=f"gateway_ai_user_{i}",
                 timestamp=self.begin + relativedelta(hours=i + 1),
-                properties={"$ai_model": "claude-3", "$ai_gateway_verified": True},
+                properties={
+                    "$ai_model": "claude-3",
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": f"gw-req-{i}",
+                },
             )
         flush_persons_and_events()
         self.assertEqual(ai_count(), baseline_count + 3, "gateway-verified events should be excluded")
@@ -5465,6 +5470,27 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         )
         flush_persons_and_events()
         self.assertEqual(ai_count(), baseline_count + 4, "forged $ai_gateway (no verified marker) should be counted")
+
+        # Replay: three verified events sharing one request_id (a captured signature
+        # replayed) earn only a single exemption — the other two stay billable.
+        for i in range(3):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"replay_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 1),
+                properties={
+                    "$ai_model": "claude-3",
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": "replayed-req",
+                },
+            )
+        flush_persons_and_events()
+        self.assertEqual(
+            ai_count(),
+            baseline_count + 6,
+            "a replayed request_id earns one exemption; the other two replays stay billable",
+        )
 
     def test_conversations_events_excluded_from_billable_count(self) -> None:
         """Test that Conversations widget events are excluded from billable event counts."""
