@@ -28,8 +28,6 @@ from products.review_hog.backend.reviewer.tools.publish_review import publish_re
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import split_pr_into_chunks
 
 logger = logging.getLogger(__name__)
-# Configure logging to output to console
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 _TOTAL_STAGES = 9
 

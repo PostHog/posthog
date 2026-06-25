@@ -1,6 +1,10 @@
 import asyncio
+import logging
+from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
+
+from dotenv import load_dotenv
 
 from products.review_hog.backend.reviewer.run import main
 
@@ -28,7 +32,10 @@ class Command(BaseCommand):
             help="User the sandbox tasks run as (the PR's author, when triggered in the cloud)",
         )
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args: Any, **options: Any) -> None:
+        # Local CLI run: load .env (for GITHUB_TOKEN) and mirror the reviewer's INFO logs to the console.
+        load_dotenv()
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         pr_url = options["pr_url"]
         team_id = options["team_id"]
         user_id = options["user_id"]

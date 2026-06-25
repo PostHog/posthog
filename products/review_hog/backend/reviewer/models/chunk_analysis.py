@@ -2,7 +2,6 @@ import logging
 
 from pydantic import BaseModel, Field
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 

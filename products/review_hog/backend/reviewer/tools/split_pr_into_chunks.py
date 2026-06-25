@@ -1,7 +1,6 @@
 import logging
 
 from asgiref.sync import sync_to_async
-from dotenv import load_dotenv
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
@@ -9,10 +8,6 @@ from products.review_hog.backend.reviewer.persistence import load_chunk_set, per
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 from products.review_hog.backend.reviewer.tools.prompt_helpers import format_pr_intent, load_template_and_schema
 
-# Load environment variables
-load_dotenv()
-
-# Configure logging
 logger = logging.getLogger(__name__)
 
 

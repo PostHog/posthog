@@ -3,7 +3,6 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 
@@ -43,7 +42,7 @@ class Issue(BaseModel):
     issue: str = Field(description="Description of the problem")
     suggestion: str = Field(description="Specific fix or improvement")
     priority: IssuePriority = Field(description="Priority level of the issue")
-    is_directy_related_to_changes: bool = Field(
+    is_directly_related_to_changes: bool = Field(
         description=(
             "Whether the issue is directly caused by the changes in the PR or was noticed just because of the same file"
         ),

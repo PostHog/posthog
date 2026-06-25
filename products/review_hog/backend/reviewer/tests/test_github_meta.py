@@ -4,221 +4,153 @@ import pytest
 from unittest.mock import MagicMock, Mock, patch
 
 from github import GithubException
+from parameterized import parameterized
 
 from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRFilter, PRParser
 
 
 class TestParseGithubPrUrl:
-    """Test parse_github_pr_url function."""
-
-    def test_parse_valid_url(self) -> None:
-        """Test parsing a valid GitHub PR URL."""
-        url = "https://github.com/owner/repo/pull/123"
-        parser = PRParser()
-        result = parser.parse_github_pr_url(url)
-
-        assert result["owner"] == "owner"
-        assert result["repo"] == "repo"
-        assert result["pr_number"] == 123
-
-    def test_parse_valid_url_with_complex_names(self) -> None:
-        """Test parsing with complex owner and repo names."""
-        url = "https://github.com/user-name_123/repo.with-dots_and-dashes/pull/9999"
-        parser = PRParser()
-        result = parser.parse_github_pr_url(url)
-
-        assert result["owner"] == "user-name_123"
-        assert result["repo"] == "repo.with-dots_and-dashes"
-        assert result["pr_number"] == 9999
-
-    def test_parse_invalid_url_format(self) -> None:
-        """Test parsing an invalid URL format."""
-        invalid_urls = [
-            "https://github.com/owner/repo/issues/123",  # issues instead of pull
-            "https://gitlab.com/owner/repo/pull/123",  # wrong domain
-            "github.com/owner/repo/pull/123",  # missing protocol
-            "https://github.com/owner/pull/123",  # missing repo
-            "https://github.com/owner/repo/pull/abc",  # non-numeric PR number
-            "https://github.com/owner/repo/pull/",  # missing PR number
-            "not-a-url",  # completely invalid
+    @parameterized.expand(
+        [
+            ("simple", "https://github.com/owner/repo/pull/123", "owner", "repo", 123),
+            (
+                "complex_names",
+                "https://github.com/user-name_123/repo.with-dots_and-dashes/pull/9999",
+                "user-name_123",
+                "repo.with-dots_and-dashes",
+                9999,
+            ),
         ]
+    )
+    def test_parse_valid_url(self, _name: str, url: str, owner: str, repo: str, number: int) -> None:
+        assert PRParser().parse_github_pr_url(url) == {"owner": owner, "repo": repo, "pr_number": number}
 
-        for url in invalid_urls:
-            with pytest.raises(ValueError, match="Invalid GitHub PR URL format"):
-                parser = PRParser()
-                parser.parse_github_pr_url(url)
+    @parameterized.expand(
+        [
+            ("issues_not_pull", "https://github.com/owner/repo/issues/123"),
+            ("wrong_domain", "https://gitlab.com/owner/repo/pull/123"),
+            ("missing_protocol", "github.com/owner/repo/pull/123"),
+            ("missing_repo", "https://github.com/owner/pull/123"),
+            ("non_numeric_pr", "https://github.com/owner/repo/pull/abc"),
+            ("missing_pr_number", "https://github.com/owner/repo/pull/"),
+            ("not_a_url", "not-a-url"),
+        ]
+    )
+    def test_parse_invalid_url_raises(self, _name: str, url: str) -> None:
+        with pytest.raises(ValueError, match="Invalid GitHub PR URL format"):
+            PRParser().parse_github_pr_url(url)
 
 
 class TestIsFilteredFile:
-    """Test is_filtered_file function."""
-
-    def test_lock_files(self) -> None:
-        """Test that lock files are correctly filtered."""
-        pr_filter = PRFilter()
-        lock_files = [
-            "package-lock.json",
-            "yarn.lock",
-            "Cargo.lock",
-            "poetry.lock",
-            "Gemfile.lock",
-            "composer.lock",
-            "pnpm-lock.yaml",  # pnpm lock file
-            "pnpm-lock.yml",  # alternative extension
-            "Podfile.lock",  # iOS/macOS
-            "Pipfile.lock",  # Python pipenv
-            "flake.lock",  # Nix flake
-            "deno.lock",  # Deno
-            "bun.lock",
-            "bun.lockb",  # Bun binary lock file
-            "npm-shrinkwrap.json",  # npm alternative to package-lock
-            "path/to/package-lock.json",
-            "some/deep/path/yarn.lock",
-            "project/pnpm-lock.yaml",
+    @parameterized.expand(
+        [
+            # Lock files
+            ("package_lock", "package-lock.json", True),
+            ("yarn_lock", "yarn.lock", True),
+            ("cargo_lock", "Cargo.lock", True),
+            ("poetry_lock", "poetry.lock", True),
+            ("gemfile_lock", "Gemfile.lock", True),
+            ("composer_lock", "composer.lock", True),
+            ("pnpm_lock_yaml", "pnpm-lock.yaml", True),
+            ("pnpm_lock_yml", "pnpm-lock.yml", True),
+            ("podfile_lock", "Podfile.lock", True),
+            ("pipfile_lock", "Pipfile.lock", True),
+            ("flake_lock", "flake.lock", True),
+            ("deno_lock", "deno.lock", True),
+            ("bun_lock", "bun.lock", True),
+            ("bun_lockb", "bun.lockb", True),
+            ("npm_shrinkwrap", "npm-shrinkwrap.json", True),
+            ("nested_package_lock", "path/to/package-lock.json", True),
+            ("deep_yarn_lock", "some/deep/path/yarn.lock", True),
+            ("nested_pnpm_lock", "project/pnpm-lock.yaml", True),
+            # Sum/hash files
+            ("go_sum", "go.sum", True),
+            ("checksum_sum", "checksum.sum", True),
+            ("nested_go_sum", "path/to/go.sum", True),
+            # Minified files
+            ("min_js", "bundle.min.js", True),
+            ("min_css", "styles.min.css", True),
+            ("min_json", "data.min.json", True),
+            ("vendor_min_js", "vendor.min.js", True),
+            ("nested_min_js", "path/to/app.min.js", True),
+            ("nested_min_css", "assets/css/main.min.css", True),
+            # Source maps
+            ("js_map", "bundle.js.map", True),
+            ("css_map", "styles.css.map", True),
+            ("bare_map", "app.map", True),
+            ("min_js_map", "vendor.min.js.map", True),
+            ("nested_js_map", "path/to/code.js.map", True),
+            # Build directories
+            ("dist_js", "dist/bundle.js", True),
+            ("dist_html", "dist/index.html", True),
+            ("build_js", "build/app.js", True),
+            ("build_css", "build/styles.css", True),
+            ("out_js", "out/compiled.js", True),
+            ("target_app", "target/release/app", True),
+            ("nested_dist", "src/dist/bundle.js", True),
+            ("nested_build", "app/build/index.js", True),
+            ("nested_target", "project/target/debug/main", True),
+            # Regular source files — 'lock'/'min'/'map' substrings but not filtered
+            ("index_js", "index.js", False),
+            ("app_py", "app.py", False),
+            ("main_rs", "main.rs", False),
+            ("styles_css", "styles.css", False),
+            ("readme", "README.md", False),
+            ("package_json", "package.json", False),
+            ("cargo_toml", "Cargo.toml", False),
+            ("go_mod", "go.mod", False),
+            ("button_tsx", "src/components/Button.tsx", False),
+            ("utils_js", "lib/utils.js", False),
+            ("locked_py", "locked.py", False),
+            ("minimal_js", "minimal.js", False),
+            ("mapper_py", "mapper.py", False),
         ]
-
-        for filename in lock_files:
-            assert pr_filter.is_filtered_file(filename) is True, f"Failed to filter {filename}"
-
-    def test_sum_files(self) -> None:
-        """Test that sum/hash files are correctly filtered."""
-        pr_filter = PRFilter()
-        sum_files = [
-            "go.sum",
-            "checksum.sum",
-            "path/to/go.sum",
-        ]
-
-        for filename in sum_files:
-            assert pr_filter.is_filtered_file(filename) is True, f"Failed to filter {filename}"
-
-    def test_minified_files(self) -> None:
-        """Test that minified files are correctly filtered."""
-        pr_filter = PRFilter()
-        minified_files = [
-            "bundle.min.js",
-            "styles.min.css",
-            "data.min.json",
-            "vendor.min.js",
-            "path/to/app.min.js",
-            "assets/css/main.min.css",
-        ]
-
-        for filename in minified_files:
-            assert pr_filter.is_filtered_file(filename) is True, f"Failed to filter {filename}"
-
-    def test_source_map_files(self) -> None:
-        """Test that source map files are correctly filtered."""
-        pr_filter = PRFilter()
-        map_files = [
-            "bundle.js.map",
-            "styles.css.map",
-            "app.map",
-            "vendor.min.js.map",
-            "path/to/code.js.map",
-        ]
-
-        for filename in map_files:
-            assert pr_filter.is_filtered_file(filename) is True, f"Failed to filter {filename}"
-
-    def test_build_directories(self) -> None:
-        """Test that files in build directories are correctly filtered."""
-        pr_filter = PRFilter()
-        build_files = [
-            "dist/bundle.js",
-            "dist/index.html",
-            "build/app.js",
-            "build/styles.css",
-            "out/compiled.js",
-            "target/release/app",
-            "src/dist/bundle.js",
-            "app/build/index.js",
-            "project/target/debug/main",
-        ]
-
-        for filename in build_files:
-            assert pr_filter.is_filtered_file(filename) is True, f"Failed to filter {filename}"
-
-    def test_non_filtered_files(self) -> None:
-        """Test that regular source files are not filtered."""
-        pr_filter = PRFilter()
-        regular_files = [
-            "index.js",
-            "app.py",
-            "main.rs",
-            "styles.css",
-            "README.md",
-            "package.json",
-            "Cargo.toml",
-            "go.mod",
-            "src/components/Button.tsx",
-            "lib/utils.js",
-            "locked.py",  # Contains 'lock' but not a lock file
-            "minimal.js",  # Contains 'min' but not minified
-            "mapper.py",  # Contains 'map' but not a source map
-        ]
-
-        for filename in regular_files:
-            assert pr_filter.is_filtered_file(filename) is False, f"Incorrectly filtered {filename}"
+    )
+    def test_is_filtered_file(self, _name: str, filename: str, expected: bool) -> None:
+        assert PRFilter().is_filtered_file(filename) is expected
 
 
 class TestIsTestFile:
-    """Test is_test_file function."""
-
-    def test_test_file_patterns(self) -> None:
-        """Test various test file patterns are correctly identified."""
-        pr_filter = PRFilter()
-        test_files = [
-            "test_module.py",
-            "module_test.py",
-            "test-module.js",
-            "module-test.js",
-            "module.test.js",
-            "module.spec.js",
-            "TestModule.java",
-            "tests/module.py",
-            "test/module.py",
-            "src/tests/module.py",
-            "path/to/test/file.py",
-            "__tests__/module.js",
-            "src/__tests__/component.jsx",
-            "module_test_utils.py",
-            "test_utils_module.py",
+    @parameterized.expand(
+        [
+            ("test_prefix_py", "test_module.py", True),
+            ("suffix_test_py", "module_test.py", True),
+            ("test_prefix_js", "test-module.js", True),
+            ("suffix_test_js", "module-test.js", True),
+            ("dot_test_js", "module.test.js", True),
+            ("dot_spec_js", "module.spec.js", True),
+            ("capital_test_java", "TestModule.java", True),
+            ("tests_dir", "tests/module.py", True),
+            ("test_dir", "test/module.py", True),
+            ("nested_tests_dir", "src/tests/module.py", True),
+            ("deep_test_dir", "path/to/test/file.py", True),
+            ("dunder_tests", "__tests__/module.js", True),
+            ("nested_dunder_tests", "src/__tests__/component.jsx", True),
+            ("test_utils", "module_test_utils.py", True),
+            ("test_prefix_utils", "test_utils_module.py", True),
+            ("plain_module", "module.py", False),
+            ("main_js", "main.js", False),
+            ("utils_py", "utils.py", False),
+            ("config_yaml", "config.yaml", False),
+            ("readme", "README.md", False),
+            ("setup_py", "setup.py", False),
+            ("package_json", "package.json", False),
+            ("latest_txt", "latest.txt", False),
+            ("contest_py", "contest.py", False),
+            ("attestation_py", "attestation.py", False),
         ]
-
-        for filename in test_files:
-            assert pr_filter.is_test_file(filename) is True, f"Failed to identify {filename} as test file"
-
-    def test_non_test_file_patterns(self) -> None:
-        """Test that non-test files are correctly identified."""
-        pr_filter = PRFilter()
-        non_test_files = [
-            "module.py",
-            "main.js",
-            "utils.py",
-            "config.yaml",
-            "README.md",
-            "setup.py",
-            "package.json",
-            "latest.txt",  # contains 'test' but not in test pattern
-            "contest.py",  # contains 'test' but not in test pattern
-            "attestation.py",  # contains 'test' but not in test pattern
-        ]
-
-        for filename in non_test_files:
-            assert pr_filter.is_test_file(filename) is False, f"Incorrectly identified {filename} as test file"
+    )
+    def test_is_test_file(self, _name: str, filename: str, expected: bool) -> None:
+        assert PRFilter().is_test_file(filename) is expected
 
 
 class TestParsePatch:
-    """Test parse_patch function."""
-
     def test_parse_empty_patch(self) -> None:
-        """Test parsing an empty patch."""
         parser = PRParser()
         result = parser.parse_patch("")
         assert result == []
 
     def test_parse_single_addition(self) -> None:
-        """Test parsing a patch with a single addition."""
         parser = PRParser()
         patch = """@@ -1,3 +1,4 @@
  line1
@@ -237,7 +169,6 @@ class TestParsePatch:
         assert addition.new_end_line == 3
 
     def test_parse_single_deletion(self) -> None:
-        """Test parsing a patch with a single deletion."""
         parser = PRParser()
         patch = """@@ -1,4 +1,3 @@
  line1
@@ -253,7 +184,6 @@ class TestParsePatch:
         assert deletions[0].old_end_line == 2
 
     def test_parse_mixed_changes(self) -> None:
-        """Test parsing a patch with mixed additions and deletions."""
         parser = PRParser()
         patch = """@@ -10,4 +10,5 @@
  context line
@@ -285,7 +215,6 @@ class TestParsePatch:
         assert additions[0].new_end_line == 13
 
     def test_parse_multiple_hunks(self) -> None:
-        """Test parsing a patch with multiple hunks."""
         parser = PRParser()
         patch = """@@ -1,2 +1,3 @@
  line1
@@ -307,7 +236,6 @@ class TestParsePatch:
         assert deletions[0].old_start_line == 11
 
     def test_parse_complex_patch(self) -> None:
-        """Test parsing a complex real-world style patch."""
         patch = """@@ -30,7 +30,10 @@ class MyClass:
      def method1(self):
          # This is a comment
@@ -333,7 +261,6 @@ class TestParsePatch:
         assert any(r.type == "context" for r in result)
 
     def test_parse_patch_with_no_newline_marker(self) -> None:
-        """Test parsing a patch with 'No newline at end of file' marker."""
         patch = """@@ -1,2 +1,2 @@
  line1
 -line2
@@ -354,7 +281,6 @@ class TestParsePatch:
         assert additions[0].code == "line2 modified"
 
     def test_parse_invalid_hunk_header(self) -> None:
-        """Test parsing handles invalid hunk headers gracefully."""
         patch = """@@ invalid header @@
 +new line
 -old line
@@ -435,8 +361,6 @@ def _build_mock_file(*, filename: str, status: str = "modified", patch: str | No
 
 
 class TestFetchPrData:
-    """Test PRFetcher.fetch_pr_data — returns everything in-process, writes no files."""
-
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_returns_four_tuple_with_metadata_comments_files_diff(self, mock_github_class: Mock) -> None:

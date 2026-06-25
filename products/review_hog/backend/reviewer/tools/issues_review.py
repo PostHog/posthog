@@ -17,7 +17,6 @@ from products.review_hog.backend.reviewer.tools.prompt_helpers import (
     load_template_and_schema,
 )
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (

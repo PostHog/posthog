@@ -1,15 +1,8 @@
-#!/usr/bin/env python3
-
 import logging
 from typing import Literal
 
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-# Load environment variables
-load_dotenv()
-
-# Configure logging
 logger = logging.getLogger(__name__)
 
 

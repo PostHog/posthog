@@ -95,7 +95,7 @@ class TestPersistResults(BaseTest):
             file="a.py",
             issue="loop runs one short",
             suggestion="use <=",
-            is_directy_related_to_changes=True,
+            is_directly_related_to_changes=True,
         )
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
         assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue]) == 1
@@ -278,9 +278,8 @@ class TestLoadValidFindings(BaseTest):
         assert pairs[0][1].argumentation == "actually real"
 
 
+# The per-turn working-state rows that back the DB-driven resume.
 class TestWorkingState(BaseTest):
-    """The per-turn working-state rows that back the DB-driven resume."""
-
     def setUp(self) -> None:
         super().setUp()
         self.report_id = upsert_review_report(

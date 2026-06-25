@@ -732,6 +732,20 @@ git checkout -B <branch> FETCH_HEAD`** (`products/tasks` `get_sandbox_for_reposi
     the dead-but-harmless `ReviewReportArtefact.updated_at` column (removing it is migration churn for no Temporal
     benefit). The two `split_pr_into_chunks` modules are **not** a duplicate either — `models/` is the `Chunk` /
     `ChunksList` schema, `tools/` is the logic; legitimate split, kept.
+  - **PostHog-conformance pass (same window, 7-dimension adversarially-verified audit).** Removed import-time
+    side effects from library modules (`load_dotenv()` in both `split_pr_into_chunks` modules → relocated to the
+    `run_review` command; `logging.basicConfig()` in `run.py` → relocated to the command; three stray shebangs) —
+    hidden global-state hazards once `run.py` is the Temporal-imported workflow module. Closed strict-typing gaps
+    (`run_review.handle(*args: Any, **options: Any)`, `_load_working_state -> list[ReviewArtefactContent]`, a
+    test-helper return type), deleted `# Configure logging` / `# Load environment variables` what-comments and
+    name-restating test docstrings (house rule), parameterized `test_github_meta.py`'s hand-rolled case-loops, fixed
+    the `is_directy_related_to_changes` → `is_directly_…` field typo (model + regenerated `issues_review/schema.json`
+    - refs), and **added `products/review_hog/package.json`** (`name` + `backend:test`; no `backend:contract-check`
+      since it's non-isolated) so the suite is discoverable by Turborepo/CI selective testing. Left
+      `parse_artefact_content`'s bare `dict`/`list` param alone (verbatim mirror of Signals' helper — changing only our
+      copy would diverge it). The heavy Temporal-structural items the audit surfaced (the `_sandbox_identity`
+      ContextVar, by-value `pr_files`/diff payloads, `GITHUB_TOKEN`-vs-team-integration) are **deferred to step 14** —
+      they're the documented workflow rewrite, not standalone debt. 215 tests green, ruff + tach clean.
 
 - **Validator as a team-customizable skill — this is step 13** (lands _before_ Temporal; design detail here).
   Today the validation stage (`tools/issue_validation.py` + `prompts/issue_validation/*`) sends each chunk's

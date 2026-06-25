@@ -74,9 +74,8 @@ class TestRunSandboxReview:
         assert result is None
 
 
+# The run-scoped identity binds (team_id, user_id) for every sandbox call in a run.
 class TestSandboxIdentity:
-    """The run-scoped identity binds (team_id, user_id) for every sandbox call in a run."""
-
     @pytest.mark.asyncio
     async def test_context_reflects_bound_identity(self) -> None:
         # _sandbox_context_for assembles the context from the bound identity + the call's repo —

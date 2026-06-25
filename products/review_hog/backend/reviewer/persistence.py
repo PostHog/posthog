@@ -36,6 +36,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ChunkAnalysisArtefact,
     ChunkSetArtefact,
     PerspectiveResultArtefact,
+    ReviewArtefactContent,
     ReviewIssueFinding,
     ValidationVerdict,
     parse_artefact_content,
@@ -208,14 +209,14 @@ def load_perspective_results(*, team_id: int, report_id: str, head_sha: str) -> 
     return out
 
 
-def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_sha: str) -> list:
+def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_sha: str) -> list[ReviewArtefactContent]:
     """Parsed working-state contents for this turn, oldest-first so callers can latest-wins them.
 
     Rows whose content fails to parse (e.g. a stale schema from an interrupted earlier turn) or
     whose `head_sha` differs from the requested turn are skipped — a non-matching row is simply not
     this turn's work, and an unparseable one is treated as absent so the stage re-runs.
     """
-    contents: list = []
+    contents: list[ReviewArtefactContent] = []
     rows = (
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(report_id=report_id, type=artefact_type)
@@ -378,5 +379,5 @@ def _to_finding(issue: Issue) -> ReviewIssueFinding:
         suggestion=issue.suggestion,
         priority=issue.priority,
         source_perspective=issue.source_perspective,
-        is_directly_related_to_changes=issue.is_directy_related_to_changes,
+        is_directly_related_to_changes=issue.is_directly_related_to_changes,
     )

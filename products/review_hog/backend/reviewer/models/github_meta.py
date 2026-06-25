@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import logging
 
 from pydantic import BaseModel, Field

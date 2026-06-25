@@ -1,0 +1,6 @@
+{
+    "name": "@posthog/products-review_hog",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/reviewer/tests -v --tb=short"
+    }
+}

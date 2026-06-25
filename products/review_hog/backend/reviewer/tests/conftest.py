@@ -1,5 +1,4 @@
-"""Pytest configuration and shared fixtures for tests."""
-
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import pytest
@@ -15,7 +14,6 @@ from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chu
 
 @pytest.fixture
 def pr_metadata() -> PRMetadata:
-    """Load PR metadata from fixture file."""
     fixtures_dir = Path(__file__).parent / "fixtures"
     with (fixtures_dir / "pr_meta.json").open() as f:
         return PRMetadata.model_validate_json(f.read())
@@ -23,7 +21,6 @@ def pr_metadata() -> PRMetadata:
 
 @pytest.fixture
 def pr_files() -> list[PRFile]:
-    """Load PR files from fixture file."""
     fixtures_dir = Path(__file__).parent / "fixtures"
     files = []
     with (fixtures_dir / "pr_files.jsonl").open() as f:
@@ -35,7 +32,6 @@ def pr_files() -> list[PRFile]:
 
 @pytest.fixture
 def pr_comments() -> list[PRComment]:
-    """Load PR comments from fixture file."""
     fixtures_dir = Path(__file__).parent / "fixtures"
     comments = []
     with (fixtures_dir / "pr_comments.jsonl").open() as f:
@@ -47,7 +43,6 @@ def pr_comments() -> list[PRComment]:
 
 @pytest.fixture
 def expected_chunks() -> ChunksList:
-    """Load expected chunks output from fixture file."""
     fixtures_dir = Path(__file__).parent / "fixtures"
     with (fixtures_dir / "expected_chunks.json").open() as f:
         return ChunksList.model_validate_json(f.read())
@@ -55,7 +50,6 @@ def expected_chunks() -> ChunksList:
 
 @pytest.fixture
 def sample_chunk_analysis_simple() -> ChunkAnalysis:
-    """Create a simple ChunkAnalysis for testing."""
     return ChunkAnalysis(
         goal="This chunk implements the core authentication logic for the application.",
         chunk_meta=ChunkMeta(
@@ -67,7 +61,6 @@ def sample_chunk_analysis_simple() -> ChunkAnalysis:
 
 @pytest.fixture
 def sample_issues_review_simple() -> IssuesReview:
-    """Create a simple IssuesReview for testing."""
     return IssuesReview(
         issues=[
             Issue(
@@ -83,13 +76,8 @@ def sample_issues_review_simple() -> IssuesReview:
     )
 
 
-def create_mock_run_sandbox_review(model_instance: BaseModel):
-    """Mock for `run_sandbox_review` that returns the given validated model.
-
-    Matches the seam's new contract — the executor returns the parsed model (or None on failure)
-    rather than writing a file.
-    """
-
+def create_mock_run_sandbox_review(model_instance: BaseModel) -> Callable[..., Awaitable[BaseModel]]:
+    # Mocks the run_sandbox_review seam: returns the parsed model the executor would yield.
     async def mock_func(**kwargs: object) -> BaseModel:
         return model_instance
 
@@ -98,7 +86,6 @@ def create_mock_run_sandbox_review(model_instance: BaseModel):
 
 @pytest.fixture
 def sample_validation() -> IssueValidation:
-    """Create a sample valid IssueValidation for testing."""
     return IssueValidation(
         is_valid=True,
         argumentation="The issue correctly identifies a potential bug.",

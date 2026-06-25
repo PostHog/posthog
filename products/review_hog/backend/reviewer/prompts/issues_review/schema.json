@@ -40,10 +40,10 @@
                     "$ref": "#/$defs/IssuePriority",
                     "description": "Priority level of the issue"
                 },
-                "is_directy_related_to_changes": {
+                "is_directly_related_to_changes": {
                     "default": false,
                     "description": "Whether the issue is directly caused by the changes in the PR or was noticed just because of the same file",
-                    "title": "Is Directy Related To Changes",
+                    "title": "Is Directly Related To Changes",
                     "type": "boolean"
                 },
                 "source_perspective": {
