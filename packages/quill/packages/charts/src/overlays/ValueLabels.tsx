@@ -19,8 +19,7 @@ export interface ValueLabelContext {
     /** Finite values of every series contributing to this band's stack (non-excluded, not a fill
      *  lower-bound, not an overlay) at this dataIndex — the denominator set for share math. */
     bandValues: number[]
-    /** Same set as `bandValues` but for the preceding dataIndex (empty at the first index) — lets a
-     *  formatter compute a segment's share of the *previous* band (e.g. period-over-period lapse). */
+    /** Same as `bandValues` for the preceding dataIndex; empty at the first index. */
     previousBandValues: number[]
     /** True in normalized/percent layout, where `value` is already a fraction. */
     isPercent: boolean

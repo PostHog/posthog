@@ -30,16 +30,13 @@ export interface LifecycleValueLabelOptions {
     showPercentages: boolean
 }
 
-// Sum of the active segments in a band — new/resurrecting/returning are stacked as positives;
-// dormant is the lone negative series, so positives-only gives the active total for that period.
+// Positives only — dormant is the lone negative series, so it's excluded from the active total.
 function activeBandTotal(bandValues: number[] | undefined): number {
     return (bandValues ?? []).reduce((sum, v) => (v > 0 ? sum + v : sum), 0)
 }
 
-// A segment's percentage is its share of the active orgs that period — *not* of every status, so
-// the active statuses sum to 100%. Dormant is the exception: an org is dormant precisely because it
-// was active last period and is absent now, so its share is measured against the *previous* period's
-// active total (the pool it could have lapsed from), not this period's.
+// Dormant orgs lapsed from the *previous* period's active pool, so their share divides by that
+// period's total rather than the current one.
 export function buildLifecycleValueLabelFormatter(
     formatValue: (value: number) => string,
     { showValues, showPercentages }: LifecycleValueLabelOptions
@@ -54,10 +51,7 @@ export function buildLifecycleValueLabelFormatter(
             ? activeBandTotal(context.previousBandValues)
             : activeBandTotal(context.bandValues)
         if (denominator === 0) {
-            // The first period's dormant bar has no previous active total to divide by — fall back to
-            // the raw value (even in percentages-only mode) so it still gets a label instead of
-            // rendering blank. For an active segment a zero total only happens when the segment itself
-            // is zero (already skipped upstream), so leave that path as a skip.
+            // Dormant in the first period has no previous band to divide by — show its value rather than blank.
             return isDormant ? formatValue(value) : valueText
         }
         const pct = Math.round((Math.abs(context.rawValue) / denominator) * 100)

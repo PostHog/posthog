@@ -246,8 +246,6 @@ describe('buildTrendsLifecycleConfig', () => {
 
 describe('buildLifecycleValueLabelFormatter', () => {
     const formatValue = (v: number): string => `${v}`
-    // Active band: new 20 + resurrecting 10 (positives), dormant -10. Active total = 30, so an active
-    // segment of 20 → 67%. Dormant divides by the *previous* band's active total instead.
     const band: ValueLabelContext = {
         rawValue: 20,
         bandValues: [20, 10, -10],
@@ -266,14 +264,12 @@ describe('buildLifecycleValueLabelFormatter', () => {
 
     it('excludes dormant from the active denominator so active statuses sum to 100%', () => {
         const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: false, showPercentages: true })
-        // new 20 + resurrecting 10 = 30 active → 67% + 33%, dormant ignored in the denominator.
         expect(formatter(20, 0, 0, { ...band, rawValue: 20 })).toBe('67%')
         expect(formatter(10, 1, 0, { ...band, rawValue: 10 })).toBe('33%')
     })
 
     it('measures dormant against the previous period active total', () => {
         const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: false, showPercentages: true })
-        // dormant -10 vs previous active (40 + 10) = 50 → 20% lapsed.
         expect(formatter(-10, 2, 1, { ...band, rawValue: -10 })).toBe('20%')
     })
 
@@ -284,8 +280,6 @@ describe('buildLifecycleValueLabelFormatter', () => {
             previousBandValues: [],
             isPercent: false,
         }
-        // No previous active total to divide by, so the percentage is omitted — but the bar still gets
-        // a label (its value) rather than rendering blank, even when only percentages were requested.
         const withValues = buildLifecycleValueLabelFormatter(formatValue, { showValues: true, showPercentages: true })
         expect(withValues(-10, 2, 0, firstPeriodDormant)).toBe('-10')
         const percentagesOnly = buildLifecycleValueLabelFormatter(formatValue, {
