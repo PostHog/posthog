@@ -120,7 +120,7 @@ describe('taskRunChatLogic', () => {
     })
 
     it('no-ops without a current project and preserves the draft', async () => {
-        project.actions.setCurrentProjectId(null)
+        ;(project.actions as any).setCurrentProjectId(null)
         logic.actions.setComposerDraft('ship it')
 
         await expectLogic(logic, () => {
@@ -132,7 +132,7 @@ describe('taskRunChatLogic', () => {
     })
 
     it('no-ops for a terminal run', async () => {
-        stream.actions.setStubStatus('completed')
+        ;(stream.actions as any).setStubStatus('completed')
         logic.actions.setComposerDraft('ship it')
 
         await expectLogic(logic, () => {
