@@ -1,8 +1,6 @@
 //! Notifications mode: consumes the `error-tracking-ingestion-notifications`
-//! Kafka topic and logs each message. This is the initial read-and-display
-//! stage; downstream handling (routing, delivery) is layered on later. It
-//! starts only a Kafka consumer plus the metrics/health server — no Postgres,
-//! Redis, symbol resolution, or HTTP `/process` pipeline.
+//! Kafka topic and fans issue-created notifications out to downstream side
+//! effects.
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -14,23 +12,37 @@ use axum::{http::StatusCode, routing::get, Router};
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::core::{shutdown::wait_for_shutdown, types::notification::IngestionNotification};
+use crate::modes::notifications::context::NotificationsContext;
+use crate::modes::notifications::handler::handle_notification;
 
+pub mod analytics;
 pub mod config;
+mod context;
+mod handler;
+pub mod side_effects;
+pub mod signals;
+pub mod stacktrace;
+pub mod types;
 
 pub use config::NotificationsConfig;
 
 const NOTIFICATIONS_RECEIVED_TOTAL: &str = "cymbal_notifications_received_total";
+const NOTIFICATIONS_HANDLED_TOTAL: &str = "cymbal_notifications_handled_total";
 const NOTIFICATIONS_SKIPPED_TOTAL: &str = "cymbal_notifications_skipped_total";
 const NOTIFICATIONS_KAFKA_ERRORS_TOTAL: &str = "cymbal_notifications_kafka_errors_total";
+const NOTIFICATIONS_HANDLE_ERRORS_TOTAL: &str = "cymbal_notifications_handle_errors_total";
 
 /// Boot the notifications consumer plus its metrics/health server and run until
 /// shutdown.
 pub async fn run(config: NotificationsConfig) {
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())
         .expect("failed to create notifications Kafka consumer");
+    let context = NotificationsContext::from_config(&config)
+        .await
+        .expect("failed to create notifications context");
 
     info!(
         topic = %config.consumer.kafka_consumer_topic,
@@ -44,7 +56,7 @@ pub async fn run(config: NotificationsConfig) {
     let metrics_handle =
         spawn_metrics_server(config.metrics_port, shutdown_rx.clone(), draining.clone());
 
-    consume_loop(consumer, shutdown_rx).await;
+    consume_loop(consumer, context, shutdown_rx).await;
 
     let _ignored = shutdown_tx.send(true);
     if let Err(err) = metrics_handle.await {
@@ -56,7 +68,11 @@ pub async fn run(config: NotificationsConfig) {
 /// Receive messages until shutdown, logging each one. Offsets for successfully
 /// received messages are stored and auto-committed by the consumer; serde and
 /// empty failures are auto-stored as poison pills inside `json_recv`.
-async fn consume_loop(consumer: SingleTopicConsumer, mut shutdown_rx: watch::Receiver<bool>) {
+async fn consume_loop(
+    consumer: SingleTopicConsumer,
+    context: NotificationsContext,
+    mut shutdown_rx: watch::Receiver<bool>,
+) {
     loop {
         tokio::select! {
             biased;
@@ -71,8 +87,20 @@ async fn consume_loop(consumer: SingleTopicConsumer, mut shutdown_rx: watch::Rec
                     Ok((notification, offset)) => {
                         log_notification_summary(&notification);
                         metrics::counter!(NOTIFICATIONS_RECEIVED_TOTAL).increment(1);
-                        if let Err(e) = offset.store() {
-                            warn!(error = %e, "failed to store notification offset");
+                        match handle_notification(&context, notification).await {
+                            Ok(()) => {
+                                metrics::counter!(NOTIFICATIONS_HANDLED_TOTAL).increment(1);
+                                if let Err(e) = offset.store() {
+                                    panic!("failed to store notification offset: {e}");
+                                }
+                                if let Err(e) = consumer.commit() {
+                                    panic!("failed to commit notification offset: {e}");
+                                }
+                            }
+                            Err(e) => {
+                                metrics::counter!(NOTIFICATIONS_HANDLE_ERRORS_TOTAL).increment(1);
+                                panic!("failed to handle notification: {e}");
+                            }
                         }
                     }
                     Err(RecvErr::Serde(e)) => {
@@ -96,11 +124,27 @@ async fn consume_loop(consumer: SingleTopicConsumer, mut shutdown_rx: watch::Rec
 fn log_notification_summary(notification: &IngestionNotification) {
     match notification {
         IngestionNotification::IssueCreated(issue_created) => {
-            info!(
+            debug!(
                 notification_type = "issue_created",
                 team_id = issue_created.team_id,
                 issue_id = %issue_created.issue_id,
                 event_uuid = %issue_created.event_uuid,
+                "received error-tracking ingestion notification"
+            );
+        }
+        IngestionNotification::IssueReopened(issue_reopened) => {
+            debug!(
+                notification_type = "issue_reopened",
+                team_id = issue_reopened.team_id,
+                issue_id = %issue_reopened.issue_id,
+                "received error-tracking ingestion notification"
+            );
+        }
+        IngestionNotification::IssueSpiking(issue_spiking) => {
+            debug!(
+                notification_type = "issue_spiking",
+                team_id = issue_spiking.team_id,
+                issue_id = %issue_spiking.issue_id,
                 "received error-tracking ingestion notification"
             );
         }

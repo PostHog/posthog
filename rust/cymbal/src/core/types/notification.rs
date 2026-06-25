@@ -16,6 +16,10 @@ use crate::types::OutputErrProps;
 pub enum IngestionNotification {
     /// A new issue was created during ingestion.
     IssueCreated(IssueCreated),
+    /// A resolved issue was reopened during ingestion.
+    IssueReopened(IssueReopened),
+    /// An issue crossed the spike threshold during ingestion.
+    IssueSpiking(IssueSpiking),
 }
 
 /// Payload for [`IngestionNotification::IssueCreated`].
@@ -26,28 +30,31 @@ pub struct IssueCreated {
     pub fingerprint: String,
     pub event_uuid: Uuid,
     pub event_timestamp: String,
+    pub assignee: Option<String>,
     /// Full final exception event properties after Cymbal processing.
     pub event_properties: OutputErrProps,
 }
 
-impl IngestionNotification {
-    pub fn issue_created(
-        team_id: i32,
-        issue_id: Uuid,
-        fingerprint: String,
-        event_uuid: Uuid,
-        event_timestamp: String,
-        event_properties: OutputErrProps,
-    ) -> Self {
-        Self::IssueCreated(IssueCreated {
-            team_id,
-            issue_id,
-            fingerprint,
-            event_uuid,
-            event_timestamp,
-            event_properties,
-        })
-    }
+/// Payload for [`IngestionNotification::IssueReopened`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueReopened {
+    pub team_id: i32,
+    pub issue_id: Uuid,
+    pub event_timestamp: String,
+    pub assignee: Option<String>,
+    /// Full final exception event properties after Cymbal processing.
+    pub event_properties: OutputErrProps,
+}
+
+/// Payload for [`IngestionNotification::IssueSpiking`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueSpiking {
+    pub team_id: i32,
+    pub issue_id: Uuid,
+    pub computed_baseline: f64,
+    pub current_bucket_value: f64,
+    /// Full final exception event properties after Cymbal processing.
+    pub event_properties: OutputErrProps,
 }
 
 #[cfg(test)]
@@ -56,17 +63,18 @@ mod tests {
 
     #[test]
     fn issue_created_round_trips_with_type_tag() {
-        let notification = IngestionNotification::issue_created(
-            42,
-            Uuid::nil(),
-            "abc".to_string(),
-            Uuid::nil(),
-            "1970-01-01T00:00:00Z".to_string(),
-            OutputErrProps {
+        let notification = IngestionNotification::IssueCreated(IssueCreated {
+            team_id: 42,
+            issue_id: Uuid::nil(),
+            fingerprint: "abc".to_string(),
+            event_uuid: Uuid::nil(),
+            event_timestamp: "1970-01-01T00:00:00Z".to_string(),
+            assignee: None,
+            event_properties: OutputErrProps {
                 fingerprint: "abc".to_string(),
                 ..Default::default()
             },
-        );
+        });
 
         let json = serde_json::to_value(&notification).unwrap();
         assert_eq!(json["type"], "issue_created");

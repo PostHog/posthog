@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::app_context::AppContext;
 use crate::error::UnhandledError;
-use crate::issue_resolution::Issue;
+use crate::issue_resolution::{send_issue_spiking_notification, Issue};
 use crate::metric_consts::{
     SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_EMIT_EVENTS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME,
     SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
@@ -302,33 +302,19 @@ async fn emit_spiking_events(
         return;
     }
 
-    // Persist spike events to Postgres and emit a signal
+    // Publish spike side effects out of the processing hot path.
     for spike in &acquired_locks {
-        let id = Uuid::now_v7();
-        let now = Utc::now();
-        if let Err(e) = sqlx::query(
-            r#"INSERT INTO posthog_errortrackingspikeevent
-               (id, team_id, issue_id, detected_at, computed_baseline, current_bucket_value)
-               VALUES ($1, $2, $3, $4, $5, $6)"#,
-        )
-        .bind(id)
-        .bind(spike.issue.team_id)
-        .bind(spike.issue.id)
-        .bind(now)
-        .bind(spike.computed_baseline)
-        .bind(spike.current_bucket_value as i32)
-        .execute(&context.posthog_pool)
-        .await
-        {
-            warn!("Failed to persist spike event: {e}");
-        }
-
-        context.signal_client.emit_issue_spiking(
+        if let Err(e) = send_issue_spiking_notification(
+            context,
             &spike.issue,
-            &spike.props,
+            spike.props.clone(),
             spike.computed_baseline,
             spike.current_bucket_value as f64,
-        );
+        )
+        .await
+        {
+            warn!("Failed to publish spike notification: {e}");
+        }
     }
 
     let emit_timer = common_metrics::timing_guard(SPIKE_EMIT_EVENTS_TIME, &[]);
