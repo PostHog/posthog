@@ -1,9 +1,10 @@
 import copy
 import json
 import graphlib
+from collections.abc import Callable
 from datetime import date
 from typing import Any, Literal, NamedTuple, Optional, cast
-from urllib.parse import urlparse
+from urllib.parse import quote, quote_plus, urlparse
 
 import structlog
 from jsonpath_ng.exceptions import JSONPathError
@@ -102,6 +103,11 @@ PREVIEW_MAX_ROWS = 50
 # preview helps debug). Cap the parents walked so one preview can't fan a single
 # inline call into an unbounded request burst; a handful is plenty to eyeball a child.
 PREVIEW_MAX_FANOUT_PARENTS = 10
+# Cap on a single preview response body. The engine parses the whole page into
+# memory before the row cap trims it, so an upstream-controlled (or hostile) host
+# could otherwise return a huge page and exhaust the worker. Generous enough for a
+# real first page; a preview against a larger page fails with a clear error.
+PREVIEW_MAX_BODY_BYTES = 10 * 1024 * 1024
 
 
 class ManifestValidationError(ValueError):
@@ -888,7 +894,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             {
                 **manifest,
                 "resources": engine_resources,
-                "client": {**client, "session": _build_preview_session(secret_values)},
+                "client": {
+                    **client,
+                    "session": _build_preview_session(secret_values),
+                    # One attempt only — a rate-limited endpoint must surface an error
+                    # inline, not sleep on `Retry-After` and tie up the request thread.
+                    "max_retries": 1,
+                },
             },
         )
 
@@ -903,6 +915,15 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # Deterministic build-time config errors the create-time checks can't
             # see (e.g. include_from_parent on a resource with no resolve param).
             raise ManifestValidationError(str(exc)) from exc
+
+        # Cap how many parent rows each fan-out ancestor emits. The engine issues one
+        # child request per parent row, and empty child pages are dropped before the
+        # row reader sees them — so the request bound has to live on the parent, not on
+        # pages collected downstream.
+        ancestor_names = {ancestor["name"] for ancestor in chain.ancestors}
+        for engine_resource in resources:
+            if getattr(engine_resource, "name", None) in ancestor_names:
+                engine_resource.add_filter(_keep_first_n(PREVIEW_MAX_FANOUT_PARENTS))
 
         resource = next((r for r in resources if getattr(r, "name", None) == resource_name), None)
         if resource is None:
@@ -926,19 +947,37 @@ class PreviewResult(NamedTuple):
     error: str | None
 
 
+class PreviewResponseTooLargeError(Exception):
+    """A preview response body exceeded ``PREVIEW_MAX_BODY_BYTES``."""
+
+
 class _PreviewSession(_NoRedirectSession):
-    """Timeout-bounded variant of the no-redirect session for the inline preview read.
+    """Timeout- and size-bounded variant of the no-redirect session for the inline preview read.
 
     ``RESTClient.send()`` passes no per-request timeout, so it's pinned at the
     session level — a stalled upstream can't hang the request thread. The
-    no-redirect credential pin is inherited from ``_NoRedirectSession``. The
-    engine's own tenacity retry still re-issues 429/5xx, but each attempt is
-    timeout-bounded and single-page, so the total stays bounded.
+    no-redirect credential pin is inherited from ``_NoRedirectSession``.
+
+    The body is streamed and read up to a hard cap rather than buffered whole: the
+    engine parses the full page before the row cap trims it, so without this a
+    hostile or misconfigured host could return a huge page and exhaust the worker.
+    ``decode_content=True`` with a bounded read also defuses a compression bomb —
+    urllib3 stops once it has that many decompressed bytes.
     """
 
     def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
         kwargs.setdefault("timeout", (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
-        return super().send(request, **kwargs)
+        kwargs["stream"] = True
+        response = super().send(request, **kwargs)
+        try:
+            body = response.raw.read(PREVIEW_MAX_BODY_BYTES + 1, decode_content=True)
+        finally:
+            response.close()
+        if len(body) > PREVIEW_MAX_BODY_BYTES:
+            raise PreviewResponseTooLargeError(f"Preview response body exceeded {PREVIEW_MAX_BODY_BYTES} bytes")
+        response._content = body
+        response._content_consumed = True
+        return response
 
 
 def _build_preview_session(redact_values: tuple[str, ...]) -> _PreviewSession:
@@ -963,33 +1002,41 @@ def _with_single_page_paginator(resource: dict[str, Any]) -> dict[str, Any]:
     return {**resource, "endpoint": {**endpoint, "paginator": {"type": "single_page"}}}
 
 
-def _collect_preview_rows(
-    resource: Any, max_rows: int, max_pages: int = PREVIEW_MAX_FANOUT_PARENTS
-) -> list[dict[str, Any]]:
-    """Flatten the engine resource's pages into at most ``max_rows`` records,
-    walking at most ``max_pages`` pages.
+def _keep_first_n(n: int) -> Callable[[dict[str, Any]], bool]:
+    """A stateful filter that keeps the first ``n`` rows and drops the rest.
+
+    Applied to a fan-out ancestor so the child fans out over at most ``n`` parent
+    rows — the request bound the row reader can't enforce, since empty child pages
+    never reach it.
+    """
+    seen = 0
+
+    def keep(_row: dict[str, Any]) -> bool:
+        nonlocal seen
+        if seen >= n:
+            return False
+        seen += 1
+        return True
+
+    return keep
+
+
+def _collect_preview_rows(resource: Any, max_rows: int) -> list[dict[str, Any]]:
+    """Flatten the engine resource's pages into at most ``max_rows`` records.
 
     Iterating a :class:`Resource` yields pages (``list[dict]``) lazily, so
     returning early abandons the generator and stops it issuing further requests.
-    Two bounds, because each alone is insufficient for a fan-out child (the
-    engine issues one child request per parent-page item, surfaced here as one
-    page each): ``max_rows`` bounds the common case, but a child returning
-    few/zero rows per parent would never hit it and drain the whole
-    upstream-controlled parent page — so ``max_pages`` caps the requests issued
-    regardless of how many rows come back. A single-page top-level resource
-    yields one page, well under the cap.
+    A fan-out child's request volume is bounded upstream by capping its parent
+    rows (see ``preview_resource``); a single-page top-level resource issues one
+    request regardless.
     """
     rows: list[dict[str, Any]] = []
-    pages_seen = 0
     for page in resource:
-        pages_seen += 1
         for item in page:
             if isinstance(item, dict):
                 rows.append(item)
                 if len(rows) >= max_rows:
                     return rows
-        if pages_seen >= max_pages:
-            return rows
     return rows
 
 
@@ -1025,9 +1072,13 @@ def _infer_columns(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
 
 
 def _redact_secrets(text: str, secrets: tuple[str, ...]) -> str:
+    # Redact the raw secret and its URL-encoded forms: a key in a query param is
+    # percent-encoded in `response.url`, which an HTTPError carries verbatim.
     for secret in secrets:
-        if secret:
-            text = text.replace(secret, "***")
+        if not secret:
+            continue
+        for variant in dict.fromkeys((secret, quote(secret, safe=""), quote_plus(secret))):
+            text = text.replace(variant, "***")
     return text
 
 

@@ -3,6 +3,7 @@ import gzip
 import json
 from datetime import UTC, datetime
 from typing import Any, cast
+from urllib.parse import quote
 
 from unittest.mock import MagicMock, patch
 
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
+    PREVIEW_MAX_BODY_BYTES,
     PREVIEW_MAX_FANOUT_PARENTS,
     PREVIEW_MAX_ROWS,
     PROBE_CONNECT_TIMEOUT,
@@ -29,10 +31,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     CustomSource,
     FanoutChain,
     ManifestValidationError,
+    PreviewResponseTooLargeError,
     _fanout_chain,
     _json_type_label,
     _PreviewSession,
     _read_capped_text,
+    _redact_secrets,
     _validate_resource_graph,
     manifest_request_hosts,
     validate_manifest_structure,
@@ -920,14 +924,22 @@ def _fake_resource(name: str) -> MagicMock:
 
 
 class _PageResource:
-    """Iterable stand-in for an engine Resource: yields preset pages (list[dict])."""
+    """Iterable stand-in for an engine Resource: yields preset pages (list[dict]),
+    applying any registered ``add_filter`` predicates so the preview's parent cap
+    is exercised the same way the real Resource would apply it."""
 
     def __init__(self, name: str, pages: list[list[dict[str, Any]]]) -> None:
         self.name = name
         self._pages = pages
+        self._filters: list[Any] = []
+
+    def add_filter(self, fn: Any) -> "_PageResource":
+        self._filters.append(fn)
+        return self
 
     def __iter__(self) -> Any:
-        return iter(self._pages)
+        for page in self._pages:
+            yield [item for item in page if all(f(item) for f in self._filters)]
 
 
 class _CountingResource:
@@ -944,22 +956,6 @@ class _CountingResource:
         for index in range(self.total_rows):
             self.produced = index + 1
             yield [{"id": index}]
-
-
-class _EmptyPageCountingResource:
-    """Engine Resource that yields empty pages lazily — one per parent item in a
-    fan-out child whose children resolve empty — and records how many it produced,
-    so a test can prove preview caps the parent requests instead of draining them."""
-
-    def __init__(self, name: str, total_pages: int) -> None:
-        self.name = name
-        self.total_pages = total_pages
-        self.pages_produced = 0
-
-    def __iter__(self) -> Any:
-        for index in range(self.total_pages):
-            self.pages_produced = index + 1
-            yield []
 
 
 def _break_unknown_parent(m: dict) -> None:
@@ -1584,14 +1580,19 @@ def _apikey_manifest() -> dict:
 
 
 class TestPreviewSession(SimpleTestCase):
-    def test_send_pins_no_redirect_and_default_timeout(self):
+    def test_send_pins_no_redirect_streams_and_default_timeout(self):
         prepared = requests.Request("GET", "https://acme.example.com/").prepare()
+        response = Response()
+        response.status_code = 200
+        response.raw = MagicMock()
+        response.raw.read.return_value = b"{}"
 
-        with patch.object(requests.Session, "send", return_value=Response()) as parent_send:
+        with patch.object(requests.Session, "send", return_value=response) as parent_send:
             _PreviewSession().send(prepared)
 
         forwarded = parent_send.call_args.kwargs
         assert forwarded["allow_redirects"] is False
+        assert forwarded["stream"] is True
         assert forwarded["timeout"] == (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT)
 
 
@@ -1676,6 +1677,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         assert endpoint["paginator"] == {"type": "single_page"}
         assert "incremental" not in endpoint
         assert isinstance(engine_manifest["client"]["session"], _PreviewSession)
+        assert engine_manifest["client"]["max_retries"] == 1
         assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] is None
 
     @patch(
@@ -1720,16 +1722,40 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
             assert resource["endpoint"]["paginator"] == {"type": "single_page"}
         assert result.rows == [{"token": "t1"}]
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_fanout_empty_child_caps_parent_requests(self, mock_resources):
-        resource = _EmptyPageCountingResource("responses", total_pages=PREVIEW_MAX_FANOUT_PARENTS + 50)
-        mock_resources.return_value = [resource]
+    @patch("posthog.temporal.data_imports.sources.custom.source._build_preview_session")
+    def test_fanout_empty_child_caps_parent_requests_through_real_engine(self, mock_build_session):
+        # End-to-end through the real engine: a parent page far larger than the cap,
+        # every child resolving empty. Empty child pages are dropped before the row
+        # reader sees them, so only the parent cap keeps the per-parent child requests
+        # bounded — the regression a fake-page stand-in can't catch.
+        def _response(body: dict) -> Response:
+            resp = Response()
+            resp.status_code = 200
+            resp._content = json.dumps(body).encode()
+            resp.headers["Content-Type"] = "application/json"
+            return resp
+
+        sent_urls: list[str] = []
+
+        def _send(prepared):
+            sent_urls.append(prepared.url)
+            if prepared.url.endswith("/forms"):
+                return _response({"items": [{"id": f"f{index}"} for index in range(PREVIEW_MAX_FANOUT_PARENTS + 20)]})
+            return _response({"items": []})
+
+        session = MagicMock()
+        session.headers = {}
+        session.prepare_request.side_effect = lambda request: request
+        session.send.side_effect = _send
+        mock_build_session.return_value = session
+
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()), auth_token="abc")
         result = source.preview_resource(config, team_id=999, resource_name="responses")
 
         assert result.row_count == 0
-        assert resource.pages_produced == PREVIEW_MAX_FANOUT_PARENTS
+        child_requests = [url for url in sent_urls if "/responses" in url]
+        assert len(child_requests) == PREVIEW_MAX_FANOUT_PARENTS
 
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
     @patch(
@@ -1764,6 +1790,33 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         assert result.error is not None
         assert "supersecret" not in result.error
         assert "***" in result.error
+
+    def test_redact_secrets_redacts_url_encoded_credential(self):
+        secret = "ab/cd+ef=gh"
+        text = f"HTTPError for https://api.example.com/users?key={quote(secret, safe='')}"
+        redacted = _redact_secrets(text, (secret,))
+
+        assert quote(secret, safe="") not in redacted
+        assert "***" in redacted
+
+    def test_preview_session_rejects_oversized_response_body(self):
+        oversized = Response()
+        oversized.status_code = 200
+        oversized.raw = MagicMock()
+        oversized.raw.read.return_value = b"x" * (PREVIEW_MAX_BODY_BYTES + 1)
+        with patch.object(requests.Session, "send", return_value=oversized):
+            with self.assertRaises(PreviewResponseTooLargeError):
+                _PreviewSession().send(MagicMock())
+
+    def test_preview_session_returns_capped_body(self):
+        within_cap = Response()
+        within_cap.status_code = 200
+        within_cap.raw = MagicMock()
+        within_cap.raw.read.return_value = b'{"items": [{"id": 1}]}'
+        with patch.object(requests.Session, "send", return_value=within_cap):
+            response = _PreviewSession().send(MagicMock())
+
+        assert response.json() == {"items": [{"id": 1}]}
 
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_credential_never_appears_in_result(self, mock_resources):

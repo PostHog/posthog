@@ -1373,6 +1373,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "enable_cdc",
         "disable_cdc",
         "update_cdc_settings",
+        # Live outbound HTTP to a caller-supplied manifest (including POSTs) — a
+        # side-effecting action, so it needs write scope, not read.
+        "preview_resource",
     ]
     scope_object_read_actions = [
         "list",
@@ -1384,7 +1387,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "webhook_info",
         "connections",
         "cdc_status",
-        "preview_resource",
     ]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
