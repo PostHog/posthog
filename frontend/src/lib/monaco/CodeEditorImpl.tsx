@@ -494,8 +494,12 @@ export function CodeEditor({
                             if (text) {
                                 ed.trigger('keyboard', 'type', { text })
                             }
-                        } catch {
-                            // clipboard-read unavailable or denied — user can still use Cmd/Ctrl+V
+                        } catch (error) {
+                            // A denied/unavailable clipboard-read permission is expected — the user can
+                            // still use Cmd/Ctrl+V. Surface anything else so it stays visible in dev.
+                            if (!(error instanceof DOMException)) {
+                                console.warn('Failed to paste from clipboard', error)
+                            }
                         }
                     },
                 })
