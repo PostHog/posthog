@@ -313,6 +313,22 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             }),
         ),
         (
+            "like",
+            native_func(|vm, args| like_impl(vm, &args, "like", false, false)),
+        ),
+        (
+            "ilike",
+            native_func(|vm, args| like_impl(vm, &args, "ilike", true, false)),
+        ),
+        (
+            "notLike",
+            native_func(|vm, args| like_impl(vm, &args, "notLike", false, true)),
+        ),
+        (
+            "notILike",
+            native_func(|vm, args| like_impl(vm, &args, "notILike", true, true)),
+        ),
+        (
             "extractRegex",
             native_func(err_to_null(|vm, args| {
                 // Hog: extractRegex(haystack, pattern)
@@ -1610,6 +1626,41 @@ fn json_path_value(vm: &HogVM, args: &[HogValue]) -> Result<Option<JsonValue>, V
 
 // position(haystack, needle): 1-based char index of str(needle) in haystack, or 0 if absent (or
 // haystack isn't a string). The case-insensitive variant lowercases both first.
+// SQL LIKE matching (like/ilike/notLike/notILike). The reference escapes regex specials in the
+// pattern, maps `%`→`.*` and `_`→`.`, then does an *unanchored* match (`.test()`), so a pattern
+// without wildcards matches as a substring.
+fn like_impl(
+    vm: &HogVM,
+    args: &[HogValue],
+    name: &str,
+    case_insensitive: bool,
+    negate: bool,
+) -> Result<HogValue, VmError> {
+    assert_argc(args, 2, name)?;
+    let string: &str = args[0].deref(&vm.heap)?.try_as()?;
+    let pattern: &str = args[1].deref(&vm.heap)?.try_as()?;
+    let regex = like_to_regex(pattern);
+    let matched = regex_match(string, &regex, !case_insensitive)?;
+    Ok(HogLiteral::Boolean(matched ^ negate).into())
+}
+
+fn like_to_regex(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len() * 2);
+    for c in pattern.chars() {
+        match c {
+            '-' | '/' | '\\' | '^' | '$' | '*' | '+' | '?' | '.' | '(' | ')' | '|' | '['
+            | ']' | '{' | '}' => {
+                out.push('\\');
+                out.push(c);
+            }
+            '%' => out.push_str(".*"),
+            '_' => out.push('.'),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 fn position_impl(
     vm: &HogVM,
     haystack: &HogValue,
