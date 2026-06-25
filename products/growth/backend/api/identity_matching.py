@@ -21,6 +21,8 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models import Person
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.permissions import IsStaffUser
 
 from products.growth.backend.constants import (
@@ -28,6 +30,7 @@ from products.growth.backend.constants import (
     IDENTITY_MATCHING_CANDIDATE_PAIRS_STRUCTURE,
     IDENTITY_MATCHING_LINKS_DATASET,
     IDENTITY_MATCHING_LINKS_STRUCTURE,
+    IDENTITY_MATCHING_PERSON_PROPERTY_MAP,
     IDENTITY_MATCHING_S3_UNCONFIGURED_MESSAGE,
     IDENTITY_MATCHING_TIERS,
     identity_matching_dataset_read_args,
@@ -36,12 +39,68 @@ from products.growth.backend.constants import (
 
 MAX_RUNS_LISTED = 50
 
+
+def _person_summary(distinct_id: str, persons_by_distinct_id: dict[str, Person]) -> dict[str, Any] | None:
+    """Curated, display-ready summary of the person behind a distinct ID, or None when unresolved.
+
+    Only the properties in IDENTITY_MATCHING_PERSON_PROPERTY_MAP are surfaced (renamed to clean API
+    keys), so the payload stays bounded and the reviewer sees exactly the dimensions the models score
+    on. Anonymous orphans with no person profile (e.g. personless capture) resolve to None.
+    """
+    person = persons_by_distinct_id.get(distinct_id)
+    if person is None:
+        return None
+    properties = person.properties or {}
+    summary: dict[str, Any] = {
+        "distinct_id": distinct_id,
+        "first_seen": person.created_at,
+        "last_seen": person.last_seen_at,
+    }
+    for source_key, api_key in IDENTITY_MATCHING_PERSON_PROPERTY_MAP.items():
+        value = properties.get(source_key)
+        summary[api_key] = str(value) if value is not None else None
+    return summary
+
+
 # Let a glob matching no objects return zero rows (the "no run yet" path) instead of erroring.
 _S3_READ_SETTINGS = {"s3_throw_on_zero_files_match": "0"}
 
 # All-runs glob for one team: `<prefix>/team_<team_id>/*/links/*.parquet`. links is the smallest
 # dataset, so enumerating every run of a team this way is cheap.
 _ALL_RUNS = "*"
+
+
+class IdentityMatchingPersonSerializer(serializers.Serializer):
+    """The resolved person behind one side of a link, with a curated set of properties that mirror
+    the match signals (geo, device, campaign) so a reviewer can judge whether the link is plausible."""
+
+    distinct_id = serializers.CharField(help_text="Distinct ID this person was resolved from.")
+    first_seen = serializers.DateTimeField(
+        allow_null=True, help_text="When this person was first seen — person created_at (UTC)."
+    )
+    last_seen = serializers.DateTimeField(
+        allow_null=True, help_text="When this person was last seen, when tracked — person last_seen_at (UTC)."
+    )
+    email = serializers.CharField(allow_null=True, help_text="Person's email, when set.")
+    name = serializers.CharField(allow_null=True, help_text="Person's name property, when set.")
+    city = serializers.CharField(allow_null=True, help_text="GeoIP city ($geoip_city_name).")
+    country = serializers.CharField(allow_null=True, help_text="GeoIP country code ($geoip_country_code).")
+    browser = serializers.CharField(allow_null=True, help_text="Browser ($browser).")
+    os = serializers.CharField(allow_null=True, help_text="Operating system ($os).")
+    device_type = serializers.CharField(
+        allow_null=True, help_text="Device type, e.g. Desktop or Mobile ($device_type)."
+    )
+    timezone = serializers.CharField(allow_null=True, help_text="Browser timezone ($timezone).")
+    utm_source = serializers.CharField(allow_null=True, help_text="Initial campaign source ($initial_utm_source).")
+    utm_medium = serializers.CharField(allow_null=True, help_text="Initial campaign medium ($initial_utm_medium).")
+    utm_campaign = serializers.CharField(allow_null=True, help_text="Initial campaign name ($initial_utm_campaign).")
+    referring_domain = serializers.CharField(
+        allow_null=True, help_text="Initial referring domain ($initial_referring_domain)."
+    )
+    gclid = serializers.CharField(
+        allow_null=True,
+        help_text="Initial Google click ID ($initial_gclid); present when the person arrived via a paid Google ad.",
+    )
 
 
 class IdentityMatchingLinkSerializer(serializers.Serializer):
@@ -85,6 +144,14 @@ class IdentityMatchingLinkSerializer(serializers.Serializer):
     )
     anchor_paid_touch = serializers.BooleanField(
         help_text="The matched person already had a paid click ID inside the window."
+    )
+    orphan_person = IdentityMatchingPersonSerializer(
+        allow_null=True,
+        help_text="Resolved person behind the anonymous distinct ID; null when no profile exists for it.",
+    )
+    anchor_person = IdentityMatchingPersonSerializer(
+        allow_null=True,
+        help_text="Resolved identified person behind the matched person key; null when no profile exists for it.",
     )
 
 
@@ -318,6 +385,18 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "anchor_paid_touch",
         ]
         results = [dict(zip(field_names, row, strict=True)) for row in rows]
+
+        # Resolve the real persons behind each link (one batched lookup for the whole page) so the
+        # UI can show identity and the properties the models score on — letting a reviewer eyeball
+        # whether a match is plausible rather than guessing from a distinct ID string.
+        distinct_ids = {r["orphan_distinct_id"] for r in results} | {r["anchor_person_key"] for r in results}
+        persons_by_distinct_id = (
+            get_persons_mapped_by_distinct_id(self.team.pk, list(distinct_ids)) if distinct_ids else {}
+        )
+        for result in results:
+            result["orphan_person"] = _person_summary(result["orphan_distinct_id"], persons_by_distinct_id)
+            result["anchor_person"] = _person_summary(result["anchor_person_key"], persons_by_distinct_id)
+
         response = IdentityMatchingLinksResponseSerializer({"results": results, "count": count})
         return Response(response.data)
 

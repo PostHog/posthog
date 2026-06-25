@@ -12,6 +12,7 @@ uniformly from `FieldOrTable.description`; for data warehouse tables they are me
 `WarehouseColumnAnnotation` semantic layer, fetched lazily only when these tables are queried.
 """
 
+import hashlib
 from typing import TYPE_CHECKING, Any, Optional
 
 import structlog
@@ -19,6 +20,7 @@ import structlog
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    DANGEROUS_NoTeamIdCheckTable,
     DatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
@@ -160,22 +162,29 @@ def _visible_table_names(database: "Database") -> list[str]:
     return [n for n in database.tables.resolve_visible_table_names() if not n.startswith("posthog.")]
 
 
-def _warehouse_metadata(team_id: Optional[int]) -> tuple[dict[tuple[str, str], str], dict[str, Optional[int]]]:
+def _warehouse_metadata(
+    team_id: Optional[int],
+) -> tuple[dict[tuple[str, str], str], dict[str, Optional[int]], dict[str, Optional[int]]]:
     """Lazily load warehouse semantic descriptions and row counts for the team.
 
-    Returns `(descriptions, row_counts)` where descriptions is keyed by `(table_name, column_name)`
-    with `""` denoting the table-level description. Only runs when an information_schema table is
-    actually queried, so it never touches the hot `create_hogql_database` path.
+    Returns `(descriptions, row_counts, view_row_counts)`. Descriptions are keyed by
+    `(table_name, column_name)` with `""` denoting the table-level description. `row_counts` is keyed
+    by warehouse table name, `view_row_counts` by saved-query (view) name. Only runs when an
+    information_schema table is actually queried, so it never touches the hot
+    `create_hogql_database` path. Mirrors how `serialize_database` sources counts so the catalog and
+    the SQL-editor schema agree.
     """
     descriptions: dict[tuple[str, str], str] = {}
     row_counts: dict[str, Optional[int]] = {}
+    view_row_counts: dict[str, Optional[int]] = {}
     if team_id is None:
-        return descriptions, row_counts
+        return descriptions, row_counts, view_row_counts
 
     # Inline imports: keeps the products dependency off the hogql import path (avoids an import
     # cycle, since products import hogql) and off every non-information_schema query.
     from posthog.models.scoping import team_scope  # noqa: PLC0415
 
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery  # noqa: PLC0415
     from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation  # noqa: PLC0415
     from products.warehouse_sources.backend.models.table import DataWarehouseTable  # noqa: PLC0415
 
@@ -185,25 +194,223 @@ def _warehouse_metadata(team_id: Optional[int]) -> tuple[dict[tuple[str, str], s
                 "table__name", "column_name", "description"
             ):
                 descriptions[(table_name, column_name)] = description
-            for table_name, row_count in DataWarehouseTable.objects.values_list("name", "row_count"):
+            # `DataWarehouseTable` is on the IDOR baseline (not team-scoped), so `team_scope` is a
+            # no-op for it — filter by team_id explicitly or it reads every team's tables. `.queryable()`
+            # (not `.objects`) drops soft-deleted tables and orphans of a soft-deleted source —
+            # otherwise a re-synced table's dead duplicate clobbers the live row_count with a stale/null
+            # value. Oldest first so the newest row wins a name collision, matching the last-write-wins
+            # order `serialize_database` uses.
+            for table_name, row_count in (
+                DataWarehouseTable.objects.queryable()
+                .filter(team_id=team_id)
+                .order_by("created_at")
+                .values_list("name", "row_count")
+            ):
                 row_counts[table_name] = row_count
+            # Views carry their row count on the materialized backing table (`saved_query.table`).
+            for view_name, row_count in (
+                DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                .filter(team_id=team_id, table__isnull=False)
+                .values_list("name", "table__row_count")
+            ):
+                view_row_counts[view_name] = row_count
     except Exception:
         # Schema discovery must never fail a query because the warehouse metadata could not be read,
         # but log so a transient DB error can be told apart from a real bug in the fetch loop.
         logger.exception("information_schema: failed to load warehouse metadata", team_id=team_id)
-        return {}, {}
+        return {}, {}, {}
 
-    return descriptions, row_counts
+    return descriptions, row_counts, view_row_counts
+
+
+def _unwrap(expr: ast.Expr) -> ast.Expr:
+    """Peel resolver-inserted `Alias` wrappers — a resolved WHERE turns `table_name` into
+    `Alias(alias='table_name', expr=Field(...))`, so predicate matching has to see through them."""
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    return expr
+
+
+def _constant_str(expr: ast.Expr) -> Optional[str]:
+    """The string form of a non-null, non-bool constant expr, or None if it isn't one."""
+    expr = _unwrap(expr)
+    if isinstance(expr, ast.Constant) and expr.value is not None and not isinstance(expr.value, bool):
+        return str(expr.value)
+    return None
+
+
+def _is_target_field(expr: ast.Expr, column: str) -> bool:
+    expr = _unwrap(expr)
+    return isinstance(expr, ast.Field) and bool(expr.chain) and expr.chain[-1] == column
+
+
+def _bound_table_names(expr: Optional[ast.Expr], column: str) -> Optional[set[str]]:
+    """Best-effort *superset* of the `column` values a WHERE expr can match.
+
+    Returns None when no safe bound can be derived — the caller then emits every row and relies on
+    ClickHouse to apply the real predicate. The invariant is one-directional: the returned set must
+    never exclude a value the predicate could accept (that would drop valid rows), so anything not
+    understood widens to None rather than guessing.
+    """
+    if expr is None:
+        return None
+    expr = _unwrap(expr)
+    if isinstance(expr, ast.And):
+        # An AND result satisfies every conjunct, so it lies within any bounded conjunct; intersect
+        # the bounded ones for the tightest still-correct superset, ignoring conjuncts we can't bound.
+        bound: Optional[set[str]] = None
+        for child in expr.exprs:
+            child_bound = _bound_table_names(child, column)
+            if child_bound is None:
+                continue
+            bound = child_bound if bound is None else (bound & child_bound)
+        return bound
+    if isinstance(expr, ast.Or):
+        # An OR result satisfies at least one branch, so every branch must be bounded to bound the
+        # union — a single unbounded branch makes the whole disjunction unbounded.
+        union: set[str] = set()
+        for child in expr.exprs:
+            child_bound = _bound_table_names(child, column)
+            if child_bound is None:
+                return None
+            union |= child_bound
+        return union
+    if isinstance(expr, ast.CompareOperation):
+        if expr.op == ast.CompareOperationOp.Eq:
+            for field_side, value_side in ((expr.left, expr.right), (expr.right, expr.left)):
+                if _is_target_field(field_side, column):
+                    value = _constant_str(value_side)
+                    return {value} if value is not None else None
+            return None
+        if expr.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
+            if _is_target_field(expr.left, column) and isinstance(expr.right, ast.Tuple | ast.Array):
+                values = [_constant_str(e) for e in expr.right.exprs]
+                return None if any(v is None for v in values) else {v for v in values if v is not None}
+            return None
+    return None
+
+
+def _pushdown_table_filter(node: Any, column: str) -> Optional[frozenset[str]]:
+    """Derive a table-name bound from a *simple* single-table information_schema query.
+
+    Only attempted when the query selects from exactly one table with no joins: with a join a bare
+    `table_name` reference is ambiguous between relations, and a wrong bound could silently drop rows,
+    so we skip pushdown (return None → emit everything) rather than risk it.
+    """
+    if not isinstance(node, ast.SelectQuery) or node.select_from is None or node.select_from.next_join is not None:
+        return None
+    bound = _bound_table_names(node.where, column)
+    return frozenset(bound) if bound is not None else None
+
+
+# ClickHouse column types for the external data table, keyed by the same kinds as `_constant_rows_select`.
+_KIND_TO_CLICKHOUSE: dict[str, str] = {
+    _STRING: "String",
+    _NULLABLE_STRING: "Nullable(String)",
+    _INTEGER: "Int64",
+    _NULLABLE_INTEGER: "Nullable(Int64)",
+    # HogQL's BooleanDatabaseField maps to ClickHouse UInt8; Python bool serializes to it directly.
+    _BOOLEAN: "UInt8",
+}
+
+
+def _column_field(name: str, kind: str) -> DatabaseField:
+    if kind == _STRING:
+        return StringDatabaseField(name=name, nullable=False)
+    if kind == _NULLABLE_STRING:
+        return StringDatabaseField(name=name, nullable=True)
+    if kind == _INTEGER:
+        return IntegerDatabaseField(name=name, nullable=False)
+    if kind == _NULLABLE_INTEGER:
+        return IntegerDatabaseField(name=name, nullable=True)
+    if kind == _BOOLEAN:
+        return BooleanDatabaseField(name=name, nullable=False)
+    raise ValueError(f"Unknown information_schema column kind: {kind}")
+
+
+class _ExternalDataTable(DANGEROUS_NoTeamIdCheckTable):
+    """A query-scoped ClickHouse external data table, referenced by a bare name.
+
+    Its rows travel out-of-band via `sync_execute(external_tables=...)`, so the printed query text
+    stays small no matter how large the catalog is. `to_printed_clickhouse` emits the registered name
+    verbatim; ClickHouse resolves it against the external data sent alongside the request. The
+    no-team-id base is correct: the data is the caller's own catalog metadata, not cross-team rows.
+    """
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return self.name or ""
+
+    def to_printed_hogql(self) -> str:
+        return self.name or ""
+
+
+def _external_table_name(table_label: str, allowed: Optional[frozenset[str]]) -> str:
+    # Deterministic per (table, pushdown filter) so re-registration within a query is idempotent and
+    # the printed name always matches the data attached to the request.
+    if allowed is None:
+        suffix = "all"
+    else:
+        # Non-cryptographic: just a stable, collision-resistant suffix for the table name.
+        suffix = "f" + hashlib.sha256("\x01".join(sorted(allowed)).encode()).hexdigest()[:12]
+    return f"__ph_information_schema_{table_label}_{suffix}"
+
+
+def _rows_select(
+    context: "HogQLContext",
+    table_label: str,
+    columns: list[tuple[str, str]],
+    rows: list[list[Any]],
+    allowed: Optional[frozenset[str]],
+) -> ast.SelectQuery:
+    """Register `rows` as a query-scoped external data table and return a SELECT over it.
+
+    Falls back to inlining the rows as constants when there's no live database to register against
+    (in that case introspection returned no rows anyway).
+    """
+    database = context.database
+    if database is None:
+        return _constant_rows_select(columns, rows)
+
+    column_names = [name for name, _ in columns]
+    ext_name = _external_table_name(table_label, allowed)
+    if ext_name not in context.external_tables:
+        context.external_tables[ext_name] = {
+            "name": ext_name,
+            "structure": [(name, _KIND_TO_CLICKHOUSE[kind]) for name, kind in columns],
+            "data": [dict(zip(column_names, row)) for row in rows],
+        }
+        fields: dict[str, FieldOrTable] = {name: _column_field(name, kind) for name, kind in columns}
+        database.tables.add_child(
+            TableNode(name=ext_name, table=_ExternalDataTable(name=ext_name, fields=fields), hidden=True),
+            table_conflict_mode="override",
+            children_conflict_mode="override",
+        )
+
+    return ast.SelectQuery(
+        select=[ast.Alias(alias=name, expr=ast.Field(chain=[name])) for name in column_names],
+        select_from=ast.JoinExpr(table=ast.Field(chain=[ext_name])),
+    )
 
 
 class _Introspection:
     """Walks the live database once and produces the rows for every information_schema table."""
 
-    def __init__(self, database: "Database", context: "HogQLContext") -> None:
+    def __init__(
+        self, database: "Database", context: "HogQLContext", allowed_tables: Optional[frozenset[str]] = None
+    ) -> None:
         self.database = database
+        self.allowed_tables = allowed_tables
         self.warehouse = set(database.get_warehouse_table_names())
         self.views = set(database.get_view_names())
-        self.descriptions, self.row_counts = _warehouse_metadata(context.team_id)
+        self.descriptions, self.row_counts, self.view_row_counts = _warehouse_metadata(context.team_id)
+
+    def _row_count(self, name: str, table: Table, table_type: str) -> Optional[int]:
+        if table_type == "data_warehouse" and table.name:
+            return self.row_counts.get(table.name)
+        if table_type == "view":
+            # Views are keyed by their catalog name (the saved-query name), which is `name` here.
+            return self.view_row_counts.get(name)
+        return None
 
     def _table_description(self, table: Table, table_type: str) -> Optional[str]:
         if table.description:
@@ -226,7 +433,11 @@ class _Introspection:
         column_rows: list[list[Any]] = []
         relationship_rows: list[list[Any]] = []
 
-        for name in _visible_table_names(self.database):
+        names = _visible_table_names(self.database)
+        if self.allowed_tables is not None:
+            names = [name for name in names if name in self.allowed_tables]
+
+        for name in names:
             try:
                 table = self.database.get_table(name)
             except Exception:
@@ -234,7 +445,7 @@ class _Introspection:
                 continue
 
             table_type, table_schema = _classify_table(name, table, self.warehouse, self.views)
-            row_count = self.row_counts.get(table.name) if table_type == "data_warehouse" and table.name else None
+            row_count = self._row_count(name, table, table_type)
             table_rows.append(
                 [name, table_schema, name, table_type, self._table_description(table, table_type), row_count]
             )
@@ -323,18 +534,25 @@ class _Introspection:
         return ordinal
 
 
-def _introspect(context: "HogQLContext") -> tuple[list[list[Any]], list[list[Any]], list[list[Any]]]:
-    """Introspect the database once per query, reusing the result across information_schema tables.
+def _introspect(
+    context: "HogQLContext", allowed_tables: Optional[frozenset[str]] = None
+) -> tuple[list[list[Any]], list[list[Any]], list[list[Any]]]:
+    """Introspect the database once per (query, pushdown filter), reusing the result across tables.
 
     A query that joins several information_schema tables would otherwise rebuild the full
-    introspection — including the warehouse-metadata ORM queries — once per referenced table.
+    introspection — including the warehouse-metadata ORM queries — once per referenced table. The
+    cache is keyed by the pushed-down `allowed_tables` set so a filtered scan walks only the tables
+    it needs while still sharing work between references that resolve to the same bound.
     """
-    if context.information_schema_introspection is None:
+    cache = context.information_schema_introspection
+    if cache is None:
+        cache = context.information_schema_introspection = {}
+    if allowed_tables not in cache:
         database = context.database
-        if database is None:
-            return [], [], []
-        context.information_schema_introspection = _Introspection(database, context).collect()
-    return context.information_schema_introspection
+        cache[allowed_tables] = (
+            _Introspection(database, context, allowed_tables).collect() if database is not None else ([], [], [])
+        )
+    return cache[allowed_tables]
 
 
 # --- the virtual tables ----------------------------------------------------------------------- #
@@ -402,8 +620,9 @@ class InformationSchemaTablesTable(LazyTable):
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
-        table_rows, _, _ = _introspect(context)
-        return _constant_rows_select(_TABLES_COLUMNS, table_rows)
+        allowed = _pushdown_table_filter(node, "table_name")
+        table_rows, _, _ = _introspect(context, allowed)
+        return _rows_select(context, "tables", _TABLES_COLUMNS, table_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         return "information_schema.tables"
@@ -426,8 +645,9 @@ class InformationSchemaColumnsTable(LazyTable):
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
-        _, column_rows, _ = _introspect(context)
-        return _constant_rows_select(_COLUMNS_COLUMNS, column_rows)
+        allowed = _pushdown_table_filter(node, "table_name")
+        _, column_rows, _ = _introspect(context, allowed)
+        return _rows_select(context, "columns", _COLUMNS_COLUMNS, column_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         return "information_schema.columns"
@@ -447,8 +667,9 @@ class InformationSchemaRelationshipsTable(LazyTable):
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
-        _, _, relationship_rows = _introspect(context)
-        return _constant_rows_select(_RELATIONSHIPS_COLUMNS, relationship_rows)
+        allowed = _pushdown_table_filter(node, "source_table")
+        _, _, relationship_rows = _introspect(context, allowed)
+        return _rows_select(context, "relationships", _RELATIONSHIPS_COLUMNS, relationship_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         return "information_schema.relationships"

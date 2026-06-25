@@ -81,7 +81,7 @@ export class PluginServer implements NodeServer {
     }
 
     private async startServices(): Promise<void> {
-        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
+        initializePrometheusLabels()
 
         const capabilities = getPluginServerCapabilities(this.config)
 

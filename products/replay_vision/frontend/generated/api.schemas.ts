@@ -739,6 +739,10 @@ export type VisionActionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Filter to the actions belonging to one scanner.
+     */
+    scanner?: string
 }
 
 export type VisionObservationsListParams = {

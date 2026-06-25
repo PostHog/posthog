@@ -47,7 +47,9 @@ jobs:
               run: |
                   # Regenerate when the data file OR any additional source (e.g. the generator) changes,
                   # so a generator-only edit can't pass without validating the committed output.
-                  changed_files=$(gh pr diff "$PR_NUMBER" --name-only)
+                  # --repo is required because this step runs before checkout, so gh has no
+                  # local git remote to infer the repo from (otherwise: "not a git repository").
+                  changed_files=$(gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only)
                   if printf '%s\n' "$changed_files" \
                       | grep -qFf <(printf '%s\n' "$SOURCE_FILE" "$ADDITIONAL_SOURCE_FILES" | grep -v '^$'); then
                       echo "changed=true" >> $GITHUB_OUTPUT
