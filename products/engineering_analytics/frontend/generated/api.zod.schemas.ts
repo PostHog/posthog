@@ -247,6 +247,18 @@ export const PullRequestListItemApi = zod.object({
             'Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.'
         ),
     labels: zod.array(zod.string()).describe('GitHub label names on the pull request.'),
+    pushes: zod
+        .number()
+        .describe(
+            'CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed.'
+        ),
+    rerun_cycles: zod.number().describe('Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).'),
+    estimated_cost_usd: zod
+        .number()
+        .nullish()
+        .describe(
+            'Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.'
+        ),
 })
 
 export type PullRequestListItemApi = zod.input<typeof PullRequestListItemApi>
@@ -304,6 +316,20 @@ export const PullRequestListApi = zod.object({
                         'Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.'
                     ),
                 labels: zod.array(zod.string()).describe('GitHub label names on the pull request.'),
+                pushes: zod
+                    .number()
+                    .describe(
+                        'CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed.'
+                    ),
+                rerun_cycles: zod
+                    .number()
+                    .describe('Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).'),
+                estimated_cost_usd: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.'
+                    ),
             })
         )
         .describe('Pull requests, newest first, capped at `limit`.'),
@@ -318,11 +344,157 @@ export const PullRequestListApi = zod.object({
 export type PullRequestListApi = zod.input<typeof PullRequestListApi>
 export type PullRequestListApiOutput = zod.output<typeof PullRequestListApi>
 
+export const QuarantineModeEnumApi = zod.enum(['run', 'skip']).describe('\* `run` - RUN\n\* `skip` - SKIP')
+
+export type QuarantineModeEnumApi = zod.input<typeof QuarantineModeEnumApi>
+export type QuarantineModeEnumApiOutput = zod.output<typeof QuarantineModeEnumApi>
+
+export const LifecycleEnumApi = zod
+    .enum(['active', 'expiring_soon', 'in_grace', 'overdue'])
+    .describe(
+        '\* `active` - ACTIVE\n\* `expiring_soon` - EXPIRING_SOON\n\* `in_grace` - IN_GRACE\n\* `overdue` - OVERDUE'
+    )
+
+export type LifecycleEnumApi = zod.input<typeof LifecycleEnumApi>
+export type LifecycleEnumApiOutput = zod.output<typeof LifecycleEnumApi>
+
+export const SelectorKindEnumApi = zod
+    .enum(['product', 'file', 'directory', 'test'])
+    .describe('\* `product` - PRODUCT\n\* `file` - FILE\n\* `directory` - DIRECTORY\n\* `test` - TEST')
+
+export type SelectorKindEnumApi = zod.input<typeof SelectorKindEnumApi>
+export type SelectorKindEnumApiOutput = zod.output<typeof SelectorKindEnumApi>
+
+export const QuarantineEntryApi = zod.object({
+    id: zod
+        .string()
+        .describe("Test selector: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'."),
+    runner: zod.string().describe("Test runner the selector targets, e.g. 'pytest' or 'jest'."),
+    reason: zod.string().describe('Why the test was quarantined.'),
+    owner: zod.string().describe('GitHub team or user handle responsible for the fix.'),
+    issue: zod.string().describe('Tracking issue URL, or empty when none was filed.'),
+    added: zod.iso.date().describe('ISO date the entry was added.'),
+    expires: zod.iso.date().describe('ISO date the quarantine expires; past it the test blocks CI normally again.'),
+    mode: zod
+        .enum(['run', 'skip'])
+        .describe('\* `run` - RUN\n\* `skip` - SKIP')
+        .describe(
+            "'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all).\n\n\* `run` - RUN\n\* `skip` - SKIP"
+        ),
+    lifecycle: zod
+        .enum(['active', 'expiring_soon', 'in_grace', 'overdue'])
+        .describe(
+            '\* `active` - ACTIVE\n\* `expiring_soon` - EXPIRING_SOON\n\* `in_grace` - IN_GRACE\n\* `overdue` - OVERDUE'
+        )
+        .describe(
+            "Expiry classification: 'active' (>7 days left), 'expiring_soon' (0-7 days left), 'in_grace' (expired up to 7 days ago), 'overdue' (expired beyond the grace period).\n\n\* `active` - ACTIVE\n\* `expiring_soon` - EXPIRING_SOON\n\* `in_grace` - IN_GRACE\n\* `overdue` - OVERDUE"
+        ),
+    days_until_expiry: zod.number().describe('Days until the entry expires; negative once past expiry.'),
+    selector_kind: zod
+        .enum(['product', 'file', 'directory', 'test'])
+        .describe('\* `product` - PRODUCT\n\* `file` - FILE\n\* `directory` - DIRECTORY\n\* `test` - TEST')
+        .describe(
+            "What the selector covers: 'test' (contains '::'), 'file', 'directory', or 'product'.\n\n\* `product` - PRODUCT\n\* `file` - FILE\n\* `directory` - DIRECTORY\n\* `test` - TEST"
+        ),
+})
+
+export type QuarantineEntryApi = zod.input<typeof QuarantineEntryApi>
+export type QuarantineEntryApiOutput = zod.output<typeof QuarantineEntryApi>
+
+export const QuarantineFileApi = zod.object({
+    entries: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .describe(
+                        "Test selector: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'."
+                    ),
+                runner: zod.string().describe("Test runner the selector targets, e.g. 'pytest' or 'jest'."),
+                reason: zod.string().describe('Why the test was quarantined.'),
+                owner: zod.string().describe('GitHub team or user handle responsible for the fix.'),
+                issue: zod.string().describe('Tracking issue URL, or empty when none was filed.'),
+                added: zod.iso.date().describe('ISO date the entry was added.'),
+                expires: zod.iso
+                    .date()
+                    .describe('ISO date the quarantine expires; past it the test blocks CI normally again.'),
+                mode: zod
+                    .enum(['run', 'skip'])
+                    .describe('\* `run` - RUN\n\* `skip` - SKIP')
+                    .describe(
+                        "'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all).\n\n\* `run` - RUN\n\* `skip` - SKIP"
+                    ),
+                lifecycle: zod
+                    .enum(['active', 'expiring_soon', 'in_grace', 'overdue'])
+                    .describe(
+                        '\* `active` - ACTIVE\n\* `expiring_soon` - EXPIRING_SOON\n\* `in_grace` - IN_GRACE\n\* `overdue` - OVERDUE'
+                    )
+                    .describe(
+                        "Expiry classification: 'active' (>7 days left), 'expiring_soon' (0-7 days left), 'in_grace' (expired up to 7 days ago), 'overdue' (expired beyond the grace period).\n\n\* `active` - ACTIVE\n\* `expiring_soon` - EXPIRING_SOON\n\* `in_grace` - IN_GRACE\n\* `overdue` - OVERDUE"
+                    ),
+                days_until_expiry: zod.number().describe('Days until the entry expires; negative once past expiry.'),
+                selector_kind: zod
+                    .enum(['product', 'file', 'directory', 'test'])
+                    .describe('\* `product` - PRODUCT\n\* `file` - FILE\n\* `directory` - DIRECTORY\n\* `test` - TEST')
+                    .describe(
+                        "What the selector covers: 'test' (contains '::'), 'file', 'directory', or 'product'.\n\n\* `product` - PRODUCT\n\* `file` - FILE\n\* `directory` - DIRECTORY\n\* `test` - TEST"
+                    ),
+            })
+        )
+        .describe(
+            'Quarantined selectors, most urgent first (overdue, in_grace, expiring_soon, active), then by soonest expiry.'
+        ),
+    repo: zod
+        .union([
+            zod.object({
+                provider: zod.string().describe("Code host provider, e.g. 'github'."),
+                owner: zod.string().describe('Repository owner or organization.'),
+                name: zod.string().describe('Repository name.'),
+            }),
+            zod.null(),
+        ])
+        .describe(
+            "Repository the file was read from. Null in local-dev mode, where the server's own checkout is read."
+        ),
+    available: zod
+        .boolean()
+        .describe('False when the repository has no quarantine file (not an error) or it could not be fetched.'),
+    parse_errors: zod
+        .array(zod.string())
+        .describe(
+            'Contract violations (malformed JSON, bad entries) or fetch failures. Malformed entries are dropped; well-formed ones are kept.'
+        ),
+    parse_warnings: zod.array(zod.string()).describe('Forward-compatibility notices, e.g. unknown entry fields.'),
+    source_url: zod
+        .string()
+        .describe('GitHub blob URL of the quarantine file, or empty when read locally or unavailable.'),
+    generated_at: zod.iso
+        .datetime({ offset: true })
+        .describe('When this snapshot was computed (UTC); expiry math uses this clock.'),
+})
+
+export type QuarantineFileApi = zod.input<typeof QuarantineFileApi>
+export type QuarantineFileApiOutput = zod.output<typeof QuarantineFileApi>
+
+export const GitHubSourceApi = zod.object({
+    id: zod.string().describe('Source id — pass as `source_id` to the other endpoints to read this source.'),
+    repo: zod.string().describe("Connected repository as 'owner\/name', or '' if unknown."),
+    prefix: zod.string().describe("User-chosen warehouse table-name prefix for this source, or '' when none."),
+})
+
+export type GitHubSourceApi = zod.input<typeof GitHubSourceApi>
+export type GitHubSourceApiOutput = zod.output<typeof GitHubSourceApi>
+
 export const WorkflowHealthDayApi = zod.object({
     day: zod.iso.date().describe('UTC calendar day.'),
     run_count: zod.number().describe('Runs started that day.'),
     completed: zod.number().describe('Runs that completed that day.'),
     successes: zod.number().describe("Completed runs with conclusion 'success' that day."),
+    failures: zod
+        .number()
+        .describe(
+            "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs."
+        ),
 })
 
 export type WorkflowHealthDayApi = zod.input<typeof WorkflowHealthDayApi>
@@ -343,6 +515,11 @@ export const WorkflowHealthItemApi = zod.object({
                 run_count: zod.number().describe('Runs started that day.'),
                 completed: zod.number().describe('Runs that completed that day.'),
                 successes: zod.number().describe("Completed runs with conclusion 'success' that day."),
+                failures: zod
+                    .number()
+                    .describe(
+                        "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs."
+                    ),
             })
         )
         .describe('Daily run history across the whole window, oldest first, zero-filled.'),
@@ -363,7 +540,7 @@ export const WorkflowHealthItemApi = zod.object({
     last_failure_at: zod.iso
         .datetime({ offset: true })
         .nullable()
-        .describe("When the most recent run with conclusion 'failure' started, or null."),
+        .describe("When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null."),
 })
 
 export type WorkflowHealthItemApi = zod.input<typeof WorkflowHealthItemApi>

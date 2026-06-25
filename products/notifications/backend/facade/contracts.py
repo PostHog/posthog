@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from products.notifications.backend.facade.enums import (
     NotificationResourceType,
@@ -17,12 +18,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class NotificationData:
-    team_id: int
     notification_type: NotificationType
     title: str
     body: str
     target_type: TargetType
     target_id: str
+    team_id: int | None = None
+    organization_id: UUID | None = None
     resource_type: NotificationResourceType | None = None
     resource_id: str = ""
     source_url: str = ""

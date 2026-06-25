@@ -350,6 +350,9 @@ def workflow_resource_attributes() -> dict[str, str | int]:
     attrs["ci.event_name"] = os.environ.get("GITHUB_EVENT_NAME", "")
     attrs["ci.head_ref"] = os.environ.get("GITHUB_HEAD_REF", "")
     attrs["ci.base_ref"] = os.environ.get("GITHUB_BASE_REF", "")
+    attrs["ci.ref_name"] = os.environ.get("GITHUB_REF_NAME", "")
+    # Branch name regardless of event: PR source branch, else the pushed branch.
+    attrs["ci.branch"] = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME", "")
     pr_number = get_pull_request_number()
     if pr_number is not None:
         attrs["ci.pr_number"] = pr_number

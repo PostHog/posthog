@@ -1,0 +1,237 @@
+import { DateTime } from 'luxon'
+
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
+import { UUIDT } from '~/common/utils/utils'
+import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+
+import { PersonContext } from './person-context'
+import { PersonCreateService } from './person-create-service'
+import { createDefaultSyncMergeMode } from './person-merge-types'
+
+jest.mock('~/ingestion/common/ingestion-warnings', () => ({
+    emitIngestionWarning: jest.fn().mockResolvedValue(undefined),
+}))
+
+const mockEmitIngestionWarning = emitIngestionWarning as jest.MockedFunction<typeof emitIngestionWarning>
+
+describe('PersonCreateService', () => {
+    let mockPersonStore: any
+    let mockOutputs: any
+    let personContext: PersonContext
+    let personCreateService: PersonCreateService
+    const teamId = 123
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+
+        mockOutputs = {
+            produce: jest.fn().mockResolvedValue(undefined),
+        }
+
+        mockPersonStore = {
+            createPerson: jest.fn(),
+            fetchForUpdate: jest.fn(),
+        }
+
+        const mockEvent = {
+            uuid: new UUIDT().toString(),
+            distinct_id: 'test-distinct-id',
+            properties: {},
+        }
+
+        const mockTeam = {
+            id: teamId,
+        }
+
+        personContext = new PersonContext(
+            mockEvent as any,
+            mockTeam as any,
+            'test-distinct-id',
+            DateTime.now(),
+            true,
+            mockOutputs,
+            mockPersonStore,
+            0,
+            createDefaultSyncMergeMode(),
+            false,
+            false
+        )
+
+        personCreateService = new PersonCreateService(personContext)
+    })
+
+    describe('createPerson', () => {
+        const createdAt = DateTime.now()
+        const properties = { name: 'John Doe' }
+        const propertiesOnce = { email: 'john@example.com' }
+        const isUserId = null
+        const isIdentified = true
+        const creatorEventUuid = new UUIDT().toString()
+        const primaryDistinctId = { distinctId: 'test-distinct-id', version: 0 }
+
+        it('should successfully create a person when store succeeds', async () => {
+            const mockPerson = {
+                id: '1',
+                uuid: new UUIDT().toString(),
+                team_id: teamId,
+                properties: { ...propertiesOnce, ...properties, $creator_event_uuid: creatorEventUuid },
+                created_at: createdAt,
+                version: 0,
+                is_identified: true,
+                is_user_id: isUserId,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                last_seen_at: null,
+            }
+
+            const mockResult = {
+                success: true,
+                person: mockPerson,
+                messages: [{ output: 'persons' as const, value: Buffer.from('test') }],
+                created: true,
+            }
+
+            mockPersonStore.createPerson.mockResolvedValue(mockResult)
+
+            const [person, created] = await personCreateService.createPerson(
+                createdAt,
+                properties,
+                propertiesOnce,
+                teamId,
+                isUserId,
+                isIdentified,
+                creatorEventUuid,
+                primaryDistinctId
+            )
+
+            expect(person).toEqual(mockPerson)
+            expect(created).toBe(true)
+            expect(mockOutputs.produce).toHaveBeenCalledWith('persons', {
+                value: Buffer.from('test'),
+                key: null,
+                teamId,
+            })
+        })
+
+        it('should handle PersonPropertiesSizeViolationError and log ingestion warning', async () => {
+            const sizeViolationError = new PersonPropertiesSizeViolationError(
+                'Person properties exceed size limit',
+                teamId,
+                'test-person-id',
+                'test-distinct-id'
+            )
+
+            mockPersonStore.createPerson.mockRejectedValue(sizeViolationError)
+
+            await expect(
+                personCreateService.createPerson(
+                    createdAt,
+                    properties,
+                    propertiesOnce,
+                    teamId,
+                    isUserId,
+                    isIdentified,
+                    creatorEventUuid,
+                    primaryDistinctId
+                )
+            ).rejects.toThrow(PersonPropertiesSizeViolationError)
+
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
+                mockOutputs,
+                teamId,
+                'person_properties_size_violation',
+                {
+                    personId: 'test-person-id',
+                    distinctId: 'test-distinct-id',
+                    eventUuid: creatorEventUuid,
+                    teamId: teamId,
+                    message: 'Person properties exceeds size limit and was rejected',
+                }
+            )
+        })
+
+        it('should handle creation conflict and fetch existing person', async () => {
+            const conflictResult = {
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['test-distinct-id'],
+            }
+
+            const existingPerson = {
+                id: '2',
+                uuid: new UUIDT().toString(),
+                team_id: teamId,
+                properties: {},
+                created_at: createdAt,
+                version: 1,
+                is_identified: false,
+                is_user_id: null,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                last_seen_at: null,
+            }
+
+            mockPersonStore.createPerson.mockResolvedValue(conflictResult)
+            mockPersonStore.fetchForUpdate.mockResolvedValue(existingPerson)
+
+            const [person, created] = await personCreateService.createPerson(
+                createdAt,
+                properties,
+                propertiesOnce,
+                teamId,
+                isUserId,
+                isIdentified,
+                creatorEventUuid,
+                primaryDistinctId
+            )
+
+            expect(person).toEqual(existingPerson)
+            expect(created).toBe(false)
+            expect(mockPersonStore.fetchForUpdate).toHaveBeenCalledWith(teamId, 'test-distinct-id')
+        })
+
+        it('should throw error when creation conflict occurs but person cannot be fetched', async () => {
+            const conflictResult = {
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['test-distinct-id'],
+            }
+
+            mockPersonStore.createPerson.mockResolvedValue(conflictResult)
+            mockPersonStore.fetchForUpdate.mockResolvedValue(null)
+
+            await expect(
+                personCreateService.createPerson(
+                    createdAt,
+                    properties,
+                    propertiesOnce,
+                    teamId,
+                    isUserId,
+                    isIdentified,
+                    creatorEventUuid,
+                    primaryDistinctId
+                )
+            ).rejects.toThrow('Person creation failed with constraint violation, but could not fetch existing person')
+        })
+
+        it('should re-throw other errors without logging ingestion warning', async () => {
+            const genericError = new Error('Some other database error')
+            mockPersonStore.createPerson.mockRejectedValue(genericError)
+
+            await expect(
+                personCreateService.createPerson(
+                    createdAt,
+                    properties,
+                    propertiesOnce,
+                    teamId,
+                    isUserId,
+                    isIdentified,
+                    creatorEventUuid,
+                    primaryDistinctId
+                )
+            ).rejects.toThrow('Some other database error')
+
+            expect(mockEmitIngestionWarning).not.toHaveBeenCalled()
+        })
+    })
+})

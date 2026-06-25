@@ -428,10 +428,12 @@ export function InsightLoadingState({
     queryId,
     insightProps,
     renderEmptyStateAsSkeleton = false,
+    suppressSlowQuerySuggestions = false,
 }: {
     queryId?: string | null
     insightProps: InsightLogicProps
     renderEmptyStateAsSkeleton?: boolean
+    suppressSlowQuerySuggestions?: boolean
 }): JSX.Element {
     const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
     const { currentTeam } = useValues(teamLogic)
@@ -446,7 +448,9 @@ export function InsightLoadingState({
             loadingTimeSeconds={insightLoadingTimeSeconds}
             renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
             suggestion={
-                personsOnEventsMode === 'person_id_override_properties_joined' ? (
+                suppressSlowQuerySuggestions ? (
+                    <></>
+                ) : personsOnEventsMode === 'person_id_override_properties_joined' ? (
                     <div className="text-xs">
                         You can speed this query up by changing the{' '}
                         <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.

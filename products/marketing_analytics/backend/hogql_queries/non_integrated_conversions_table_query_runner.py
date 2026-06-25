@@ -17,8 +17,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
-from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
-
 from .constants import DEFAULT_LIMIT, PAGINATION_EXTRA, UNIFIED_CONVERSION_GOALS_CTE_ALIAS, to_marketing_analytics_data
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRunner
@@ -43,7 +41,7 @@ class NonIntegratedConversionsTableQueryRunner(
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
-        self.config = MarketingAnalyticsConfig.from_team(self.team)
+        # self.config is built from team in the base runner's __init__.
 
     def _get_marketing_source_adapters(self, date_range):
         """
@@ -334,11 +332,18 @@ class NonIntegratedConversionsTableQueryRunner(
             ),
         )
 
-        # WHERE clause: only rows where campaign_costs has no match (IS NULL)
-        where_clause = ast.CompareOperation(
-            left=ast.Field(chain=[campaign_costs_alias, self.config.campaign_field]),
-            op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value=None),
+        # Keep only conversions with no matching campaign cost. The LEFT JOIN leaves the cost columns
+        # empty for non-matches: NULL when costs come from the live S3 union (nullable), '' when they
+        # come from the native precompute table (non-nullable String). Match both so the precompute
+        # path returns the same rows as S3.
+        campaign_cost_field = ast.Field(chain=[campaign_costs_alias, self.config.campaign_field])
+        where_clause = ast.Or(
+            exprs=[
+                ast.Call(name="isNull", args=[campaign_cost_field]),
+                ast.CompareOperation(
+                    left=campaign_cost_field, op=ast.CompareOperationOp.Eq, right=ast.Constant(value="")
+                ),
+            ]
         )
 
         return ast.SelectQuery(

@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.utils import timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.test import APIClient
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -33,6 +34,50 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(saved.status, SavedHeatmap.Status.PROCESSING)
         self.assertEqual(saved.target_widths, [768, 1024])
         mock_task.assert_called_once_with(saved.id)
+
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_create_defaults_consent_blocking_off(self, _mock_task):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertFalse(resp.data["block_consent_modals"])
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertFalse(saved.block_consent_modals)
+
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_create_persists_consent_blocking_when_enabled(self, _mock_task):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com", "block_consent_modals": True},
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(resp.data["block_consent_modals"])
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertTrue(saved.block_consent_modals)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
+    def test_partial_update_consent_toggle_triggers_regenerate(self, mock_task):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+            type=SavedHeatmap.Type.SCREENSHOT,
+            block_consent_modals=False,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"old")
+
+        r = self.client.patch(
+            f"/api/environments/{self.team.id}/saved/{saved.short_id}/",
+            {"block_consent_modals": True},
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.data["block_consent_modals"])
+        self.assertEqual(r.data["status"], "processing")
+        mock_task.delay.assert_called_once_with(saved.id)
+        self.assertEqual(HeatmapSnapshot.objects.filter(heatmap=saved).count(), 0)
 
     def test_content_returns_202_until_snapshot_exists(self):
         saved = SavedHeatmap.objects.create(team=self.team, url="https://example.com", created_by=self.user)
@@ -67,6 +112,34 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(r.status_code, 200)
         self.assertIn('768.jpg"', r["Content-Disposition"])
         self.assertEqual(r.content, b"jpeg768")
+
+    def test_content_returns_501_when_only_content_location_set(self):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=None, content_location="s3://bucket/key")
+        r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024")
+        self.assertEqual(r.status_code, 501)
+
+    def test_content_served_increments_metric(self):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"jpegdata1024")
+
+        def _served_count() -> float:
+            return REGISTRY.get_sample_value("heatmap_screenshot_content_requests_total", {"outcome": "served"}) or 0.0
+
+        before = _served_count()
+        r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(_served_count() - before, 1)
 
     def test_saved_list_excludes_deleted_and_includes_created_by(self):
         SavedHeatmap.objects.create(team=self.team, url="https://a.example", created_by=self.user)

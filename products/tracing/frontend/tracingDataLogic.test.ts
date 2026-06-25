@@ -15,6 +15,8 @@ const createMockAggregatedRow = (name: string): AggregatedSpanRow => ({
     avg_duration_nano: 1000,
     p50_duration_nano: 1000,
     p95_duration_nano: 1000,
+    p99_duration_nano: 1000,
+    p999_duration_nano: 1000,
     error_count: 0,
 })
 

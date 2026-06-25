@@ -2,7 +2,7 @@ from django.db import models
 
 
 class EvaluationConfig(models.Model):
-    """Team-level configuration and usage tracking for LLM evaluations"""
+    """Team-level configuration and usage tracking for evaluations"""
 
     team = models.OneToOneField(
         "posthog.Team",

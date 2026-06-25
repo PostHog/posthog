@@ -26,10 +26,12 @@ function SourceTile({
     item,
     accessDisabledReason,
     onNotify,
+    onSelect,
 }: {
     item: CatalogItem
     accessDisabledReason: string | null
     onNotify: (item: CatalogItem) => void
+    onSelect: (item: CatalogItem) => void
 }): JSX.Element {
     const content = (
         <>
@@ -71,7 +73,12 @@ function SourceTile({
     }
 
     return (
-        <Link to={item.url} className={`${TILE_CLASS} hover:border-primary cursor-pointer`} data-attr="catalog-source">
+        <Link
+            to={item.url}
+            className={`${TILE_CLASS} hover:border-primary cursor-pointer`}
+            data-attr="catalog-source"
+            onClick={() => onSelect(item)}
+        >
             {content}
         </Link>
     )
@@ -108,6 +115,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
         hideSourceRequest,
         setSourceRequestText,
         submitSourceRequest,
+        selectSourceType,
     } = useActions(logic)
 
     const accessDisabledReason = getAccessControlDisabledReason(
@@ -156,6 +164,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                             item={item}
                             accessDisabledReason={accessDisabledReason}
                             onNotify={registerInterest}
+                            onSelect={selectSourceType}
                         />
                     ))}
                     <RequestSourceTile onRequest={showSourceRequest} />

@@ -6,6 +6,9 @@ export enum OriginProduct {
     USER_CREATED = 'user_created',
     SUPPORT_QUEUE = 'support_queue',
     SESSION_SUMMARIES = 'session_summaries',
+    // Tasks kicked off from an Inbox SignalReport (Discuss / Create PR). Backend already
+    // accepts `signal_report` + `signal_report_task_relationship` for this origin.
+    SIGNAL_REPORT = 'signal_report',
 }
 
 export enum TaskRunStatus {

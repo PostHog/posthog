@@ -63,6 +63,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             limit=10,
             offset=0,
+            orderBy=["key"],
         )
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
@@ -96,7 +97,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 properties={"name": i * 10},
             )
 
-        query = GroupsQuery(group_type_index=0, limit=10, offset=0)
+        query = GroupsQuery(group_type_index=0, limit=10, offset=0, orderBy=["key"])
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
@@ -114,6 +115,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             limit=10,
             offset=2,
+            orderBy=["key"],
         )
 
         query_runner = GroupsQueryRunner(query=query, team=self.team)
@@ -132,6 +134,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit=10,
             offset=0,
             select=["group_name", "key", "properties.arr"],
+            orderBy=["key"],
         )
 
         query_runner = GroupsQueryRunner(query=query, team=self.team)

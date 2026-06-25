@@ -153,6 +153,7 @@ const visualReviewRunsList = (): ToolBase<
                 offset: params.offset,
                 pr_number: params.pr_number,
                 review_state: params.review_state,
+                search: params.search,
             },
         })
         return await withPostHogUrl(

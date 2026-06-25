@@ -90,7 +90,9 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
             return TaxonomyErrorMessages.property_not_found(property_name, "revenue_analytics")
 
         with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
-            values = await database_sync_to_async(find_values_for_revenue_analytics_property)(property_name, self._team)
+            values = await database_sync_to_async(find_values_for_revenue_analytics_property)(
+                property_name, self._team, self._user
+            )
 
         return self._format_property_values(property_name, values, sample_count=len(values))
 

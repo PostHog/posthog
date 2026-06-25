@@ -68,6 +68,7 @@ import {
     getFormulas,
     getGoalLines,
     getInterval,
+    getLegendPosition,
     getResultCustomizationBy,
     getSeries,
     getShowAlertThresholdLines,
@@ -112,6 +113,16 @@ import {
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+
+// Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative
+// and bar layouts). Lifecycle always renders it regardless of display.
+const DISPLAYS_WITH_IN_CHART_LEGEND = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+]
 
 export type QuerySourceUpdate = Omit<Partial<InsightQueryNode>, 'kind'>
 
@@ -230,14 +241,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 if (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) {
                     return display !== ChartDisplayType.WorldMap && display !== ChartDisplayType.CalendarHeatmap
                 }
-                // Funnel compare ships behind a flag, for the TRENDS and TIME_TO_CONVERT viz modes.
-                if (
-                    isFunnelsQuery(q) &&
-                    !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] &&
-                    (q.funnelsFilter?.funnelVizType === FunnelVizType.Trends ||
-                        q.funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert)
-                ) {
-                    return true
+                // Funnel compare ships behind a flag, for the STEPS, TRENDS and TIME_TO_CONVERT viz
+                // modes. FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).
+                if (isFunnelsQuery(q) && !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]) {
+                    return (q.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) !== FunnelVizType.Flow
                 }
                 return false
             },
@@ -292,6 +299,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showAlertThresholdLines: [(s) => [s.querySource], (q) => (q ? getShowAlertThresholdLines(q) : null)],
         showAnnotations: [(s) => [s.querySource], (q) => (q ? getShowAnnotations(q) : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
+        legendPosition: [(s) => [s.querySource], (q) => (q ? getLegendPosition(q) : null)],
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showPercentagesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowPercentagesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
@@ -469,6 +477,23 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (isTrends, isStickiness, isLifecycle, display) =>
                 (isTrends || isStickiness || isLifecycle) &&
                 !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display)),
+        ],
+
+        // Whether the active chart renders the unified in-chart quill legend (replacing the legacy
+        // side legend) instead of the legacy show/hide checkbox. Single source of truth shared by
+        // InsightDisplayConfig (which control to show) and InsightVizDisplay (suppress side legend).
+        usesInChartLegend: [
+            (s) => [s.featureFlags, s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (featureFlags, isTrends, isStickiness, isLifecycle, display): boolean => {
+                // Lifecycle always uses config.legend inside TimeSeriesBarChart — no flag gate needed.
+                if (isLifecycle) {
+                    return true
+                }
+                if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]) {
+                    return false
+                }
+                return (isTrends || isStickiness) && (!display || DISPLAYS_WITH_IN_CHART_LEGEND.includes(display))
+            },
         ],
 
         hasDetailedResultsTable: [
@@ -688,7 +713,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // insight filter
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
-            await breakpoint(300)
+            // When an external save handler is wired (dashboard card), skip the debounce so
+            // rapid successive toggle clicks don't cancel each other and lose earlier changes.
+            if (!props.setQuery) {
+                await breakpoint(300)
+            }
 
             if (isWebAnalyticsInsightQuery(values.localQuerySource)) {
                 return
@@ -955,6 +984,11 @@ const handleQuerySourceUpdateSideEffects = (
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+    }
+
+    // Remove breakdown filter if display type is Metric because it is single-series
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.Metric) {
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 

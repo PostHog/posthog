@@ -51,11 +51,15 @@ message UpsertHashKeyOverridesResponse {
   int64 inserted_count = 1;
 }
 
-// DeleteHashKeyOverridesByTeamsRequest deletes all hash key overrides for the specified teams
+// DeleteHashKeyOverridesByTeamsRequest deletes up to batch_size hash key overrides
+// across the specified teams. Callers should loop until deleted_count is 0.
 message DeleteHashKeyOverridesByTeamsRequest {
   repeated int64 team_ids = 1;
+  // Max rows to delete per call. Must be > 0 and <= 50000.
+  int64 batch_size = 2;
 }
 
 message DeleteHashKeyOverridesByTeamsResponse {
+  // Number of rows deleted. 0 means no more rows to delete.
   int64 deleted_count = 1;
 }

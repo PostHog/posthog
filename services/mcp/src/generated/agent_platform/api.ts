@@ -157,10 +157,14 @@ export const AgentApplicationsRevisionsCreateParams = /* @__PURE__ */ zod.object
 })
 
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
+
+export const agentApplicationsRevisionsCreateBodySpecModelRegExp = new RegExp('^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$')
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -172,27 +176,27 @@ export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigMaxC
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersDefault = []
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneRequiresApprovalDefault = false
+export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyAllowAgentApproverDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoRequiresApprovalDefault = false
+export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
-
-export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyAllowAgentApproverDefault = false
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin = 0
 
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourRequiredDefault = false
@@ -204,17 +208,22 @@ export const agentApplicationsRevisionsCreateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemSecretsDefault = []
 
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoRequiresApprovalDefault = false
+export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowAgentApproverDefault = false
 export const agentApplicationsRevisionsCreateBodySpecMcpsDefault = []
-export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
-
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
-export const agentApplicationsRevisionsCreateBodySpecIntegrationsDefault = []
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
+
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemTwoBindingDefault = `principal`
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemTwoScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersDefault = []
+
 export const agentApplicationsRevisionsCreateBodySpecSecretsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsDefault = 50
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsExclusiveMin = 0
@@ -231,19 +240,42 @@ export const agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsMax = 2
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensExclusiveMin = 0
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensMax = 200000
 
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbDefault = 512
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbMax = 16384
+
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault = 0.25
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresMax = 8
+
 export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
     max_turns: 50,
     max_tool_calls: 200,
     max_wall_seconds: 900,
+    max_memory_mb: 512,
+    max_cpu_cores: 0.25,
 }
 export const agentApplicationsRevisionsCreateBodySpecEntrypointDefault = `agent.md`
+export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptOmitDefault = []
+export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinMax = 2147483647
+
+export const agentApplicationsRevisionsCreateBodySpecResumeEnabledDefault = false
+export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsDefault = 604800000
+export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsMax = 2147483647
 
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsCreateBodyBundleUriDefault),
+    bundle_uri: zod
+        .string()
+        .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
+        .describe(
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+        ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model: zod.string().min(1).regex(agentApplicationsRevisionsCreateBodySpecModelRegExp),
             triggers: zod
                 .array(
                     zod.union([
@@ -267,6 +299,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                         agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
+                                allow_direct_messages: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault
+                                    ),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
                             }),
                         }),
@@ -289,6 +326,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                                     .array(zod.string())
                                                     .default(
                                                         agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault
+                                                    ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault
                                                     ),
                                             }),
                                             zod.object({
@@ -365,6 +407,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                                     .default(
                                                         agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -409,6 +456,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                                     .default(
                                                         agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -441,10 +493,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                 .default(agentApplicationsRevisionsCreateBodySpecToolsItemOneRequiresApprovalDefault),
                             approval_policy: zod
                                 .object({
-                                    approvers: zod
-                                        .array(zod.enum(['team_admins', 'session_principal']))
-                                        .min(1)
-                                        .default([`team_admins`]),
+                                    type: zod
+                                        .enum(['principal', 'agent'])
+                                        .default(
+                                            agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTypeDefault
+                                        ),
                                     allow_edit: zod
                                         .boolean()
                                         .default(
@@ -456,11 +509,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                         .max(agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTtlMsMax)
                                         .default(
                                             agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTtlMsDefault
-                                        ),
-                                    allow_agent_approver: zod
-                                        .boolean()
-                                        .default(
-                                            agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyAllowAgentApproverDefault
                                         ),
                                 })
                                 .optional(),
@@ -474,10 +522,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                 .default(agentApplicationsRevisionsCreateBodySpecToolsItemTwoRequiresApprovalDefault),
                             approval_policy: zod
                                 .object({
-                                    approvers: zod
-                                        .array(zod.enum(['team_admins', 'session_principal']))
-                                        .min(1)
-                                        .default([`team_admins`]),
+                                    type: zod
+                                        .enum(['principal', 'agent'])
+                                        .default(
+                                            agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTypeDefault
+                                        ),
                                     allow_edit: zod
                                         .boolean()
                                         .default(
@@ -490,22 +539,15 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                         .default(
                                             agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsDefault
                                         ),
-                                    allow_agent_approver: zod
-                                        .boolean()
-                                        .default(
-                                            agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyAllowAgentApproverDefault
-                                        ),
                                 })
                                 .optional(),
+                            requires_identity: zod.string().optional(),
                         }),
                         zod.object({
                             kind: zod.literal('custom_template'),
                             from_template: zod.string(),
                             alias: zod.string(),
-                            version: zod
-                                .number()
-                                .min(agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin)
-                                .optional(),
+                            version: zod.number().min(1).optional(),
                         }),
                         zod.object({
                             kind: zod.literal('client'),
@@ -536,7 +578,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         url: zod.url(),
                         auth: zod
                             .object({
-                                integration: zod.string().optional(),
+                                provider: zod.string().optional(),
                             })
                             .optional(),
                         secrets: zod
@@ -556,10 +598,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                             ),
                                         approval_policy: zod
                                             .object({
-                                                approvers: zod
-                                                    .array(zod.enum(['team_admins', 'session_principal']))
-                                                    .min(1)
-                                                    .default([`team_admins`]),
+                                                type: zod
+                                                    .enum(['principal', 'agent'])
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTypeDefault
+                                                    ),
                                                 allow_edit: zod
                                                     .boolean()
                                                     .default(
@@ -575,11 +618,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                                     )
                                                     .default(
                                                         agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsDefault
-                                                    ),
-                                                allow_agent_approver: zod
-                                                    .boolean()
-                                                    .default(
-                                                        agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowAgentApproverDefault
                                                     ),
                                             })
                                             .optional(),
@@ -598,15 +636,61 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         description: zod.string().optional(),
                         from_template: zod.string().optional(),
                         alias: zod.string().optional(),
-                        version: zod
-                            .number()
-                            .min(agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin)
-                            .optional(),
+                        version: zod.number().min(1).optional(),
+                        source_version_id: zod.string().optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
-            integrations: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecIntegrationsDefault),
-            secrets: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecSecretsDefault),
+            identity_providers: zod
+                .array(
+                    zod.union([
+                        zod.object({
+                            kind: zod.literal('posthog'),
+                            id: zod
+                                .string()
+                                .min(1)
+                                .default(agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneIdDefault),
+                            binding: zod
+                                .enum(['principal'])
+                                .default(
+                                    agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneBindingDefault
+                                ),
+                            scopes: zod
+                                .array(zod.string())
+                                .default(agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneScopesDefault),
+                            client_id: zod.string().optional(),
+                        }),
+                        zod.object({
+                            kind: zod.literal('oauth2'),
+                            id: zod.string().min(1),
+                            binding: zod
+                                .enum(['principal'])
+                                .default(
+                                    agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemTwoBindingDefault
+                                ),
+                            authorize_url: zod.url(),
+                            token_url: zod.url(),
+                            client_id: zod.string().min(1),
+                            client_secret_ref: zod.string().optional(),
+                            scopes: zod
+                                .array(zod.string())
+                                .default(agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemTwoScopesDefault),
+                            userinfo_url: zod.url().optional(),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsCreateBodySpecIdentityProvidersDefault),
+            secrets: zod
+                .array(
+                    zod.union([
+                        zod.string().min(1),
+                        zod.object({
+                            name: zod.string().min(1),
+                            allowed_hosts: zod.array(zod.string().min(1)).min(1),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsCreateBodySpecSecretsDefault),
             limits: zod
                 .object({
                     max_turns: zod
@@ -629,10 +713,50 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensExclusiveMin)
                         .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensMax)
                         .optional(),
+                    max_memory_mb: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbDefault),
+                    max_cpu_cores: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsCreateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsCreateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+            framework_prompt: zod
+                .object({
+                    omit: zod
+                        .array(
+                            zod.enum([
+                                'meta_tool_guidance',
+                                'state_contract',
+                                'tool_failure_guidance',
+                                'approval_guidance',
+                                'reasoning_hint',
+                            ])
+                        )
+                        .default(agentApplicationsRevisionsCreateBodySpecFrameworkPromptOmitDefault),
+                    version_pin: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinMax)
+                        .optional(),
+                })
+                .optional(),
+            resume: zod
+                .object({
+                    enabled: zod.boolean().default(agentApplicationsRevisionsCreateBodySpecResumeEnabledDefault),
+                    max_completed_age_ms: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsDefault),
+                })
+                .optional(),
         })
         .optional(),
 })
@@ -711,10 +835,13 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
         ),
 })
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelRegExp = new RegExp('^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$')
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -726,27 +853,27 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeCon
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneRequiresApprovalDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyAllowAgentApproverDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoRequiresApprovalDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
-
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyAllowAgentApproverDefault = false
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin = 0
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourRequiredDefault = false
@@ -758,17 +885,22 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemSecretsDefault = []
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoRequiresApprovalDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowAgentApproverDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault = []
-export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin = 0
-
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
-export const agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemTwoBindingDefault = `principal`
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemTwoScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersDefault = []
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsDefault = 50
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsExclusiveMin = 0
@@ -785,19 +917,42 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSeconds
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensExclusiveMin = 0
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensMax = 200000
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbDefault = 512
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbMax = 16384
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault = 0.25
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresMax = 8
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
     max_turns: 50,
     max_tool_calls: 200,
     max_wall_seconds: 900,
+    max_memory_mb: 512,
+    max_cpu_cores: 0.25,
 }
 export const agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault = `agent.md`
+export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptOmitDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinMax = 2147483647
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeEnabledDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsDefault = 604800000
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsMax = 2147483647
 
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().optional(),
+    bundle_uri: zod
+        .string()
+        .optional()
+        .describe(
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+        ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model: zod.string().min(1).regex(agentApplicationsRevisionsPartialUpdateBodySpecModelRegExp),
             triggers: zod
                 .array(
                     zod.union([
@@ -821,6 +976,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
+                                allow_direct_messages: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault
+                                    ),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
                             }),
                         }),
@@ -843,6 +1003,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                                     .array(zod.string())
                                                     .default(
                                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault
+                                                    ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault
                                                     ),
                                             }),
                                             zod.object({
@@ -921,6 +1086,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                                     .default(
                                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -965,6 +1135,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                                     .default(
                                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -999,10 +1174,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                 ),
                             approval_policy: zod
                                 .object({
-                                    approvers: zod
-                                        .array(zod.enum(['team_admins', 'session_principal']))
-                                        .min(1)
-                                        .default([`team_admins`]),
+                                    type: zod
+                                        .enum(['principal', 'agent'])
+                                        .default(
+                                            agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTypeDefault
+                                        ),
                                     allow_edit: zod
                                         .boolean()
                                         .default(
@@ -1019,11 +1195,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                         .default(
                                             agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTtlMsDefault
                                         ),
-                                    allow_agent_approver: zod
-                                        .boolean()
-                                        .default(
-                                            agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyAllowAgentApproverDefault
-                                        ),
                                 })
                                 .optional(),
                         }),
@@ -1038,10 +1209,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                 ),
                             approval_policy: zod
                                 .object({
-                                    approvers: zod
-                                        .array(zod.enum(['team_admins', 'session_principal']))
-                                        .min(1)
-                                        .default([`team_admins`]),
+                                    type: zod
+                                        .enum(['principal', 'agent'])
+                                        .default(
+                                            agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTypeDefault
+                                        ),
                                     allow_edit: zod
                                         .boolean()
                                         .default(
@@ -1058,22 +1230,15 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                         .default(
                                             agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsDefault
                                         ),
-                                    allow_agent_approver: zod
-                                        .boolean()
-                                        .default(
-                                            agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyAllowAgentApproverDefault
-                                        ),
                                 })
                                 .optional(),
+                            requires_identity: zod.string().optional(),
                         }),
                         zod.object({
                             kind: zod.literal('custom_template'),
                             from_template: zod.string(),
                             alias: zod.string(),
-                            version: zod
-                                .number()
-                                .min(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin)
-                                .optional(),
+                            version: zod.number().min(1).optional(),
                         }),
                         zod.object({
                             kind: zod.literal('client'),
@@ -1106,7 +1271,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         url: zod.url(),
                         auth: zod
                             .object({
-                                integration: zod.string().optional(),
+                                provider: zod.string().optional(),
                             })
                             .optional(),
                         secrets: zod
@@ -1126,10 +1291,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                             ),
                                         approval_policy: zod
                                             .object({
-                                                approvers: zod
-                                                    .array(zod.enum(['team_admins', 'session_principal']))
-                                                    .min(1)
-                                                    .default([`team_admins`]),
+                                                type: zod
+                                                    .enum(['principal', 'agent'])
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTypeDefault
+                                                    ),
                                                 allow_edit: zod
                                                     .boolean()
                                                     .default(
@@ -1145,11 +1311,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                                     )
                                                     .default(
                                                         agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsDefault
-                                                    ),
-                                                allow_agent_approver: zod
-                                                    .boolean()
-                                                    .default(
-                                                        agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowAgentApproverDefault
                                                     ),
                                             })
                                             .optional(),
@@ -1168,17 +1329,67 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         description: zod.string().optional(),
                         from_template: zod.string().optional(),
                         alias: zod.string().optional(),
-                        version: zod
-                            .number()
-                            .min(agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin)
-                            .optional(),
+                        version: zod.number().min(1).optional(),
+                        source_version_id: zod.string().optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault),
-            integrations: zod
-                .array(zod.string())
-                .default(agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault),
-            secrets: zod.array(zod.string()).default(agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault),
+            identity_providers: zod
+                .array(
+                    zod.union([
+                        zod.object({
+                            kind: zod.literal('posthog'),
+                            id: zod
+                                .string()
+                                .min(1)
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneIdDefault
+                                ),
+                            binding: zod
+                                .enum(['principal'])
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneBindingDefault
+                                ),
+                            scopes: zod
+                                .array(zod.string())
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneScopesDefault
+                                ),
+                            client_id: zod.string().optional(),
+                        }),
+                        zod.object({
+                            kind: zod.literal('oauth2'),
+                            id: zod.string().min(1),
+                            binding: zod
+                                .enum(['principal'])
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemTwoBindingDefault
+                                ),
+                            authorize_url: zod.url(),
+                            token_url: zod.url(),
+                            client_id: zod.string().min(1),
+                            client_secret_ref: zod.string().optional(),
+                            scopes: zod
+                                .array(zod.string())
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemTwoScopesDefault
+                                ),
+                            userinfo_url: zod.url().optional(),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersDefault),
+            secrets: zod
+                .array(
+                    zod.union([
+                        zod.string().min(1),
+                        zod.object({
+                            name: zod.string().min(1),
+                            allowed_hosts: zod.array(zod.string().min(1)).min(1),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault),
             limits: zod
                 .object({
                     max_turns: zod
@@ -1201,10 +1412,50 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensExclusiveMin)
                         .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensMax)
                         .optional(),
+                    max_memory_mb: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbDefault),
+                    max_cpu_cores: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+            framework_prompt: zod
+                .object({
+                    omit: zod
+                        .array(
+                            zod.enum([
+                                'meta_tool_guidance',
+                                'state_contract',
+                                'tool_failure_guidance',
+                                'approval_guidance',
+                                'reasoning_hint',
+                            ])
+                        )
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptOmitDefault),
+                    version_pin: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinMax)
+                        .optional(),
+                })
+                .optional(),
+            resume: zod
+                .object({
+                    enabled: zod.boolean().default(agentApplicationsRevisionsPartialUpdateBodySpecResumeEnabledDefault),
+                    max_completed_age_ms: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsDefault),
+                })
+                .optional(),
         })
         .optional(),
 })
@@ -1298,24 +1549,6 @@ export const AgentApplicationsRevisionsBundleUpdateParams = /* @__PURE__ */ zod.
 export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
     .object({
         agent_md: zod.string(),
-        skills: zod
-            .array(
-                zod
-                    .object({
-                        description: zod
-                            .string()
-                            .describe(
-                                'One-line summary shown in the skill index; the model uses it to decide when to load the skill.'
-                            ),
-                        body: zod
-                            .string()
-                            .describe("The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`."),
-                    })
-                    .describe(
-                        'Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored\nat the canonical `skills/<skill_id>/SKILL.md` path in the bundle.'
-                    )
-            )
-            .optional(),
         tools: zod
             .array(
                 zod
@@ -1330,7 +1563,7 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
         spec: zod.record(zod.string(), zod.unknown()),
     })
     .describe(
-        'Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed\npayload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.'
+        'Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed\npayload. Skills are not authored here: they come from the llma-skill store\nvia `skill_refs` and are materialized into the bundle at freeze.'
     )
 
 /**
@@ -1362,8 +1595,7 @@ export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
  * thing?' is unanswerable until the cron actually fires.
  *
  * Idempotent via `request_id`: repeat clicks with the same id resolve
- * to the same session id rather than firing N times. See
- * `docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+ * to the same session id rather than firing N times.
  */
 export const AgentApplicationsRevisionsCronFireCreateParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),
@@ -1382,6 +1614,71 @@ export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.
         .nullish()
         .describe(
             "Stable client-supplied id so repeated clicks of the same UI 'Fire now' button resolve to the same session id rather than firing twice. The janitor keys dedupe off `cron-manual:<rev>:<name>:<request_id>`. Omit to fire unconditionally — every call generates a fresh UUID."
+        ),
+})
+
+/**
+ * List the names of secrets currently set on this revision.
+ *
+ * Returns names only — values stay server-side under
+ * `EncryptedTextField`. Use this to drive the "set / unset" badge next to
+ * a declared secret in the editor UI.
+ */
+export const AgentRevisionsEnvKeysListParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const AgentRevisionsEnvKeysGetParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    key: zod
+        .string()
+        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const AgentRevisionsEnvKeysClearParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    key: zod
+        .string()
+        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
 
@@ -1436,35 +1733,11 @@ export const AgentApplicationsRevisionsPromoteCreateParams = /* @__PURE__ */ zod
 })
 
 /**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
- *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * Full-replace the draft's store-skill references. They are resolved
+ * and materialized into the bundle at freeze, not here — this only records
+ * which skills (and pinned versions) the freeze should pull in.
  */
-export const agentApplicationsRevisionsSkillsUpdatePathSkillIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
-
-export const AgentApplicationsRevisionsSkillsUpdateParams = /* @__PURE__ */ zod.object({
+export const AgentApplicationsRevisionsSkillRefsUpdateParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),
     id: zod.string().describe('A UUID string identifying this agent revision.'),
     project_id: zod
@@ -1472,59 +1745,50 @@ export const AgentApplicationsRevisionsSkillsUpdateParams = /* @__PURE__ */ zod.
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    skill_id: zod.string().regex(agentApplicationsRevisionsSkillsUpdatePathSkillIdRegExp),
 })
 
-export const AgentApplicationsRevisionsSkillsUpdateBody = /* @__PURE__ */ zod
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemFromTemplateMax = 64
+
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax = 64
+
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp = new RegExp(
+    '^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$'
+)
+
+export const AgentApplicationsRevisionsSkillRefsUpdateBody = /* @__PURE__ */ zod
     .object({
-        description: zod
-            .string()
-            .describe('One-line summary shown in the skill index; the model uses it to decide when to load the skill.'),
-        body: zod.string().describe("The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`."),
+        skill_refs: zod
+            .array(
+                zod
+                    .object({
+                        from_template: zod
+                            .string()
+                            .max(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemFromTemplateMax)
+                            .describe(
+                                'Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.'
+                            ),
+                        alias: zod
+                            .string()
+                            .max(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax)
+                            .regex(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp)
+                            .describe(
+                                'Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.'
+                            ),
+                        version: zod
+                            .number()
+                            .min(1)
+                            .optional()
+                            .describe(
+                                "Specific published version to pin. Omit to pin the store's latest version at freeze time."
+                            ),
+                    })
+                    .describe(
+                        "One reference to a versioned skill in the llma-skill store, pinned into\nthis agent's bundle at freeze."
+                    )
+            )
+            .describe('The complete set of store-skill references for this draft; replaces any existing references.'),
     })
-    .describe(
-        'Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored\nat the canonical `skills/<skill_id>/SKILL.md` path in the bundle.'
-    )
-
-/**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
- *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
- */
-export const agentApplicationsRevisionsSkillsDestroyPathSkillIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
-
-export const AgentApplicationsRevisionsSkillsDestroyParams = /* @__PURE__ */ zod.object({
-    application_id: zod.string(),
-    id: zod.string().describe('A UUID string identifying this agent revision.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    skill_id: zod.string().regex(agentApplicationsRevisionsSkillsDestroyPathSkillIdRegExp),
-})
+    .describe("Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references.")
 
 /**
  * Build a Slack app manifest for this revision's slack trigger.
@@ -1701,7 +1965,7 @@ export const AgentApplicationsRevisionsToolsDestroyParams = /* @__PURE__ */ zod.
  * Pre-flight checks before freeze + promote: entrypoint file exists,
  * every native tool id is registered, every custom tool has its
  * compiled.js + schema.json, every skill path exists, every declared
- * secret has a value set in the application's env block. Returns
+ * secret has a value set in this revision's env block. Returns
  * `{ ok, errors: [...] }`. Works on any revision state.
  */
 export const AgentApplicationsRevisionsValidateCreateParams = /* @__PURE__ */ zod.object({
@@ -1830,77 +2094,15 @@ export const AgentApplicationsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List the names of secrets currently set on the application.
- *
- * Returns names only — values stay server-side under
- * `EncryptedTextField`. Use this to drive the "set / unset" badge
- * next to a declared secret in the editor UI.
- */
-export const AgentApplicationsEnvKeysListParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this agent application.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-/**
- * GET / PUT / DELETE one secret by name.
- *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
- *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
- */
-export const AgentApplicationsEnvKeysGetParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this agent application.'),
-    key: zod
-        .string()
-        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-/**
- * GET / PUT / DELETE one secret by name.
- *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
- *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
- */
-export const AgentApplicationsEnvKeysClearParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this agent application.'),
-    key: zod
-        .string()
-        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-/**
  * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
  *
  * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
  * non-live invokes that don't carry the `x-agent-preview-secret` header;
- * this proxy attaches it after authenticating the Django caller. See
- * docs/agent-platform/plans/draft-preview-auth.md.
+ * this proxy attaches it after authenticating the Django caller.
  *
  * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
- * Auth: standard PAT / session — `agents:read` scope.
+ * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
+ * is a mutating invoke; the read-only `listen` GET is `agents:read`).
  */
 export const AgentApplicationsPreviewProxyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this agent application.'),
@@ -1916,6 +2118,25 @@ export const AgentApplicationsPreviewProxyQueryParams = /* @__PURE__ */ zod.obje
     format: zod.enum(['json', 'sse']).optional(),
     revision_id: zod.string().describe('Target draft revision. Must belong to this application and not be live.'),
 })
+
+export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
+    .object({
+        message: zod
+            .string()
+            .optional()
+            .describe(
+                'User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.'
+            ),
+        session_id: zod
+            .string()
+            .optional()
+            .describe(
+                'Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created).'
+            ),
+    })
+    .describe(
+        'Body forwarded verbatim to the agent ingress for a *preview* invoke of a\nnon-live revision. The meaningful shape depends on the `rest` path segment:\n\n- `run` — `{ message }`: the user message that starts a new session.\n- `send` — `{ session_id, message }`: append a message to a running session.\n- `cancel` / `listen` — no body.\n\nDocuments `message` / `session_id` so the generated MCP tool exposes them;\nany extra keys are still forwarded as-is to ingress.'
+    )
 
 /**
  * List sessions for this application, newest first. Strips the
@@ -1976,6 +2197,48 @@ export const AgentApplicationsSessionsRetrieveQueryParams = /* @__PURE__ */ zod.
         .describe(
             'If set, return only the most recent N messages from the conversation. `usage_total` is still computed over the full session — only the transcript is trimmed. The response includes `conversation_trimmed: true` and `conversation_total_turns` so the caller knows how much was hidden.'
         ),
+})
+
+/**
+ * Read the runner's structured event log for one session from
+ * ClickHouse. Filters (limit / after / before / level / search)
+ * match the shared `LogEntryMixin` helper used by hog_function +
+ * hog_flow.
+ */
+export const AgentApplicationsSessionLogsParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this agent application.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    session_id: zod.string().describe('UUID of the session whose logs to fetch.'),
+})
+
+export const agentApplicationsSessionLogsQueryLimitDefault = 50
+export const agentApplicationsSessionLogsQueryLimitMax = 500
+
+export const AgentApplicationsSessionLogsQueryParams = /* @__PURE__ */ zod.object({
+    after: zod.iso.datetime({ offset: true }).optional().describe('Only return entries after this ISO 8601 timestamp.'),
+    before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Only return entries before this ISO 8601 timestamp.'),
+    instance_id: zod.string().min(1).optional().describe('Filter logs to a specific execution instance.'),
+    level: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR."
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(agentApplicationsSessionLogsQueryLimitMax)
+        .default(agentApplicationsSessionLogsQueryLimitDefault)
+        .describe('Maximum number of log entries to return (1-500, default 50).'),
+    search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
 })
 
 /**

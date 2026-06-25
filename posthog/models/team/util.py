@@ -52,7 +52,6 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
-    from products.feature_flags.backend.models.feature_flag import FeatureFlagHashKeyOverride
     from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 
     # Data modeling Edge/Node must be deleted before the Team row: Team cascades to
@@ -63,15 +62,90 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
-    _raw_delete_batch(
-        FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids)  # nosemgrep: no-direct-persons-db-orm
-    )
+    _delete_hash_key_overrides_for_teams(team_ids)
     _raw_delete_batch(InsightCachingState.objects.filter(team_id__in=team_ids))
 
 
+def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
+    """Delete FeatureFlagHashKeyOverride rows for the given teams via personhog, falling back to ORM.
+
+    These rows reference Person but have no DB-level cascade (cross-database FK with
+    db_constraint=False), so they must be deleted explicitly before the persons are.
+    """
+    if not team_ids:
+        return
+
+    from posthog.models.person.util import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+    from posthog.personhog_client.caller_tag import personhog_caller_tag
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteHashKeyOverridesByTeamsRequest
+
+    from products.feature_flags.backend.models.feature_flag import FeatureFlagHashKeyOverride
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            with personhog_caller_tag("team-delete/hash-key-overrides"):
+                while True:
+                    resp = client.delete_hash_key_overrides_by_teams(
+                        DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=10000)
+                    )
+                    if resp.deleted_count == 0:
+                        break
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="delete_hash_key_overrides_for_teams", source="personhog", client_name=get_client_name()
+            ).inc()
+            return
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="delete_hash_key_overrides_for_teams",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_delete_hash_key_overrides_for_teams_failure", team_ids=team_ids, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="delete_hash_key_overrides_for_teams", source="django_orm", client_name=get_client_name()
+    ).inc()
+    _raw_delete_batch(
+        FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids)  # nosemgrep: no-direct-persons-db-orm
+    )
+
+
 def _delete_personless_distinct_ids_for_teams(team_ids: list[int]) -> None:
+    """Delete posthog_personlessdistinctid rows for teams via personhog RPC.
+
+    Falls back to the raw batched SQL delete when personhog is not available.
+    Uses _personhog_routed per team for consistent gate/metrics/fallback.
+    """
+    from functools import partial
+
+    from posthog.models.person.util import _personhog_routed
+
     for team_id in team_ids:
-        _raw_delete_personless_distinct_ids_for_team(team_id)
+        _personhog_routed(
+            "delete_personless_distinct_ids_for_team",
+            partial(_delete_personless_distinct_ids_for_team_via_personhog, team_id),
+            partial(_raw_delete_personless_distinct_ids_for_team, team_id),
+            team_id=team_id,
+        )
+
+
+def _delete_personless_distinct_ids_for_team_via_personhog(team_id: int) -> None:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeletePersonlessDistinctIdsBatchForTeamRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    while True:
+        resp = client.delete_personless_distinct_ids_batch_for_team(
+            DeletePersonlessDistinctIdsBatchForTeamRequest(team_id=team_id, batch_size=10000)
+        )
+        if resp.deleted_count == 0:
+            break
 
 
 def _delete_cohort_members_for_all_teams(team_ids: list[int]) -> None:

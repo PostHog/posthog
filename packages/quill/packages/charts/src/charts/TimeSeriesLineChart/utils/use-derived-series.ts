@@ -88,7 +88,14 @@ export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedS
             if (!found) {
                 continue
             }
-            maSeries.push(buildMovingAverageSeries<Meta>({ sourceSeries: found, window: ma.window, label: ma.label }))
+            maSeries.push(
+                buildMovingAverageSeries<Meta>({
+                    sourceSeries: found,
+                    window: ma.window,
+                    label: ma.label,
+                    excluded: found.visibility?.excluded,
+                })
+            )
         }
 
         // Trend lines may reference moving-average series too (e.g. trends renders both a
@@ -113,6 +120,7 @@ export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedS
                     kind: tl.kind,
                     label: tl.label,
                     fitUpTo: tl.fitUpTo,
+                    excluded: found.visibility?.excluded,
                 })
             )
         }

@@ -104,4 +104,43 @@ describe('TraceWaterfallView', () => {
         expect(within(container).queryByLabelText('Collapse child spans')).toBeNull()
         expect(within(container).queryByLabelText('Collapse all spans')).toBeNull()
     })
+
+    it('does not request more spans when hasMore is false', () => {
+        const onLoadMore = jest.fn()
+        render(<TraceWaterfallView spans={[root, child]} hasMore={false} onLoadMore={onLoadMore} />)
+
+        expect(onLoadMore).not.toHaveBeenCalled()
+    })
+
+    it('requests more spans at most once per loaded count, even across rerenders with the same spans', () => {
+        // The runaway bug: a page that returns no new rows leaves the window pinned at the bottom, so
+        // the trigger refires every render. The guard pages once per loaded count — re-rendering with
+        // the same spans (the loading-more flag toggling back) must not refire.
+        const onLoadMore = jest.fn()
+        const { rerender } = render(<TraceWaterfallView spans={[root, child]} hasMore onLoadMore={onLoadMore} />)
+
+        expect(onLoadMore).toHaveBeenCalledTimes(1)
+
+        rerender(<TraceWaterfallView spans={[root, child]} hasMore loadingMore onLoadMore={onLoadMore} />)
+        rerender(<TraceWaterfallView spans={[root, child]} hasMore onLoadMore={onLoadMore} />)
+
+        expect(onLoadMore).toHaveBeenCalledTimes(1)
+    })
+
+    it('requests more again once new spans grow the loaded count', () => {
+        const grandchild = makeSpan({
+            uuid: 'uuid-grandchild',
+            span_id: 'span-grandchild',
+            parent_span_id: 'span-child',
+            name: 'grandchild-operation',
+        })
+        const onLoadMore = jest.fn()
+        const { rerender } = render(<TraceWaterfallView spans={[root, child]} hasMore onLoadMore={onLoadMore} />)
+
+        expect(onLoadMore).toHaveBeenCalledTimes(1)
+
+        rerender(<TraceWaterfallView spans={[root, child, grandchild]} hasMore onLoadMore={onLoadMore} />)
+
+        expect(onLoadMore).toHaveBeenCalledTimes(2)
+    })
 })

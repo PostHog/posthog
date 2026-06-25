@@ -13,9 +13,12 @@ import type {
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPullRequestsParams,
+    EngineeringAnalyticsQuarantineParams,
     EngineeringAnalyticsWorkflowHealthParams,
+    GitHubSourceApi,
     PRLifecycleApi,
     PullRequestListApi,
+    QuarantineFileApi,
     WorkflowHealthItemApi,
 } from './api.schemas'
 
@@ -115,6 +118,57 @@ export const engineeringAnalyticsPullRequests = async (
     })
 }
 
+export const getEngineeringAnalyticsQuarantineUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsQuarantineParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/quarantine/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/quarantine/`
+}
+
+/**
+ * The repository's checked-in .test_quarantine.json: flaky tests temporarily quarantined with a hard expiry, classified by urgency (overdue, in grace, expiring soon, active). `available` is false when the repo has no quarantine file — that is not an error. Parsing is fail-open: malformed entries are reported in parse_errors while well-formed ones are kept.
+ * @summary Flaky-test quarantine file
+ */
+export const engineeringAnalyticsQuarantine = async (
+    projectId: string,
+    params?: EngineeringAnalyticsQuarantineParams,
+    options?: RequestInit
+): Promise<QuarantineFileApi> => {
+    return apiMutator<QuarantineFileApi>(getEngineeringAnalyticsQuarantineUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsSourcesUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/engineering_analytics/sources/`
+}
+
+/**
+ * The team's connected GitHub data warehouse sources, oldest first. Populate a source picker from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect GitHub more than once (e.g. one source per repository); this lists them all, including any whose tables aren't fully synced yet.
+ */
+export const engineeringAnalyticsSources = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<GitHubSourceApi[]> => {
+    return apiMutator<GitHubSourceApi[]>(getEngineeringAnalyticsSourcesUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEngineeringAnalyticsWorkflowHealthUrl = (
     projectId: string,
     params?: EngineeringAnalyticsWorkflowHealthParams
@@ -135,7 +189,7 @@ export const getEngineeringAnalyticsWorkflowHealthUrl = (
 }
 
 /**
- * Per-workflow CI health over a window (default last 30 days, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, and a zero-filled daily run history. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 30 days, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, and a zero-filled daily run history. Optionally scope to a single git branch via `branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const engineeringAnalyticsWorkflowHealth = async (
     projectId: string,

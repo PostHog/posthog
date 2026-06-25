@@ -432,6 +432,46 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert isoparse(results_by_id[dashboard_recent_id]["last_viewed_at"]) == isoparse("2024-01-01T12:00:00+00:00")
         assert results_by_id[dashboard_unseen_id]["last_viewed_at"] is None
 
+    def test_list_includes_folder_from_filesystem(self):
+        filed_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Filed dashboard", "_create_in_folder": "Marketing/Website"}
+        )
+        unfiled_id, _ = self.dashboard_api.create_dashboard({"name": "Unfiled dashboard"})
+
+        response = self.dashboard_api.list_dashboards(parent="environment")
+        results_by_id = {dashboard["id"]: dashboard for dashboard in response["results"]}
+
+        # The folder is the file system path without the dashboard's own name
+        assert results_by_id[filed_id]["folder"] == "Marketing/Website"
+        # Dashboards created without an explicit folder land in the default unfiled folder
+        assert results_by_id[unfiled_id]["folder"] == "Unfiled/Dashboards"
+
+    @parameterized.expand(
+        [
+            # The named folder matches only the dashboard filed directly in it — nested sub-folders excluded
+            ("named_folder", "Marketing/Website", "in_folder"),
+            # The empty string is the project root (the `depth=1`, no-prefix branch of _apply_folder_filter)
+            ("project_root", "", "root"),
+        ]
+    )
+    def test_list_filters_by_folder(self, _name: str, folder: str, expected_key: str):
+        ids = {
+            "in_folder": self.dashboard_api.create_dashboard(
+                {"name": "In folder", "_create_in_folder": "Marketing/Website"}
+            )[0],
+            "nested": self.dashboard_api.create_dashboard(
+                {"name": "Nested deeper", "_create_in_folder": "Marketing/Website/Landing"}
+            )[0],
+            "other": self.dashboard_api.create_dashboard({"name": "Other folder", "_create_in_folder": "Product"})[0],
+            "root": self.dashboard_api.create_dashboard({"name": "Root dashboard", "_create_in_folder": ""})[0],
+        }
+
+        response = self.dashboard_api.list_dashboards(parent="environment", query_params={"folder": folder})
+        result_ids = {dashboard["id"] for dashboard in response["results"]}
+
+        # Set equality asserts the match is exact — every other dashboard (nested, other folder, root/named) is excluded
+        assert result_ids == {ids[expected_key]}
+
     @snapshot_postgres_queries
     def test_retrieve_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
@@ -1517,7 +1557,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         [
             ("same_team_only_team", "self", "team", status.HTTP_201_CREATED),
             ("global", "none", "global", status.HTTP_201_CREATED),
+            ("same_org_organization", "sibling", "organization", status.HTTP_201_CREATED),
             ("other_team_only_team", "other", "team", status.HTTP_400_BAD_REQUEST),
+            ("other_org_organization", "other", "organization", status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_use_template_respects_team_scoping(self, _name: str, owner: str, scope: str, expected_status: int) -> None:
@@ -1525,6 +1567,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         if owner == "self":
             template_team: Team | None = self.team
+        elif owner == "sibling":
+            template_team = Team.objects.create(organization=self.organization, name="sibling team")
         elif owner == "other":
             other_org = Organization.objects.create(name="other org")
             template_team = Team.objects.create(organization=other_org, name="other team")

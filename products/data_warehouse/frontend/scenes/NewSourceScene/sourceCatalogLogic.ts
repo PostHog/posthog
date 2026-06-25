@@ -87,6 +87,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         setSearch: (search: string) => ({ search }),
         setSelectedCategory: (category: SourceCategoryFilter) => ({ category }),
         registerInterest: (item: CatalogItem) => ({ item }),
+        selectSourceType: (item: CatalogItem) => ({ item }),
         showSourceRequest: true,
         hideSourceRequest: true,
         setSourceRequestText: (text: string) => ({ text }),
@@ -228,6 +229,14 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 email: values.user?.email,
             })
             lemonToast.success('Thank you for your interest! We will notify you when this source is available.')
+        },
+        selectSourceType: ({ item }) => {
+            posthog.capture('selected source type', {
+                name: item.label,
+                type: item.name,
+                category: item.category,
+                release_status: item.releaseStatus,
+            })
         },
         showSourceRequest: () => {
             posthog.capture('survey shown', { $survey_id: SOURCE_REQUEST_SURVEY_ID })

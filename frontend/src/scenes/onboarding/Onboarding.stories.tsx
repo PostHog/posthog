@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
+import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -14,8 +15,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-import { onboardingLogic } from './onboardingLogic'
-import { availableOnboardingProducts } from './utils'
+import { onboardingLogic } from './legacy/onboardingLogic'
 
 const meta: Meta = {
     title: 'Scenes-Other/Onboarding',

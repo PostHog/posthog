@@ -10,9 +10,9 @@ description: >
 
 # Exploring MCP sessions
 
-An MCP session is one agent run, identified by `$mcp_session_id` on the
-`mcp_tool_call` event. A session is just the set of `mcp_tool_call` events that
-share a `$mcp_session_id`, ordered by `timestamp`. Listing sessions and reading
+An MCP session is one agent run, identified by `$session_id` on the
+`$mcp_tool_call` event. A session is just the set of `$mcp_tool_call` events that
+share a `$session_id`, ordered by `timestamp`. Listing sessions and reading
 a session's tool calls are both plain HogQL over `events`; the full property
 schema and recipes are in the shared reference:
 [`products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
@@ -29,13 +29,13 @@ the typed tool `posthog:mcp-analytics-sessions-generate-intent`.
 
 ## Workflow: list recent sessions
 
-Group `mcp_tool_call` by `$mcp_session_id`, deriving start/end, duration, call
+Group `$mcp_tool_call` by `$session_id`, deriving start/end, duration, call
 count, error count, and the harness:
 
 ```sql
 posthog:execute-sql
 SELECT
-    toString(properties.$mcp_session_id) AS session_id,
+    $session_id AS session_id,
     min(timestamp) AS session_start,
     max(timestamp) AS session_end,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
@@ -43,8 +43,8 @@ SELECT
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     any(properties.$mcp_client_name) AS client
 FROM events
-WHERE event = 'mcp_tool_call'
-    AND toString(properties.$mcp_session_id) != ''
+WHERE event = '$mcp_tool_call'
+    AND $session_id != ''
     AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY session_id
 ORDER BY session_start DESC
@@ -67,8 +67,8 @@ SELECT
     round(toFloat(properties.$mcp_duration_ms)) AS duration_ms,
     toString(properties.$mcp_intent) AS intent
 FROM events
-WHERE event = 'mcp_tool_call'
-    AND toString(properties.$mcp_session_id) = '<session_id>'
+WHERE event = '$mcp_tool_call'
+    AND $session_id = '<session_id>'
 ORDER BY timestamp ASC
 ```
 

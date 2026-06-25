@@ -67,12 +67,60 @@ SPANS = [
     ("window/src/file.rs", 5, "current", 0, 10, None, "current"),
     ("window/src/file.rs", 6, "current", 0, 10, None, "previous"),
     ("window/src/file.rs", 7, "current", 0, 10, None, "outside"),
+    # Period-over-period delta fixtures. Each "function" lives on a SINGLE line so the bucket and the five
+    # *_pct_change values are identical in line mode (bucket = the line) and in symbol mode (a [L, L] range
+    # anchored on L) — letting one parametrized test assert mode parity.
+    #   line 10: traffic + errors in BOTH windows → real deltas (count/p50/p95/p99 +100, error_rate -50).
+    ("pct/src/deltas.rs", 10, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 10, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 10, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 10, "current", 2, 100, None, "current"),  # 4 current, 1 error → rate 1/4
+    ("pct/src/deltas.rs", 10, "current", 0, 50, None, "previous"),
+    ("pct/src/deltas.rs", 10, "current", 2, 50, None, "previous"),  # 2 previous, 1 error → rate 1/2
+    #   line 20: previous only → every metric (count, p50/p95/p99, error_rate) drops -100%.
+    ("pct/src/deltas.rs", 20, "current", 2, 50, None, "previous"),
+    ("pct/src/deltas.rs", 20, "current", 0, 50, None, "previous"),
+    ("pct/src/deltas.rs", 20, "current", 0, 50, None, "previous"),  # 3 previous, 1 error → rate 1/3
+    #   line 30: current only → no baseline for any metric → all five pct_change null.
+    ("pct/src/deltas.rs", 30, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 30, "current", 0, 100, None, "current"),
+    #   line 40: errors present previous, none current but traffic continues → error_rate -100.
+    ("pct/src/deltas.rs", 40, "current", 2, 50, None, "previous"),
+    ("pct/src/deltas.rs", 40, "current", 0, 50, None, "previous"),  # 2 previous, 1 error → rate 1/2
+    ("pct/src/deltas.rs", 40, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 40, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 40, "current", 0, 100, None, "current"),  # 3 current, 0 errors → rate 0
+    #   line 50: no errors previous, errors appear current → error_rate null (0→N spike, prev rate 0).
+    ("pct/src/deltas.rs", 50, "current", 0, 50, None, "previous"),
+    ("pct/src/deltas.rs", 50, "current", 0, 50, None, "previous"),  # 2 previous, 0 errors → rate 0
+    ("pct/src/deltas.rs", 50, "current", 2, 100, None, "current"),
+    ("pct/src/deltas.rs", 50, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 50, "current", 0, 100, None, "current"),  # 3 current, 1 error → rate 1/3
 ]
 
 FM_SYMBOLS = [
     {"name": "match_flags", "startLine": 459, "endLine": 826},
     {"name": "closure", "startLine": 500, "endLine": 520},
     {"name": "evaluate_flags_in_level", "startLine": 900, "endLine": 980},
+]
+
+# Single-line ranges over the pct/src/deltas.rs fixture: each anchors on its own line, so symbol mode
+# buckets exactly as line mode does.
+DELTA_SYMBOLS = [
+    {"name": "ten", "startLine": 10, "endLine": 10},
+    {"name": "twenty", "startLine": 20, "endLine": 20},
+    {"name": "thirty", "startLine": 30, "endLine": 30},
+    {"name": "forty", "startLine": 40, "endLine": 40},
+    {"name": "fifty", "startLine": 50, "endLine": 50},
+]
+
+# The five server-computed deltas every row carries, in both line and symbol mode.
+PCT_CHANGE_FIELDS = [
+    "count_pct_change",
+    "p50_duration_pct_change",
+    "p95_duration_pct_change",
+    "p99_duration_pct_change",
+    "error_rate_pct_change",
 ]
 
 
@@ -176,6 +224,45 @@ class TestTraceSpansSymbolStats(_TraceSpansTestBase):
         self.assertEqual(by_line[900]["previous"]["count"], 5)
         self.assertEqual(by_line[900]["count_pct_change"], -100.0)
         self.assertEqual(by_line[900]["p95_duration_pct_change"], -100.0)
+
+    @parameterized.expand([("line_mode", None), ("symbol_mode", DELTA_SYMBOLS)])
+    def test_all_five_pct_changes(self, _name, symbols):
+        # Single-line buckets make every delta identical across granularities, so the same assertions hold
+        # whether we bucket by line (no symbols) or by a [L, L] symbol range.
+        by_line = {r["line"]: r for r in self._post("pct/src/deltas.rs", symbols)["results"]}
+        self.assertEqual(sorted(by_line), [10, 20, 30, 40, 50])
+
+        # Mode parity: line and symbol mode return the same five server-computed deltas on every row.
+        for row in by_line.values():
+            for field in PCT_CHANGE_FIELDS:
+                self.assertIn(field, row)
+
+        # line 10 — traffic in both windows: positive count/duration delta, real (negative) error-rate delta.
+        # count 2→4 = +100; p50/p95/p99 50ms→100ms = +100; error_rate 1/2→1/4 = -50.
+        ten = by_line[10]
+        self.assertEqual(ten["count_pct_change"], 100.0)
+        self.assertEqual(ten["p50_duration_pct_change"], 100.0)
+        self.assertEqual(ten["p95_duration_pct_change"], 100.0)
+        self.assertEqual(ten["p99_duration_pct_change"], 100.0)
+        self.assertEqual(ten["error_rate_pct_change"], -50.0)
+
+        # line 20 — previous only: every metric drops -100% (incl. error_rate, errors present previously).
+        twenty = by_line[20]
+        self.assertEqual(twenty["count_pct_change"], -100.0)
+        self.assertEqual(twenty["p50_duration_pct_change"], -100.0)
+        self.assertEqual(twenty["p95_duration_pct_change"], -100.0)
+        self.assertEqual(twenty["p99_duration_pct_change"], -100.0)
+        self.assertEqual(twenty["error_rate_pct_change"], -100.0)
+
+        # line 30 — current only: no baseline → null for each of the five.
+        for field in PCT_CHANGE_FIELDS:
+            self.assertIsNone(by_line[30][field])
+
+        # line 40 — errors vanish (present previous, none current though traffic continues) → error_rate -100.
+        self.assertEqual(by_line[40]["error_rate_pct_change"], -100.0)
+
+        # line 50 — new errors (none previous, appear current) → null, preserving 0→N-spike semantics.
+        self.assertIsNone(by_line[50]["error_rate_pct_change"])
 
     def test_busy_absent_yields_zero_count_and_no_name(self):
         rows = self._symbol_stats("svc/src/legacy.rs", [{"startLine": 10, "endLine": 50}])
