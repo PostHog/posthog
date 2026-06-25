@@ -1,4 +1,7 @@
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -21,12 +24,30 @@ from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
     from posthog.models.organization import Organization
 
     # Resolved lazily via __getattr__ below; declared here so consumers type-check as int.
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER: int
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
+
+# Carries request-derived analytics props (source, referer, ...) into the post_save signal,
+# which has no request context. Set by the API layer around request-originated saves so the
+# canonical "<kind> subscription created/updated" events get source attribution; stays None
+# for system saves (Temporal, management commands), which then report without a source.
+subscription_request_analytics_props: ContextVar[Optional["AnalyticsProps"]] = ContextVar(
+    "subscription_request_analytics_props", default=None
+)
+
+
+@contextmanager
+def attribute_subscription_saves(analytics_props: "AnalyticsProps") -> Iterator[None]:
+    token = subscription_request_analytics_props.set(analytics_props)
+    try:
+        yield
+    finally:
+        subscription_request_analytics_props.reset(token)
 
 
 # Single source of truth shared with the frontend create gate via generated schema
@@ -393,7 +414,13 @@ def subscription_saved(sender, instance, created, raw, using, **kwargs):
 
     if instance.created_by and instance.resource_info:
         event_name: str = f"{instance.resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
-        report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
+        report_user_action(
+            instance.created_by,
+            event_name,
+            instance.get_analytics_metadata(),
+            team=instance.team,
+            analytics_props=subscription_request_analytics_props.get(),
+        )
 
 
 @mutable_receiver(model_activity_signal, sender=Subscription)
