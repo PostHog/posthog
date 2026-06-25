@@ -1,12 +1,11 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import type { workflowAssetsLogicType } from './workflowAssetsLogicType'
 import { MessageAsset } from './hogflows/types'
+import type { workflowAssetsLogicType } from './workflowAssetsLogicType'
 
 export interface WorkflowAssetsLogicProps {
     id: string
@@ -40,19 +39,15 @@ export const workflowAssetsLogic = kea<workflowAssetsLogicType>([
         assets: [
             [] as MessageAsset[],
             {
-                loadAssets: async (_, breakpoint) => {
+                loadAssets: async () => {
                     if (!props.id || props.id === 'new') {
                         return []
                     }
-                    // 250ms debounce so typing in the search box doesn't fire a request per keystroke.
-                    await breakpoint(250)
-                    const result = await api.hogFlows.getMessageAssets(props.id, {
+                    return await api.hogFlows.getMessageAssets(props.id, {
                         parent_run_id: props.parentRunId,
                         action_id: props.actionId,
                         search: values.search || undefined,
                     })
-                    breakpoint()
-                    return result
                 },
             },
         ],
@@ -92,8 +87,10 @@ export const workflowAssetsLogic = kea<workflowAssetsLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        setSearch: () => {
-            actions.loadAssets({})
+        // Debounce so typing in the search box doesn't fire a request per keystroke.
+        setSearch: async (_, breakpoint) => {
+            await breakpoint(250)
+            actions.loadAssets()
         },
     })),
 ])
