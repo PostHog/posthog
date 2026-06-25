@@ -89,18 +89,26 @@ export const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
     return timestamp.tz(teamTimezone).format('YYYY-MM-DD HH:mm:ss.SSS')
 }
 
+// An empty `levels` selection means "all levels" in the picker (it renders as
+// "All levels"), so omit the predicate entirely. Emitting `lower(level) IN ()`
+// is invalid HogQL ("empty parentheses are not a valid expression") and fails
+// the whole query — which surfaced as a toast when deselecting the last level
+// or paging older entries. Values come from a fixed enum, so raw is safe here.
+const levelInClause = (levels: LogEntryLevel[]): string =>
+    levels.length > 0 ? `AND lower(level) IN (${levels.map((level) => `'${level.toLowerCase()}'`).join(',')})` : ''
+
 const buildBoundaryFilters = (request: LogEntryParams): string => {
     return hogql`
         AND log_source = ${request.sourceType}
         AND log_source_id = ${request.sourceId}
         AND timestamp > {filters.dateRange.from}
         AND timestamp < {filters.dateRange.to}
-        AND lower(level) IN (${hogql.raw(request.levels.map((level) => `'${level.toLowerCase()}'`).join(','))})
+        ${hogql.raw(levelInClause(request.levels))}
     `
 }
 
 const buildSearchFilters = ({ searchGroups, levels, instanceId }: LogEntryParams): string => {
-    let query = hogql`\nAND lower(level) IN (${hogql.raw(levels.map((level) => `'${level.toLowerCase()}'`).join(','))})`
+    let query = hogql`\n${hogql.raw(levelInClause(levels))}`
 
     searchGroups.forEach((search) => {
         query = (query +
