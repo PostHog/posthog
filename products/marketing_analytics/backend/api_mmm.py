@@ -277,6 +277,17 @@ class MmmActionsMixin:
     """MMM read-only actions, mixed into `MarketingAnalyticsViewSet`. Relies on the host viewset for
     `self.team` and the request/permission machinery."""
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # `mmm_calibrations` is one endpoint serving GET (read the calibration set) and POST (replace it).
+        # An @action's `required_scopes` can't vary by method, so derive it here: the POST write path must
+        # require `marketing_analytics:write`, otherwise a token scoped only to `marketing_analytics:read`
+        # could overwrite the calibration priors. The other actions set their own `required_scopes`, so they
+        # short-circuit before reaching this hook; returning None lets them fall through unchanged.
+        if getattr(view, "action", None) == "mmm_calibrations":
+            return ["marketing_analytics:write"] if request.method == "POST" else ["marketing_analytics:read"]
+        super_method = getattr(super(), "dangerously_get_required_scopes", None)
+        return super_method(request, view) if super_method else None
+
     def _assert_mmm_access(self, request: Request) -> None:
         """Staff-only while MMM is under development (the security boundary; the feature flag gates UI)."""
         if not getattr(request.user, "is_staff", False):
@@ -478,9 +489,7 @@ class MmmActionsMixin:
         description="Validate and persist the full set of per-channel lift-test calibrations (replaces the existing "
         "set). The only write endpoint in the MMM POC. Staff only.",
     )
-    @action(
-        methods=["GET", "POST"], detail=False, url_path="mmm_calibrations", required_scopes=["marketing_analytics:read"]
-    )
+    @action(methods=["GET", "POST"], detail=False, url_path="mmm_calibrations")
     def mmm_calibrations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self._assert_mmm_access(request)
         config = self.team.marketing_analytics_config  # type: ignore[attr-defined]

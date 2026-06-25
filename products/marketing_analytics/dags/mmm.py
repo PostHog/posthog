@@ -623,8 +623,10 @@ def _equalize_marginal_roi(run: MmmRun, total_budget: float) -> dict[str, float]
         return dict(run.current_spend)
 
     # Per-channel curve as (spend_point -> incremental_outcome) for marginal-slope lookups.
+    # ``decompose_and_curves`` stamps (job_id, team_id) onto the front of each curve row before this op
+    # runs, so unpack the trailing 5 fields — this stays correct whether or not the rows are stamped.
     curve_by_channel: dict[str, list[tuple[float, float]]] = defaultdict(list)
-    for channel, spend_point, incremental, _lo, _hi in run.curves:
+    for *_, channel, spend_point, incremental, _lo, _hi in run.curves:
         curve_by_channel[channel].append((float(spend_point), float(incremental)))
     for points in curve_by_channel.values():
         points.sort()

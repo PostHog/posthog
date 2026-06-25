@@ -7,6 +7,9 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 
 class TestMmmApi(APIBaseTest):
     def setUp(self) -> None:
@@ -55,6 +58,32 @@ class TestMmmApi(APIBaseTest):
         assert len(calibrations) == 1
         assert calibrations[0]["channel"] == "google"
         assert calibrations[0]["lift_pct"] == 12.5
+
+    def _scoped_key(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="mmm", user=self.user, scopes=scopes, secure_value=hash_key_value(value))
+        return value
+
+    def test_calibrations_post_requires_write_scope(self) -> None:
+        # The POST replaces the calibration priors, so it must require marketing_analytics:write. A token
+        # scoped only to :read can read the calibrations but must not be able to overwrite them — the staff
+        # gate is a separate check and does not stand in for the correct scope.
+        body = {"calibrations": [{"channel": "google", "lift_pct": 12.5, "ci_low": 8.0, "ci_high": 17.0}]}
+        self.client.logout()  # force the personal-API-key path; session auth bypasses scope checks
+
+        read_key = self._scoped_key(["marketing_analytics:read"])
+        denied = self.client.post(
+            self._url("mmm_calibrations"), body, format="json", HTTP_AUTHORIZATION=f"Bearer {read_key}"
+        )
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+        readable = self.client.get(self._url("mmm_calibrations"), HTTP_AUTHORIZATION=f"Bearer {read_key}")
+        assert readable.status_code == status.HTTP_200_OK
+
+        write_key = self._scoped_key(["marketing_analytics:write"])
+        allowed = self.client.post(
+            self._url("mmm_calibrations"), body, format="json", HTTP_AUTHORIZATION=f"Bearer {write_key}"
+        )
+        assert allowed.status_code == status.HTTP_200_OK
 
     def test_calibrations_rejects_inverted_interval(self) -> None:
         response = self.client.post(

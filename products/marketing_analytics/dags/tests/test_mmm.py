@@ -6,6 +6,7 @@ from products.marketing_analytics.dags.mmm import (
     MmmConfig,
     MmmRun,
     _calibration_channel_priors,
+    _equalize_marginal_roi,
     _interp,
     _marginal_return,
     _sigma_from_ci,
@@ -104,3 +105,30 @@ class TestResponseCurveInterpolation:
         assert low == pytest.approx(5.0)
         assert high == pytest.approx(2.0)
         assert low > high
+
+
+class TestBudgetOptimizer:
+    def test_equalize_marginal_roi_reads_stamped_curves(self) -> None:
+        # Regression: decompose_and_curves stamps (job_id, team_id) onto the front of each curve row
+        # before optimize_budget runs, so the optimizer reads 7-tuples, not the raw 5-tuples produced by
+        # _summarize_curves. Before the fix it unpacked 5 values and raised ValueError on every real run,
+        # so optimize_budget (and persist_run after it) never completed. Build the stamped shape here.
+        stamped_curves = [
+            # (job_id, team_id, channel, spend_point, incremental, lower, upper)
+            ("job", 2, "google", 0.0, 0.0, 0.0, 0.0),
+            ("job", 2, "google", 50.0, 30.0, 25.0, 35.0),
+            ("job", 2, "google", 100.0, 45.0, 40.0, 50.0),
+            ("job", 2, "meta", 0.0, 0.0, 0.0, 0.0),
+            ("job", 2, "meta", 50.0, 20.0, 15.0, 25.0),
+            ("job", 2, "meta", 100.0, 28.0, 24.0, 32.0),
+        ]
+        run = _run(
+            channels=["google", "meta"],
+            current_spend={"google": 60.0, "meta": 40.0},
+            curves=stamped_curves,
+        )
+        allocation = _equalize_marginal_roi(run, total_budget=100.0)
+        assert set(allocation) == {"google", "meta"}
+        assert all(spend >= 0.0 for spend in allocation.values())
+        # The fixed total budget is fully water-filled across the channels.
+        assert sum(allocation.values()) == pytest.approx(100.0, abs=1.0)

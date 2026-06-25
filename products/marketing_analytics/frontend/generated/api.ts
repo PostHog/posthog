@@ -16,10 +16,17 @@ import type {
     MarketingAnalyticsDataSourcesRetrieveParams,
     MarketingAnalyticsDiagnoseRetrieveParams,
     MarketingAnalyticsExplainConversionGoalRetrieveParams,
+    MarketingAnalyticsMmmDatasetRetrieveParams,
+    MarketingAnalyticsMmmRunRetrieveParams,
     MarketingAnalyticsSuggestConversionGoalsRetrieveParams,
     MarketingAnalyticsSuggestUtmMappingsRetrieveParams,
     MarketingAnalyticsUtmAuditRetrieveParams,
     MarketingDiagnosticResponseApi,
+    MmmCalibrationsRequestApi,
+    MmmCalibrationsResponseApi,
+    MmmDatasetResponseApi,
+    MmmRunDetailResponseApi,
+    MmmRunsResponseApi,
     UtmAuditResponseApi,
     UtmMappingSuggestionsResponseApi,
 } from './api.schemas'
@@ -144,6 +151,131 @@ export const marketingAnalyticsExplainConversionGoalRetrieve = async (
     })
 }
 
+export const getMarketingAnalyticsMmmCalibrationsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/mmm_calibrations/`
+}
+
+/**
+ * The stored per-channel lift-test calibrations used to derive Bayesian priors for the MMM fit. Staff only.
+ * @summary Read MMM channel calibrations
+ */
+export const marketingAnalyticsMmmCalibrationsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MmmCalibrationsResponseApi> => {
+    return apiMutator<MmmCalibrationsResponseApi>(getMarketingAnalyticsMmmCalibrationsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMarketingAnalyticsMmmCalibrationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/mmm_calibrations/`
+}
+
+/**
+ * Validate and persist the full set of per-channel lift-test calibrations (replaces the existing set). The only write endpoint in the MMM POC. Staff only.
+ * @summary Replace MMM channel calibrations
+ */
+export const marketingAnalyticsMmmCalibrationsCreate = async (
+    projectId: string,
+    mmmCalibrationsRequestApi: MmmCalibrationsRequestApi,
+    options?: RequestInit
+): Promise<MmmCalibrationsResponseApi> => {
+    return apiMutator<MmmCalibrationsResponseApi>(getMarketingAnalyticsMmmCalibrationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(mmmCalibrationsRequestApi),
+    })
+}
+
+export const getMarketingAnalyticsMmmDatasetRetrieveUrl = (
+    projectId: string,
+    params?: MarketingAnalyticsMmmDatasetRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/marketing_analytics/mmm_dataset/?${stringifiedParams}`
+        : `/api/projects/${projectId}/marketing_analytics/mmm_dataset/`
+}
+
+/**
+ * Run the marketing mix modeling dataset builder live: a weekly week×channel spend panel plus a weekly outcome series with calendar controls, for the selected conversion goal. Supports `?format=csv` for a wide weekly modeling matrix (bring-your-own-model export). Staff only.
+ * @summary Build the MMM modeling dataset
+ */
+export const marketingAnalyticsMmmDatasetRetrieve = async (
+    projectId: string,
+    params?: MarketingAnalyticsMmmDatasetRetrieveParams,
+    options?: RequestInit
+): Promise<MmmDatasetResponseApi> => {
+    return apiMutator<MmmDatasetResponseApi>(getMarketingAnalyticsMmmDatasetRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMarketingAnalyticsMmmRunRetrieveUrl = (
+    projectId: string,
+    params?: MarketingAnalyticsMmmRunRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/marketing_analytics/mmm_run/?${stringifiedParams}`
+        : `/api/projects/${projectId}/marketing_analytics/mmm_run/`
+}
+
+/**
+ * Full results for a single marketing mix modeling run: contribution decomposition, response curves, and the ROI / budget-recommendation table. Defaults to the most recent run. Staff only.
+ * @summary Read one MMM run
+ */
+export const marketingAnalyticsMmmRunRetrieve = async (
+    projectId: string,
+    params?: MarketingAnalyticsMmmRunRetrieveParams,
+    options?: RequestInit
+): Promise<MmmRunDetailResponseApi> => {
+    return apiMutator<MmmRunDetailResponseApi>(getMarketingAnalyticsMmmRunRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMarketingAnalyticsMmmRunsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/mmm_runs/`
+}
+
+/**
+ * Recent marketing mix modeling runs for this project with their window, channels, and fit diagnostics, most recent first. Empty until the MMM Dagster job has run. Staff only.
+ * @summary List MMM runs
+ */
+export const marketingAnalyticsMmmRunsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MmmRunsResponseApi> => {
+    return apiMutator<MmmRunsResponseApi>(getMarketingAnalyticsMmmRunsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMarketingAnalyticsSuggestConversionGoalsRetrieveUrl = (
     projectId: string,
     params?: MarketingAnalyticsSuggestConversionGoalsRetrieveParams
@@ -222,6 +354,10 @@ export const getMarketingAnalyticsTestMappingCreateUrl = (projectId: string) => 
     return `/api/projects/${projectId}/marketing_analytics/test_mapping/`
 }
 
+/**
+ * MMM read-only actions, mixed into `MarketingAnalyticsViewSet`. Relies on the host viewset for
+ * `self.team` and the request/permission machinery.
+ */
 export const marketingAnalyticsTestMappingCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getMarketingAnalyticsTestMappingCreateUrl(projectId), {
         ...options,

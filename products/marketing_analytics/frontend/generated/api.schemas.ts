@@ -321,6 +321,182 @@ export interface GoalExplanationApi {
     notes: string[]
 }
 
+export interface MmmCalibrationApi {
+    /** Ad channel the calibration applies to (must match a spend channel). */
+    channel: string
+    /** Measured incremental lift as a percentage (e.g. 12.5 for a +12.5% lift). */
+    lift_pct: number
+    /** Lower bound of the lift confidence interval, same units as lift_pct. */
+    ci_low: number
+    /** Upper bound of the lift confidence interval, same units as lift_pct. */
+    ci_high: number
+    /** Origin of the calibration: 'manual' or 'experiment'. */
+    source?: string
+    /**
+     * Source experiment ID when the calibration came from a PostHog experiment, else null.
+     * @nullable
+     */
+    experiment_id?: string | null
+}
+
+export interface MmmCalibrationsResponseApi {
+    /** Per-channel lift-test calibrations. */
+    calibrations: MmmCalibrationApi[]
+}
+
+export interface MmmCalibrationsRequestApi {
+    /** Full set of per-channel calibrations to persist (replaces the existing set). */
+    calibrations: MmmCalibrationApi[]
+}
+
+export interface MmmSpendPanelRowApi {
+    /** Start of the week the spend falls in (ClickHouse toStartOfWeek). */
+    week: string
+    /** Ad platform the spend belongs to (the source's normalized name). */
+    channel: string
+    /** Total spend in the team's base currency for this channel-week. */
+    spend: number
+    /** Total impressions for this channel-week. */
+    impressions: number
+    /** Total clicks for this channel-week. */
+    clicks: number
+}
+
+export interface MmmOutcomeRowApi {
+    /** Start of the week the outcome falls in (ClickHouse toStartOfWeek). */
+    week: string
+    /** Conversion-goal outcome value for the week (count or summed value). */
+    outcome: number
+    /** ISO week-of-year, a seasonality control for the model. */
+    control_weekofyear: number
+    /** Whether the week overlaps a known holiday-heavy period. */
+    is_holiday_week: boolean
+}
+
+export interface MmmDatasetResponseApi {
+    /** Dataset readiness: one of ['ok', 'degraded', 'insufficient_history', 'failed']. 'insufficient_history' means the sufficiency guard or a missing conversion goal blocked modeling — see `message`. */
+    status: string
+    /** Human-readable explanation when status is not 'ok'. */
+    message: string
+    /** Resolved modeling window start. */
+    date_from: string
+    /** Resolved modeling window end. */
+    date_to: string
+    /** Number of weeks spanned by the window. */
+    window_weeks: number
+    /** Node kind of the selected conversion goal (EventsNode / ActionsNode / ...). */
+    outcome_kind: string
+    /** Name of the selected conversion goal. */
+    outcome_ref: string
+    /** Distinct ad channels present in the spend panel. */
+    channels: string[]
+    /** Paginated week×channel spend rows. */
+    spend_panel: MmmSpendPanelRowApi[]
+    /** Total spend-panel rows before pagination. */
+    spend_panel_count: number
+    /** Weekly outcome series with calendar controls. */
+    outcome_series: MmmOutcomeRowApi[]
+}
+
+export interface MmmRunApi {
+    /** MMM run identifier (the Dagster run ID). */
+    job_id: string
+    /** Run status: one of ['ok', 'degraded', 'insufficient_history', 'failed']. */
+    status: string
+    /** MMM model version that produced the run, e.g. 'mmm_v1'. */
+    model_version: string
+    /** Node kind of the modeled conversion goal. */
+    outcome_kind: string
+    /** Name of the modeled conversion goal. */
+    outcome_ref: string
+    /** Modeling window start used for the run. */
+    date_from: string
+    /** Modeling window end used for the run. */
+    date_to: string
+    /** Number of weeks in the run's window. */
+    window_weeks: number
+    /** Channels modeled in the run. */
+    channels: string[]
+    /** In-sample R² of the fitted model (diagnostics). */
+    r_squared: number
+    /** Mean absolute percentage error of the fit (diagnostics). */
+    mape: number
+    /** Number of NUTS divergences during sampling (diagnostics). */
+    divergences: number
+    /** Total spend across all channels over the window. */
+    total_budget: number
+    /** When the run wrote its results (UTC). */
+    computed_at: string
+}
+
+export interface MmmContributionRowApi {
+    /** Week the contribution is attributed to. */
+    week: string
+    /** Channel, or '__baseline__' for the model's always-on baseline. */
+    channel: string
+    /** Spend for the channel-week (0 for the baseline row). */
+    spend: number
+    /** Posterior-mean outcome contributed by this channel that week. */
+    contribution: number
+    /** Lower credible-interval bound of the contribution. */
+    contribution_lower: number
+    /** Upper credible-interval bound of the contribution. */
+    contribution_upper: number
+}
+
+export interface MmmCurveRowApi {
+    /** Channel the response curve belongs to. */
+    channel: string
+    /** Weekly spend level on the response curve's x-axis. */
+    spend_point: number
+    /** Posterior-mean incremental outcome at this spend level. */
+    incremental_outcome: number
+    /** Lower credible-interval bound of the incremental outcome. */
+    incremental_lower: number
+    /** Upper credible-interval bound of the incremental outcome. */
+    incremental_upper: number
+}
+
+export interface MmmRoiRowApi {
+    /** Channel the ROI estimate belongs to. */
+    channel: string
+    /** Posterior-mean return on investment (incremental outcome per unit spend). */
+    roi: number
+    /** Lower credible-interval bound of ROI. */
+    roi_lower: number
+    /** Upper credible-interval bound of ROI. */
+    roi_upper: number
+    /** Marginal ROI at current spend (slope of the response curve). */
+    marginal_roi: number
+    /** Current weekly spend for the channel. */
+    current_spend: number
+    /** Optimizer's recommended weekly spend (advisory — nothing is auto-applied). */
+    recommended_spend: number
+    /** Whether a lift-test calibration prior was applied to the channel. */
+    calibrated: boolean
+}
+
+export interface MmmRunDetailResponseApi {
+    /** Run metadata, or null when the project has no runs yet. */
+    run: MmmRunApi | null
+    /** Per-channel weekly contribution decomposition with credible intervals. */
+    contributions: MmmContributionRowApi[]
+    /** Per-channel saturation response curves with credible bands. */
+    curves: MmmCurveRowApi[]
+    /** Per-channel ROI, marginal ROI, and budget recommendation. */
+    roi: MmmRoiRowApi[]
+}
+
+export interface MmmErrorApi {
+    /** Human-readable explanation of why the request could not be served. */
+    detail: string
+}
+
+export interface MmmRunsResponseApi {
+    /** Runs ordered by recency, most recent first. */
+    results: MmmRunApi[]
+}
+
 export interface CandidateEventApi {
     /** Name of the candidate event */
     event_name: string
@@ -589,6 +765,42 @@ export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
      * @minLength 1
      */
     goal_id: string
+}
+
+export type MarketingAnalyticsMmmDatasetRetrieveParams = {
+    /**
+     * Modeling window start (inclusive), YYYY-MM-DD. Defaults to ~18 months before today.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Modeling window end (inclusive), YYYY-MM-DD. Defaults to today.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Page size for the week×channel spend panel (the outcome series is always returned in full).
+     * @minimum 1
+     * @maximum 2000
+     */
+    limit?: number
+    /**
+     * Pagination offset into the spend panel.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Zero-based index into the project's configured conversion goals selecting the outcome to model.
+     * @minimum 0
+     */
+    outcome_index?: number
+}
+
+export type MarketingAnalyticsMmmRunRetrieveParams = {
+    /**
+     * MMM run to read. Defaults to the project's most recent run.
+     */
+    job_id?: string
 }
 
 export type MarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
