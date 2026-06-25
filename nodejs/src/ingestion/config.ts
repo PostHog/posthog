@@ -78,7 +78,7 @@ export type KafkaConsumerBaseConfig = Pick<
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
-export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
+export type IngestionLane = 'main' | 'overflow' | 'turbo' | 'historical' | 'async'
 
 export type IngestionConsumerConfig = {
     INGESTION_LANE: IngestionLane | null

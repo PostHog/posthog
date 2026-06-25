@@ -11,6 +11,7 @@ jest.mock('./metrics', () => ({
         incrementSessionFilterCacheMiss: jest.fn(),
         incrementNewSessionsRateLimited: jest.fn(),
         incrementSessionFilterRedisErrors: jest.fn(),
+        observeSessionFilterRedisLatency: jest.fn(),
     },
 }))
 
