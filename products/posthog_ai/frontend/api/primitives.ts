@@ -1,8 +1,8 @@
 // Tier 2 — compound primitives & presenters: the broad presentational bucket for custom layouts and
 // bespoke threads. The Composer compound, the Thread compound + atoms, the prepackaged `ThreadView`,
-// message presenters, activity primitives, and the permission/question/resource surfaces. Use when the
-// prepackaged `RunViewer` (Tier 1, ./run) doesn't fit and you need to compose the pieces yourself —
-// e.g. a compact inline thread via `Thread.*` atoms, or a custom layout via `RunViewer.Root` + slots.
+// message presenters, the shared `RunLogSkeleton` loader, activity primitives, and the
+// permission/question/resource surfaces. Use when the prepackaged `RunViewer` (Tier 1, ./run) doesn't fit
+// and you need to compose the pieces yourself — e.g. a compact inline thread via `Thread.*` atoms.
 //
 // (This is intentionally the wide presentational module; it can be subdivided later — e.g. thread.ts /
 // composer.ts — if a consumer needs finer code-splitting.)
@@ -29,6 +29,7 @@ export { MarkdownMessage } from '../messages/MarkdownMessage'
 export { ReasoningAnswer } from '../messages/ReasoningAnswer'
 export type { ReasoningAnswerProps } from '../messages/ReasoningAnswer'
 export { AssistantFailureMessage } from '../messages/AssistantFailureMessage'
+export { RunLogSkeleton } from '../components/RunLogSkeleton'
 
 // --- Activity primitives ---
 export {
