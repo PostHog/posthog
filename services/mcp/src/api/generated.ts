@@ -40942,6 +40942,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
+      model?: string;
+      /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -51117,6 +51132,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
+      model?: string;
+      /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
@@ -52039,6 +52069,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run. */
+      model?: string;
+      /** Reasoning effort to warm the sandbox on for models that expose an effort control.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     /**
