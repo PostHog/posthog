@@ -349,6 +349,7 @@ pub async fn send_issue_created_notification(
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueCreated(IssueCreated {
+            notification_id: Uuid::now_v7(),
             team_id: issue.team_id,
             issue_id: issue.id,
             fingerprint: output_props.fingerprint.clone(),
@@ -371,6 +372,7 @@ pub async fn send_issue_reopened_notification(
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueReopened(IssueReopened {
+            notification_id: Uuid::now_v7(),
             team_id: issue.team_id,
             issue_id: issue.id,
             event_timestamp: event_timestamp.to_rfc3339(),
@@ -391,6 +393,7 @@ pub async fn send_issue_spiking_notification(
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueSpiking(IssueSpiking {
+            notification_id: Uuid::now_v7(),
             team_id: issue.team_id,
             issue_id: issue.id,
             computed_baseline,

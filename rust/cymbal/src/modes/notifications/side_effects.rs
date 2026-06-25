@@ -4,11 +4,21 @@ use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaContext, KafkaProduc
 use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
 use rdkafka::producer::FutureProducer;
 use rdkafka::types::RDKafkaErrorCode;
+use uuid::Uuid;
 
 use crate::core::error::UnhandledError;
 use crate::modes::notifications::stacktrace::print_stacktrace;
 use crate::modes::notifications::types::NotificationIssue;
 use crate::types::OutputErrProps;
+
+struct IssueLifecycleInternalEvent<'a, I: NotificationIssue> {
+    event: &'static str,
+    notification_id: Uuid,
+    issue: &'a I,
+    assignee: Option<String>,
+    output_props: &'a OutputErrProps,
+    event_timestamp: &'a DateTime<Utc>,
+}
 
 pub async fn send_new_fingerprint_event_to_producer<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
@@ -48,6 +58,7 @@ fn fingerprint_embedding_request<I: NotificationIssue>(
 pub async fn send_issue_created_alert_to_producer<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
     internal_events_topic: &str,
+    notification_id: Uuid,
     issue: &I,
     assignee: Option<String>,
     output_props: &OutputErrProps,
@@ -56,11 +67,14 @@ pub async fn send_issue_created_alert_to_producer<I: NotificationIssue>(
     send_internal_event_with_producer(
         producer,
         internal_events_topic,
-        "$error_tracking_issue_created",
-        issue,
-        assignee,
-        output_props,
-        event_timestamp,
+        IssueLifecycleInternalEvent {
+            event: "$error_tracking_issue_created",
+            notification_id,
+            issue,
+            assignee,
+            output_props,
+            event_timestamp,
+        },
     )
     .await
 }
@@ -68,6 +82,7 @@ pub async fn send_issue_created_alert_to_producer<I: NotificationIssue>(
 pub async fn send_issue_reopened_alert_to_producer<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
     internal_events_topic: &str,
+    notification_id: Uuid,
     issue: &I,
     assignee: Option<String>,
     output_props: &OutputErrProps,
@@ -76,11 +91,14 @@ pub async fn send_issue_reopened_alert_to_producer<I: NotificationIssue>(
     send_internal_event_with_producer(
         producer,
         internal_events_topic,
-        "$error_tracking_issue_reopened",
-        issue,
-        assignee,
-        output_props,
-        event_timestamp,
+        IssueLifecycleInternalEvent {
+            event: "$error_tracking_issue_reopened",
+            notification_id,
+            issue,
+            assignee,
+            output_props,
+            event_timestamp,
+        },
     )
     .await
 }
@@ -88,6 +106,7 @@ pub async fn send_issue_reopened_alert_to_producer<I: NotificationIssue>(
 pub async fn send_issue_spiking_alert_to_producer<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
     internal_events_topic: &str,
+    notification_id: Uuid,
     issue: &I,
     computed_baseline: f64,
     current_bucket_value: f64,
@@ -98,6 +117,7 @@ pub async fn send_issue_spiking_alert_to_producer<I: NotificationIssue>(
         Utc::now(),
         None,
     );
+    event.uuid = notification_id.to_string();
     event
         .insert_prop("name", issue.name())
         .expect("insert_prop for name should never fail");
@@ -127,13 +147,19 @@ pub async fn send_issue_spiking_alert_to_producer<I: NotificationIssue>(
 async fn send_internal_event_with_producer<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
     internal_events_topic: &str,
-    event: &str,
-    issue: &I,
-    assignee: Option<String>,
-    output_props: &OutputErrProps,
-    event_timestamp: &DateTime<Utc>,
+    request: IssueLifecycleInternalEvent<'_, I>,
 ) -> Result<(), UnhandledError> {
+    let IssueLifecycleInternalEvent {
+        event,
+        notification_id,
+        issue,
+        assignee,
+        output_props,
+        event_timestamp,
+    } = request;
+
     let mut event = InternalEventEvent::new(event, issue.id(), Utc::now(), None);
+    event.uuid = notification_id.to_string();
     event
         .insert_prop("name", issue.name())
         .expect("Strings are serializable");

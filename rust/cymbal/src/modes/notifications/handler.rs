@@ -52,6 +52,7 @@ async fn handle_issue_created(
     send_issue_created_alert_to_producer(
         &context.cyclotron_producer,
         &context.internal_events_topic,
+        issue_created.notification_id,
         &issue,
         issue_created.assignee,
         &issue_created.event_properties,
@@ -81,6 +82,7 @@ async fn handle_issue_reopened(
     send_issue_reopened_alert_to_producer(
         &context.cyclotron_producer,
         &context.internal_events_topic,
+        issue_reopened.notification_id,
         &issue,
         issue_reopened.assignee,
         &issue_reopened.event_properties,
@@ -106,6 +108,7 @@ async fn handle_issue_spiking(
     send_issue_spiking_alert_to_producer(
         &context.cyclotron_producer,
         &context.internal_events_topic,
+        issue_spiking.notification_id,
         &issue,
         issue_spiking.computed_baseline,
         issue_spiking.current_bucket_value,
@@ -145,12 +148,13 @@ async fn persist_spike_event(
     context: &NotificationsContext,
     issue_spiking: &IssueSpiking,
 ) -> Result<(), UnhandledError> {
-    let id = Uuid::now_v7();
+    let id = issue_spiking.notification_id;
     let now = Utc::now();
     sqlx::query(
         r#"INSERT INTO posthog_errortrackingspikeevent
            (id, team_id, issue_id, detected_at, computed_baseline, current_bucket_value)
-           VALUES ($1, $2, $3, $4, $5, $6)"#,
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (id) DO NOTHING"#,
     )
     .bind(id)
     .bind(issue_spiking.team_id)

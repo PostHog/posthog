@@ -14,17 +14,10 @@ This can permanently lose notification-side effects.
 The strongest fix is a transactional outbox written in the same Postgres transaction as the issue transition, with a worker publishing outbox rows to Kafka.
 A smaller mitigation is to persist a pending side-effect marker with the transition and make notification publishing recoverable.
 
-### Notification handling is at-least-once but side effects are not fully idempotent
+### Signal emission remains best-effort and can duplicate
 
-If notification handling succeeds partially and then fails, Kafka retries the whole notification.
-Some side effects can duplicate:
-
-- Spike event persistence uses a fresh `Uuid::now_v7()` on every retry, so retries can create duplicate `posthog_errortrackingspikeevent` rows.
-- Internal events can be produced more than once.
-- Signals can be emitted more than once.
-
-Add an idempotency key to each notification, for example lifecycle type + team + issue + event UUID or bucket timestamp.
-Use that key for deterministic spike IDs or unique constraints, and pass it through to downstream side effects where dedupe is supported.
+Signal emission is intentionally left best-effort and outside the retry-critical path.
+If notification handling is retried after signal emission, a signal can be emitted more than once.
 
 ### Notifications load current issue state rather than transition-time state
 
@@ -53,6 +46,12 @@ The tradeoff remains that a crash after side effects but before the batch commit
 Signal emission is treated as best-effort.
 The notifications handler now runs required fallible work first, then emits signals.
 Signal failures only affect signal metrics/logs and do not block offset commits.
+
+### Retryable notification side effects have stable ids
+
+Each ingestion notification now carries a stable `notification_id`.
+Spike event persistence uses that id as the row id with `ON CONFLICT DO NOTHING`, so notification retries do not create duplicate `posthog_errortrackingspikeevent` rows.
+Internal events reuse the same id as the event UUID, giving downstream ingestion a stable dedupe key across retries.
 
 ## Optimizations
 
@@ -83,6 +82,6 @@ This reduces duplicate best-effort side effects when a later required operation 
 Highest priority before merge:
 
 1. Close or explicitly accept the DB-commit/Kafka-publish gap for created and reopened lifecycle notifications.
-2. Add idempotency for retryable notification-side effects, especially spike event persistence.
+2. Explicitly accept best-effort signal duplication, or add signal-side idempotency in a separate change.
 
 After that, consider batching spike notification publishes for throughput.

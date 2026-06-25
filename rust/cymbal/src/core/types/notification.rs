@@ -41,6 +41,9 @@ impl IngestionNotification {
 /// Payload for [`IngestionNotification::IssueCreated`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueCreated {
+    /// Stable id for retryable side effects produced from this notification.
+    #[serde(default = "Uuid::now_v7")]
+    pub notification_id: Uuid,
     pub team_id: i32,
     pub issue_id: Uuid,
     pub fingerprint: String,
@@ -54,6 +57,9 @@ pub struct IssueCreated {
 /// Payload for [`IngestionNotification::IssueReopened`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueReopened {
+    /// Stable id for retryable side effects produced from this notification.
+    #[serde(default = "Uuid::now_v7")]
+    pub notification_id: Uuid,
     pub team_id: i32,
     pub issue_id: Uuid,
     pub event_timestamp: String,
@@ -65,6 +71,9 @@ pub struct IssueReopened {
 /// Payload for [`IngestionNotification::IssueSpiking`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueSpiking {
+    /// Stable id for retryable side effects produced from this notification.
+    #[serde(default = "Uuid::now_v7")]
+    pub notification_id: Uuid,
     pub team_id: i32,
     pub issue_id: Uuid,
     pub computed_baseline: f64,
@@ -80,6 +89,7 @@ mod tests {
     #[test]
     fn issue_created_round_trips_with_type_tag() {
         let notification = IngestionNotification::IssueCreated(IssueCreated {
+            notification_id: Uuid::nil(),
             team_id: 42,
             issue_id: Uuid::nil(),
             fingerprint: "abc".to_string(),
