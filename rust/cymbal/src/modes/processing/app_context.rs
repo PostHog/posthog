@@ -224,10 +224,7 @@ async fn build_rate_limiter(
     )
     .await?;
 
-    info!(
-        reporting_mode = config.error_tracking_rate_limiter_reporting_mode,
-        "Error-tracking rate limiter enabled"
-    );
+    info!("Error-tracking rate limiter enabled");
 
     Ok(Some(Arc::new(RedisRateLimiter::new(
         Arc::new(client),

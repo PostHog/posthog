@@ -90,7 +90,6 @@ impl Stage for RateLimitingStage {
             return Ok(batch); // limiter disabled — pass everything through
         };
 
-        let reporting_mode = self.ctx.config.error_tracking_rate_limiter_reporting_mode;
         let mut items: Vec<ExceptionEventPipelineItem> = batch.into();
 
         // Group surviving (Ok) events by (team_id, issue_id). Suppressed / failed
@@ -152,7 +151,6 @@ impl Stage for RateLimitingStage {
                 decision,
                 per_issue.is_some(),
                 project.is_some(),
-                reporting_mode,
             );
             drops.extend(group.drops);
             if let Some((allowed, limited)) = group.per_issue {
@@ -177,22 +175,17 @@ impl Stage for RateLimitingStage {
             }
         }
 
-        self.emit_metrics(&outcomes, reporting_mode).await;
+        self.emit_metrics(&outcomes).await;
 
         Ok(Batch::from(items))
     }
 }
 
 impl RateLimitingStage {
-    async fn emit_metrics(
-        &self,
-        outcomes: &HashMap<(i32, LimitKind, Outcome), u32>,
-        reporting_mode: bool,
-    ) {
+    async fn emit_metrics(&self, outcomes: &HashMap<(i32, LimitKind, Outcome), u32>) {
         if outcomes.is_empty() {
             return;
         }
-        let reporting = if reporting_mode { "true" } else { "false" };
         let now = Utc::now();
         let mut app_metrics: Vec<AppMetric2> = Vec::with_capacity(outcomes.len());
 
@@ -201,7 +194,6 @@ impl RateLimitingStage {
                 RATE_LIMIT_OUTCOMES,
                 "limit" => kind.label(),
                 "outcome" => outcome.label(),
-                "reporting_mode" => reporting,
             )
             .increment(count as u64);
 
@@ -254,23 +246,20 @@ fn classify_group(
     decision: RateLimitDecision,
     per_issue_enabled: bool,
     project_enabled: bool,
-    reporting_mode: bool,
 ) -> GroupOutcome {
     let n = indices.len() as u32;
     let issue_admitted = decision.issue_admitted as usize;
     let team_admitted = decision.team_admitted as usize;
 
     let mut drops = Vec::new();
-    if !reporting_mode {
-        for (pos, &idx) in indices.iter().enumerate() {
-            if pos >= issue_admitted {
-                drops.push((
-                    idx,
-                    EventError::RateLimitedPerIssue(issue_id.unwrap_or_default()),
-                ));
-            } else if pos >= team_admitted {
-                drops.push((idx, EventError::RateLimitedProject(team_id)));
-            }
+    for (pos, &idx) in indices.iter().enumerate() {
+        if pos >= issue_admitted {
+            drops.push((
+                idx,
+                EventError::RateLimitedPerIssue(issue_id.unwrap_or_default()),
+            ));
+        } else if pos >= team_admitted {
+            drops.push((idx, EventError::RateLimitedProject(team_id)));
         }
     }
 
@@ -325,7 +314,7 @@ mod tests {
         let issue = Uuid::now_v7();
         let indices = vec![10, 11, 12, 13, 14]; // n = 5
                                                 // 3 passed per-issue, 1 of those passed project.
-        let out = classify_group(7, Some(issue), &indices, decision(3, 1), true, true, false);
+        let out = classify_group(7, Some(issue), &indices, decision(3, 1), true, true);
 
         // keep idx 10; project-drop 11,12; per-issue-drop 13,14.
         let mut by_idx: HashMap<usize, EventError> = out.drops.into_iter().collect();
@@ -347,20 +336,10 @@ mod tests {
     }
 
     #[test]
-    fn reporting_mode_computes_outcomes_but_drops_nothing() {
-        let issue = Uuid::now_v7();
-        let indices = vec![0, 1, 2];
-        let out = classify_group(1, Some(issue), &indices, decision(1, 0), true, true, true);
-        assert!(out.drops.is_empty());
-        assert_eq!(out.per_issue, Some((1, 2)));
-        assert_eq!(out.project, Some((0, 1)));
-    }
-
-    #[test]
     fn per_issue_disabled_only_reports_project_limit() {
         let indices = vec![0, 1, 2, 3];
         // issue limit disabled => admits all 4; project keeps 2.
-        let out = classify_group(9, None, &indices, decision(4, 2), false, true, false);
+        let out = classify_group(9, None, &indices, decision(4, 2), false, true);
         assert_eq!(out.per_issue, None);
         assert_eq!(out.project, Some((2, 2)));
         // 2 project drops, no per-issue drops (issue_admitted == n).
@@ -374,15 +353,7 @@ mod tests {
     #[test]
     fn all_admitted_no_drops() {
         let indices = vec![0, 1];
-        let out = classify_group(
-            1,
-            Some(Uuid::now_v7()),
-            &indices,
-            decision(2, 2),
-            true,
-            true,
-            false,
-        );
+        let out = classify_group(1, Some(Uuid::now_v7()), &indices, decision(2, 2), true, true);
         assert!(out.drops.is_empty());
         assert_eq!(out.per_issue, Some((2, 0)));
         assert_eq!(out.project, Some((2, 0)));
