@@ -586,6 +586,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             repository=request.validated_data["repository"],
             github_integration_id=github_integration_id,
             branch=request.validated_data.get("branch"),
+            runtime_adapter=request.validated_data.get("runtime_adapter"),
+            model=request.validated_data.get("model"),
+            reasoning_effort=request.validated_data.get("reasoning_effort"),
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
