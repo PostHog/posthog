@@ -13,7 +13,7 @@ PERSONHOG_MAX_SEND_MESSAGE_LENGTH = get_from_env("PERSONHOG_MAX_SEND_MESSAGE_LEN
 PERSONHOG_MAX_RECV_MESSAGE_LENGTH = get_from_env("PERSONHOG_MAX_RECV_MESSAGE_LENGTH", 128 * 1024 * 1024, type_cast=int)
 PERSONHOG_CLIENT_IDLE_TIMEOUT_MS = get_from_env("PERSONHOG_CLIENT_IDLE_TIMEOUT_MS", 0, type_cast=int)
 
-# Retry settings for transient gRPC errors (before falling back to ORM)
+# Retry settings for transient gRPC errors
 PERSONHOG_MAX_RETRIES = get_from_env("PERSONHOG_MAX_RETRIES", 1, type_cast=int)
 PERSONHOG_INITIAL_BACKOFF_MS = get_from_env("PERSONHOG_INITIAL_BACKOFF_MS", 50, type_cast=int)
 PERSONHOG_MAX_BACKOFF_MS = get_from_env("PERSONHOG_MAX_BACKOFF_MS", 1000, type_cast=int)
