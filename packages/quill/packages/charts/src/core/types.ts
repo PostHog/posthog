@@ -312,6 +312,8 @@ export interface TooltipConfig {
     totalFormatter?: (value: number) => string
     /** Sort series rows by value descending so the highest value appears at the top. */
     sortedByValue?: boolean
+    /** Cap the number of rows shown; remainder count shown as a note. */
+    maxRows?: number
 }
 
 /** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
