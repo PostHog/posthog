@@ -159,6 +159,10 @@ const DEFAULT_FILTERS: HogInvocationsFilters = {
 }
 
 const AUTO_REFRESH_INTERVAL_MS = 5000
+// After a rerun is enqueued the matching rows aren't `running` yet (the worker
+// drains asynchronously), so the `hasRunningRows` guard alone wouldn't restart
+// polling. Force a short polling window so the re-run rows surface on their own.
+const FORCE_REFRESH_WINDOW_MS = 30000
 
 const scheduleAutoRefresh = (
     // Kea types `cache` as `Record<string, any>` upstream — that's where the
@@ -168,7 +172,8 @@ const scheduleAutoRefresh = (
     actions: { loadRuns: (payload: null) => void },
     values: { hasRunningRows: boolean }
 ): void => {
-    if (!values.hasRunningRows) {
+    const forcing = typeof cache.forceRefreshUntil === 'number' && Date.now() < cache.forceRefreshUntil
+    if (!values.hasRunningRows && !forcing) {
         return
     }
     cache.disposables.add(() => {
@@ -807,6 +812,9 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     `Rerun job ${response.rerun_job_id.slice(0, 8)}… queued. Updated rows will appear here as the worker drains the job.`
                 )
                 actions.clearSelected()
+                // Re-run rows aren't `running` yet — force a short polling window so they surface.
+                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
+                actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to enqueue rerun: ${e?.detail ?? e?.message ?? String(e)}`)
             }
@@ -842,6 +850,9 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 lemonToast.success(
                     `Re-run job ${response.rerun_job_id.slice(0, 8)}… queued. Matching invocations will be re-run in the background.`
                 )
+                // Re-run rows aren't `running` yet — force a short polling window so they surface.
+                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
+                actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to enqueue re-run: ${e?.detail ?? e?.message ?? String(e)}`)
             }
