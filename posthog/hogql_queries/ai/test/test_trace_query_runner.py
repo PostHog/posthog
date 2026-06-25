@@ -378,11 +378,13 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         assert trace.sentiment is not None
         assert trace.sentiment.label == "negative"
         assert trace.sentiment.score == 0.8
-        assert trace.sentiment.messages[f"{generation_id}:0"]["label"] == "negative"
+        assert trace.sentiment.messages is not None
+        assert trace.sentiment.messages[f"{generation_id}:0"].label == "negative"
         assert len(trace.events) == 1
         assert trace.events[0].sentiment is not None
         assert trace.events[0].sentiment.label == "negative"
-        assert trace.events[0].sentiment.messages["0"]["score"] == 0.8
+        assert trace.events[0].sentiment.messages is not None
+        assert trace.events[0].sentiment.messages["0"].score == 0.8
 
     @patch("posthog.hogql_queries.ai.trace_query_runner.load_generation_sentiment_evaluations_for_traces")
     def test_stored_sentiment_evaluation_lookup_is_opt_in(self, mock_load_sentiment):

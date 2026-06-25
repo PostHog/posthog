@@ -377,7 +377,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         assert trace.sentiment is not None
         assert trace.sentiment.label == "negative"
         assert trace.sentiment.score == 0.8
-        assert trace.sentiment.messages[f"{generation_id}:0"]["label"] == "negative"
+        assert trace.sentiment.messages is not None
+        assert trace.sentiment.messages[f"{generation_id}:0"].label == "negative"
         assert len(trace.events) == 1
         assert trace.events[0].sentiment is None
 
