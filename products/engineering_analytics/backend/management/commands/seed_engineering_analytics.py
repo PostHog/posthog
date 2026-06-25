@@ -45,12 +45,14 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
-from products.warehouse_sources.backend.models.credential import get_or_create_datawarehouse_credential
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+    get_or_create_datawarehouse_credential,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.util import validate_source_prefix
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 FIXTURE_DIR = Path(__file__).parents[3] / "fixtures"
 

@@ -21,10 +21,8 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS as _PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS as _WORKFLOW_RUNS_COLUMNS,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.views"
 
