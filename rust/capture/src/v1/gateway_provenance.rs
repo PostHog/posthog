@@ -1,16 +1,12 @@
 // AI-gateway provenance verification.
 //
-// The gateway proxies a customer's LLM calls, bills them against a prepaid
-// wallet, and posts an `$ai_generation` event per call through capture with the
-// team token. Those events must be excluded from the team's billable AIO usage
-// (otherwise the wallet spend is double-billed). The exclusion can't trust the
-// client-settable `$ai_gateway*` properties, so the gateway HMAC-signs each
-// event and capture verifies the signature here, at the edge, before the
-// llm_events quota limiter runs.
-//
-// A valid, fresh signature stamps a trusted `$ai_gateway_verified` and the event
-// is exempted from the limiter; anything else has its whole `$ai_gateway*`
-// namespace stripped so a forged marker can't survive.
+// The gateway bills a customer's LLM calls against a prepaid wallet and posts an
+// `$ai_generation` per call through capture, so those events must be excluded from
+// the team's billable AIO usage. The `$ai_gateway*` properties are client-settable
+// and untrusted, so the gateway HMAC-signs each event and capture verifies here,
+// before the llm_events limiter: a valid, fresh signature stamps a trusted
+// `$ai_gateway_verified` and exempts the event; anything else has the whole
+// `$ai_gateway*` namespace stripped so a forged marker can't survive.
 
 use axum::http::HeaderMap;
 use chrono::{DateTime, Duration, Utc};
@@ -36,13 +32,11 @@ const REQUEST_ID_PROPERTY: &str = "$ai_gateway_request_id";
 /// (`verified`/`stale`/`forged`) so forgery and clock skew are alertable.
 pub const PROVENANCE_METRIC: &str = "capture_v1_gateway_provenance";
 
-/// The JSON-key form of `GATEWAY_PREFIX` (a leading quote, no escapes). Used by
-/// the fast-path scan; the static assert below keeps it pinned to GATEWAY_PREFIX
-/// so the scan can't drift from the strip path's prefix.
+/// JSON-key form of `GATEWAY_PREFIX` (leading quote, no escapes) for the fast-path
+/// scan. The static assert below pins it to `GATEWAY_PREFIX` so it can't drift.
 const GATEWAY_KEY_NEEDLE: &str = "\"$ai_gateway";
 const _: () = assert!(
     {
-        // GATEWAY_KEY_NEEDLE must be exactly '"' + GATEWAY_PREFIX.
         let needle = GATEWAY_KEY_NEEDLE.as_bytes();
         let prefix = GATEWAY_PREFIX.as_bytes();
         let mut ok = needle.len() == prefix.len() + 1 && needle[0] == b'"';
@@ -57,8 +51,7 @@ const _: () = assert!(
 );
 
 /// How far `signed_at` may sit from capture's receive time. Capture stamps the
-/// event, so there's no ingestion lag and wall-clock now is the capture time;
-/// the window only absorbs gateway/capture clock skew.
+/// event (no ingestion lag), so the window only absorbs gateway/capture clock skew.
 pub const FRESHNESS_WINDOW_SECS: i64 = 5 * 60;
 
 /// The provenance signature carried on the request headers.
@@ -69,9 +62,8 @@ pub struct GatewaySignature {
     pub request_id: String,
 }
 
-/// Reads the provenance headers. Returns `None` unless both the signature and
-/// signed_at are present; `request_id` defaults to empty to match a signature
-/// computed over an empty nonce.
+/// Reads the provenance headers. `None` unless both signature and signed_at are
+/// present; `request_id` defaults to empty when absent (untrusted downstream).
 pub fn parse_signature(headers: &HeaderMap) -> Option<GatewaySignature> {
     Some(GatewaySignature {
         signature: header_str(headers, POSTHOG_AI_GATEWAY_SIGNATURE)?,
@@ -90,8 +82,8 @@ fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
 pub enum Provenance {
     /// Valid HMAC, signed within the freshness window.
     Verified,
-    /// Valid HMAC, but `signed_at` is outside the freshness window — gateway or
-    /// capture clock skew (or a signature replayed past its lifetime).
+    /// Valid HMAC, but `signed_at` is outside the freshness window (clock skew, or
+    /// a signature replayed past its lifetime).
     Stale,
     /// HMAC mismatch, unparseable signature, or no signature at all.
     Invalid,
@@ -116,11 +108,10 @@ pub fn verify(
     }
 }
 
-// Length-prefixed encoding of the four fields: each is its big-endian u32 byte
-// length followed by its bytes. distinct_id is customer-controlled, so a plain
-// delimiter (it can contain any byte) wouldn't be injective; length-prefixing
-// means no field's content can shift another's boundary. Must match the gateway
-// signer byte-for-byte (ai-gateway internal/emitter/signer.go).
+// Length-prefixed encoding: each field is its big-endian u32 length then its bytes.
+// distinct_id is customer-controlled, so a delimiter wouldn't be injective;
+// length-prefixing stops any field's content from shifting another's boundary. Must
+// match the gateway signer byte-for-byte (ai-gateway internal/emitter/signer.go).
 fn canonical(fields: &[&str]) -> Vec<u8> {
     let mut buf = Vec::with_capacity(fields.iter().map(|f| f.len() + 4).sum());
     for f in fields {
@@ -150,9 +141,8 @@ fn is_fresh(signed_at: &str, now: DateTime<Utc>) -> bool {
     }
 }
 
-/// Stamps the trusted billing marker and the signature-bound request_id, each
-/// overwriting any client-supplied value. The other `$ai_gateway*` props are now
-/// trusted (they rode a valid signature), so they survive.
+/// Stamps the trusted marker and the signed request_id, overwriting client values.
+/// Other `$ai_gateway*` props rode a valid signature, so they survive.
 pub fn stamp_verified(props: &mut Map<String, Value>, request_id: &str) {
     props.insert(VERIFIED_PROPERTY.to_string(), Value::Bool(true));
     props.insert(
@@ -161,23 +151,17 @@ pub fn stamp_verified(props: &mut Map<String, Value>, request_id: &str) {
     );
 }
 
-/// Removes the whole `$ai_gateway*` namespace, including any forged
-/// `$ai_gateway_verified`, so an unverified event can't reach billing as trusted.
+/// Removes the whole `$ai_gateway*` namespace so a forged marker can't reach billing.
 pub fn strip_gateway(props: &mut Map<String, Value>) {
     props.retain(|k, _| !k.starts_with(GATEWAY_PREFIX));
 }
 
-/// Cheap pre-check on the raw bytes: does the property object plausibly contain a
-/// `$ai_gateway*` key? Lets the hot path skip the allocating parse for the common
-/// case (an SDK `$ai_*` event that never went through the gateway).
-///
-/// The literal prefix covers every legitimate gateway event and any unescaped
-/// client value. A JSON `\u` escape is the only way to encode `$ai_gateway` as a
-/// key without those literal bytes (every char is ASCII, so only `\uXXXX` can
-/// hide it), so with no `\u` present ordinary traffic stops at the substring scan.
-/// When a `\u` is present we scan object *keys* only — never values — so a `\u`
-/// buried in a value can't force the full property parse. The literal check can
-/// still false-positive on a value, which only costs a wasted parse.
+/// Cheap raw-bytes pre-check: does the property object plausibly carry a
+/// `$ai_gateway*` key? Lets the hot path skip the allocating parse for ordinary
+/// `$ai_*` events. The literal prefix covers every legit event and unescaped client
+/// value; only a JSON `\u` escape can hide the all-ASCII prefix, so with no `\u` the
+/// substring scan is conclusive. With a `\u`, scan object keys only (never values),
+/// so a value-side `\u` can't force the parse; a literal false-positive only wastes a parse.
 pub fn has_gateway_props(properties: &RawValue) -> bool {
     let raw = properties.get();
     if raw.contains(GATEWAY_KEY_NEEDLE) {
@@ -215,7 +199,6 @@ fn scan_for_escaped_gateway_key(raw: &str) -> bool {
         if !closed {
             return false; // unterminated string — malformed, nothing more to find
         }
-        // A string is a key iff the next non-whitespace byte is ':'.
         let mut k = j + 1;
         while k < b.len() && b[k].is_ascii_whitespace() {
             k += 1;
@@ -287,9 +270,8 @@ pub fn strip_gateway_raw(properties: &RawValue) -> Option<Box<RawValue>> {
     reserialize(map)
 }
 
-/// Stamps the trusted marker onto raw properties. Returns `None` if the
-/// properties don't parse (a genuine gateway event always emits valid JSON, so
-/// the caller treats this as a non-stamp and the event stays counted).
+/// Stamps the trusted marker onto raw properties. `None` if they don't parse — a
+/// genuine gateway event is valid JSON, so a parse failure just leaves it counted.
 pub fn stamp_verified_raw(properties: &RawValue, request_id: &str) -> Option<Box<RawValue>> {
     let mut map: Map<String, Value> = serde_json::from_str(properties.get()).ok()?;
     stamp_verified(&mut map, request_id);

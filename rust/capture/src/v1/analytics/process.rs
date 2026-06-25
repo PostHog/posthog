@@ -128,13 +128,10 @@ pub async fn process_batch(
     Ok(BatchResponse::build(context, &events))
 }
 
-// Verifies the gateway provenance signature on `$ai_*` events. A valid, fresh
-// signature stamps the trusted `$ai_gateway_verified` and marks the event for
-// quota exemption; anything else (no secret, no/invalid signature) has its
-// `$ai_gateway*` props stripped so a forged marker can't reach billing. Only
-// `$ai_*` events are considered — the only namespace the llm_events meter counts
-// — and the strip path skips the parse unless the raw props plausibly carry a
-// gateway key, so ordinary traffic stays off the parse hot path.
+// Verify gateway provenance on each `$ai_*` event: a fresh, valid signature stamps
+// the trusted marker and exempts it from the llm_events meter; anything else has its
+// `$ai_gateway*` props stripped. The strip path skips the parse unless the raw bytes
+// plausibly carry a gateway key, so ordinary traffic stays off the hot path.
 fn apply_gateway_provenance(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
     use crate::v1::gateway_provenance as gp;
 
@@ -175,8 +172,7 @@ fn apply_gateway_provenance(state: &router::State, context: &Context, events: &m
         } else if gp::has_gateway_props(&ev.event.properties) {
             if let Some(props) = gp::strip_gateway_raw(&ev.event.properties) {
                 ev.event.properties = props;
-                // A marker that didn't ride a fresh, valid signature: stale HMAC
-                // is clock skew, anything else is a forged/leftover marker.
+                // stale HMAC is clock skew; anything else is a forged/leftover marker.
                 let reason = if outcome == gp::Provenance::Stale {
                     "stale"
                 } else {
