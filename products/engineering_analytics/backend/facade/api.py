@@ -134,11 +134,12 @@ def list_pull_requests(
     *,
     team: Team,
     date_from: str | None = None,
+    author: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PullRequestList:
     return logic.build_pull_request_list(
-        curated=_authorized_source(team, source_id, user_access_control), date_from=date_from
+        curated=_authorized_source(team, source_id, user_access_control), date_from=date_from, author=author
     )
 
 

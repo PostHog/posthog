@@ -619,6 +619,24 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert item.estimated_cost_usd is not None and item.estimated_cost_usd > 0
         assert item.billable_minutes is not None and item.billable_minutes > 0
 
+    def test_pull_request_list_author_filter(self) -> None:
+        # The author filter scopes the list to one author's PRs (drives the author page).
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(81, "alice", "open", 0, _ago(1), head_sha="sha81"),
+                _pr_row(82, "bob", "open", 0, _ago(1), head_sha="sha82"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(8100, "CI", "sha81", "completed", "success", _ago(1), _ago(1), pr_number=81)],
+        )
+        assert {i.number for i in api.list_pull_requests(team=self.team, author="alice").items} == {81}
+        assert {i.number for i in api.list_pull_requests(team=self.team, author="bob").items} == {82}
+
     def test_workflow_health_aggregates(self) -> None:
         self._seed()
         items = api.list_workflow_health(team=self.team, date_from="-30d")

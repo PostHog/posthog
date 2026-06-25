@@ -71,6 +71,7 @@ const pullRequests = (): ToolBase<typeof PullRequestsSchema, WithPostHogUrl<Sche
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/pull_requests/`,
             query: {
+                author: params.author,
                 date_from: params.date_from,
                 source_id: params.source_id,
             },

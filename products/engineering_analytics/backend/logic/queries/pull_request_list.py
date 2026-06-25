@@ -41,19 +41,28 @@ _SELECT = f"""
     LEFT JOIN ci_rollup AS ci ON ci.head_sha = pr.head_sha
     LEFT JOIN runs_by_pr AS rp
         ON rp.repo_owner = pr.repo_owner AND rp.repo_name = pr.repo_name AND rp.pr_number = pr.number
-    WHERE pr.state = 'open'
-        OR pr.merged_at >= {{date_from}}
-        OR pr.closed_at >= {{date_from}}
+    WHERE (
+            pr.state = 'open'
+            OR pr.merged_at >= {{date_from}}
+            OR pr.closed_at >= {{date_from}}
+        ) __AUTHOR__
     ORDER BY pr.created_at DESC
     LIMIT {_LIMIT + 1}
 """
 
 
-def query_pull_request_list(*, curated: CuratedGitHubSource, date_from: datetime) -> PullRequestList:
+def query_pull_request_list(
+    *, curated: CuratedGitHubSource, date_from: datetime, author: str | None = None
+) -> PullRequestList:
+    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    author_clause = ""
+    if author:
+        author_clause = "AND pr.author_handle = {author}"
+        placeholders["author"] = ast.Constant(value=author)
     response = curated.run(
-        curated.pr_list_rollup_query(_SELECT),
+        curated.pr_list_rollup_query(_SELECT.replace("__AUTHOR__", author_clause)),
         query_type="engineering_analytics.pull_request_list",
-        placeholders={"date_from": ast.Constant(value=date_from)},
+        placeholders=placeholders,
     )
     rows = response.results or []
     truncated = len(rows) > _LIMIT

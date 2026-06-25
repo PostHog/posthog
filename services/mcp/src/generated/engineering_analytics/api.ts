@@ -47,6 +47,7 @@ export const EngineeringAnalyticsPullRequestsParams = /* @__PURE__ */ zod.object
 })
 
 export const EngineeringAnalyticsPullRequestsQueryParams = /* @__PURE__ */ zod.object({
+    author: zod.string().optional().describe("Optional GitHub login to scope the list to one author's pull requests."),
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
     source_id: zod
         .string()

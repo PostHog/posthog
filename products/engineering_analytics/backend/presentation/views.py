@@ -181,7 +181,17 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_pull_requests",
-        parameters=[_DATE_FROM, _SOURCE_ID],
+        parameters=[
+            _DATE_FROM,
+            OpenApiParameter(
+                name="author",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional GitHub login to scope the list to one author's pull requests.",
+            ),
+            _SOURCE_ID,
+        ],
         responses={
             200: PullRequestListSerializer,
             400: OpenApiResponse(description="Invalid date_from or source_id."),
@@ -199,6 +209,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             result = api.list_pull_requests(
                 team=self.team,
                 date_from=request.query_params.get("date_from") or None,
+                author=request.query_params.get("author") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )

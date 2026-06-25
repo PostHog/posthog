@@ -58682,6 +58682,10 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsPullRequestsParams = {
     /**
+     * Optional GitHub login to scope the list to one author's pull requests.
+     */
+    author?: string;
+    /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string;

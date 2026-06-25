@@ -102,9 +102,11 @@ def build_github_sources(*, team: Team, user_access_control: "UserAccessControl 
     return list_github_sources(team=team, user_access_control=user_access_control)
 
 
-def build_pull_request_list(*, curated: CuratedGitHubSource, date_from: str | None = None) -> PullRequestList:
+def build_pull_request_list(
+    *, curated: CuratedGitHubSource, date_from: str | None = None, author: str | None = None
+) -> PullRequestList:
     parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    return query_pull_request_list(curated=curated, date_from=parsed_from)
+    return query_pull_request_list(curated=curated, date_from=parsed_from, author=author)
 
 
 def build_workflow_health(
