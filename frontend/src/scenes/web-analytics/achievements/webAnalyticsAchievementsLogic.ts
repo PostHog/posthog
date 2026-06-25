@@ -138,6 +138,19 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                     progressByTrack
                 ),
         ],
+        pendingTrackKeys: [
+            (s) => [s.uncelebratedPending],
+            (pending): Set<string> => new Set(pending.map((entry) => entry.track_key)),
+        ],
+        unlockedStages: [
+            (s) => [s.definitions, s.progressByTrack],
+            (definitions, progressByTrack): number =>
+                definitions.reduce((sum, track) => sum + (progressByTrack[track.key]?.current_stage ?? 0), 0),
+        ],
+        totalStages: [
+            (s) => [s.definitions],
+            (definitions): number => definitions.reduce((sum, track) => sum + track.stages.length, 0),
+        ],
     }),
     listeners(({ values, actions }) => ({
         openModal: () => {
@@ -178,7 +191,9 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                     track_key: trackKey,
                     stage,
                 })
-            } catch {}
+            } catch (error) {
+                posthog.captureException(error)
+            }
         },
     })),
     afterMount(({ actions, values }) => {

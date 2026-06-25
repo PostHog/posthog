@@ -130,7 +130,8 @@ def evaluate_conversions(ctx: EvalContext) -> int:
             "SELECT 1 FROM events WHERE timestamp >= now() - toIntervalDay({days})",
             placeholders={"days": ast.Constant(value=CONVERSIONS_LOOKBACK_DAYS)},
         )
-        assert isinstance(query, ast.SelectQuery)
+        if not isinstance(query, ast.SelectQuery):
+            raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
         query.select = [ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions]
         response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
         if response.results:

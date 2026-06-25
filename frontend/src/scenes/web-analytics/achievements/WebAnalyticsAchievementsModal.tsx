@@ -375,9 +375,11 @@ function WebAnalyticsAchievementsModalInner(): JSX.Element {
         sortedTeamTracks,
         progressByTrack,
         expandedTracks,
-        uncelebratedPending,
         confettiNonce,
         achievementsLoading,
+        pendingTrackKeys,
+        unlockedStages,
+        totalStages,
     } = useValues(webAnalyticsAchievementsLogic)
     const { closeModal, toggleTrackExpanded } = useActions(webAnalyticsAchievementsLogic)
     const { trigger, HogfettiComponent } = useHogfetti({ count: 80, duration: 2500 })
@@ -387,10 +389,6 @@ function WebAnalyticsAchievementsModalInner(): JSX.Element {
             trigger()
         }
     }, [confettiNonce, trigger])
-
-    const pendingTrackKeys = new Set(uncelebratedPending.map((entry) => entry.track_key))
-    const unlockedStages = definitions.reduce((sum, track) => sum + (progressByTrack[track.key]?.current_stage ?? 0), 0)
-    const totalStages = definitions.reduce((sum, track) => sum + track.stages.length, 0)
 
     return (
         <>
