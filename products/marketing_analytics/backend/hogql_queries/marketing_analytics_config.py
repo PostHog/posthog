@@ -116,6 +116,11 @@ class MarketingAnalyticsConfig:
         flag ~6 times. The team model instance is shared across the runners of a query, so caching on it
         dedupes the evaluation to once per load without leaking across requests (a fresh team is loaded per
         request). All three flags are evaluated together so the cache is populated in one pass.
+
+        Test authors: the cache lives on the team instance (`team._ma_precompute_flags`). A test that reuses
+        the same team across cases (e.g. class-level setup) while mocking `feature_enabled_or_false`
+        differently per case will get the first case's stale flags. Clear it with
+        `del team._ma_precompute_flags` in setup/teardown to force re-evaluation.
         """
         cached = getattr(team, "_ma_precompute_flags", None)
         if cached is not None:
