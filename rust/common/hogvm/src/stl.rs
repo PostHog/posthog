@@ -772,6 +772,89 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     .into())
             }),
         ),
+        (
+            "JSONHas",
+            native_func(|vm, args| {
+                assert(!args.is_empty(), "JSONHas requires at least one argument")?;
+                Ok(HogLiteral::Boolean(json_path_value(vm, &args)?.is_some()).into())
+            }),
+        ),
+        (
+            "JSONLength",
+            native_func(|vm, args| {
+                assert(!args.is_empty(), "JSONLength requires at least one argument")?;
+                let len = match json_path_value(vm, &args)? {
+                    Some(JsonValue::Array(a)) => a.len() as i64,
+                    Some(JsonValue::Object(o)) => o.len() as i64,
+                    _ => 0,
+                };
+                Ok(HogLiteral::Number(Num::Integer(len)).into())
+            }),
+        ),
+        (
+            "JSONExtractString",
+            native_func(|vm, args| {
+                assert(!args.is_empty(), "JSONExtractString requires at least one argument")?;
+                let res = match json_path_value(vm, &args)? {
+                    None | Some(JsonValue::Null) => HogLiteral::Null,
+                    Some(JsonValue::String(s)) => HogLiteral::String(s),
+                    Some(JsonValue::Bool(b)) => {
+                        HogLiteral::String(if b { "True" } else { "False" }.to_string())
+                    }
+                    Some(JsonValue::Number(n)) => HogLiteral::String(n.to_string()),
+                    Some(other) => HogLiteral::String(other.to_string()),
+                };
+                Ok(res.into())
+            }),
+        ),
+        (
+            "JSONExtractInt",
+            native_func(|vm, args| {
+                assert(!args.is_empty(), "JSONExtractInt requires at least one argument")?;
+                let res = match json_path_value(vm, &args)? {
+                    Some(JsonValue::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
+                    Some(JsonValue::String(s)) => s.trim().parse::<i64>().ok(),
+                    _ => None,
+                };
+                Ok(res
+                    .map(|i| HogLiteral::Number(Num::Integer(i)))
+                    .unwrap_or(HogLiteral::Null)
+                    .into())
+            }),
+        ),
+        (
+            "JSONExtractFloat",
+            native_func(|vm, args| {
+                assert(!args.is_empty(), "JSONExtractFloat requires at least one argument")?;
+                let res = match json_path_value(vm, &args)? {
+                    Some(JsonValue::Number(n)) => n.as_f64(),
+                    Some(JsonValue::String(s)) => s.trim().parse::<f64>().ok(),
+                    _ => None,
+                };
+                Ok(res
+                    .map(|f| HogLiteral::Number(Num::Float(f)))
+                    .unwrap_or(HogLiteral::Null)
+                    .into())
+            }),
+        ),
+        (
+            "JSONExtractBool",
+            native_func(|vm, args| {
+                assert(!args.is_empty(), "JSONExtractBool requires at least one argument")?;
+                let b = matches!(json_path_value(vm, &args)?, Some(JsonValue::Bool(true)));
+                Ok(HogLiteral::Boolean(b).into())
+            }),
+        ),
+        (
+            "JSONExtractArrayRaw",
+            native_func(|vm, args| {
+                assert(!args.is_empty(), "JSONExtractArrayRaw requires at least one argument")?;
+                match json_path_value(vm, &args)? {
+                    Some(arr @ JsonValue::Array(_)) => construct_free_standing(arr, 0),
+                    _ => Ok(HogLiteral::Null.into()),
+                }
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -1085,6 +1168,24 @@ fn json_stringify(
         marked.pop();
     }
     result
+}
+
+// Shared by the JSON-extract family: parse args[0] (a JSON string, or convert a Hog value) and
+// navigate args[1..] as a path. A parse error or a bad path is nullish (None), matching the
+// reference's JSONDecodeError / nullish get_nested_value handling.
+fn json_path_value(vm: &HogVM, args: &[HogValue]) -> Result<Option<JsonValue>, VmError> {
+    let json = match args[0].deref(&vm.heap)? {
+        HogLiteral::String(s) => match serde_json::from_str::<JsonValue>(s) {
+            Ok(j) => j,
+            Err(_) => return Ok(None),
+        },
+        _ => vm.hog_to_json(&args[0])?,
+    };
+    let path = &args[1..];
+    if path.is_empty() {
+        return Ok(Some(json));
+    }
+    Ok(get_json_nested(&json, path, vm).unwrap_or(None))
 }
 
 // position(haystack, needle): 1-based char index of str(needle) in haystack, or 0 if absent (or
