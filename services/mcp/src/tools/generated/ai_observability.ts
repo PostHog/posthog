@@ -45,7 +45,6 @@ import {
     LlmAnalyticsScoreDefinitionsPartialUpdateBody,
     LlmAnalyticsScoreDefinitionsPartialUpdateParams,
     LlmAnalyticsScoreDefinitionsRetrieveParams,
-    LlmAnalyticsSentimentCreateBody,
     LlmAnalyticsSummarizationCreateBody,
     LlmAnalyticsTraceReviewsCreateBody,
     LlmAnalyticsTraceReviewsDestroyParams,
@@ -253,6 +252,7 @@ const llmaEvaluationList = (): ToolBase<typeof LlmaEvaluationListSchema, Schemas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/`,
             query: {
                 enabled: params.enabled,
+                evaluation_type: params.evaluation_type,
                 id__in: Array.isArray(params.id__in) ? params.id__in.join(',') || undefined : params.id__in,
                 limit: params.limit,
                 offset: params.offset,
@@ -1119,38 +1119,6 @@ const llmaScoreDefinitionUpdate = (): ToolBase<typeof LlmaScoreDefinitionUpdateS
     },
 })
 
-const LlmaSentimentCreateSchema = LlmAnalyticsSentimentCreateBody
-
-const llmaSentimentCreate = (): ToolBase<typeof LlmaSentimentCreateSchema, Schemas.SentimentBatchResponse> => ({
-    name: 'llma-sentiment-create',
-    schema: LlmaSentimentCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSentimentCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.ids !== undefined) {
-            body['ids'] = params.ids
-        }
-        if (params.analysis_level !== undefined) {
-            body['analysis_level'] = params.analysis_level
-        }
-        if (params.force_refresh !== undefined) {
-            body['force_refresh'] = params.force_refresh
-        }
-        if (params.date_from !== undefined) {
-            body['date_from'] = params.date_from
-        }
-        if (params.date_to !== undefined) {
-            body['date_to'] = params.date_to
-        }
-        const result = await context.api.request<Schemas.SentimentBatchResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/sentiment/`,
-            body,
-        })
-        return result
-    },
-})
-
 const LlmaSummarizationCreateSchema = LlmAnalyticsSummarizationCreateBody
 
 const llmaSummarizationCreate = (): ToolBase<typeof LlmaSummarizationCreateSchema, Schemas.SummarizeResponse> => ({
@@ -1468,7 +1436,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-score-definition-list': llmaScoreDefinitionList,
     'llma-score-definition-new-version': llmaScoreDefinitionNewVersion,
     'llma-score-definition-update': llmaScoreDefinitionUpdate,
-    'llma-sentiment-create': llmaSentimentCreate,
     'llma-summarization-create': llmaSummarizationCreate,
     'llma-tagger-create': llmaTaggerCreate,
     'llma-tagger-list': llmaTaggerList,

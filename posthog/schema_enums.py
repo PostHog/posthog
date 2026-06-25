@@ -1812,6 +1812,8 @@ class ExternalDataSourceType(StrEnum):
     LEEXI = "Leexi"
     RB2_B = "RB2B"
     SUPERWALL = "Superwall"
+    LIANA = "Liana"
+    TAWK_TO = "TawkTo"
 
 
 class ExternalQueryErrorCode(StrEnum):

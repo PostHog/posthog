@@ -213,6 +213,50 @@ class TestNotifyExternalDataSyncFailures:
         schema.refresh_from_db()
         assert schema.last_error_notified_at is None
 
+    def test_excludes_schemas_of_deleted_source(self):
+        team, source = _create_team_and_source()
+        ExternalDataSource.objects.filter(id=source.id).update(deleted=True)
+        ExternalDataSchema.objects.create(
+            name="Charge",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="boom",
+        )
+
+        with patch(SENDER_PATH) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        mock_sender.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "run_offset,expected_sent",
+        [
+            (dt.timedelta(hours=1), True),  # failed run after the last notification -> report again
+            (dt.timedelta(hours=-1), False),  # no run since the last notification -> stay silent
+        ],
+    )
+    def test_already_notified_failure_renotifies_only_on_newer_run(self, run_offset, expected_sent):
+        team, source = _create_team_and_source()
+        notified_at = dt.datetime.now(dt.UTC) - dt.timedelta(hours=2)
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="boom",
+            last_error_notified_at=notified_at,
+        )
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.FAILED
+        )
+        ExternalDataJob.objects.filter(id=job.id).update(finished_at=notified_at + run_offset)
+
+        with patch(SENDER_PATH) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        assert mock_sender.called == expected_sent
+
 
 class TestGetTeamIdsWithRecentSyncFailures:
     def _create_schema_with_job(
@@ -221,9 +265,12 @@ class TestGetTeamIdsWithRecentSyncFailures:
         schema_status: str,
         job_finished_at: dt.datetime,
         schema_deleted: bool = False,
+        source_deleted: bool = False,
         last_error_notified_at: dt.datetime | None = None,
     ) -> Team:
         team, source = _create_team_and_source()
+        if source_deleted:
+            ExternalDataSource.objects.filter(id=source.id).update(deleted=True)
         schema = ExternalDataSchema.objects.create(
             name="Charge",
             team=team,
@@ -251,18 +298,20 @@ class TestGetTeamIdsWithRecentSyncFailures:
         assert get_team_ids_with_recent_sync_failures() == [team.pk]
 
     @pytest.mark.parametrize(
-        "schema_status,job_age,schema_deleted",
+        "schema_status,job_age,schema_deleted,source_deleted",
         [
-            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=30), False),
-            (ExternalDataSchema.Status.COMPLETED, dt.timedelta(hours=2), False),
-            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=2), True),
+            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=30), False, False),
+            (ExternalDataSchema.Status.COMPLETED, dt.timedelta(hours=2), False, False),
+            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=2), True, False),
+            (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=2), False, True),
         ],
     )
-    def test_excludes_non_actionable_teams(self, schema_status, job_age, schema_deleted):
+    def test_excludes_non_actionable_teams(self, schema_status, job_age, schema_deleted, source_deleted):
         self._create_schema_with_job(
             schema_status=schema_status,
             job_finished_at=dt.datetime.now(dt.UTC) - job_age,
             schema_deleted=schema_deleted,
+            source_deleted=source_deleted,
         )
 
         assert get_team_ids_with_recent_sync_failures() == []

@@ -25,6 +25,7 @@ from temporalio.client import (
 )
 from temporalio.common import RetryPolicy
 
+from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
@@ -390,9 +391,7 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 
 
 def is_cdc_enabled_for_team(team: Team) -> bool:
-    import posthoganalytics
-
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "dwh-postgres-cdc",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
@@ -401,9 +400,7 @@ def is_cdc_enabled_for_team(team: Team) -> bool:
 
 
 def is_xmin_enabled_for_team(team: Team) -> bool:
-    import posthoganalytics
-
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "dwh-postgres-xmin",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},

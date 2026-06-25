@@ -320,6 +320,7 @@ impl RawNativeFrame {
     fn lang_for(&self, filename: Option<&str>) -> String {
         match filename.and_then(|f| f.rsplit('.').next()) {
             Some("rs") => "rust".to_string(),
+            Some("go") => "go".to_string(),
             Some("c") => "c".to_string(),
             Some("cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx") => "cpp".to_string(),
             // `.h` is ambiguous across C/C++/Objective-C, so default to C.
@@ -925,6 +926,44 @@ mod test {
 
         assert!(resolved.resolved, "{:?}", resolved.resolve_failure);
         assert_eq!(resolved.resolved_name.as_deref(), Some("inner_function"));
+    }
+
+    /// A Go-built binary: Go function naming, non-PIE link base, and
+    /// mid-stack inline expansion (transform inlined into process).
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_native_go_symbolication_with_inline(db: sqlx::PgPool) {
+        use crate::frames::RawFrame;
+
+        const ELF_ZST: &[u8] = include_bytes!("../../../../tests/static/native/test_go_binary.zst");
+        let elf = zstd::decode_all(ELF_ZST).unwrap();
+        let chunk_id = "ebfd4909-422d-83e9-9d6b-eb2083ab3189";
+        let catalog = catalog_for_chunk(&db, chunk_id, zip_fixture(&elf, None)).await;
+
+        // Go links non-PIE at 0x400000 on linux/amd64 by default, so the
+        // runtime image base equals the link-time base. 0x7e7a2 is inside
+        // main.transform as inlined into main.process; the -1 adjustment
+        // lands the lookup on 0x7e7a1.
+        let image_base = 0x400000u64;
+        let mut raw = native_frame_at(image_base + 0x7e7a2, image_base);
+        raw.lang = Some("go".to_string());
+        let frame = RawFrame::Native(raw);
+        let debug_images = vec![debug_image_at(chunk_id, image_base)];
+
+        let frames = frame.resolve(1, &catalog, &debug_images, 15).await.unwrap();
+
+        assert_eq!(frames.len(), 2, "expected 2 frames, got: {frames:#?}");
+        assert!(frames.iter().all(|f| f.resolved));
+
+        // Outermost first: the physical function, then the inlined callee
+        assert_eq!(frames[0].resolved_name.as_deref(), Some("main.process"));
+        assert_eq!(frames[0].source.as_deref(), Some("test_go.go"));
+        assert_eq!(frames[0].line, Some(10));
+        assert_eq!(frames[0].lang, "go");
+
+        assert_eq!(frames[1].resolved_name.as_deref(), Some("main.transform"));
+        assert_eq!(frames[1].source.as_deref(), Some("test_go.go"));
+        assert_eq!(frames[1].line, Some(16));
+        assert_eq!(frames[1].lang, "go");
     }
 
     /// Missing symbol set: the frame falls back to client-side enrichment and

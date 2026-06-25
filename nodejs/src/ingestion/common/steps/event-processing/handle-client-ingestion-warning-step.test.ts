@@ -2,12 +2,12 @@ import { v4 } from 'uuid'
 
 import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
-import { parseJSON } from '~/utils/json-parse'
 
 import {
     HandleClientIngestionWarningStepInput,

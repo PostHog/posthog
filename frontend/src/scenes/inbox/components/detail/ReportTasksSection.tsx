@@ -88,7 +88,7 @@ function TaskRow({
                             <SandboxRunViewer
                                 taskId={task.id}
                                 runId={runId}
-                                replayOnly={replayOnly}
+                                interaction={replayOnly ? 'read-only' : 'live'}
                                 className="px-3 py-2"
                             />
                         </div>
