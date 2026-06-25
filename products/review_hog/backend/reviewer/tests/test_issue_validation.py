@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+
 import pytest
 from unittest.mock import patch
 
@@ -5,10 +7,22 @@ from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMe
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.skill_loader import LoadedValidationSkill
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.issue_validation import validate_issues
 
 _MODULE = "products.review_hog.backend.reviewer.tools.issue_validation"
+
+
+@pytest.fixture(autouse=True)
+def _stub_validation_skill() -> Iterator[None]:
+    # The validation-criteria skill is pulled by the agent; these unit tests don't touch the DB, so
+    # stub the loader to a fixed pinned skill (the prompt's skill-get target isn't under test here).
+    with patch(
+        f"{_MODULE}.load_validation_skill_for_run",
+        return_value=LoadedValidationSkill(skill_name="review-hog-validation-criteria", version=1),
+    ):
+        yield
 
 
 def _issue(issue_id: str, file: str = "src/core/config.py") -> Issue:
@@ -38,6 +52,7 @@ class TestValidateIssues:
 
         with patch(f"{_MODULE}.run_sandbox_review", create_mock_run_sandbox_review(sample_validation)):
             result = await validate_issues(
+                team_id=1,
                 chunks_data=expected_chunks,
                 pr_metadata=pr_metadata,
                 pr_files=pr_files,
@@ -69,6 +84,7 @@ class TestValidateIssues:
 
         with patch(f"{_MODULE}.run_sandbox_review", recording_sandbox):
             result = await validate_issues(
+                team_id=1,
                 chunks_data=expected_chunks,
                 pr_metadata=pr_metadata,
                 pr_files=pr_files,
@@ -93,6 +109,7 @@ class TestValidateIssues:
         # ids that don't split into exactly 3 parts are dropped before chunk resolution
         with patch(f"{_MODULE}.run_sandbox_review", create_mock_run_sandbox_review(sample_validation)):
             result = await validate_issues(
+                team_id=1,
                 chunks_data=expected_chunks,
                 pr_metadata=pr_metadata,
                 pr_files=pr_files,
@@ -117,6 +134,7 @@ class TestValidateIssues:
 
         with patch(f"{_MODULE}.run_sandbox_review", selective_sandbox):
             result = await validate_issues(
+                team_id=1,
                 chunks_data=expected_chunks,
                 pr_metadata=pr_metadata,
                 pr_files=pr_files,
@@ -138,6 +156,7 @@ class TestValidateIssues:
         # nothing resolvable -> empty dict and the sandbox seam is never invoked
         with patch(f"{_MODULE}.run_sandbox_review", create_mock_run_sandbox_review(sample_validation)) as _:
             result = await validate_issues(
+                team_id=1,
                 chunks_data=expected_chunks,
                 pr_metadata=pr_metadata,
                 pr_files=pr_files,

@@ -1,15 +1,17 @@
-"""Canonical review-perspective skill sync — mirror disk `SKILL.md` into per-team `LLMSkill` rows.
+"""Canonical review-hog skill sync — mirror disk `SKILL.md` into per-team `LLMSkill` rows.
 
 Ported from Signals' `scout_harness/lazy_seed.py` (the scout fleet's canonical-skill sync) and
-trimmed to ReviewHog's needs: no companion skills, no per-team holdback. Reads
-`products/review_hog/skills/review-hog-perspective-*/` from disk and reconciles each against a
-team's `LLMSkill` rows — creating missing rows, updating ones the team hasn't edited, leaving
-diverged / hand-authored rows alone, tombstoning rows whose canonical was deleted. Only rows we
-seeded (`metadata.seeded_by == "review_hog"`) are ever updated.
+trimmed to ReviewHog's needs: no companion skills, no per-team holdback. The reconcile is
+prefix-and-category-driven so the same machinery seeds both skill sets — the review
+**perspectives** (`review-hog-perspective-*`) and the **validation criteria**
+(`review-hog-validation-*`). It reads the matching dirs under `products/review_hog/skills/` and
+reconciles each against a team's `LLMSkill` rows — creating missing rows, updating ones the team
+hasn't edited, leaving diverged / hand-authored rows alone, tombstoning rows whose canonical was
+deleted. Only rows we seeded (`metadata.seeded_by == "review_hog"`) are ever updated.
 
 Called lazily at the start of a review run (cold-start sync, `prune=False`) and explicitly via the
-`sync_review_hog_perspectives` management command (`prune=True`). The perspectives become first-class,
-independently versioned skills the sandbox agent pulls over MCP — the same store the Signals scouts
+`sync_review_hog_skills` management command (`prune=True`). Each skill becomes a first-class,
+independently versioned skill the sandbox agent pulls over MCP — the same store the Signals scouts
 ship into.
 """
 
@@ -28,7 +30,10 @@ import yaml
 
 from posthog.models.team.team import Team
 
-from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_PERSPECTIVE_PREFIX
+from products.review_hog.backend.reviewer.skill_loader import (
+    REVIEW_HOG_PERSPECTIVE_PREFIX,
+    REVIEW_HOG_VALIDATION_PREFIX,
+)
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 logger = logging.getLogger(__name__)
@@ -53,9 +58,12 @@ _MAX_SKILL_FILE_PATH_LENGTH = 500
 # update/prune, and distinguishes a canonical perspective from a team's hand-authored skill.
 REVIEW_HOG_SEEDED_BY = "review_hog"
 
-# Stamped on `LLMSkill.category` so the skills surface can group review perspectives into their own
-# tab without knowing the `review-hog-perspective-*` naming convention.
-PERSPECTIVE_SKILL_CATEGORY = "review_perspective"
+# Stamped on `LLMSkill.category` so the skills surface can group all of ReviewHog's pulled skills into
+# one "Code review" tab without knowing the naming convention. Both skill sets share this one
+# category — the perspective-vs-validation split is carried by the skill-name prefix
+# (`review-hog-perspective-*` vs `review-hog-validation-*`), which the skills UI can group on — so a
+# single tab covers both. The sync owns this tag (it re-stamps a seeded row whose category drifted).
+REVIEW_HOG_SKILL_CATEGORY = "review_hog"
 
 _SOURCE = "products/review_hog/skills"
 
@@ -101,7 +109,7 @@ class CanonicalSkillParseError(ValueError):
     """A canonical SKILL.md on disk is malformed (missing frontmatter, bad YAML, etc.)."""
 
 
-def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
+def _parse_canonical_skill(skill_dir: Path, *, prefix: str) -> CanonicalSkill:
     skill_file = skill_dir / "SKILL.md"
     raw = skill_file.read_text(encoding="utf-8")
     match = _FRONTMATTER_RE.match(raw)
@@ -120,10 +128,8 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'name': {skill_file}")
     if not isinstance(description, str) or not description:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'description': {skill_file}")
-    if not name.startswith(REVIEW_HOG_PERSPECTIVE_PREFIX):
-        raise CanonicalSkillParseError(
-            f"Perspective skill name must start with '{REVIEW_HOG_PERSPECTIVE_PREFIX}': got {name!r} in {skill_file}"
-        )
+    if not name.startswith(prefix):
+        raise CanonicalSkillParseError(f"Canonical skill name must start with '{prefix}': got {name!r} in {skill_file}")
 
     # The agentskills.io spec uses `allowed-tools` (hyphen); accept the underscore form too, but
     # reject if both are set so a future divergence doesn't go unnoticed.
@@ -184,8 +190,8 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
     )
 
 
-def discover_canonical_perspectives(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
-    """Walk `products/review_hog/skills/` and return every parsed `review-hog-perspective-*` skill.
+def _discover_canonical(prefix: str, skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
+    """Walk `products/review_hog/skills/` and return every parsed `<prefix>*` skill.
 
     A malformed canonical entry propagates `CanonicalSkillParseError` so the sync fails loud and the
     source gets fixed. Frontmatter `name`s must be unique across the set — a collision is rejected
@@ -197,11 +203,11 @@ def discover_canonical_perspectives(skills_dir: Path | None = None) -> tuple[Can
     discovered: list[CanonicalSkill] = []
     by_name: dict[str, Path] = {}
     for entry in sorted(base.iterdir()):
-        if not entry.is_dir() or not entry.name.startswith(REVIEW_HOG_PERSPECTIVE_PREFIX):
+        if not entry.is_dir() or not entry.name.startswith(prefix):
             continue
         if not (entry / "SKILL.md").is_file():
             continue
-        skill = _parse_canonical_skill(entry)
+        skill = _parse_canonical_skill(entry, prefix=prefix)
         if skill.name in by_name:
             raise CanonicalSkillParseError(
                 f"Duplicate canonical skill name {skill.name!r}: declared in both {by_name[skill.name]} and {entry}"
@@ -209,6 +215,16 @@ def discover_canonical_perspectives(skills_dir: Path | None = None) -> tuple[Can
         by_name[skill.name] = entry
         discovered.append(skill)
     return tuple(discovered)
+
+
+def discover_canonical_perspectives(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
+    """Every parsed `review-hog-perspective-*` skill on disk."""
+    return _discover_canonical(REVIEW_HOG_PERSPECTIVE_PREFIX, skills_dir)
+
+
+def discover_canonical_validation(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
+    """Every parsed `review-hog-validation-*` skill on disk (the single criteria skill today)."""
+    return _discover_canonical(REVIEW_HOG_VALIDATION_PREFIX, skills_dir)
 
 
 def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
@@ -233,7 +249,7 @@ def _compute_row_hash(skill: LLMSkill, files: list[LLMSkillFile]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonical_hash: str) -> None:
+def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonical_hash: str, *, category: str) -> None:
     """Insert a brand-new row for a (team, canonical.name) with no prior history.
 
     The unique constraint on `(team, name, is_latest=True, deleted=False)` is the race guard — a
@@ -251,7 +267,7 @@ def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonica
                 "source": _SOURCE,
                 "canonical_hash": canonical_hash,
             },
-            category=PERSPECTIVE_SKILL_CATEGORY,
+            category=category,
             version=1,
             is_latest=True,
         )
@@ -265,7 +281,7 @@ def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonica
 
 
 def _update_skill_from_canonical(
-    team: Team, current_latest: LLMSkill, canonical: CanonicalSkill, canonical_hash: str
+    team: Team, current_latest: LLMSkill, canonical: CanonicalSkill, canonical_hash: str, *, category: str
 ) -> None:
     """Replace the team's live row with the latest canonical content, bumping the version.
 
@@ -292,7 +308,7 @@ def _update_skill_from_canonical(
             body=canonical.body,
             allowed_tools=list(canonical.allowed_tools),
             metadata=new_metadata,
-            category=PERSPECTIVE_SKILL_CATEGORY,
+            category=category,
             version=new_version,
             is_latest=True,
         )
@@ -305,22 +321,23 @@ def _update_skill_from_canonical(
             )
 
 
-def sync_canonical_perspectives(team: Team, *, prune: bool = False) -> SyncResult:
-    """Reconcile a team's rows with the canonical `review-hog-perspective-*` skills on disk.
+def _sync_canonicals(
+    team: Team, *, canonicals: tuple[CanonicalSkill, ...], category: str, prefix: str, prune: bool = False
+) -> SyncResult:
+    """Reconcile a team's rows with a set of canonical `<prefix>*` skills on disk.
 
     Per skill: create if missing, update if we seeded it and the team hasn't edited it, otherwise
     leave it alone (diverged / hand-authored / tombstoned). Only rows tagged
     `metadata.seeded_by == "review_hog"` are ever updated.
 
-    `prune` (default off) additionally tombstones live `review-hog-perspective-*` rows we seeded
-    whose canonical was removed from disk. Reserved for the explicit `sync_review_hog_perspectives`
-    command; the cold-start sync leaves it off (an ad-hoc run only ensures its own perspectives
-    exist and are current, not reap the rest). Idempotent — writes only when content changed;
-    IntegrityError on races is logged-and-swallowed.
+    `prune` (default off) additionally tombstones live `<prefix>*` rows we seeded whose canonical was
+    removed from disk. Reserved for the explicit `sync_review_hog_skills` command; the cold-start sync
+    leaves it off (an ad-hoc run only ensures its own skills exist and are current, not reap the
+    rest). Idempotent — writes only when content changed; IntegrityError on races is
+    logged-and-swallowed.
     """
-    canonicals = discover_canonical_perspectives()
     if not canonicals:
-        return SyncResult(skipped_reason="no canonical review-hog-perspective-* skills on disk")
+        return SyncResult(skipped_reason=f"no canonical {prefix}* skills on disk")
 
     created: list[str] = []
     updated: list[str] = []
@@ -334,7 +351,7 @@ def sync_canonical_perspectives(team: Team, *, prune: bool = False) -> SyncResul
 
         if not rows:
             try:
-                _create_skill_from_canonical(team, canonical, canonical_hash)
+                _create_skill_from_canonical(team, canonical, canonical_hash, category=category)
                 created.append(canonical.name)
             except IntegrityError:
                 logger.info(
@@ -354,6 +371,12 @@ def sync_canonical_perspectives(team: Team, *, prune: bool = False) -> SyncResul
             diverged.append(canonical.name)
             continue
 
+        if live.category != category:
+            # The sync owns the category tag; re-stamp a seeded row whose category drifted (e.g. after
+            # the canonical category was changed). In-place — it's our metadata, not user content, so
+            # no version bump. Idempotent: only writes on actual drift.
+            LLMSkill.objects.filter(pk=live.pk).update(category=category)
+
         live_files = list(live.files.all())
         live_hash = _compute_row_hash(live, live_files)
         stored_hash = (live.metadata or {}).get("canonical_hash")
@@ -370,7 +393,7 @@ def sync_canonical_perspectives(team: Team, *, prune: bool = False) -> SyncResul
             continue
 
         try:
-            _update_skill_from_canonical(team, live, canonical, canonical_hash)
+            _update_skill_from_canonical(team, live, canonical, canonical_hash, category=category)
             updated.append(canonical.name)
         except IntegrityError:
             logger.info(
@@ -388,7 +411,7 @@ def sync_canonical_perspectives(team: Team, *, prune: bool = False) -> SyncResul
             team=team,
             deleted=False,
             is_latest=True,
-            name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX,
+            name__startswith=prefix,
             metadata__seeded_by=REVIEW_HOG_SEEDED_BY,
         ).exclude(name__in=canonical_names)
         for row in orphan_rows:
@@ -403,9 +426,10 @@ def sync_canonical_perspectives(team: Team, *, prune: bool = False) -> SyncResul
 
     if created or updated or pruned:
         logger.info(
-            "review_hog: synced canonical perspectives",
+            "review_hog: synced canonical skills",
             extra={
                 "team_id": team.id,
+                "category": category,
                 "created_skills": created,
                 "updated_skills": updated,
                 "diverged_skills": diverged,
@@ -420,4 +444,26 @@ def sync_canonical_perspectives(team: Team, *, prune: bool = False) -> SyncResul
         diverged_skill_names=tuple(diverged),
         tombstoned_skill_names=tuple(tombstoned),
         pruned_skill_names=tuple(pruned),
+    )
+
+
+def sync_canonical_perspectives(team: Team, *, prune: bool = False) -> SyncResult:
+    """Reconcile a team's rows with the canonical `review-hog-perspective-*` skills on disk."""
+    return _sync_canonicals(
+        team,
+        canonicals=discover_canonical_perspectives(),
+        category=REVIEW_HOG_SKILL_CATEGORY,
+        prefix=REVIEW_HOG_PERSPECTIVE_PREFIX,
+        prune=prune,
+    )
+
+
+def sync_canonical_validation(team: Team, *, prune: bool = False) -> SyncResult:
+    """Reconcile a team's rows with the canonical `review-hog-validation-*` criteria skill on disk."""
+    return _sync_canonicals(
+        team,
+        canonicals=discover_canonical_validation(),
+        category=REVIEW_HOG_SKILL_CATEGORY,
+        prefix=REVIEW_HOG_VALIDATION_PREFIX,
+        prune=prune,
     )

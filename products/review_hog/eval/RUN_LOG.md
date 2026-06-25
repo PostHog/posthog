@@ -22,6 +22,29 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
 
 ---
 
+## 2026-06-25 · step 13 — validator-as-pulled-skill — PR #63625 @ `243ddf40295c`
+
+- **ReviewHog under test:** step 13 — the validation keep/drop **criteria moved to a pulled LLMA skill**
+  (`review-hog-validation-criteria`); `issue_validation` prompt is criteria-agnostic; both review skill sets
+  collapsed to one `review_hog` category / "Code review" tab. `signals/reviewhog`, uncommitted working tree.
+- **Pipeline:** 9/9 stages (exit 0). 1 chunk. Artefacts: `chunk_analysis` 1, `perspective_result` 2
+  (one perspective×chunk dropped — best-effort, Modal flakiness), `issue_finding` 1, `validation_verdict` 1.
+  Report body 4,448 chars.
+- **Skill pull confirmed:** the validator agent's `skill-get` for `review-hog-validation-criteria` returned
+  `success:true / isError:false` ("Launching skill: …"); no `SkillNotFound`/permission error — the sandbox MCP
+  served the skill live from the DB (no restart needed).
+- **Findings:** 1 · **Validator:** **0 kept / 1 dropped** (criteria-driven).
+
+| #   | perspective               | prio       | file:line                       | finding                                                                                                          | verdict                                      |
+| --- | ------------------------- | ---------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| 1   | Performance & Reliability | should_fix | hogql/database/database.py:1478 | broadened guard now reaches a raising `get_table()` for previously short-circuited tables → potential hard crash | ❌ dropped · bug · "practically unreachable" |
+
+> **Behavior change vs baseline:** the baseline (criteria-less validator) **kept** a finding on this same
+> `database.py:1478`; the criteria-driven validator **drops** it as _"practically unreachable"_ — reasoning that
+> directly tracks the new criteria skill ("trace whether the problem can actually be reached; drop
+> never-gonna-happen edge cases"). The surviving perspective + finding vary run-to-run (LLM nondeterminism on the
+> same head), so the clean signal here is the validator applying team-owned criteria, not the finding count.
+
 ## 2026-06-25 · baseline — PR #63625 @ `243ddf40295c`
 
 - **ReviewHog under test:** step 11 (A-lite agnostic prompts + trimmed context) **+** `combine_issues`

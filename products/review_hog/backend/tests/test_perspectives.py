@@ -6,8 +6,8 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 
 from products.review_hog.backend.reviewer.lazy_seed import (
-    PERSPECTIVE_SKILL_CATEGORY,
     REVIEW_HOG_SEEDED_BY,
+    REVIEW_HOG_SKILL_CATEGORY,
     CanonicalSkill,
     discover_canonical_perspectives,
     sync_canonical_perspectives,
@@ -58,7 +58,7 @@ class TestSyncCanonicalPerspectives(BaseTest):
         assert rows.count() == len(PERSPECTIVES)
         row = rows.get(name=_LOGIC)
         assert row.version == 1
-        assert row.category == PERSPECTIVE_SKILL_CATEGORY
+        assert row.category == REVIEW_HOG_SKILL_CATEGORY
         assert row.metadata["seeded_by"] == REVIEW_HOG_SEEDED_BY
         assert row.metadata.get("canonical_hash")
         assert len(row.body) > 200  # the perspective focus moved out of jinja, not an empty stub
@@ -84,6 +84,16 @@ class TestSyncCanonicalPerspectives(BaseTest):
         latest = LLMSkill.objects.get(team=self.team, name=_LOGIC, is_latest=True)
         assert latest.version == 2
         assert latest.body == "# Changed body\n\nDifferent content."
+
+    def test_resync_retags_a_drifted_category(self) -> None:
+        # The sync owns the category tag: a seeded row whose category drifted (e.g. the canonical
+        # category was renamed) must be re-stamped, or it strands under no Skills-UI tab.
+        sync_canonical_perspectives(self.team)
+        LLMSkill.objects.filter(team=self.team, name=_LOGIC).update(category="stale_category")
+
+        sync_canonical_perspectives(self.team)
+
+        assert LLMSkill.objects.get(team=self.team, name=_LOGIC, is_latest=True).category == REVIEW_HOG_SKILL_CATEGORY
 
     def test_leaves_team_edited_row_alone(self) -> None:
         sync_canonical_perspectives(self.team)
@@ -143,13 +153,13 @@ class TestLoadPerspectivesForRun(BaseTest):
 
 class TestSyncCommand(BaseTest):
     def test_team_id_seeds_the_team(self) -> None:
-        call_command("sync_review_hog_perspectives", team_id=self.team.id)
+        call_command("sync_review_hog_skills", team_id=self.team.id)
         assert LLMSkill.objects.filter(team=self.team, name=_LOGIC, is_latest=True).exists()
 
     def test_dry_run_writes_nothing(self) -> None:
-        call_command("sync_review_hog_perspectives", team_id=self.team.id, dry_run=True)
+        call_command("sync_review_hog_skills", team_id=self.team.id, dry_run=True)
         assert not LLMSkill.objects.filter(team=self.team, name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX).exists()
 
     def test_team_id_and_all_teams_are_mutually_exclusive(self) -> None:
         with pytest.raises(CommandError):
-            call_command("sync_review_hog_perspectives", team_id=self.team.id, all_teams=True)
+            call_command("sync_review_hog_skills", team_id=self.team.id, all_teams=True)

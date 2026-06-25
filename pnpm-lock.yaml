@@ -3966,6 +3966,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/review_hog: {}
+
   products/session_replay:
     dependencies:
       '@types/react':

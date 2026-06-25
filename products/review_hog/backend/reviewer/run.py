@@ -6,7 +6,7 @@ from asgiref.sync import sync_to_async
 from posthog.models.team.team import Team
 
 from products.review_hog.backend.reviewer.constants import PUBLISH_REVIEW_ENABLED
-from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspectives
+from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspectives, sync_canonical_validation
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
@@ -47,18 +47,21 @@ def _stage(number: int, label: str) -> None:
     _emit(f"━━━━━ STAGE {number}/{_TOTAL_STAGES} · {label} ━━━━━")
 
 
-def _sync_perspectives_for_team(team_id: int) -> None:
-    """Cold-start sync the team's canonical review perspectives before the review pulls them.
+def _sync_review_skills_for_team(team_id: int) -> None:
+    """Cold-start sync the team's canonical review skills (perspectives + validation criteria) before
+    the review pulls them.
 
     Mirrors the Signals scout runner's lazy sync (prune off — an ad-hoc run only ensures its own
-    perspectives are seeded and current). Log-and-continue: a sync failure shouldn't crash the run;
-    the review proceeds with whatever perspective skills the team already has, and surfaces a clear
-    error later if one is genuinely missing.
+    skills are seeded and current). Log-and-continue: a sync failure shouldn't crash the run; the
+    review proceeds with whatever review skills the team already has, and surfaces a clear error
+    later if one is genuinely missing.
     """
     try:
-        sync_canonical_perspectives(Team.objects.get(id=team_id))
+        team = Team.objects.get(id=team_id)
+        sync_canonical_perspectives(team)
+        sync_canonical_validation(team)
     except Exception:
-        logger.exception("Perspective skill sync failed; continuing with existing team perspectives")
+        logger.exception("Review skill sync failed; continuing with the team's existing review skills")
 
 
 # TODO: Make it a parent workflow and spawn steps as child workflows for better visualization
@@ -119,9 +122,9 @@ async def main(pr_url: str, *, team_id: int, user_id: int) -> None:
     )
     _emit("Captured point-in-time diff snapshot" if snapshotted else "No new diff snapshot this turn")
 
-    # Cold-start: seed/update this team's canonical review perspectives so the parallel review can
-    # pull each one over MCP (skill-get). Mirrors the Signals scout runner's lazy sync.
-    await sync_to_async(_sync_perspectives_for_team)(team_id)
+    # Cold-start: seed/update this team's canonical review skills (perspectives + validation criteria)
+    # so the review can pull each over MCP (skill-get). Mirrors the Signals scout runner's lazy sync.
+    await sync_to_async(_sync_review_skills_for_team)(team_id)
 
     # 3. Generate prompt schemas (static package assets the prompt templates embed)
     logger.info("Generating schemas...")
@@ -192,6 +195,7 @@ async def main(pr_url: str, *, team_id: int, user_id: int) -> None:
     # 9. Validate issues
     _stage(7, "Validate issues")
     validations = await validate_issues(
+        team_id=team_id,
         chunks_data=chunks_data,
         pr_metadata=pr_metadata,
         pr_files=pr_files,

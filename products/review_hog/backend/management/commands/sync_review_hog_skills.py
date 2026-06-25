@@ -1,17 +1,20 @@
-"""Sync canonical review-hog-perspective-* skills from disk to teams' LLMSkill rows.
+"""Sync canonical review-hog skills from disk to teams' LLMSkill rows.
 
-Reads `products/review_hog/skills/review-hog-perspective-*/` and reconciles each against a team's
-`LLMSkill` rows via `sync_canonical_perspectives` — the same function the review run calls lazily at
-cold start; this command is the impatient path:
+Reads `products/review_hog/skills/` and reconciles each canonical skill against a team's `LLMSkill`
+rows via the `sync_canonical_*` functions — the same ones the review run calls lazily at cold start;
+this command is the impatient path:
 
 - You merged a SKILL.md change and want it on a team now, not on its next review run.
 - You're onboarding a team (e.g. seeding team 1 before an e2e run).
 
-`--all-teams` fans out to every team that already has perspective rows (the post-edit propagation).
+It seeds both review-hog skill sets — the parallel-review **perspectives** and the **validation
+criteria**. `--all-teams` fans out to every team that already has review-hog-seeded rows (the
+post-edit propagation).
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
@@ -19,20 +22,27 @@ from django.db import transaction
 
 from posthog.models.team.team import Team
 
-from products.review_hog.backend.reviewer.lazy_seed import SyncResult, sync_canonical_perspectives
-from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_PERSPECTIVE_PREFIX
+from products.review_hog.backend.reviewer.lazy_seed import (
+    REVIEW_HOG_SEEDED_BY,
+    SyncResult,
+    sync_canonical_perspectives,
+    sync_canonical_validation,
+)
 from products.skills.backend.models.skills import LLMSkill
+
+# Every canonical-skill syncer ReviewHog owns; the command runs them all per team.
+_SYNCERS: tuple[Callable[..., SyncResult], ...] = (sync_canonical_perspectives, sync_canonical_validation)
 
 
 class Command(BaseCommand):
-    help = "Sync canonical review-hog-perspective-* skills from disk to teams' LLMSkill rows."
+    help = "Sync canonical review-hog skills (perspectives + validation criteria) from disk to teams' LLMSkill rows."
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, help="Sync a specific team. Mutually exclusive with --all-teams.")
         parser.add_argument(
             "--all-teams",
             action="store_true",
-            help="Sync every team that already has review-hog-perspective-* rows. Mutually exclusive with --team-id.",
+            help="Sync every team that already has review-hog-seeded rows. Mutually exclusive with --team-id.",
         )
         parser.add_argument("--dry-run", action="store_true", help="Print what would change without writing.")
 
@@ -58,7 +68,7 @@ class Command(BaseCommand):
         totals = {"created": 0, "updated": 0, "diverged": 0, "tombstoned": 0, "pruned": 0}
         for team in teams:
             # Explicit reconciliation → prune orphaned rows (canonical removed from disk).
-            result = sync_canonical_perspectives(team, prune=True)
+            result = self._sync_team(team, prune=True)
             totals["created"] += len(result.created_skill_names)
             totals["updated"] += len(result.updated_skill_names)
             totals["diverged"] += len(result.diverged_skill_names)
@@ -76,16 +86,44 @@ class Command(BaseCommand):
             )
         )
 
+    def _sync_team(self, team: Team, *, prune: bool) -> SyncResult:
+        """Run every ReviewHog canonical-skill syncer for one team and merge the outcomes."""
+        created: list[str] = []
+        updated: list[str] = []
+        diverged: list[str] = []
+        tombstoned: list[str] = []
+        pruned: list[str] = []
+        skipped: list[str] = []
+        for syncer in _SYNCERS:
+            result = syncer(team, prune=prune)
+            created += result.created_skill_names
+            updated += result.updated_skill_names
+            diverged += result.diverged_skill_names
+            tombstoned += result.tombstoned_skill_names
+            pruned += result.pruned_skill_names
+            if result.skipped_reason:
+                skipped.append(result.skipped_reason)
+        any_change = bool(created or updated or diverged or tombstoned or pruned)
+        return SyncResult(
+            created_skill_names=tuple(created),
+            updated_skill_names=tuple(updated),
+            diverged_skill_names=tuple(diverged),
+            tombstoned_skill_names=tuple(tombstoned),
+            pruned_skill_names=tuple(pruned),
+            # Only a true skip when nothing across all syncers had any canonical to reconcile.
+            skipped_reason="; ".join(skipped) if skipped and not any_change else None,
+        )
+
     def _resolve_teams(self, *, team_id: int | None, all_teams: bool) -> list[Team]:
         if team_id:
             try:
                 return [Team.objects.get(id=team_id)]
             except Team.DoesNotExist:
                 raise CommandError(f"Team {team_id} not found")
-        # all_teams — every team that already has at least one perspective row, so a SKILL.md edit
-        # fans out to teams that have run a review before.
+        # all_teams — every team that already has at least one review-hog-seeded skill, so a SKILL.md
+        # edit fans out to teams that have run a review before.
         team_ids = (
-            LLMSkill.objects.filter(name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
+            LLMSkill.objects.filter(metadata__seeded_by=REVIEW_HOG_SEEDED_BY)
             .values_list("team_id", flat=True)
             .distinct()
         )
@@ -96,7 +134,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING("[dry-run] no changes will be persisted"))
         with transaction.atomic():
             for team in teams:
-                result = sync_canonical_perspectives(team, prune=True)
+                result = self._sync_team(team, prune=True)
                 self._print_team_result(team, result, prefix="[dry-run] ")
             transaction.set_rollback(True)
 

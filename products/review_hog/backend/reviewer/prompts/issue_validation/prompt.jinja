@@ -7,7 +7,7 @@ Analyze the following suggested change for this codebase. The change is the part
 {{ISSUE|safe}}
 ```
 
-Check the codebase and either validate or dismiss the suggested change. DO NOT implement fixes, ONLY assess the issue.
+Investigate the codebase, then either validate (keep) or dismiss (drop) the suggested change by applying the validation criteria in "Your validation criteria" below — that skill defines the bar for what is worth surfacing. DO NOT implement fixes, ONLY assess the issue.
 
 Return your assessment as a JSON object that conforms to the provided schema.
 </pr_issue_validation_instructions>
@@ -19,6 +19,16 @@ Return your assessment as a JSON object that conforms to the provided schema.
 <pr_current_chunk_context>
 {{CHUNK_CONTEXT|safe}}
 </pr_current_chunk_context>
+
+<your_validation_criteria>
+## Your validation criteria
+
+The bar for what counts as a valid, worth-keeping issue lives in a skill you MUST read before judging. As your first step, call this over the PostHog MCP:
+
+    skill-get(skill_name="{{ VALIDATION_SKILL_NAME }}", version={{ VALIDATION_SKILL_VERSION }})
+
+Pin to version {{ VALIDATION_SKILL_VERSION }} explicitly — this review was planned against it; fetching by name alone could race a version published mid-run. The skill defines what this team considers worth flagging and what to drop (overengineering, speculative edge cases, defensive paranoia, style, and the like). Apply it as the standard for your `is_valid` decision. If the skill body references bundled files, pull them on demand with `skill-file-get`. Do not decide before you have read it.
+</your_validation_criteria>
 
 <output_format>
 Generate your analysis as a JSON object that conforms to the provided schema.

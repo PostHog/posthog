@@ -104,11 +104,11 @@ export const SKILL_CATEGORY_TABS: SkillCategoryTab[] = [
             "Scouts — scheduled agents that scan your project and surface findings in your inbox. Includes PostHog's canonical scouts and any custom ones you author.",
     },
     {
-        key: 'perspectives',
-        category: 'review_perspective',
-        label: 'Review perspectives',
+        key: 'review-hog',
+        category: 'review_hog',
+        label: 'Code review',
         description:
-            'Review perspectives — the specialist viewpoints ReviewHog applies in parallel when reviewing a pull request: logic & correctness, contracts & security, and performance & reliability.',
+            "ReviewHog's code-review skills: the specialist perspectives applied in parallel when reviewing a pull request (logic & correctness, contracts & security, performance & reliability) and the validation criteria that decide which findings are worth surfacing. Edit a skill to retune it for your team.",
     },
 ]
 
