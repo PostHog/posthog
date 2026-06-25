@@ -5,9 +5,9 @@ rules:
           client helpers in `posthog/models/person/util.py` (e.g.
           `get_person_by_uuid`, `get_persons_by_distinct_ids`) and
           `posthog/models/group_type_mapping.py` (`get_group_types_for_project`).
-          These route through the personhog gRPC service with ORM fallback.
-          When adding new access patterns, follow the `_personhog_routed()`
-          pattern in `posthog/models/person/util.py`.
+          These route through the personhog gRPC service (the sole read path —
+          there is no ORM fallback). When adding new access patterns, follow the
+          `_personhog_routed()` pattern in `posthog/models/person/util.py`.
           See `posthog/personhog_client/README.md` for client details
           or reach out to #team-ingestion for more information.
       severity: WARNING

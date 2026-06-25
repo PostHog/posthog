@@ -1,7 +1,7 @@
 """Personhog fake activation and write-mirroring for tests.
 
-activate_personhog_fake() patches get_personhog_client and use_personhog so all
-person/group reads route through a FakePersonHogClient.
+activate_personhog_fake() patches get_personhog_client so all person/group reads
+route through a FakePersonHogClient.
 
 MirroringFakePersonHogClient mirrors personhog writes (deletes, version floors,
 cohort membership) back to Postgres for tests that still assert ORM state.
@@ -50,16 +50,13 @@ def _persons_db_alias() -> str:
 def activate_personhog_fake():
     """Activate a MirroringFakePersonHogClient for the duration of a test.
 
-    Patches get_personhog_client and use_personhog so all reads route through
-    the fake.  Test helpers in posthog.test.persons seed the fake explicitly
-    when creating data — no signals are used.
+    Patches get_personhog_client so all reads route through the fake.  Test
+    helpers in posthog.test.persons seed the fake explicitly when creating
+    data — no signals are used.
     """
     fake = MirroringFakePersonHogClient()
     set_active_fake(fake)
-    with (
-        patch("posthog.personhog_client.client.get_personhog_client", return_value=fake),
-        patch("posthog.personhog_client.gate.use_personhog", return_value=True),
-    ):
+    with patch("posthog.personhog_client.client.get_personhog_client", return_value=fake):
         try:
             yield fake
         finally:

@@ -171,7 +171,6 @@ services:
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
             # PersonHog is required for CDP — point at the local gRPC router
             PERSONHOG_ADDR: 'personhog-router:50052'
-            PERSONHOG_ENABLED: 'true'
         depends_on:
             kafka:
                 condition: service_started
@@ -278,7 +277,6 @@ services:
         environment:
             DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
             PERSONHOG_ADDR: 'personhog-router:50052'
-            PERSONHOG_ENABLED: 'true'
         depends_on:
             kafka:
                 condition: service_started
