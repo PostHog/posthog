@@ -5,31 +5,21 @@ import { IconX } from '@posthog/icons'
 
 import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import {
-    GetLemonButtonTimePropsOpts,
+    GetTimeStateOpts,
     LemonCalendar,
     LemonCalendarProps,
+    timeDataAttr,
 } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 
 import { LemonSwitch } from '../LemonSwitch'
 import { Popover } from '../Popover'
 
-function timeDataAttr({ unit, value }: GetLemonButtonTimePropsOpts): string {
-    return `${value}-${unit}`
-}
-
-export function getTimeElement(
-    parent: HTMLElement | null,
-    props: GetLemonButtonTimePropsOpts
-): HTMLDivElement | undefined | null {
+export function getTimeElement(parent: HTMLElement | null, props: GetTimeStateOpts): HTMLDivElement | undefined | null {
     return parent?.querySelector(`[data-attr="${timeDataAttr(props)}"]`)
 }
-function scrollToTimeElement(
-    calendarEl: HTMLDivElement | null,
-    props: GetLemonButtonTimePropsOpts,
-    skipAnimation: boolean
-): void {
+function scrollToTimeElement(calendarEl: HTMLDivElement | null, props: GetTimeStateOpts, skipAnimation: boolean): void {
     getTimeElement(calendarEl, props)?.scrollIntoView({
         block: 'start',
         inline: 'nearest',
@@ -39,7 +29,7 @@ function scrollToTimeElement(
 
 function proposedDate(
     target: dayjs.Dayjs | null,
-    { value, unit }: GetLemonButtonTimePropsOpts,
+    { value, unit }: GetTimeStateOpts,
     use24HourFormat: boolean = false
 ): dayjs.Dayjs {
     let date = target || dayjs().startOf('day')
@@ -66,8 +56,7 @@ function cloneTimeToDate(targetDate: dayjs.Dayjs, timeSource: dayjs.Dayjs): dayj
 function getDateDisabledReason(
     selectionPeriod: 'past' | 'upcoming',
     date: dayjs.Dayjs,
-    today: dayjs.Dayjs,
-    selectionPeriodLimit?: dayjs.Dayjs | null
+    today: dayjs.Dayjs
 ): string | undefined {
     if (!selectionPeriod) {
         return undefined
@@ -78,18 +67,8 @@ function getDateDisabledReason(
         return 'Cannot select dates in the past'
     }
 
-    // select future dates after a limit
-    if (selectionPeriod === 'upcoming' && selectionPeriodLimit && date.isAfter(selectionPeriodLimit, 'day')) {
-        return 'Cannot select dates after the limit'
-    }
-
     if (selectionPeriod === 'past' && date.isAfter(today)) {
         return 'Cannot select dates in the future'
-    }
-
-    // select past dates before a limit
-    if (selectionPeriod === 'past' && selectionPeriodLimit && date.isBefore(selectionPeriodLimit, 'day')) {
-        return 'Cannot select dates before the limit'
     }
 
     return undefined
@@ -102,7 +81,6 @@ export interface LemonCalendarSelectProps {
     onClose?: () => void
     granularity?: LemonCalendarProps['granularity']
     selectionPeriod?: 'past' | 'upcoming'
-    selectionPeriodLimit?: dayjs.Dayjs | null
     /** Timezone used to determine which past/future dates are selectable (defaults to browser local). */
     selectionPeriodTimezone?: string
     showTimeToggle?: boolean
@@ -118,7 +96,6 @@ export function LemonCalendarSelect({
     onClose,
     granularity = 'day',
     selectionPeriod,
-    selectionPeriodLimit,
     selectionPeriodTimezone,
     showTimeToggle,
     onToggleTime,
@@ -163,7 +140,7 @@ export function LemonCalendarSelect({
         }
     })
 
-    const onTimeClick = (props: GetLemonButtonTimePropsOpts): void => {
+    const onTimeClick = (props: GetTimeStateOpts): void => {
         const date = proposedDate(selectValue, props, use24HourFormat)
         scrollToTime(date, false)
         setSelectValue(date)
@@ -182,38 +159,26 @@ export function LemonCalendarSelect({
                 onDateClick={onDateClick}
                 leftmostMonth={selectValue?.startOf('month')}
                 months={months}
-                getLemonButtonProps={({ date, props }) => {
-                    const modifiedProps: LemonButtonProps = { ...props }
+                getDateState={({ date }) => {
+                    let disabledReason: string | undefined
 
                     if (selectionPeriod) {
-                        const isToday = date.isSame(today, 'date')
+                        disabledReason = getDateDisabledReason(selectionPeriod, date, today)
 
-                        modifiedProps.disabledReason = getDateDisabledReason(
-                            selectionPeriod,
-                            date,
-                            today,
-                            selectionPeriodLimit
-                        )
-
-                        // select date disabled reason
-                        if (selectValue && isToday) {
-                            // select time disabled reason
+                        if (selectValue && date.isSame(today, 'date')) {
                             const selectedTimeOnDate = cloneTimeToDate(date, selectValue)
 
                             if (selectionPeriod === 'upcoming' && selectedTimeOnDate.isBefore(now)) {
-                                modifiedProps.disabledReason = 'Pick a time in the future first'
+                                disabledReason = 'Pick a time in the future first'
                             } else if (selectionPeriod === 'past' && selectedTimeOnDate.isAfter(now)) {
-                                modifiedProps.disabledReason = 'Pick a time in the past first'
+                                disabledReason = 'Pick a time in the past first'
                             }
                         }
                     }
 
-                    if (date.isSame(selectValue, 'd')) {
-                        return { ...modifiedProps, status: 'default', type: 'primary' }
-                    }
-                    return modifiedProps
+                    return { disabledReason, selected: date.isSame(selectValue, 'd') }
                 }}
-                getLemonButtonTimeProps={(props) => {
+                getTimeState={(props) => {
                     const selected = selectValue
                         ? props.unit === 'h' && use24HourFormat
                             ? String(selectValue.hour())
@@ -231,9 +196,7 @@ export function LemonCalendarSelect({
 
                     return {
                         active: selected === String(props.value),
-                        className: 'rounded-none',
-                        'data-attr': timeDataAttr(props),
-                        disabledReason: disabledReason,
+                        disabledReason,
                         onClick: () => {
                             if (selected != props.value) {
                                 onTimeClick(props)
@@ -327,6 +290,7 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
                         ? {
                               icon: <IconX />,
                               onClick: () => props.onChange?.(null),
+                              'aria-label': 'Clear date',
                           }
                         : (undefined as unknown as SideAction) // We know it will be a normal button if not clearable
                 }

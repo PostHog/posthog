@@ -8,7 +8,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { LineGraphProps } from './LineGraph'
 import {
     type BuildBarConfigArgs,
@@ -24,7 +23,6 @@ export interface SqlChartModel<TConfig> {
     labels: string[]
     theme: ChartTheme
     config: TConfig
-    totalFormatterSettings?: AxisSeriesSettings
 }
 
 export function useSqlChartModel<TConfig>(
@@ -51,13 +49,23 @@ export function useSqlChartModel<TConfig>(
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
     const config = useMemo(
-        () => (xData ? buildConfig({ xData, chartSettings, timezone, goalLines, visualizationType }) : undefined),
-        [xData, chartSettings, timezone, goalLines, visualizationType, buildConfig]
+        () =>
+            xData
+                ? buildConfig({
+                      xData,
+                      chartSettings,
+                      timezone,
+                      goalLines,
+                      visualizationType,
+                      ySeriesData,
+                  })
+                : undefined,
+        [xData, chartSettings, timezone, goalLines, visualizationType, buildConfig, ySeriesData]
     )
 
     if (!xData || !ySeriesData || series.length === 0 || !config) {
         return null
     }
 
-    return { series, labels: xData.data, theme, config, totalFormatterSettings: ySeriesData[0]?.settings }
+    return { series, labels: xData.data, theme, config }
 }

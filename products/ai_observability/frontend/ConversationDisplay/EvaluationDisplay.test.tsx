@@ -29,7 +29,7 @@ describe('EvaluationDisplay', () => {
             </Provider>
         )
 
-        expect(screen.getByText('Positive (91%)')).toBeInTheDocument()
+        expect(screen.getByText('Positive')).toBeInTheDocument()
         expect(screen.queryByText('False')).not.toBeInTheDocument()
     })
 

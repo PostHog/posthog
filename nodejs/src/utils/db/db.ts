@@ -1,5 +1,6 @@
+import { PersonMessage } from '~/common/persons/person-message'
+
 import { InternalPerson } from '../../types'
-import { PersonMessage } from '../../worker/ingestion/persons/person-message'
 
 export type MoveDistinctIdsResult =
     | { readonly success: true; readonly messages: PersonMessage[]; readonly distinctIdsMoved: string[] }

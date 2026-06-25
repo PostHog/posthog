@@ -59,6 +59,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlResourceType,
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
@@ -178,6 +179,12 @@ export interface QueryTab {
 }
 
 export type SqlEditorSource = 'insight' | 'endpoint'
+
+export interface DataWarehouseAccessControlModalProps {
+    resource: AccessControlResourceType.WarehouseTable | AccessControlResourceType.WarehouseView
+    resourceId: string
+    name: string
+}
 
 export interface SuggestionPayload {
     suggestedValue?: string
@@ -588,6 +595,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             view,
         }),
         closeMaterializationModal: true,
+        openAccessControlModal: (editingAccessControlObject: DataWarehouseAccessControlModalProps) => ({
+            editingAccessControlObject,
+        }),
+        closeAccessControlModal: true,
     })),
     propsChanged(({ actions, props, cache }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -734,6 +745,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             {
                 setMaterializationModalView: (_, { view }) => view,
                 closeMaterializationModal: () => null,
+            },
+        ],
+        accessControlModalOpen: [
+            false,
+            {
+                openAccessControlModal: () => true,
+                closeAccessControlModal: () => false,
+            },
+        ],
+        editingAccessControlObject: [
+            null as DataWarehouseAccessControlModalProps | null,
+            {
+                openAccessControlModal: (_, { editingAccessControlObject }) => editingAccessControlObject,
+                closeAccessControlModal: () => null,
             },
         ],
         editingInsight: [

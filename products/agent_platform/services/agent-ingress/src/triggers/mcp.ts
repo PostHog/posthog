@@ -50,6 +50,7 @@ import { AgentSession, lastAssistantTextPreview, SessionPrincipal, triggerAuthCo
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { principalsMatch } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
+import { activeStreams } from '../metrics'
 import { McpRequestBodySchema, McpStreamQuerySchema } from './mcp.schemas'
 import { getOwnedSession } from './session-access'
 import {
@@ -344,10 +345,14 @@ async function mcpStreamHandler(ctx: AuthedRouteCtx<z.infer<typeof McpStreamQuer
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.flushHeaders()
+    activeStreams.labels({ transport: 'mcp' }).inc()
     const unsubscribe = deps.bus.subscribe(sessionId, (event) => {
         res.write(`event: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`)
     })
-    req.on('close', () => unsubscribe())
+    req.on('close', () => {
+        unsubscribe()
+        activeStreams.labels({ transport: 'mcp' }).dec()
+    })
 }
 
 async function mcpConnectInfoHandler(ctx: RouteCtx): Promise<void> {

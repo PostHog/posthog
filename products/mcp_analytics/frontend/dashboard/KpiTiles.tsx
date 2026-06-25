@@ -117,7 +117,7 @@ export function KpiTiles({
     ]
 
     return (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(175px,1fr))] gap-3">
             {tiles.map((tile) => (
                 <KPITile key={tile.label} tile={tile} theme={theme} />
             ))}

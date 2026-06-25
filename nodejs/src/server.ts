@@ -1,7 +1,14 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { createPersonHogClient } from '~/common/personhog'
+import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
+import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
+import { startEvaluationScheduler } from './ai-observability/evaluation-scheduler/evaluation-scheduler'
 import { initializePrometheusLabels } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
@@ -32,11 +39,6 @@ import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.ser
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
-import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
-import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
-import { createPersonHogClient } from './ingestion/personhog'
-import { PersonHogGroupReadRepository } from './ingestion/personhog/personhog-group-read-repository'
-import { PersonHogPersonReadRepository } from './ingestion/personhog/personhog-person-read-repository'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -46,8 +48,6 @@ import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
-import { GroupReadRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
-import { PersonReadRepository } from './worker/ingestion/persons/repositories/person-repository'
 
 /**
  * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
@@ -81,7 +81,7 @@ export class PluginServer implements NodeServer {
     }
 
     private async startServices(): Promise<void> {
-        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
+        initializePrometheusLabels()
 
         const capabilities = getPluginServerCapabilities(this.config)
 
@@ -167,7 +167,10 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpDataWarehouseEvents) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpDatawarehouseEventsConsumer(this.config, cdpDeps!, kafkaQueue)
+                const consumer = new CdpDatawarehouseEventsConsumer(this.config, cdpDeps!, {
+                    hogQueue: kafkaQueue,
+                    hogflowQueue: postgresV2Queue,
+                })
                 await consumer.start()
                 return consumer.service
             })

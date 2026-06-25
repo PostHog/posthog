@@ -8,7 +8,7 @@ import re2
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
@@ -115,11 +115,6 @@ assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
 # takes the PG code path in the resolver.
 _POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
 
-# All dialects that compile to an external SQL database queried directly (as opposed to
-# ClickHouse / HogQL). MySQL shares the standard-SQL keyword surface (CURRENT_DATE & co.)
-# but not Postgres-specific features like PIVOT/UNPIVOT, TRY_CAST, or positional references.
-_DIRECT_SQL_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql"})
-
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
@@ -149,9 +144,10 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
-def resolve_types_from_table(
-    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
-) -> ast.Expr:
+def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: HogQLDialect) -> ast.SelectQueryType:
+    """Resolve `SELECT * FROM <table_chain>` and return its query scope — the type other expressions
+    resolve against to reference the table's columns. Raises `QueryError` if the database/table is
+    unavailable. Caching, if wanted, is the caller's concern."""
     if context.database is None:
         raise QueryError("Database needs to be defined")
 
@@ -164,8 +160,14 @@ def resolve_types_from_table(
     )
     select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
     assert select_node_with_types.type is not None
+    return select_node_with_types.type
 
-    return resolve_types(expr, context, dialect, [select_node_with_types.type])
+
+def resolve_types_from_table(
+    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
+) -> ast.Expr:
+    scope = resolve_table_scope(table_chain, context, dialect)
+    return resolve_types(expr, context, dialect, [scope])
 
 
 ResolverFactory = Callable[
@@ -1878,7 +1880,7 @@ class Resolver(CloningVisitor):
         scope = self._get_scope()
         name = str(node.chain[0])
 
-        if self.dialect in _DIRECT_SQL_FAMILY and len(node.chain) == 1:
+        if self.dialect in SQL_TARGET_DIALECTS and len(node.chain) == 1:
             keyword = name.lower()
             if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
                 keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
@@ -1921,7 +1923,7 @@ class Resolver(CloningVisitor):
         if (
             not type
             and len(node.chain) == 1
-            and self.dialect in _DIRECT_SQL_FAMILY
+            and self.dialect in SQL_TARGET_DIALECTS
             and name.lower() in POSTGRES_KEYWORD_TYPES
             and name in scope.columns
         ):

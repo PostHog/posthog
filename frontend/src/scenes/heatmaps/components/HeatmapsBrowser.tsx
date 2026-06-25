@@ -12,11 +12,13 @@ import { DetectiveHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPanel } from './FilterPanel'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
@@ -37,6 +39,12 @@ function ExportButton({
     )
 
     const { width: iframeWidth, height: iframeHeight } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
 
     const handleExport = (): void => {
         if (dataUrl) {
@@ -62,7 +70,11 @@ function ExportButton({
                 icon={<IconDownload />}
                 tooltip="Export heatmap as PNG"
                 data-attr="export-heatmap"
-                disabledReason={!dataUrl ? 'We can export only the URL with heatmaps' : undefined}
+                disabledReason={
+                    (!dataUrl ? 'We can export only the URL with heatmaps' : undefined) ??
+                    exportAccessControlDisabledReason ??
+                    undefined
+                }
             >
                 Export
             </LemonButton>

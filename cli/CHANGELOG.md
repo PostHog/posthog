@@ -1,5 +1,23 @@
 # posthog-cli
 
+## 0.7.32 — 2026-06-24
+
+### Patch changes
+
+- [6fb4456e8f](https://github.com/PostHog/posthog/commit/6fb4456e8f9a5048b3db6ceb6d873241e14fe6b8) Fix the CLI release workflow so the Windows (`x86_64-pc-windows-msvc`) build succeeds and ships with each release. — Thanks @cat-ph!
+
+## 0.7.31 — 2026-06-24
+
+### Patch changes
+
+- [dfd1f66a9f](https://github.com/PostHog/posthog/commit/dfd1f66a9f0a5ae4e492887c79921b0692c97d51) Add `symbol-sets upload` for native (ELF) debug symbols: it scans a directory for executables, shared libraries, and `objcopy --only-keep-debug` companions that carry a GNU build id and uploads them to PostHog. — Thanks @cat-ph!
+
+## 0.7.30 — 2026-06-22
+
+### Patch changes
+
+- [d51a877525](https://github.com/PostHog/posthog/commit/d51a8775252d4fd4e35f389e4960a5f23726e429) Handle Git worktrees and packed refs when detecting repository info — Thanks @hpouillot!
+
 ## 0.7.29 — 2026-06-19
 
 ### Patch changes

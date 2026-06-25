@@ -12,9 +12,10 @@ from django.utils.datastructures import MultiValueDict
 
 from parameterized import parameterized
 
-from posthog.models.organization import OrganizationMembership
+from posthog.admin.admins.organization_admin import OrganizationAdmin
+from posthog.models.organization import Organization, OrganizationMembership
 
-from products.legal_documents.backend.admin import LegalDocumentAdmin, LegalDocumentAdminForm
+from products.legal_documents.backend.admin import LegalDocumentAdmin, LegalDocumentAdminForm, LegalDocumentInline
 from products.legal_documents.backend.models import LegalDocument
 from products.legal_documents.backend.storage import signed_pdf_storage_key
 
@@ -349,3 +350,14 @@ class TestLegalDocumentAdminPermissions(APIBaseTest):
         request = self._request_for(is_staff=False)
         self.assertFalse(self.admin.has_add_permission(request))
         self.assertFalse(self.admin.has_delete_permission(request))
+
+
+class TestLegalDocumentInlineRegistration(APIBaseTest):
+    def test_inline_attaches_to_organization_admin(self) -> None:
+        # legal_documents registers LegalDocumentInline via posthog.admin.inline_registry, so
+        # core surfaces it on the Organization admin page without importing the product.
+        org_admin = OrganizationAdmin(Organization, AdminSite())
+        inlines = org_admin.get_inlines(RequestFactory().get("/"))
+        self.assertIn(LegalDocumentInline, inlines)
+        # It arrived through the registry, not core's static inlines list.
+        self.assertNotIn(LegalDocumentInline, org_admin.inlines)

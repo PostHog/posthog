@@ -1,4 +1,5 @@
-import { HogFlow } from '../../schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
+
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import * as posthogUtils from '../../utils/posthog'

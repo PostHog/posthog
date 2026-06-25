@@ -3,13 +3,14 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToComponents, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { IntervalType, TeamType } from '~/types'
+import { HogQLFilters, HogQLQueryResponse, MCPHarnessBreakdownItem, NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, IntervalType, TeamType } from '~/types'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import { categorizeHarness } from './dashboard/harnessRegistry'
@@ -90,44 +91,10 @@ ORDER BY total_calls DESC
 LIMIT 50
 `
 
-// Newer Anthropic clients stopped sending clientInfo.name ($mcp_client_name) and
-// now report identity only via the x-anthropic-client header (mcp_vendor_client)
-// or the User-Agent, so reading $mcp_client_name alone buckets nearly everything
-// as "Other". Resolve an effective client per call: prefer the self-reported
-// name, then the vendor header (matched case-insensitively, as the MCP service's
-// own client detection does), then the User-Agent's leading product token plus
-// the first parenthetical token as a surface suffix — e.g. "claude-code cli",
-// "claude-code claude-desktop", "openai-mcp chatgpt". The version segment between
-// them is dropped so claude-code/2.1.x folds to one token; categorizeHarness then
-// buckets surface-specific tokens (Claude Desktop, ChatGPT, …) and folds the rest.
-const HARNESS_ROWS_QUERY = `
-SELECT
-    coalesce(
-        nullIf(toString(properties.$mcp_client_name), ''),
-        multiIf(
-            lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
-            lower(toString(properties.mcp_vendor_client)) = 'claudeai', 'claude-ai',
-            lower(toString(properties.mcp_vendor_client)) = 'cowork', 'cowork',
-            lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
-            nullIf(toString(properties.mcp_vendor_client), '')
-        ),
-        nullIf(trim(concat(
-            extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'),
-            ' ',
-            extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')
-        )), ''),
-        ''
-    ) AS client,
-    count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    countDistinctIf($session_id, $session_id != '') AS sessions
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND {filters}
-GROUP BY client
-ORDER BY total_calls DESC
-LIMIT 200
-`
+// The harness breakdown is resolved server-side by the MCPHarnessBreakdownQuery
+// runner (products/mcp_analytics/backend/hogql_queries/harness_breakdown.py) — the
+// single source of truth for client → harness labelling — so the tile reads typed,
+// already-bucketed rows rather than re-deriving the labels in the browser.
 
 // Daily success/error split powering the activity time-series bar chart.
 const ACTIVITY_QUERY = `
@@ -191,13 +158,6 @@ export interface ToolRow {
     p95_duration_ms: number
 }
 
-export interface HarnessRawRow {
-    client: string
-    total_calls: number
-    errors: number
-    sessions: number
-}
-
 export interface ActivityRow {
     day: string
     successes: number
@@ -227,7 +187,6 @@ export interface HarnessRow {
     errors: number
     error_rate_pct: number
     sessions: number
-    raw_clients: string[]
 }
 
 export interface SessionRow {
@@ -257,35 +216,6 @@ const EMPTY_KPIS: KPIData = {
     toolCalls: { ...EMPTY_METRIC, goodDirection: 'up' },
     errorRatePct: { ...EMPTY_METRIC, goodDirection: 'down' },
     p95LatencyMs: { ...EMPTY_METRIC, goodDirection: 'down' },
-}
-
-export function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {
-    const byCategory = new Map<string, HarnessRow>()
-    for (const row of raw) {
-        const category = categorizeHarness(row.client)
-        const existing = byCategory.get(category)
-        if (existing) {
-            existing.total_calls += row.total_calls
-            existing.errors += row.errors
-            existing.sessions += row.sessions
-            existing.raw_clients.push(row.client)
-        } else {
-            byCategory.set(category, {
-                category,
-                total_calls: row.total_calls,
-                errors: row.errors,
-                error_rate_pct: 0,
-                sessions: row.sessions,
-                raw_clients: [row.client],
-            })
-        }
-    }
-    const result = [...byCategory.values()]
-    for (const r of result) {
-        r.error_rate_pct = r.total_calls ? Math.round((r.errors / r.total_calls) * 1000) / 10 : 0
-    }
-    result.sort((a, b) => b.total_calls - a.total_calls)
-    return result
 }
 
 // Keep the stacked bar legible: only the busiest tools get their own segment; the long tail is
@@ -479,6 +409,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     actions({
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
+        setPropertyFilters: (properties: AnyPropertyFilter[]) => ({ properties }),
         reloadAll: true,
     }),
     reducers({
@@ -494,6 +425,12 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             null as boolean | null,
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }): boolean | null => filterTestAccounts,
+            },
+        ],
+        propertyFilters: [
+            [] as AnyPropertyFilter[],
+            {
+                setPropertyFilters: (_, { properties }): AnyPropertyFilter[] => properties,
             },
         ],
     }),
@@ -562,22 +499,24 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 },
             },
         ],
-        harnessRawRows: [
-            [] as HarnessRawRow[],
+        harnessRows: [
+            [] as HarnessRow[],
             {
                 loadHarnessRows: async (_: void, breakpoint) => {
+                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: HARNESS_ROWS_QUERY,
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
+                        kind: NodeKind.MCPHarnessBreakdownQuery,
+                        dateRange,
+                        properties,
+                        filterTestAccounts,
+                    })) as { results?: MCPHarnessBreakdownItem[] }
                     breakpoint()
-                    const raw = (response?.results as unknown[][]) ?? []
-                    return raw.map((r) => ({
-                        client: String(r[0] ?? ''),
-                        total_calls: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
-                        sessions: Number(r[3] ?? 0),
+                    return (response?.results ?? []).map((r) => ({
+                        category: r.harness,
+                        total_calls: r.total_calls,
+                        errors: r.errors,
+                        error_rate_pct: r.error_rate_pct,
+                        sessions: r.sessions,
                     }))
                 },
             },
@@ -629,10 +568,16 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 override ?? !!currentTeam?.test_account_filters_default_checked,
         ],
         queryFilters: [
-            (s) => [s.dateFilter, s.filterTestAccounts],
-            (dateFilter: DateFilter, filterTestAccounts: boolean): HogQLFilters => ({
+            (s) => [s.dateFilter, s.filterTestAccounts, s.propertyFilters],
+            (
+                dateFilter: DateFilter,
+                filterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[]
+            ): HogQLFilters => ({
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 filterTestAccounts,
+                // Drop incomplete picker rows and any malformed URL-hydrated entries before they fan out to every tile.
+                properties: propertyFilters.filter(isValidPropertyFilter),
             }),
         ],
         interval: [
@@ -644,7 +589,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (dateFilter: DateFilter, timezone: string, interval: IntervalType): string[] =>
                 buildBucketKeys(dateFilter, timezone, interval),
         ],
-        harnessRows: [(s) => [s.harnessRawRows], (raw: HarnessRawRow[]): HarnessRow[] => aggregateHarnessRows(raw)],
         dailyActivity: [
             (s) => [s.activityRows, s.bucketKeys],
             (rows: ActivityRow[], bucketKeys: string[]): DailyActivity => buildDailyActivity(rows, bucketKeys),
@@ -673,6 +617,9 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             actions.reloadAll()
         },
         setFilterTestAccounts: () => {
+            actions.reloadAll()
+        },
+        setPropertyFilters: () => {
             actions.reloadAll()
         },
         reloadAll: () => {
@@ -704,11 +651,17 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             } else {
                 searchParams.filter_test_accounts = values.filterTestAccountsOverride
             }
+            if (values.propertyFilters.length > 0) {
+                searchParams.properties = values.propertyFilters
+            } else {
+                delete searchParams.properties
+            }
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
         return {
             setDateFilter: syncUrl,
             setFilterTestAccounts: syncUrl,
+            setPropertyFilters: syncUrl,
         }
     }),
     urlToAction(({ actions, values, cache }) => ({
@@ -719,17 +672,22 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             // Absent param leaves the override null (effective value follows the team default).
             const rawFilter = searchParams.filter_test_accounts
             const filterOverride = rawFilter === undefined ? null : rawFilter === true || rawFilter === 'true'
+            const properties = Array.isArray(searchParams.properties) ? searchParams.properties : []
             const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
             const filterChanged = filterOverride !== values.filterTestAccountsOverride
-            // setDateFilter / setFilterTestAccounts each reload via their listeners.
+            const propertiesChanged = JSON.stringify(properties) !== JSON.stringify(values.propertyFilters)
+            // setDateFilter / setFilterTestAccounts / setPropertyFilters each reload via their listeners.
             if (dateChanged) {
                 actions.setDateFilter(dateFrom, dateTo)
             }
             if (filterChanged) {
                 actions.setFilterTestAccounts(filterOverride)
             }
+            if (propertiesChanged) {
+                actions.setPropertyFilters(properties)
+            }
             // URL already matches state (e.g. default filters) and afterMount deferred — load once.
-            if (!dateChanged && !filterChanged && !cache.hasLoaded) {
+            if (!dateChanged && !filterChanged && !propertiesChanged && !cache.hasLoaded) {
                 actions.reloadAll()
             }
             cache.hasLoaded = true
@@ -744,7 +702,8 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         const hasUrlFilters =
             typeof searchParams.date_from === 'string' ||
             typeof searchParams.date_to === 'string' ||
-            typeof searchParams.filter_test_accounts !== 'undefined'
+            typeof searchParams.filter_test_accounts !== 'undefined' ||
+            Array.isArray(searchParams.properties)
         if (!hasUrlFilters && !cache.hasLoaded) {
             cache.hasLoaded = true
             actions.reloadAll()

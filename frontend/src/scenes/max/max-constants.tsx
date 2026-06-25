@@ -1460,6 +1460,11 @@ export const SPECIAL_MODES: Record<string, ModeDefinition> = {
     },
 }
 
+/** Human-readable label for an agent or special mode value (e.g. `'product_analytics'` → `'Product analytics'`). */
+export function getModeDisplayName(mode: string): string {
+    return MODE_DEFINITIONS[mode as keyof typeof MODE_DEFINITIONS]?.name ?? SPECIAL_MODES[mode]?.name ?? mode
+}
+
 /** Get tools available for a specific agent mode */
 export function getToolsForMode(mode: AgentMode): ToolDefinition[] {
     return Object.values(TOOL_DEFINITIONS).filter((tool) => tool.modes?.includes(mode))

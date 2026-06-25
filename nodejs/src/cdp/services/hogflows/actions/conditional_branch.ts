@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
-import { HogFlowAction } from '~/schema/hogflow'
 
 import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'

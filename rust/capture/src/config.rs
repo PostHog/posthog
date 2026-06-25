@@ -259,6 +259,10 @@ pub struct Config {
     /// Maximum decompressed body size the v1 endpoint will accept (bytes).
     #[envconfig(default = "52428800")]
     pub capture_v1_max_decompressed_body_bytes: usize,
+
+    /// Batch size threshold for parallel scatter-gather serialization; 0 disables fanout.
+    #[envconfig(default = "8")]
+    pub capture_v1_scatter_gather_min_batch: usize,
 }
 
 #[derive(Envconfig, Clone)]

@@ -990,6 +990,59 @@ export interface ExplainRequestApi {
 }
 
 /**
+ * * `severity_text` - severity_text
+ * * `service_name` - service_name
+ */
+export type FacetFieldEnumApi = (typeof FacetFieldEnumApi)[keyof typeof FacetFieldEnumApi]
+
+export const FacetFieldEnumApi = {
+    SeverityText: 'severity_text',
+    ServiceName: 'service_name',
+} as const
+
+export interface _LogsFacetValuesBodyApi {
+    /** Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.
+     *
+     * * `severity_text` - severity_text
+     * * `service_name` - service_name */
+    facetField?: FacetFieldEnumApi | null
+    /**
+     * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
+     * @nullable
+     */
+    facetResourceAttribute?: string | null
+    /** Date range. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels (ignored when faceting on severity_text). */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names (ignored when faceting on service_name). */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies. */
+    facetSearch?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsFacetValuesRequestApi {
+    /** The facet values query to execute. */
+    query: _LogsFacetValuesBodyApi
+}
+
+export interface _LogFacetValueApi {
+    /** The facet value (e.g. a severity level or service name). */
+    value: string
+    /** Number of matching log records, with all active filters applied except this facet's own selection. */
+    count: number
+}
+
+export interface _LogsFacetValuesResponseApi {
+    /** Facet values with cross-filtered counts, ordered by count descending. */
+    results: _LogFacetValueApi[]
+}
+
+/**
  * * `latest` - latest
  * * `earliest` - earliest
  */
@@ -1344,6 +1397,8 @@ export interface _LogAttributeValueApi {
     id: string
     /** Display name — currently identical to `id`. */
     name: string
+    /** Number of log records with this attribute value, scoped to the current date range, service, and resource filters. */
+    count?: number
 }
 
 export interface _LogsValuesResponseApi {
