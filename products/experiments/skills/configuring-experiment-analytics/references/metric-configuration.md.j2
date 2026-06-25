@@ -261,7 +261,9 @@ To add a metric without losing existing ones:
 Reuse a metric that already exists in the project instead of duplicating it
 inline. Resolve the id with `experiment-saved-metrics-list`, then attach it:
 
-1. Call `experiment-saved-metrics-list` to find the metric and its `id`
+1. Call `experiment-saved-metrics-list` to find the metric and its `id` (pass a
+   `search` term to resolve by name; results are paginated, so use `limit`/`offset`
+   when browsing a large project)
 2. Call `experiment-get` to read the experiment's current `saved_metrics`
 3. Call `experiment-update` with `saved_metrics_ids` — this **replaces** all
    existing saved-metric links, so send the full desired set:
@@ -274,6 +276,12 @@ inline. Resolve the id with `experiment-saved-metrics-list`, then attach it:
   ]
 }
 ```
+
+The `id` here is the **saved-metric id**. Note the read/write asymmetry when you
+rebuild the set from `experiment-get`: each entry in the returned `saved_metrics`
+exposes a top-level `id` (the *link* row) and a separate `saved_metric` (the
+*metric* id). Map each existing entry's **`saved_metric`** into the `id` you
+resend — sending the link `id` attaches the wrong metric or fails validation.
 
 `metadata` is optional and defaults to `primary`. Pass an empty array to detach
 all shared metrics.

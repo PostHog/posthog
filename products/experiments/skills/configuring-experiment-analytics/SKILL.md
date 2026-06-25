@@ -73,15 +73,22 @@ already set up as a shared metric fragments measurement and is exactly what we w
 
 **Workflow:**
 
-1. Call `experiment-saved-metrics-list` and scan the results (`id`, `name`, `description`, `query`)
-   for one that matches the user's intent.
+1. Call `experiment-saved-metrics-list` (pass `search` to resolve by name, e.g.
+   `{ "search": "checkout conversion" }`) and scan the results (`id`, `name`, `description`, `query`)
+   for one that matches the user's intent. Results are paginated — if you're browsing without a
+   `search` term and the project has many, page through with `limit`/`offset` before concluding
+   nothing matches.
 2. **If a shared metric clearly matches** — confirm the match with the user by name/description,
    then attach it instead of building a new one:
    - Call `experiment-get` to read the experiment's current `saved_metrics`.
    - Call `experiment-update` with `saved_metrics_ids` set to the full desired set — it **replaces**
      existing links, so include the already-attached ones plus the new entry. Each entry has shape
-     `{ "id": <id>, "metadata": { "type": "primary" } }` — set `type` to `"primary"` or
+     `{ "id": <saved-metric id>, "metadata": { "type": "primary" } }` — set `type` to `"primary"` or
      `"secondary"`. `metadata` is optional and defaults to primary.
+   - **Watch the id when rebuilding the set:** each item in the `saved_metrics` you just read has a
+     top-level `id` (the _link_ id) AND a `saved_metric` field (the _metric_ id). `saved_metrics_ids`
+     wants the **`saved_metric`** value, not the link `id` — sending the link `id` attaches the wrong
+     metric or fails validation.
    - You do not need to discover events (Step 2) — the shared metric already encodes them.
 3. **If the list is empty or nothing matches** — fall through to Step 2 and build an inline metric.
 
