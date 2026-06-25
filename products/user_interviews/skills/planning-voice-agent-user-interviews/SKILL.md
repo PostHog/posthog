@@ -1,11 +1,23 @@
 ---
-name: planning-user-interviews
-description: 'Plan a user interview topic in PostHog — pick who to target (cohort, emails, or PostHog distinct IDs), draft what to ask about, and prepare the voice-agent context plus a question list. Use when the user asks to "talk to users", "check how users feel about X", "interview some customers", "set up a user interview", "run a user-research call", "find users to ask about Y", or otherwise wants qualitative feedback through a conversation. Walks the user through targeting (cohorts-list, persons-list, or accepting emails / distinct IDs directly), captures the topic, and prompts for agent context and questions before calling user-interview-topics-create. Cohort targeting is resolved to explicit emails/distinct_ids at create time — topics snapshot their audience and do not re-evaluate cohort membership later. Do NOT trigger when the user is uploading a recorded interview audio file (that''s the separate UserInterview/transcript flow) or only browsing existing topics with user-interview-topics-list.'
+name: planning-voice-agent-user-interviews
+description: 'Plan a round of user interviews conducted by PostHog''s AI voice agent (a "robo interviewer") — the automated voice-agent interview product. Captures a UserInterviewTopic (who to target, what to ask, framing context, question list) and calls user-interview-topics-create. ONLY trigger when the user clearly wants an AI voice agent to actually run the interview calls (e.g. "set up robo user interviews", "have the voice agent interview these users"). Do NOT trigger for ordinary user research that does not involve the voice agent — finding or shortlisting users to talk to ("who''d be a good fit to interview about Y"), planning questions for a human-run interview, or analysing feedback are audience discovery, handled with normal data queries, not this skill. Also do NOT trigger for uploading a recorded interview audio file or browsing topics with user-interview-topics-list. When intent is ambiguous, first confirm what kind of research it is and whether they want an AI voice agent to conduct it (see Step 0).'
 ---
 
-# Planning user interviews
+# Planning voice-agent user interviews
 
-Use this skill when someone asks to set up a user interview — to talk to customers, check sentiment, or gather qualitative feedback through a voice conversation. The plan is captured as a `UserInterviewTopic` that a voice agent will later run through.
+Use this skill **only** when someone wants PostHog's AI voice agent — a "robo interviewer" — to actually conduct a round of user interview calls for them. The plan is captured as a `UserInterviewTopic` that the voice agent later runs through, calling each targeted person and working through the questions.
+
+This is a specific product, not a generic research helper. If the user only wants to _find_ or _shortlist_ people to interview, plan questions for an interview a human will run, or analyse feedback they already have, this is **not** the right skill — handle that as ordinary audience discovery / data work (see `querying-posthog-data`) and, at most, mention that the voice-agent option exists.
+
+## Step 0: Confirm this is the voice-agent flow
+
+Before doing anything else, make sure the user actually wants the AI voice agent to run the interviews. Many requests that mention "interviewing users" are really about discovering _who_ to talk to, not about handing the conversation to a robot.
+
+- If the user explicitly asked for the voice agent / robo interviews / automated calls, proceed to Step 1.
+- If they only asked to find or rank users to interview (e.g. "who'd be a good fit to interview about the inbox?"), treat it as audience discovery: answer it with normal queries and **do not** create a topic. You may add a one-line offer afterwards, e.g. _"If you want, I can set these up as automated interviews run by PostHog's AI voice agent — want me to do that?"_
+- If intent is ambiguous, ask first, e.g. _"Quick check on what you're after: what kind of user research is this, and do you want PostHog's AI voice agent to actually run the interviews (it calls people and works through your questions)? Or did you just want me to find the right users to talk to?"_
+
+Only continue past this step once the user has confirmed they want the voice agent to conduct the interviews.
 
 ## What a complete topic needs
 

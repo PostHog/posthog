@@ -1538,8 +1538,6 @@ describe('Workflows E2E (email queue)', () => {
         await cyclotronPool.query('DELETE FROM cyclotron_jobs')
 
         hub = await createHub()
-        // Route all teams' emails through the dedicated queue
-        hub.CDP_EMAIL_QUEUE_ROUTING = '*'
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
 
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)

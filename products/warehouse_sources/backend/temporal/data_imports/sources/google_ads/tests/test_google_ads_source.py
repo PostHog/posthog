@@ -547,16 +547,26 @@ def _grpc_unavailable_error() -> grpc.RpcError:
     return _UnavailableRpcError()
 
 
+def _google_ads_exception_wrapping(grpc_error: grpc.RpcError) -> GoogleAdsException:
+    """A ``GoogleAdsException`` carrying a transport-level error on ``error``, the shape the SDK
+    raises when it can pull an ads ``failure`` from the trailing metadata alongside the gRPC status.
+    """
+    return GoogleAdsException(error=grpc_error, call=None, failure=None, request_id="req-1")
+
+
 class TestTransientGrpcUnavailableDetection:
     @pytest.mark.parametrize(
         "exc, expected",
         [
             (google_api_exceptions.ServiceUnavailable("502:Bad Gateway"), True),
             (_grpc_unavailable_error(), True),
+            # The SDK wraps the transport UNAVAILABLE in a GoogleAdsException when an ads failure
+            # rides along (e.g. a backend DEADLINE_EXCEEDED) — still transient, so we unwrap it.
+            (_google_ads_exception_wrapping(_grpc_unavailable_error()), True),
             # A different gapic error must not be treated as transient-unavailable.
             (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
-            # Google Ads API errors carry no UNAVAILABLE gRPC status — they route through
-            # the existing GoogleAdsException handling, not the transient retry.
+            # An ads-API GoogleAdsException carries no UNAVAILABLE gRPC status — it routes through
+            # the existing INVALID_PAGE_TOKEN handling, not the transient retry.
             (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), False),
             (ValueError("boom"), False),
         ],
@@ -587,6 +597,7 @@ class TestSearchTransientRetry:
         [
             google_api_exceptions.ServiceUnavailable("502:Bad Gateway"),
             _grpc_unavailable_error(),
+            _google_ads_exception_wrapping(_grpc_unavailable_error()),
         ],
     )
     def test_rides_out_transient_unavailable(self, error):
