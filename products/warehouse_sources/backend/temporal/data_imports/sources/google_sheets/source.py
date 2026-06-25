@@ -156,7 +156,9 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
                         required=True,
                         placeholder="",
                         caption=f'Paste the full Google Sheet URL. If you choose the shared service account method below, first share the sheet with **{settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}** ("Viewer" is enough).',
-                        secret=False,
+                        # Treated as sensitive so the URL is redacted from API responses — knowing a
+                        # sheet URL is part of what makes the shared-service-account path abusable.
+                        secret=True,
                     ),
                     SourceFieldSelectConfig(
                         # required=False so the generated `auth_method` carries a default: existing
