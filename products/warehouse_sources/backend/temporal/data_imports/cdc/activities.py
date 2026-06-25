@@ -989,6 +989,7 @@ class CDCExtractActivity:
             self._confirm_position(commit_lsn)
             self.last_confirmed_lsn = commit_lsn
             self.last_end_lsn = commit_lsn
+            activity.heartbeat()
             return True
         return False
 
