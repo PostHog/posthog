@@ -10,7 +10,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.batch_iterators import FunctionBatchIterator
-from posthog.models import Team
+from posthog.models import Person, Team
 from posthog.models.person.util import get_person_by_id
 from posthog.test.persons import add_cohort_members, create_person
 
@@ -18,6 +18,12 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+
+
+def _require_person_by_id(team_id: int, person_id: int) -> Person:
+    person = get_person_by_id(team_id, person_id)
+    assert person is not None
+    return person
 
 
 class TestCohort(BaseTest):
@@ -349,7 +355,7 @@ class TestCohort(BaseTest):
         assert cohort.count == 11
         assert count_cohort_members(self.team.id, cohort.pk) == 11
         member_ids = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)
-        cohort_person_uuids = {str(get_person_by_id(self.team.id, pid).uuid) for pid in member_ids}
+        cohort_person_uuids = {str(_require_person_by_id(self.team.id, pid).uuid) for pid in member_ids}
         assert cohort_person_uuids == set(uuids)
         assert cohort.is_calculating is False
 
@@ -375,9 +381,9 @@ class TestCohort(BaseTest):
         self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 8)
 
         # Verify all expected people are in the cohort
-        cohort_person_distinct_ids = set()
+        cohort_person_distinct_ids: set[str] = set()
         for pid in list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk):
-            cohort_person_distinct_ids.update(get_person_by_id(self.team.id, pid).distinct_ids)
+            cohort_person_distinct_ids.update(_require_person_by_id(self.team.id, pid).distinct_ids)
 
         expected_distinct_ids = {f"user{i}" for i in range(8)}
         self.assertEqual(cohort_person_distinct_ids, expected_distinct_ids)
@@ -404,7 +410,7 @@ class TestCohort(BaseTest):
         cohort.refresh_from_db()
         member_ids = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)
         assert len(member_ids) == 1
-        assert str(get_person_by_id(self.team.id, member_ids[0]).uuid) == str(person.uuid)
+        assert str(_require_person_by_id(self.team.id, member_ids[0]).uuid) == str(person.uuid)
 
     @override_settings(DEBUG=False)
     def test_insert_re_raises_soft_time_limit_exceeded(self):

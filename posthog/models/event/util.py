@@ -16,7 +16,9 @@ from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
+from posthog.models.person.util import get_person_by_distinct_id
 from posthog.models.team import Team
+from posthog.person_db_router import persons_orm_blocked
 from posthog.settings import TEST
 
 ZERO_DATE = datetime(1970, 1, 1)
@@ -102,6 +104,24 @@ def format_clickhouse_timestamp(
     return parsed_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
+def _resolve_person_for_bulk_event(team_id: int, distinct_id: str) -> Optional[Person]:
+    """Resolve the person for a test event by distinct_id.
+
+    When the personhog fake is active (ORM access to the persons DB is blocked),
+    read through personhog; otherwise use the persons-DB ORM for the
+    persons-DB-layer tests that exercise it directly.
+    """
+    if persons_orm_blocked():
+        return get_person_by_distinct_id(team_id, distinct_id)
+    try:
+        return Person.objects.get(  # nosemgrep: no-direct-persons-db-orm
+            persondistinctid__distinct_id=distinct_id,
+            persondistinctid__team_id=team_id,
+        )
+    except Person.DoesNotExist:
+        return None
+
+
 def bulk_create_events(
     events: list[dict[str, Any]],
     person_mapping: Optional[dict[str, Person]] = None,
@@ -180,15 +200,12 @@ def bulk_create_events(
             person_id = person.uuid
             person_created_at = person.created_at or datetime64_default_timestamp
         else:
-            try:
-                person = Person.objects.get(  # nosemgrep: no-direct-persons-db-orm
-                    persondistinctid__distinct_id=event["distinct_id"],
-                    persondistinctid__team_id=team_id,
-                )
+            person = _resolve_person_for_bulk_event(team_id, event["distinct_id"])
+            if person is not None:
                 person_properties = person.properties
                 person_id = person.uuid
                 person_created_at = person.created_at or datetime64_default_timestamp
-            except Person.DoesNotExist:
+            else:
                 person_properties = {}
                 person_id = event.get("person_id", uuid.uuid4())
                 person_created_at = datetime64_default_timestamp

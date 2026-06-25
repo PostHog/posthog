@@ -82,5 +82,4 @@ _PERSONS_DB_DIRECT_TEST_PATHS = (
     "test_person_schema",
     "dags/tests/test_detach_distinct_id",
     "dags/tests/test_person_property_reconciliation",
-    "dags/tests/max_ai/test_snapshot_team_data",
 )

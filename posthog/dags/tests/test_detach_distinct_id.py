@@ -13,7 +13,6 @@ from posthog.dags.detach_distinct_id import (
     detach_distinct_id_job,
 )
 from posthog.kafka_client.topics import KAFKA_PERSON_DISTINCT_ID
-from posthog.test.persons import add_distinct_id, create_person
 
 PERSON_UUID = "5e00024e-cb68-59f6-821f-6150fcffc431"
 PERSON_PK = 42
@@ -329,9 +328,13 @@ class TestDetachDistinctIdIntegration:
 
     @pytest.fixture
     def person_with_two_distinct_ids(self, team):
-        person = create_person(team_id=team.id, version=1)
-        pdi_keep = add_distinct_id(person=person, distinct_id="keep_this", version=0)
-        pdi_detach = add_distinct_id(person=person, distinct_id="$posthog_cookieless", version=3)
+        from posthog.models.person import Person, PersonDistinctId
+
+        person = Person.objects.create(team_id=team.id, version=1)
+        pdi_keep = PersonDistinctId.objects.create(team_id=team.id, person=person, distinct_id="keep_this", version=0)
+        pdi_detach = PersonDistinctId.objects.create(
+            team_id=team.id, person=person, distinct_id="$posthog_cookieless", version=3
+        )
         return person, pdi_keep, pdi_detach
 
     @staticmethod
@@ -426,8 +429,10 @@ class TestDetachDistinctIdIntegration:
 
     @patch("posthog.dags.detach_distinct_id.sync_execute")
     def test_fails_when_only_distinct_id(self, mock_sync_execute, team):
-        person = create_person(team_id=team.id, version=1)
-        add_distinct_id(person=person, distinct_id="$posthog_cookieless", version=3)
+        from posthog.models.person import Person, PersonDistinctId
+
+        person = Person.objects.create(team_id=team.id, version=1)
+        PersonDistinctId.objects.create(team_id=team.id, person=person, distinct_id="$posthog_cookieless", version=3)
         producer = MagicMock()
 
         result = detach_distinct_id_job.execute_in_process(
