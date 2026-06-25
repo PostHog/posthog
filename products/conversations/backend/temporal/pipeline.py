@@ -51,6 +51,9 @@ logger = structlog.get_logger(__name__)
 MAX_ATTEMPTS = 5
 SCORE_THRESHOLD = 0.5
 RERANK_TOP_K = 5
+# Ticket types whose replies may ever be published to the (untrusted) ticket author.
+# diagnostic/account_billing draw on project data and must stay private regardless of settings.
+PUBLISHABLE_TICKET_TYPES = {"how_to"}
 RETRIEVE_LIMIT = 15
 DRAFT_POLL_SECONDS = 600
 WIDEN_RADIUS = 3
@@ -1065,9 +1068,10 @@ def _persist_reply_sync(
     allow_bot_reply: bool = False,
 ) -> None:
     is_private = True
-    if allow_bot_reply:
-        # NB: diagnostic/account_billing replies may contain project data — controlled by
-        # explicit team-level opt-in via ai_reply_modes settings.
+    # Only how_to replies may be published. diagnostic/account_billing draw on project data and
+    # must stay private regardless of the team's ai_reply_modes — guards against stale settings
+    # since validation now rejects bot_reply for those types. Controlled by team-level opt-in.
+    if allow_bot_reply and ticket_type in PUBLISHABLE_TICKET_TYPES:
         ticket = Ticket.objects.select_related("team").filter(team_id=team_id, id=ticket_id).first()
         if ticket:
             settings_dict = ticket.team.conversations_settings or {}

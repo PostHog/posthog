@@ -1307,9 +1307,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     {"ai_resolution_channels": "Must be a list of channel names or null."}
                 )
         # AI reply modes: { channel: { ticket_type: mode } } or null
-        # NB: diagnostic/account_billing with bot_reply — controlled by this explicit team-level opt-in.
         VALID_REPLY_MODES = {"private_note", "bot_reply"}
         VALID_TICKET_TYPES = {"how_to", "diagnostic", "account_billing"}
+        # Only how_to replies may be published to the ticket author. diagnostic/account_billing
+        # draw on project data (events, persons, recordings, logs) and must stay private notes —
+        # there's no per-author authorization that the customer is entitled to that data.
+        BOT_REPLY_TICKET_TYPES = {"how_to"}
         if "ai_reply_modes" in value:
             modes = value.get("ai_reply_modes")
             if modes is None:
@@ -1321,8 +1324,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                         continue
                     cleaned_map: dict[str, str] = {}
                     for tt, mode in type_map.items():
-                        if tt in VALID_TICKET_TYPES and mode in VALID_REPLY_MODES:
-                            cleaned_map[tt] = mode
+                        if tt not in VALID_TICKET_TYPES or mode not in VALID_REPLY_MODES:
+                            continue
+                        if mode == "bot_reply" and tt not in BOT_REPLY_TICKET_TYPES:
+                            raise serializers.ValidationError(
+                                {
+                                    "ai_reply_modes": f"'bot_reply' is not allowed for ticket type '{tt}'. "
+                                    f"Only {', '.join(sorted(BOT_REPLY_TICKET_TYPES))} may be sent directly to the customer."
+                                }
+                            )
+                        cleaned_map[tt] = mode
                     if cleaned_map:
                         cleaned_modes[ch] = cleaned_map
                 value["ai_reply_modes"] = cleaned_modes

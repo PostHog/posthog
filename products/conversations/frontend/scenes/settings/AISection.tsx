@@ -17,6 +17,10 @@ const CHANNEL_LABELS: Record<string, string> = {
 
 const TICKET_TYPES = ['how_to', 'diagnostic', 'account_billing'] as const
 
+// Only how_to replies may be sent to the customer. diagnostic/account_billing draw on project
+// data, so they're locked to private notes (enforced by the backend too).
+const PUBLISHABLE_TICKET_TYPES = new Set<string>(['how_to'])
+
 const REPLY_MODE_OPTIONS = [
     { value: 'private_note' as const, label: 'Private note' },
     { value: 'bot_reply' as const, label: 'AI reply' },
@@ -103,9 +107,8 @@ export function AISection(): JSX.Element {
                         your team) or sends a safety-reviewed reply directly to the customer.
                     </p>
                     <p className="text-xs text-muted-alt mb-0">
-                        <strong>Diagnostic and Account/Billing</strong> replies may include data from your project.
-                        Setting these to "AI reply" is a team-level opt-in to send investigation results directly to the
-                        customer.
+                        <strong>Diagnostic and Account/Billing</strong> replies may include data from your project, so
+                        they're always kept as private notes and can't be sent directly to the customer.
                     </p>
                     <div className="overflow-x-auto">
                         <table className="w-full text-xs">
@@ -123,16 +126,22 @@ export function AISection(): JSX.Element {
                                 {aiResolutionChannels.map((channel) => (
                                     <tr key={channel} className="border-t border-border">
                                         <td className="py-2 pr-3 font-medium">{CHANNEL_LABELS[channel] ?? channel}</td>
-                                        {TICKET_TYPES.map((tt) => (
-                                            <td key={tt} className="py-2 px-2">
-                                                <LemonSelect
-                                                    size="xsmall"
-                                                    options={REPLY_MODE_OPTIONS}
-                                                    value={aiReplyModes[channel]?.[tt] ?? 'private_note'}
-                                                    onChange={(value) => setAiReplyMode(channel, tt, value)}
-                                                />
-                                            </td>
-                                        ))}
+                                        {TICKET_TYPES.map((tt) =>
+                                            PUBLISHABLE_TICKET_TYPES.has(tt) ? (
+                                                <td key={tt} className="py-2 px-2">
+                                                    <LemonSelect
+                                                        size="xsmall"
+                                                        options={REPLY_MODE_OPTIONS}
+                                                        value={aiReplyModes[channel]?.[tt] ?? 'private_note'}
+                                                        onChange={(value) => setAiReplyMode(channel, tt, value)}
+                                                    />
+                                                </td>
+                                            ) : (
+                                                <td key={tt} className="py-2 px-2 text-muted-alt">
+                                                    Private note
+                                                </td>
+                                            )
+                                        )}
                                     </tr>
                                 ))}
                             </tbody>
