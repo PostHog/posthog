@@ -479,10 +479,12 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         guard `emit_signal` uses, plus the `allowed_tools` opt-in gate. A report is authored *during* a
         run, so a finished run can't author one.
 
-        The report channel is opt-in by `allowed_tools` (see `tools/report.py`), but MCP tool exposure is
-        scope-level, not tool-level (`posthog_mcp_scopes`), so every scout with `signal_scout_internal:write`
-        can *see* these tools. This is the real fail-closed enforcement of the opt-in: reject the write
-        unless the run's skill lists `required_tool` in its `allowed_tools`."""
+        The report channel is opt-in by `allowed_tools`. Tool *exposure* is already gated at the scope
+        layer — the runner grants the `signals_scout_reports` posture (which carries
+        `signal_scout_report:write`, the scope these actions require) only when the skill opted in, so a
+        non-opted scout never sees the tools and its token can't satisfy `required_scopes`. This server-side
+        check is the matching fail-closed gate on the write itself: reject unless the run's skill lists
+        `required_tool` in its `allowed_tools`, so the two enforcement layers can't drift."""
         run_id = _parse_run_id_or_404(kwargs)
         from products.tasks.backend.facade import api as tasks_facade
 
@@ -544,7 +546,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="emit-report",
-        required_scopes=["signal_scout_internal:write"],
+        required_scopes=["signal_scout_report:write"],
         pagination_class=None,
     )
     def emit_report(self, request: Request, **kwargs) -> Response:
@@ -608,7 +610,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="edit-report",
-        required_scopes=["signal_scout_internal:write"],
+        required_scopes=["signal_scout_report:write"],
         pagination_class=None,
     )
     def edit_report(self, request: Request, **kwargs) -> Response:

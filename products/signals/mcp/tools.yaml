@@ -394,7 +394,7 @@ tools:
         operation: signals_scout_edit_report
         enabled: true
         scopes:
-            - signal_scout_internal:write
+            - signal_scout_report:write
         annotations:
             readOnly: false
             destructive: false
@@ -411,7 +411,7 @@ tools:
         operation: signals_scout_emit_report
         enabled: true
         scopes:
-            - signal_scout_internal:write
+            - signal_scout_report:write
         annotations:
             readOnly: false
             destructive: false

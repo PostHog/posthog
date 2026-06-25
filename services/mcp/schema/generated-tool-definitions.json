@@ -6255,7 +6255,7 @@
         "feature": "signals",
         "summary": "Edit an existing report for a run",
         "title": "Edit an existing report for a run",
-        "required_scopes": ["signal_scout_internal:write"],
+        "required_scopes": ["signal_scout_report:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -6269,7 +6269,7 @@
         "feature": "signals",
         "summary": "Author a full report for a run",
         "title": "Author a full report for a run",
-        "required_scopes": ["signal_scout_internal:write"],
+        "required_scopes": ["signal_scout_report:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

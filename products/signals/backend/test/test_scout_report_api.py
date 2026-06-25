@@ -45,7 +45,9 @@ class TestScoutReportAPI(APIBaseTest):
             body="# scout",
             allowed_tools=REPORT_TOOLS,
         )
-        _authenticate_as_scout(self)
+        # The report channel requires `signal_scout_report:write`, granted only by the
+        # `signals_scout_reports` posture (mirrors the runner's opt-in posture selection).
+        _authenticate_as_scout(self, scopes="signals_scout_reports")
 
     def _emit_url(self, run_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/emit-report/"
