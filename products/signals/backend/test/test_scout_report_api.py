@@ -18,7 +18,7 @@ EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_r
 # Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
 AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
-REPORT_TOOLS = ["emit_report", "edit_report", "search_scout_reports"]
+REPORT_TOOLS = ["emit_report", "edit_report"]
 
 
 def _safe_judge(choice: bool = True, explanation: str = ""):
@@ -52,9 +52,6 @@ class TestScoutReportAPI(APIBaseTest):
 
     def _edit_url(self, run_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/edit-report/"
-
-    def _reports_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/reports/"
 
     def _payload(self, **overrides) -> dict:
         body: dict = {
@@ -158,18 +155,6 @@ class TestScoutReportAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert SignalReport.objects.get(id=other_report.id).title == "theirs"
-
-    def test_reports_search_filters_by_title(self) -> None:
-        run = _make_run(self.team)
-        with _safe_judge(), patch(EMBED_PATH):
-            self.client.post(self._emit_url(str(run.id)), data=self._payload(title="Checkout latency"), format="json")
-            self.client.post(self._emit_url(str(run.id)), data=self._payload(title="Signup drop"), format="json")
-        response = self.client.get(self._reports_url(), data={"query": "checkout"})
-        assert response.status_code == status.HTTP_200_OK
-        rows = response.json()
-        assert len(rows) == 1
-        assert rows[0]["title"] == "Checkout latency"
-        assert rows[0]["report_status"] == SignalReport.Status.READY
 
     def _latest_artefact(self, report_id: str, artefact_type: str) -> SignalReportArtefact | None:
         return (

@@ -117,7 +117,8 @@ research and knows the exact report it wants to file_ can opt into the **report 
 author a full report directly:
 
 - [`references/report-contract.md`](references/report-contract.md) — the `emit_report` /
-  `edit_report` / `search_scout_reports` tools, when to author a report vs. `emit-signal`, the
+  `edit_report` tools (dedup against existing reports via the vanilla `inbox-reports-list` /
+  `inbox-reports-retrieve`), when to author a report vs. `emit-signal`, the
   dedup-via-`report_id` discipline (the channel isn't idempotent), and the accepted caveat that
   the pipeline may later rewrite an authored title/summary. Opt a scout in by listing the tools
   in its frontmatter `allowed_tools`. Only reach for this when the scout's natural output is one

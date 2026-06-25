@@ -29,7 +29,6 @@ import type {
     PauseUntilRequestApi,
     ProjectProfileApi,
     RememberRequestApi,
-    ReportSummaryApi,
     ScoutEmissionReportLinkApi,
     ScoutMetadataApi,
     ScratchpadEntryApi,
@@ -53,7 +52,6 @@ import type {
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
     SignalsScoutScratchpadSearchParams,
-    SignalsScoutSearchReportsParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
 
@@ -670,37 +668,6 @@ export const signalsScoutEmitSignal = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
-    })
-}
-
-export const getSignalsScoutSearchReportsUrl = (projectId: string, params?: SignalsScoutSearchReportsParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/scout/runs/reports/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/scout/runs/reports/`
-}
-
-/**
- * The dedup read tool: list the project's reports so a scout can find one it already authored (or a matching pipeline report) and `edit-report` it instead of authoring a duplicate. Filter by title substring (`query`) and/or `statuses`. Read-only and team-scoped.
- * @summary Search the project's existing reports
- */
-export const signalsScoutSearchReports = async (
-    projectId: string,
-    params?: SignalsScoutSearchReportsParams,
-    options?: RequestInit
-): Promise<ReportSummaryApi[]> => {
-    return apiMutator<ReportSummaryApi[]>(getSignalsScoutSearchReportsUrl(projectId, params), {
-        ...options,
-        method: 'GET',
     })
 }
 

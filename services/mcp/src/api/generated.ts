@@ -45817,27 +45817,6 @@ export namespace Schemas {
       layout?: LayoutEnum;
     }
 
-    /**
-     * A report row from `reports` — enough to recognize and dedup against.
-     */
-    export interface ReportSummary {
-      /** The report's id. */
-      report_id: string;
-      /**
-         * The report's title (null if not yet set).
-         * @nullable
-         */
-      title: string | null;
-      /** Current lifecycle status. */
-      report_status: string;
-      /** Number of backing signals on the report. */
-      signal_count: number;
-      /** ISO-8601 creation timestamp. */
-      created_at: string;
-      /** ISO-8601 last-updated timestamp. */
-      updated_at: string;
-    }
-
     export interface ScanEvidence {
       /** Number of files scanned */
       filesScanned: number;
@@ -63223,50 +63202,6 @@ export namespace Schemas {
      */
     text?: string;
     };
-
-    export type SignalsScoutSearchReportsParams = {
-    /**
-     * Max reports to return (1-100, default 20).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Optional case-insensitive title substring filter.
-     * @nullable
-     */
-    query?: string | null;
-    /**
-     * Optional lifecycle-status filter (e.g. `ready`, `suppressed`).
-     */
-    statuses?: SignalsScoutSearchReportsStatusesItem[];
-    };
-
-    /**
-     * * `potential` - potential
-     * * `candidate` - candidate
-     * * `in_progress` - in_progress
-     * * `pending_input` - pending_input
-     * * `ready` - ready
-     * * `resolved` - resolved
-     * * `failed` - failed
-     * * `deleted` - deleted
-     * * `suppressed` - suppressed
-     */
-    export type SignalsScoutSearchReportsStatusesItem = typeof SignalsScoutSearchReportsStatusesItem[keyof typeof SignalsScoutSearchReportsStatusesItem];
-
-
-    export const SignalsScoutSearchReportsStatusesItem = {
-      Potential: 'potential',
-      Candidate: 'candidate',
-      InProgress: 'in_progress',
-      PendingInput: 'pending_input',
-      Ready: 'ready',
-      Resolved: 'resolved',
-      Failed: 'failed',
-      Deleted: 'deleted',
-      Suppressed: 'suppressed',
-    } as const;
 
     export type SignalsScoutScratchpadSearchParams = {
     /**

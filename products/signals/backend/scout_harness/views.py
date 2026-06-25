@@ -74,13 +74,11 @@ from products.signals.backend.scout_harness.serializers import (
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RememberRequestSerializer,
-    ReportSummarySerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutMetadataSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
-    SearchReportsQuerySerializer,
     SignalScoutConfigCreateSerializer,
     SignalScoutConfigSerializer,
     SignalScoutEmissionSerializer,
@@ -95,13 +93,7 @@ from products.signals.backend.scout_harness.team_limits import (
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
-from products.signals.backend.scout_harness.tools.report import (
-    DEFAULT_REPORT_SEARCH_LIMIT,
-    ReportEvidence,
-    edit_report_sync,
-    emit_report_sync,
-    search_scout_reports,
-)
+from products.signals.backend.scout_harness.tools.report import ReportEvidence, edit_report_sync, emit_report_sync
 from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
@@ -490,8 +482,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         The report channel is opt-in by `allowed_tools` (see `tools/report.py`), but MCP tool exposure is
         scope-level, not tool-level (`posthog_mcp_scopes`), so every scout with `signal_scout_internal:write`
         can *see* these tools. This is the real fail-closed enforcement of the opt-in: reject the write
-        unless the run's skill lists `required_tool` in its `allowed_tools`. Read-only `search-reports` is
-        not gated here — it carries no run context and is already scope-gated."""
+        unless the run's skill lists `required_tool` in its `allowed_tools`."""
         run_id = _parse_run_id_or_404(kwargs)
         from products.tasks.backend.facade import api as tasks_facade
 
@@ -643,59 +634,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 }
             ).data,
             status=status.HTTP_200_OK,
-        )
-
-    @extend_schema(
-        parameters=[SearchReportsQuerySerializer],
-        responses={
-            200: OpenApiResponse(
-                response=ReportSummarySerializer(many=True),
-                description="The project's existing reports, newest-updated first.",
-            )
-        },
-        summary="Search the project's existing reports",
-        description=(
-            "The dedup read tool: list the project's reports so a scout can find one it already authored "
-            "(or a matching pipeline report) and `edit-report` it instead of authoring a duplicate. Filter by "
-            "title substring (`query`) and/or `statuses`. Read-only and team-scoped."
-        ),
-        operation_id="signals_scout_search_reports",
-    )
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="reports",
-        required_scopes=["signal_scout:read", "task:read"],
-        pagination_class=None,
-    )
-    def reports(self, request: Request, **kwargs) -> Response:
-        query_serializer = SearchReportsQuerySerializer(data=request.query_params)
-        query_serializer.is_valid(raise_exception=True)
-        params = query_serializer.validated_data
-        # `self.team` here may be a child environment; `search_scout_reports` filters by `team.id`, so
-        # pass the canonical parent so child-environment requests see the rows (which persist there).
-        canonical_team = self.team.parent_team or self.team
-        summaries = search_scout_reports(
-            team=canonical_team,
-            query=params.get("query") or None,
-            statuses=params.get("statuses") or None,
-            limit=params.get("limit", DEFAULT_REPORT_SEARCH_LIMIT),
-        )
-        return Response(
-            ReportSummarySerializer(
-                [
-                    {
-                        "report_id": s.report_id,
-                        "title": s.title,
-                        "report_status": s.status,
-                        "signal_count": s.signal_count,
-                        "created_at": s.created_at,
-                        "updated_at": s.updated_at,
-                    }
-                    for s in summaries
-                ],
-                many=True,
-            ).data
         )
 
     # `EvidenceEntrySerializer` is referenced for OpenAPI nested-schema discovery; keep

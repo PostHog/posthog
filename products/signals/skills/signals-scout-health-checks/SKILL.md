@@ -21,7 +21,6 @@ metadata:
 allowed_tools:
   - emit_report
   - edit_report
-  - search_scout_reports
 ---
 
 # Signals scout: setup health
@@ -223,13 +222,13 @@ the research and want 1:1 control over the title/summary rather than letting the
 cluster it. The confidence bar is the same (≥ 0.85 for a report-worthy finding); reporting is a
 higher bar, not a shortcut.
 
-- **Before authoring**, `signals-scout-search-reports` (and check `inbox-reports-list`) for a
+- **Before authoring**, `inbox-reports-list` (filter by title substring / `status`) for a
   prior report on the same cluster/cause. Found one → `signals-scout-edit-report` it (append a
   note with the new count/critical, or rewrite the summary) instead of filing a duplicate.
 - **After authoring**, write a `report:health:<kind-or-cause>` scratchpad entry storing the
   `report_id` and date, so the next run edits that report rather than re-filing. The channel is
-  **not idempotent** — never retry a call that may have succeeded; `search-reports` to check
-  first.
+  **not idempotent** — never retry a call that may have succeeded; `inbox-reports-list` (or
+  `inbox-reports-retrieve` by stored `report_id`) to check first.
 - `actionability` is your call: `immediately_actionable` for an agent-fixable issue with clear
   MCP remediation, `requires_human_input` for credential-gated ones (e.g.
   `external_data_failure`), `not_actionable` to file for the record. Put the issue ids and
@@ -310,7 +309,8 @@ Direct (read-only):
 Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search` /
 `-remember` / `-forget`, `signals-scout-runs-list` / `-runs-retrieve`,
 `signals-scout-emit-signal`. Report channel (opt-in): `signals-scout-emit-report` /
-`-edit-report` / `-search-reports` (see the Report channel note under Decide).
+`-edit-report`, with `inbox-reports-list` / `-retrieve` for dedup (see the Report channel
+note under Decide).
 
 For deeper query playbooks the sandbox bakes `posthog:querying-posthog-data` (HogQL syntax +
 `system.*` patterns).

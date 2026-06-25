@@ -94,28 +94,32 @@ another scout) created. Two rules of good behavior:
   can have its fields overwritten under you. If a report is actively being worked, append a
   note rather than rewriting.
 
-## `search_scout_reports` — find "the report I made last time"
+## Finding "the report I made last time"
 
-The **dedup read tool**. Before authoring, search the team's existing reports so you reconcile
-against one instead of filing a duplicate. `query` is a case-insensitive title substring;
-`statuses` filters lifecycle states; newest-updated first. Returns `report_id`, `title`,
-`status`, `signal_count`, `created_at`, `updated_at` per row.
+There is no scout-specific report search — use the **vanilla inbox tools** the scout already
+has. Before authoring, list the team's existing reports so you reconcile against one instead of
+filing a duplicate:
+
+- `inbox-reports-list` — filter by title/summary free-text (`search`), `status`, `source_product`,
+  or your own `task_id`; newest-updated first.
+- `inbox-reports-retrieve` — fetch a single report by id (use the `report_id` you stashed in the
+  scratchpad last run).
 
 ## Dedup: the channel is NOT idempotent
 
 `emit_report` is **not idempotent** — a retried call authors a _second_ report. There is no
 server-side dedup key. The dedup story is two-sided and the scout owns it:
 
-1. **Before authoring**, `search_scout_reports` for a prior report on the same topic. Found
+1. **Before authoring**, `inbox-reports-list` for a prior report on the same topic. Found
    one? `edit_report` it instead of authoring a new one.
 2. **After authoring**, write a `report:<domain>:<entity>` scratchpad entry recording the
-   `report_id` so the next run finds it without a title-search guess. (This is the report-channel
-   member of the scratchpad key-prefix vocabulary — see
+   `report_id` so the next run finds it (via `inbox-reports-retrieve`) without a title-search
+   guess. (This is the report-channel member of the scratchpad key-prefix vocabulary — see
    [`dedupe-and-memory.md`](dedupe-and-memory.md).)
 
 **Never retry an `emit_report` / `edit_report` call that may have succeeded** — a transport
 error after the write commits, retried, double-files. If you're unsure whether a call landed,
-`search_scout_reports` to check before retrying.
+`inbox-reports-list` to check before retrying.
 
 ## The pipeline may rewrite what you authored (accepted)
 
@@ -135,7 +139,6 @@ In the scout's `SKILL.md` frontmatter, list the report tools under `allowed_tool
 allowed_tools:
   - emit_report
   - edit_report
-  - search_scout_reports
 ```
 
 A scout with no `allowed_tools` (or one that omits these) runs on the `emit-signal`-only

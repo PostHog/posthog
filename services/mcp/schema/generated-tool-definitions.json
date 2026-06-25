@@ -6264,7 +6264,7 @@
         }
     },
     "signals-scout-emit-report": {
-        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `signals-scout-search-reports` to find a prior report and `signals-scout-edit-report` to update it instead. For a concrete, fixable issue you can also open a draft PR automatically by passing `repository` + `priority` + `suggested_reviewers` (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
+        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list` to find a prior report and `signals-scout-edit-report` to update it instead. For a concrete, fixable issue you can also open a draft PR automatically by passing `repository` + `priority` + `suggested_reviewers` (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Author a full report for a run",
@@ -6396,20 +6396,6 @@
         "summary": "Search the scout scratchpad",
         "title": "Search the scout scratchpad",
         "required_scopes": ["signal_scout:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "signals-scout-search-reports": {
-        "description": "The report channel's dedup read tool: list the project's inbox reports, newest-updated first, so a scout can find one it already authored (or a matching pipeline report) and `signals-scout-edit-report` it instead of authoring a duplicate via `signals-scout-emit-report`. Filter by title substring (`query`) and/or `statuses`. Requires `task:read` on top of `signal_scout:read` because it exposes report titles. Read-only and team-scoped. Opt-in: only available to scouts that list `search_scout_reports` in their `allowed_tools`.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Search the project's existing reports",
-        "title": "Search the project's existing reports",
-        "required_scopes": ["signal_scout:read", "task:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

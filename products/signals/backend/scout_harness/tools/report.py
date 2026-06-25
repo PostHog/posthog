@@ -11,8 +11,9 @@ Opt-in is by `allowed_tools`: a scout gets these only if its skill lists `emit_r
 intersected with what `tools/__init__.py` re-exports.
 
 Like `emit_finding`, these are NOT idempotent — a retried `emit_report` authors a second report. The
-dedup story is `search_scout_reports` (find "the report I made last time") plus a `report:<domain>:<entity>`
-scratchpad key the scout maintains; callers must not retry an authoring call that may have succeeded.
+dedup story is the vanilla inbox tools (`inbox-reports-list` / `inbox-reports-retrieve`) plus a
+`report:<domain>:<entity>` scratchpad key the scout maintains; callers must not retry an authoring call
+that may have succeeded.
 """
 
 from __future__ import annotations
@@ -58,8 +59,6 @@ logger = logging.getLogger(__name__)
 
 # Defensive caps at the tool boundary (the service caps signals too; these bound caller input early).
 MAX_REPORT_TITLE_LENGTH = 300
-DEFAULT_REPORT_SEARCH_LIMIT = 20
-MAX_REPORT_SEARCH_LIMIT = 100
 MAX_SUGGESTED_REVIEWERS = 10
 
 # Repository modes for `emit_report`, mirroring `custom_agent`'s three-mode contract:
@@ -99,18 +98,6 @@ class EditReportResult:
     report_id: str
     updated_fields: list[str]
     note_appended: bool
-
-
-@dataclass(frozen=True)
-class ReportSummary:
-    """A row from `search_scout_reports` — enough for a scout to recognize and dedup against."""
-
-    report_id: str
-    title: str | None
-    status: str
-    signal_count: int
-    created_at: str
-    updated_at: str
 
 
 def _surfaced(status: SignalReport.Status) -> bool:
@@ -564,50 +551,4 @@ def edit_report_sync(
     _validate_edit_inputs(team, run, title, summary, append_note)
     return _do_edit_report(
         team=team, run=run, report_id=report_id, title=title, summary=summary, append_note=append_note
-    )
-
-
-def search_scout_reports(
-    *,
-    team: Team,
-    query: str | None = None,
-    statuses: list[str] | None = None,
-    limit: int = DEFAULT_REPORT_SEARCH_LIMIT,
-) -> list[ReportSummary]:
-    """Read tool: list the team's existing reports so a scout can find "the report I made last time"
-    and reconcile against it instead of authoring a duplicate (the dedup half of the feature).
-
-    Read-only and team-scoped (the canonical parent team). `query` is a case-insensitive title
-    substring; `statuses` filters to specific lifecycle states. Newest-updated first.
-    """
-    limit = max(1, min(limit, MAX_REPORT_SEARCH_LIMIT))
-    qs = SignalReport.objects.filter(team_id=team.id)
-    if query:
-        qs = qs.filter(title__icontains=query)
-    if statuses:
-        qs = qs.filter(status__in=statuses)
-    qs = qs.order_by("-updated_at")[:limit]
-    return [
-        ReportSummary(
-            report_id=str(report.id),
-            title=report.title,
-            status=report.status,
-            signal_count=report.signal_count,
-            created_at=report.created_at.isoformat(),
-            updated_at=report.updated_at.isoformat(),
-        )
-        for report in qs
-    ]
-
-
-async def search_scout_reports_async(
-    *,
-    team: Team,
-    query: str | None = None,
-    statuses: list[str] | None = None,
-    limit: int = DEFAULT_REPORT_SEARCH_LIMIT,
-) -> list[ReportSummary]:
-    """Async wrapper for the runner inside Temporal (don't block the event loop on the DB read)."""
-    return await database_sync_to_async(search_scout_reports, thread_sensitive=False)(
-        team=team, query=query, statuses=statuses, limit=limit
     )

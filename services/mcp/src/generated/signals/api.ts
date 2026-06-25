@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 30 enabled ops
+ * PostHog API - MCP 29 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -774,51 +774,6 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
-
-/**
- * The dedup read tool: list the project's reports so a scout can find one it already authored (or a matching pipeline report) and `edit-report` it instead of authoring a duplicate. Filter by title substring (`query`) and/or `statuses`. Read-only and team-scoped.
- * @summary Search the project's existing reports
- */
-export const SignalsScoutSearchReportsParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const signalsScoutSearchReportsQueryLimitDefault = 20
-export const signalsScoutSearchReportsQueryLimitMax = 100
-
-export const SignalsScoutSearchReportsQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod
-        .number()
-        .min(1)
-        .max(signalsScoutSearchReportsQueryLimitMax)
-        .default(signalsScoutSearchReportsQueryLimitDefault)
-        .describe('Max reports to return (1-100, default 20).'),
-    query: zod.string().nullish().describe('Optional case-insensitive title substring filter.'),
-    statuses: zod
-        .array(
-            zod
-                .enum([
-                    'potential',
-                    'candidate',
-                    'in_progress',
-                    'pending_input',
-                    'ready',
-                    'resolved',
-                    'failed',
-                    'deleted',
-                    'suppressed',
-                ])
-                .describe(
-                    '* `potential` - potential\n* `candidate` - candidate\n* `in_progress` - in_progress\n* `pending_input` - pending_input\n* `ready` - ready\n* `resolved` - resolved\n* `failed` - failed\n* `deleted` - deleted\n* `suppressed` - suppressed'
-                )
-        )
-        .optional()
-        .describe('Optional lifecycle-status filter (e.g. `ready`, `suppressed`).'),
-})
 
 /**
  * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 500.

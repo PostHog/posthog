@@ -15,18 +15,14 @@ from rest_framework import serializers
 from posthog.schema import Severity
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
-from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
     MAX_TAG_LENGTH,
     MAX_TAGS_PER_FINDING,
 )
-from products.signals.backend.scout_harness.tools.report import (
-    DEFAULT_REPORT_SEARCH_LIMIT,
-    MAX_REPORT_SEARCH_LIMIT,
-    MAX_REPORT_TITLE_LENGTH,
-)
+from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -593,40 +589,6 @@ class EditReportResponseSerializer(serializers.Serializer):
         help_text="Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended.",
     )
     note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
-
-
-class SearchReportsQuerySerializer(serializers.Serializer):
-    """Query params for `reports` — the dedup read tool over the team's existing reports."""
-
-    query = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Optional case-insensitive title substring filter.",
-    )
-    statuses = serializers.ListField(
-        child=serializers.ChoiceField(choices=[(s.value, s.value) for s in SignalReport.Status]),
-        required=False,
-        help_text="Optional lifecycle-status filter (e.g. `ready`, `suppressed`).",
-    )
-    limit = serializers.IntegerField(
-        required=False,
-        default=DEFAULT_REPORT_SEARCH_LIMIT,
-        min_value=1,
-        max_value=MAX_REPORT_SEARCH_LIMIT,
-        help_text=f"Max reports to return (1-{MAX_REPORT_SEARCH_LIMIT}, default {DEFAULT_REPORT_SEARCH_LIMIT}).",
-    )
-
-
-class ReportSummarySerializer(serializers.Serializer):
-    """A report row from `reports` — enough to recognize and dedup against."""
-
-    report_id = serializers.CharField(help_text="The report's id.")
-    title = serializers.CharField(allow_null=True, help_text="The report's title (null if not yet set).")
-    report_status = serializers.CharField(help_text="Current lifecycle status.")
-    signal_count = serializers.IntegerField(help_text="Number of backing signals on the report.")
-    created_at = serializers.CharField(help_text="ISO-8601 creation timestamp.")
-    updated_at = serializers.CharField(help_text="ISO-8601 last-updated timestamp.")
 
 
 # --- Project profile ------------------------------------------------------

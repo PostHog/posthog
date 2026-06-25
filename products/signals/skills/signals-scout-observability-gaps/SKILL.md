@@ -19,7 +19,6 @@ metadata:
 allowed_tools:
   - emit_report
   - edit_report
-  - search_scout_reports
 ---
 
 # Signals scout: observability gaps
@@ -245,7 +244,7 @@ title/summary rather than letting the pipeline cluster it. Recommendations are a
 authored report surfaces as `PENDING_INPUT`. The bar is unchanged — only cross-the-stability-bar
 gaps get reported.
 
-- **Before authoring**, `signals-scout-search-reports` (and check `existing_inbox_reports`) for
+- **Before authoring**, `inbox-reports-list` (filter by title substring / `status`) for
   a prior recommendation on the same gap. Found one → `signals-scout-edit-report` rather than
   re-filing.
 - **After authoring**, store the `report_id` in the gap's watch entry (or a
@@ -363,9 +362,9 @@ Harness-level:
 - `signals-scout-scratchpad-search` / `signals-scout-scratchpad-remember` — durable steering.
 - `signals-scout-runs-list` / `signals-scout-runs-retrieve` — what prior runs found.
 - `signals-scout-emit-signal` — emit a recommendation finding.
-- Report channel (opt-in): `signals-scout-emit-report` / `-edit-report` / `-search-reports` —
-  author or update a recommendation as a full inbox report (see the report-channel note under
-  Recommend).
+- Report channel (opt-in): `signals-scout-emit-report` / `-edit-report`, with `inbox-reports-list`
+  / `-retrieve` for dedup — author or update a recommendation as a full inbox report (see the
+  report-channel note under Recommend).
 
 For deeper investigation playbooks, the sandbox image bakes upstream PostHog skills:
 `posthog:querying-posthog-data` (HogQL syntax + system.\* search patterns) and

@@ -33,7 +33,6 @@ import {
     SignalsScoutScratchpadForgetBody,
     SignalsScoutScratchpadRememberBody,
     SignalsScoutScratchpadSearchQueryParams,
-    SignalsScoutSearchReportsQueryParams,
     SignalsSourceConfigsCreateBody,
     SignalsSourceConfigsListQueryParams,
     SignalsSourceConfigsPartialUpdateBody,
@@ -865,29 +864,6 @@ const signalsScoutScratchpadSearch = (): ToolBase<
     },
 })
 
-const SignalsScoutSearchReportsSchema = SignalsScoutSearchReportsQueryParams
-
-const signalsScoutSearchReports = (): ToolBase<
-    typeof SignalsScoutSearchReportsSchema,
-    WithPostHogUrl<Schemas.ReportSummary[]>
-> => ({
-    name: 'signals-scout-search-reports',
-    schema: SignalsScoutSearchReportsSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsScoutSearchReportsSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReportSummary[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/reports/`,
-            query: {
-                limit: params.limit,
-                query: params.query,
-                statuses: params.statuses,
-            },
-        })
-        return await withPostHogUrl(context, result, '/inbox')
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-create': inboxReportArtefactsCreate,
     'inbox-report-artefacts-delete': inboxReportArtefactsDelete,
@@ -918,5 +894,4 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-scratchpad-forget': signalsScoutScratchpadForget,
     'signals-scout-scratchpad-remember': signalsScoutScratchpadRemember,
     'signals-scout-scratchpad-search': signalsScoutScratchpadSearch,
-    'signals-scout-search-reports': signalsScoutSearchReports,
 }
