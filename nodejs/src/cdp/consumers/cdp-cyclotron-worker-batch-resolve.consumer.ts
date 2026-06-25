@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
@@ -19,13 +20,21 @@ import { CyclotronJobInvocation } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals, logEntry } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import {
-    counterBatchHogFlowAudienceTruncated,
-    counterBatchHogFlowResolverPagesProcessed,
-    counterBatchHogFlowTriggerFailed,
-} from './metrics'
+import { counterBatchHogFlowTriggerFailed } from './metrics'
 
 const RETRY_BACKOFF_MS = 5_000
+
+const counterBatchHogFlowAudienceTruncated = new Counter({
+    name: 'cdp_batch_hog_flow_audience_truncated',
+    help: 'A batch hog flow run hit the per-team maxAudienceSize cap before finishing the audience',
+    labelNames: ['hog_flow_id'],
+})
+
+const counterBatchHogFlowResolverPagesProcessed = new Counter({
+    name: 'cdp_batch_hog_flow_resolver_pages_processed',
+    help: 'Total pages processed by the cyclotron-based batch resolver',
+    labelNames: ['outcome'], // success | fetch_failure | terminal_write_failure | invalid_state
+})
 
 /**
  * State machine carried in `cyclotron_jobs.state` per resolver job:
