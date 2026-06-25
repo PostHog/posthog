@@ -17,10 +17,7 @@ from products.conversations.backend.temporal.ai_reply.schemas import PersistRepl
 async def support_persist_reply_activity(input: PersistReplyInput) -> None:
     """Persist the validated reply as an AI comment on the ticket (private note or bot reply per settings)."""
     async with Heartbeater():
-        # Resolve via pipeline so workflow tests can mock PIPELINE_MODULE._persist_reply_sync.
-        from products.conversations.backend.temporal import pipeline as pipeline_module
-
-        await database_sync_to_async(pipeline_module._persist_reply_sync, thread_sensitive=False)(
+        await database_sync_to_async(_persist_reply_sync, thread_sensitive=False)(
             input.team_id,
             input.ticket_id,
             input.reply,

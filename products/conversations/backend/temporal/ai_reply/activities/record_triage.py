@@ -17,10 +17,7 @@ from products.conversations.backend.temporal.ai_reply.schemas import RecordTriag
 @close_db_connections
 async def support_record_triage_activity(input: RecordTriageInput) -> None:
     """Merge triage/outcome metadata into the ticket's ai_triage JSON field."""
-    # Resolve via pipeline so workflow tests can mock PIPELINE_MODULE._record_triage_sync.
-    from products.conversations.backend.temporal import pipeline as pipeline_module
-
-    await database_sync_to_async(pipeline_module._record_triage_sync, thread_sensitive=False)(
+    await database_sync_to_async(_record_triage_sync, thread_sensitive=False)(
         input.team_id, input.ticket_id, input.patch
     )
 

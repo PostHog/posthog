@@ -22,7 +22,12 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     TICKET_TYPE_HINTS,
 )
 from products.conversations.backend.temporal.ai_reply.schemas import DraftInput, DraftOutput, SupportReplyDraft
+from products.conversations.backend.temporal.helpers import (
+    get_or_create_support_sandbox_env,
+    resolve_user_id_for_support,
+)
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import MultiTurnSession
 
 
 def _hydrate_chunks(team_id: int, chunk_ids: list[str]) -> list[dict[str, Any]]:
@@ -74,14 +79,11 @@ async def _draft_async(
 ) -> DraftOutput:
     # Resolve patchable deps via pipeline so tests can mock PIPELINE_MODULE.* without
     # importing pipeline at module load time (avoids circular import).
-    from products.conversations.backend.temporal import pipeline as pipeline_module
     from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
-    chunks = await database_sync_to_async(pipeline_module._hydrate_chunks, thread_sensitive=False)(team_id, chunk_ids)
-    user_id = await database_sync_to_async(pipeline_module.resolve_user_id_for_support, thread_sensitive=False)(team_id)
-    env_id = await database_sync_to_async(pipeline_module.get_or_create_support_sandbox_env, thread_sensitive=False)(
-        team_id
-    )
+    chunks = await database_sync_to_async(_hydrate_chunks, thread_sensitive=False)(team_id, chunk_ids)
+    user_id = await database_sync_to_async(resolve_user_id_for_support, thread_sensitive=False)(team_id)
+    env_id = await database_sync_to_async(get_or_create_support_sandbox_env, thread_sensitive=False)(team_id)
 
     # Diagnostic tickets need to read the customer's own data; everyone else stays doc-lookup
     # only. Reads only — safe under the CUSTOM/empty-allowlist egress lock in helpers.py.
@@ -175,9 +177,9 @@ INSTRUCTIONS:
 
 Return your response as a JSON object with keys: reply, citations, confidence, sources (a list of {{ref, excerpt}})."""
 
-    session: pipeline_module.MultiTurnSession | None = None
+    session: MultiTurnSession | None = None
     try:
-        session, result = await pipeline_module.MultiTurnSession.start(
+        session, result = await MultiTurnSession.start(
             prompt,
             context,
             model=SupportReplyDraft,

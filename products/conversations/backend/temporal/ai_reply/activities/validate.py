@@ -5,10 +5,12 @@ import json as json_module
 import structlog
 from temporalio import activity
 
+from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPE_HINTS, VALIDATOR_MODEL
+from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, strip_json_fence
 from products.conversations.backend.temporal.ai_reply.schemas import ValidateInput, ValidateOutput
 
 logger = structlog.get_logger(__name__)
@@ -81,18 +83,18 @@ REPLY:
 CITED CHUNKS:
 {chunks_text[:6000]}"""
 
-    client = pipeline_module.get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
-    message = await pipeline_module._create_message(
+    client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
+    message = await create_message(
         client,
         model=VALIDATOR_MODEL,
         max_tokens=1024,
         system=system,
         messages=[{"role": "user", "content": user_content}],
     )
-    content = pipeline_module._anthropic_text(message)
+    content = anthropic_text(message)
 
     try:
-        parsed = json_module.loads(pipeline_module._strip_json_fence(content))
+        parsed = json_module.loads(strip_json_fence(content))
         return ValidateOutput(
             grounded=bool(parsed.get("grounded", False)),
             coverage=float(parsed.get("coverage", 0.0)),
