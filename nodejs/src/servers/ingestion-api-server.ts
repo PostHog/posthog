@@ -58,6 +58,7 @@ import {
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
     RedisConnectionsConfig,
+    getDefaultIngestionConsumerConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
 import { createFeatureFlagCalledDedupService } from '../ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
@@ -182,6 +183,7 @@ export class IngestionApiServer implements NodeServer {
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
