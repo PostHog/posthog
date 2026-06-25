@@ -11,6 +11,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 from ..logic.janitor_client import JanitorClientError
+from ..logic.kernel_skills import KernelSkill
 from ..models import AgentApplication, AgentRevision
 
 
@@ -169,6 +170,130 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         self.assertIn("legacy", str(res.content))
         client.delete_skill.assert_not_called()
         client.freeze.assert_not_called()
+
+    @staticmethod
+    def _kernel(skill_id: str) -> KernelSkill:
+        body = f"---\nname: {skill_id}\ndescription: {skill_id} desc\nagents:\n- freeze-agent\n---\n\n# {skill_id}"
+        return KernelSkill(id=skill_id, description=f"{skill_id} desc", body=body, agents=frozenset({"freeze-agent"}))
+
+    @patch("products.agent_platform.backend.presentation.views.kernel_skills_for")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_injects_kernel_skills_alongside_store_refs(
+        self, mock_janitor: MagicMock, mock_kernel: MagicMock
+    ) -> None:
+        # A designated agent's kernel skills (platform code) materialize at freeze
+        # next to the resolved store ref — both land in `skills/` via the janitor,
+        # and the kernel body keeps its frontmatter so freeze derives its description.
+        mock_kernel.return_value = [self._kernel("safety-and-boundaries")]
+        client = mock_janitor.return_value
+        client.put_skill = MagicMock(return_value={"ok": True})
+        client.delete_skill = MagicMock(return_value={"ok": True})
+        client.manifest.return_value = {"files": [{"path": "agent.md"}]}
+        client.freeze.return_value = {
+            "bundle_sha256": "a" * 64,
+            "derived_spec": {
+                "model": "x",
+                "triggers": [],
+                "skills": [
+                    {"id": "triage", "path": "skills/triage/SKILL.md", "description": "d"},
+                    {
+                        "id": "safety-and-boundaries",
+                        "path": "skills/safety-and-boundaries/SKILL.md",
+                        "description": "k",
+                    },
+                ],
+                "tools": [],
+            },
+        }
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 200, res.content)
+        materialized = {call.args[1] for call in client.put_skill.call_args_list}
+        self.assertEqual(materialized, {"triage", "safety-and-boundaries"})
+        kernel_call = next(c for c in client.put_skill.call_args_list if c.args[1] == "safety-and-boundaries")
+        self.assertIn("name: safety-and-boundaries", kernel_call.args[2]["body"])
+
+    @patch("products.agent_platform.backend.presentation.views.kernel_skills_for")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_does_not_sweep_kernel_skill_folder(self, mock_janitor: MagicMock, mock_kernel: MagicMock) -> None:
+        # The kernel folder is in the bundle but backed by no store ref — the sweep
+        # must keep it (it's platform-injected, not a removed-ref leftover) while
+        # still sweeping a genuine orphan.
+        mock_kernel.return_value = [self._kernel("safety-and-boundaries")]
+        client = mock_janitor.return_value
+        client.put_skill = MagicMock(return_value={"ok": True})
+        client.delete_skill = MagicMock(return_value={"ok": True})
+        client.manifest.return_value = {
+            "files": [
+                {"path": "agent.md"},
+                {"path": "skills/safety-and-boundaries/SKILL.md"},
+                {"path": "skills/stale/SKILL.md"},
+                {"path": "skills/triage/SKILL.md"},
+            ]
+        }
+        client.freeze.return_value = {
+            "bundle_sha256": "a" * 64,
+            "derived_spec": {"model": "x", "triggers": [], "skills": [], "tools": []},
+        }
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 200, res.content)
+        swept = {call.args[1] for call in client.delete_skill.call_args_list}
+        self.assertEqual(swept, {"stale"})
+
+    @patch("products.agent_platform.backend.presentation.views.kernel_skills_for")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_rejects_kernel_id_colliding_with_store_alias(
+        self, mock_janitor: MagicMock, mock_kernel: MagicMock
+    ) -> None:
+        # A kernel skill id that collides with a store ref alias is ambiguous — both
+        # would target `skills/triage/`. Refuse before any janitor write.
+        mock_kernel.return_value = [self._kernel("triage")]
+        client = mock_janitor.return_value
+        client.put_skill = MagicMock(return_value={"ok": True})
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("collide", str(res.content))
+        client.freeze.assert_not_called()
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.state, "draft")
+
+    @patch("products.agent_platform.backend.presentation.views.kernel_skills_for")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_exempts_kernel_skill_from_legacy_orphan_guard(
+        self, mock_janitor: MagicMock, mock_kernel: MagicMock
+    ) -> None:
+        # A forked spec carries an inline kernel entry (no `source_version_id`, no
+        # backing ref). The legacy-orphan guard would refuse it as pre-store content,
+        # but it's a current kernel skill — freeze must accept and re-inject it.
+        mock_kernel.return_value = [self._kernel("safety-and-boundaries")]
+        self.revision.skill_refs = []
+        self.revision.spec = {
+            "model": "x",
+            "triggers": [],
+            "skills": [{"id": "safety-and-boundaries", "path": "skills/safety-and-boundaries/SKILL.md"}],
+        }
+        self.revision.save(update_fields=["skill_refs", "spec"])
+        client = mock_janitor.return_value
+        client.put_skill = MagicMock(return_value={"ok": True})
+        client.delete_skill = MagicMock(return_value={"ok": True})
+        client.manifest.return_value = {"files": [{"path": "skills/safety-and-boundaries/SKILL.md"}]}
+        client.freeze.return_value = {
+            "bundle_sha256": "a" * 64,
+            "derived_spec": {
+                "model": "x",
+                "triggers": [],
+                "skills": [{"id": "safety-and-boundaries", "path": "skills/safety-and-boundaries/SKILL.md"}],
+                "tools": [],
+            },
+        }
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 200, res.content)
+        client.freeze.assert_called_once()
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.state, "ready")
 
     @property
     def _detail_url(self) -> str:

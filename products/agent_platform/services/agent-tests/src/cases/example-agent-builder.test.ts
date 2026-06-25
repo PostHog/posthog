@@ -29,11 +29,6 @@ async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Rec
     const files: Record<string, string> = {}
     files['agent.md'] = await readFile(join(BUNDLE_ROOT, 'agent.md'), 'utf-8')
     files['README.md'] = await readFile(join(BUNDLE_ROOT, 'README.md'), 'utf-8')
-    const skillDirs = await readdir(join(BUNDLE_ROOT, 'skills'))
-    for (const id of skillDirs) {
-        const p = `skills/${id}/SKILL.md`
-        files[p] = await readFile(join(BUNDLE_ROOT, p), 'utf-8')
-    }
     return { spec, files }
 }
 
@@ -43,28 +38,16 @@ describe('example: agent-builder bundle', () => {
         expect(() => AgentSpecSchema.parse(spec)).not.toThrow()
     })
 
-    it('bundles ONLY the kernel skills — builder playbooks live in the MCP, not the bundle', async () => {
-        const { spec, files } = await loadBundle()
+    it('carries NO inline skills — kernel skills are platform-injected, playbooks are MCP', async () => {
+        const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
-        // Kernel skills = the concierge's own runtime behaviour, coupled to this
-        // runtime (focus_* client tools, memory, safety persona). Code-bundled so
-        // they can't drift into the per-team store or the MCP playbook set.
-        const KERNEL = [
-            'auditing-the-fleet',
-            'safety-and-boundaries',
-            'using-the-console-ui',
-            'working-outside-the-console',
-        ]
-        expect(parsed.skills.map((s) => s.id).sort()).toEqual(KERNEL)
-        for (const skill of parsed.skills) {
-            expect(files[skill.path]).not.toBeUndefined()
-            expect((skill.description ?? '').length).toBeGreaterThan(30)
-        }
+        // The author-facing bundle never carries skills. Kernel skills (the
+        // concierge's own runtime behaviour — safety, console UI, fleet audit)
+        // are injected from backend code at freeze (logic/kernel_skills.py), so
+        // they move in lockstep with the platform and can't drift per account.
         // Builder playbooks (how to author/edit/wire-identity an agent) are served
-        // by the MCP `agent-resolve-resource`, fetched on demand — NOT bundled.
-        for (const playbook of ['authenticating-as-the-user', 'editing-agents-safely', 'platform-mental-model']) {
-            expect(parsed.skills.some((s) => s.id === playbook)).toBe(false)
-        }
+        // by the MCP `agent-resolve-resource`, fetched on demand. Neither is here.
+        expect(parsed.skills).toEqual([])
     })
 
     it('agent.md is present and non-trivial', async () => {

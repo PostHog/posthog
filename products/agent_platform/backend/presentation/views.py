@@ -73,6 +73,7 @@ from posthog.security.outbound_proxy import internal_requests
 from ..db import WRITER_DB
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
+from ..logic.kernel_skills import kernel_skills_for
 from ..logic.posthog_identity_app import provision_posthog_identity_apps
 from ..logic.skill_resolution import assert_skill_refs_readable, resolve_skill_ref, stamp_skill_provenance
 from ..logic.spec_schema import missing_required_secrets
@@ -2016,10 +2017,16 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({**result, "events_url": events_url, "interactivity_url": interactivity_url})
 
     # DRF routes the typed bundle verbs across @action + .mapping.<verb>
-    # chains. Three separate @action decorators with the same url_path
-    # don't merge — the last one registered wins and the others 405. So
-    # GET+PUT under /bundle/, PUT+DELETE under /skills/<id>/ and
-    # /tools/<id>/ share a single @action with mapping chains below.
+    # chains. Separate @action decorators with the same url_path don't merge —
+    # the last one registered wins and the others 405 — so GET+PUT under /bundle/
+    # share a single @action with a mapping chain below.
+    # NOTE: skill folders are deliberately NOT author-writable through Django.
+    # There is no `skills/<id>` author action (only agent_md/spec/skill_refs/tools);
+    # `skills/` is populated only at freeze (resolved store `skill_refs` + injected
+    # platform kernel skills). The janitor's `PUT/DELETE /revisions/:id/skills/:id`
+    # is internal-only, reachable solely via `janitor_client.put_skill`/`delete_skill`
+    # during freeze. Do NOT proxy it through to authors — that re-opens the
+    # store-only boundary kernel skills + skill_refs are built to enforce.
 
     # ── typed bundle authoring API ──────────────────────────────────────
     # Django
@@ -2346,6 +2353,24 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             r.alias: {"from_template": r.from_template, "version": r.version, "source_version_id": r.source_version_id}
             for r in resolved_skills
         }
+        # Platform kernel skills — code-locked operator behaviour injected from
+        # backend code, never authored through the API. The store (`skill_refs`)
+        # is the only author path into `skills/`, so an author can't supply or
+        # forge these; the freeze materializes them alongside the resolved store
+        # skills below and merges both into the derived `spec.skills[]`. Empty for
+        # any agent the platform hasn't designated (see logic/kernel_skills.py).
+        # Per-slug targeting is safe to key on the slug only because human-readable
+        # slugs are gated behind a first-party allowlist
+        # (AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS); a normal team gets an opaque
+        # server-minted slug it can't use to claim e.g. `agent-builder`.
+        kernel_skills = kernel_skills_for(revision.application.slug)
+        kernel_ids = {k.id for k in kernel_skills}
+        collisions = sorted(kernel_ids & aliases)
+        if collisions:
+            raise ValidationError(
+                f"Skill reference alias(es) {collisions} collide with a platform kernel skill id — "
+                "rename the alias in `skill_refs`."
+            )
         # Migration guard for pre-store agents: a revision forked from one authored
         # before the store became canonical carries inline skill entries in its
         # spec with no store provenance. Discriminate on `source_version_id`, NOT
@@ -2361,13 +2386,15 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         legacy_orphans = sorted(
             sid
             for s in ((revision.spec or {}).get("skills") or [])
-            if (sid := s.get("id")) and not s.get("source_version_id") and sid not in aliases
+            if (sid := s.get("id")) and not s.get("source_version_id") and sid not in aliases and sid not in kernel_ids
         )
         if legacy_orphans:
             raise ValidationError(
-                f"Revision carries inline skill(s) {legacy_orphans} not backed by a store reference "
-                "(authored before the skill store became canonical). Recreate them in the skill store and set "
-                "`skill_refs` before freezing — otherwise the freeze would silently drop them."
+                f"Revision carries inline skill(s) {legacy_orphans} not backed by a store reference. "
+                "If these were authored before the skill store became canonical, recreate them in the store and "
+                "set `skill_refs` before freezing. If one was a platform kernel skill that has since been removed "
+                "or de-designated for this agent, branch a fresh draft from the current live revision (which no "
+                "longer carries it) instead of re-freezing this fork — the freeze would otherwise silently drop it."
             )
         # Materialize the resolved refs into the bundle, then seal. Skills are
         # store-only — nothing else writes `skills/` — so the frozen bundle must
@@ -2393,7 +2420,14 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # leave a window where the draft has neither the old nor the new skill.
             for resolved in resolved_skills:
                 janitor_client.put_skill(str(revision.id), resolved.alias, resolved.put_skill_payload())
-            for stale in bundle_aliases - aliases:
+            # Inject the platform kernel skills the same way — re-written from
+            # backend code every freeze, so the frozen bundle always carries the
+            # current bytes (never a stale DB copy) and stays in lockstep.
+            for kskill in kernel_skills:
+                janitor_client.put_skill(str(revision.id), kskill.id, kskill.put_skill_payload())
+            # Sweep store-orphan folders, but keep the kernel folders just written:
+            # `kernel_ids` are legitimate, not leftovers from a removed ref.
+            for stale in bundle_aliases - aliases - kernel_ids:
                 try:
                     janitor_client.delete_skill(str(revision.id), stale)
                 except JanitorClientError as e:

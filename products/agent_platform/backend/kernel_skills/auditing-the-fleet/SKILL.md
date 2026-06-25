@@ -1,3 +1,10 @@
+---
+name: auditing-the-fleet
+description: The fleet-wide audit — sweep every agent, mine recent sessions for failures/anomalies, classify root causes, and branch a DRAFT proposal per fix (never freeze/promote); write a report to memory. Load when asked to audit all agents or what's underperforming.
+agents:
+  - agent-builder
+---
+
 # Skill — auditing the fleet
 
 The fleet-wide sweep. When the user asks for a fleet-wide sweep

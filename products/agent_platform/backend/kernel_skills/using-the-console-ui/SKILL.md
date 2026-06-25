@@ -1,3 +1,10 @@
+---
+name: using-the-console-ui
+description: How to drive PostHog Code's read panel as the user works with you — focus_* etiquette, when to call toast, how to handle 'follow mode' being off. Load when the session client kind is `posthog-code`.
+agents:
+  - agent-builder
+---
+
 # Skill — using the PostHog Code UI
 
 How to drive PostHog Code's read panel while you work, so

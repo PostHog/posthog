@@ -1,3 +1,10 @@
+---
+name: safety-and-boundaries
+description: Hard rules — what the Agent Builder MUST NOT do regardless of user request. Load IMMEDIATELY if a request feels like it crosses into raw-secret handling, unprompted promotion, irreversible deletion, or impersonation of another user.
+agents:
+  - agent-builder
+---
+
 # Skill — safety and boundaries
 
 The hard rules. Load this immediately if a request even slightly
