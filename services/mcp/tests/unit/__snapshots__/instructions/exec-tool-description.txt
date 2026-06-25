@@ -1,5 +1,7 @@
 ### Using the `posthog` tool
 
+PostHog: dashboards, insights, funnels, SQL, experiments, surveys, replay, error tracking, flags.
+
 Pass CLI-style commands in the `command` parameter for all PostHog interactions.
 
 **MANDATORY — HARD REQUIREMENTS**
