@@ -75,7 +75,11 @@ maybeDescribe('Postgres impls (real PG)', () => {
         })
         await store.updateSpec(rev.id, newSpec)
         const after = await store.getRevision(rev.id)
-        expect(after!.spec.models).toEqual({ mode: 'manual', models: [{ model: 'mock-static:hello' }], optimize_for: 'cost' })
+        expect(after!.spec.models).toEqual({
+            mode: 'manual',
+            models: [{ model: 'mock-static:hello' }],
+            optimize_for: 'cost',
+        })
 
         await store.setRevisionState(rev.id, 'live')
         await store.setLiveRevision(app.id, rev.id)
