@@ -7,6 +7,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     QUERY_FAILED_PREFIX,
     AiReportStageError,
     QueryStepDiagnostic,
+    _all_queries_failed_notice,
     _arequest_hogql_fix,
     _run_steps,
     generate_ai_report,
@@ -110,8 +111,7 @@ async def test_degraded_report_still_synthesizes(
 
     # Every query failed, so the delivered report leads with the deterministic failure notice
     # prepended to the synthesis output, not a bare confident-looking report.
-    assert result.markdown.startswith("> ⚠️ This report could not be generated")
-    assert "# Weekly report" in result.markdown
+    assert result.markdown == _all_queries_failed_notice(1) + "# Weekly report"
     # The failed step's generated HogQL + error type are surfaced for persistence/debugging.
     assert result.diagnostics == (
         QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError"),

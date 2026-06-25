@@ -27,7 +27,7 @@ class EnrichedPromptSpec(BaseModel):
 class HogQLFix(BaseModel):
     fixed_hogql: str = Field(
         ...,
-        description="A single, flat HogQL SELECT statement that addresses the original step intent.",
+        description="A HogQL SELECT statement (flat, or with a single FROM-subquery) that addresses the original step intent.",
     )
 
 

@@ -86,9 +86,12 @@ def _snapshot_diagnostic_counts(snapshot: dict | None) -> tuple[int, int, list[s
     diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY) if snapshot else None
     if not isinstance(diagnostics, list):
         return (0, 0, [])
-    failed = [d for d in diagnostics if isinstance(d, dict) and d.get("ok") is False]
+    # Count steps over dicts only, so failed and total stay consistent if a malformed (non-dict) entry
+    # ever lands in the list — otherwise total could exceed failed and mask an all-failed report.
+    steps = [d for d in diagnostics if isinstance(d, dict)]
+    failed = [d for d in steps if d.get("ok") is False]
     error_types = sorted({str(d["error_type"]) for d in failed if d.get("error_type")})
-    return (len(failed), len(diagnostics), error_types)
+    return (len(failed), len(steps), error_types)
 
 
 def _report_diagnostic_counts(result: AiReportResult) -> tuple[int, int, list[str]]:
