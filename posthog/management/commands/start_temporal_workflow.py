@@ -20,8 +20,6 @@ from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRIC
 from posthog.temporal.session_replay.count_playlist_items import COUNT_PLAYLIST_ITEMS_WORKFLOWS
 from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_WORKFLOWS
 from posthog.temporal.session_replay.enforce_max_replay_retention import ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
-from posthog.temporal.session_replay.export_recording import EXPORT_RECORDING_WORKFLOWS
-from posthog.temporal.session_replay.import_recording import IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.replay_count_metrics import REPLAY_COUNT_METRICS_WORKFLOWS
 from posthog.temporal.session_replay.summarization_sweep import SUMMARIZATION_SWEEP_WORKFLOWS
@@ -150,8 +148,6 @@ class Command(BaseCommand):
             + COUNT_PLAYLIST_ITEMS_WORKFLOWS
             + DELETE_RECORDINGS_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
-            + EXPORT_RECORDING_WORKFLOWS
-            + IMPORT_RECORDING_WORKFLOWS
             + RASTERIZE_RECORDING_WORKFLOWS
             + REPLAY_COUNT_METRICS_WORKFLOWS
             + SUMMARIZATION_SWEEP_WORKFLOWS
