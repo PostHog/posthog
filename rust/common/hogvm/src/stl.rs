@@ -1149,6 +1149,63 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 Ok(HogLiteral::String(generate_uuid_v4()).into())
             }),
         ),
+        (
+            "now",
+            native_func(|vm, args| {
+                // Optional timezone arg; the value is non-deterministic (smoke-tested only).
+                if args.len() > 1 {
+                    return Err(VmError::NativeCallFailed(
+                        "now takes 0 or 1 arguments".to_string(),
+                    ));
+                }
+                let zone = match args.first() {
+                    Some(v) => match v.deref(&vm.heap)? {
+                        HogLiteral::String(s) => s.clone(),
+                        _ => "UTC".to_string(),
+                    },
+                    None => "UTC".to_string(),
+                };
+                let now = chrono::Utc::now();
+                let secs = now.timestamp() as f64 + f64::from(now.timestamp_subsec_nanos()) / 1e9;
+                make_hog_datetime(secs, &zone)
+            }),
+        ),
+        (
+            "today",
+            native_func(|_vm, args| {
+                assert_argc(&args, 0, "today")?;
+                let now = chrono::Utc::now();
+                construct_free_standing(
+                    json!({ "__hogDate__": true, "year": now.year(), "month": now.month(), "day": now.day() }),
+                    0,
+                )
+            }),
+        ),
+        (
+            "HogError",
+            native_func(|vm, args| {
+                if args.len() > 3 {
+                    return Err(VmError::NativeCallFailed(
+                        "HogError takes 1 to 3 arguments".to_string(),
+                    ));
+                }
+                let type_str = arg_string_or(vm, &args, 0, "Error")?;
+                let message = arg_string_or(vm, &args, 1, "An error occurred")?;
+                new_hog_error(vm, type_str, message, args.get(2))
+            }),
+        ),
+        (
+            "Error",
+            native_func(|vm, args| error_constructor(vm, &args, "Error")),
+        ),
+        (
+            "RetryError",
+            native_func(|vm, args| error_constructor(vm, &args, "RetryError")),
+        ),
+        (
+            "NotImplementedError",
+            native_func(|vm, args| error_constructor(vm, &args, "NotImplementedError")),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -2086,6 +2143,57 @@ fn generate_uuid_v4() -> String {
         }
     }
     out
+}
+
+// Error/RetryError/NotImplementedError share one body: the function name is the error type, the
+// first arg is the message, the second is the optional payload (mirrors the reference's `name` arg).
+fn error_constructor(vm: &HogVM, args: &[HogValue], type_str: &str) -> Result<HogValue, VmError> {
+    if args.len() > 2 {
+        return Err(VmError::NativeCallFailed(format!(
+            "{type_str} takes 0 to 2 arguments"
+        )));
+    }
+    let message = arg_string_or(vm, args, 0, "An error occurred")?;
+    new_hog_error(vm, type_str.to_string(), message, args.get(1))
+}
+
+// Build the Hog error duck-type `{ __hogError__, type, message, payload? }`. Payload is included
+// only when present and non-null, matching the reference printer's `obj.payload ? …` guard.
+fn new_hog_error(
+    vm: &HogVM,
+    type_str: String,
+    message: String,
+    payload: Option<&HogValue>,
+) -> Result<HogValue, VmError> {
+    let mut map = IndexMap::new();
+    map.insert("__hogError__".to_string(), HogLiteral::Boolean(true).into());
+    map.insert("type".to_string(), HogLiteral::String(type_str).into());
+    map.insert("message".to_string(), HogLiteral::String(message).into());
+    if let Some(p) = payload {
+        if !matches!(p.deref(&vm.heap)?, HogLiteral::Null) {
+            map.insert("payload".to_string(), p.clone());
+        }
+    }
+    Ok(HogLiteral::Object(map).into())
+}
+
+// Resolve a string arg with the reference's `value || default` falsiness: missing, null, or empty
+// string fall back to `default`; other values stringify.
+fn arg_string_or(
+    vm: &HogVM,
+    args: &[HogValue],
+    idx: usize,
+    default: &str,
+) -> Result<String, VmError> {
+    match args.get(idx) {
+        None => Ok(default.to_string()),
+        Some(v) => match v.deref(&vm.heap)? {
+            HogLiteral::String(s) if s.is_empty() => Ok(default.to_string()),
+            HogLiteral::String(s) => Ok(s.clone()),
+            HogLiteral::Null => Ok(default.to_string()),
+            _ => to_string(&vm.heap, v, 0),
+        },
+    }
 }
 
 fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {

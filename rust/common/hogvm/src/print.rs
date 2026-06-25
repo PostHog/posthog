@@ -110,6 +110,10 @@ fn format_literal(
             if let Some(temporal) = format_temporal(heap, obj)? {
                 return Ok(temporal);
             }
+            // Hog errors are duck-typed too; the reference prints them as `Type('message'[, payload])`.
+            if let Some(err) = format_error(heap, obj, marked, depth)? {
+                return Ok(err);
+            }
             let mut parts = Vec::with_capacity(obj.len());
             for (key, val) in obj {
                 parts.push(format!(
@@ -153,6 +157,28 @@ fn format_temporal(
         return Ok(Some(format!("Date({y}, {m}, {d})")));
     }
     Ok(None)
+}
+
+// Render the Hog error duck-type `{__hogError__: true, type, message, payload?}` as
+// `Type('message')` or `Type('message', payload)`. Returns None for plain objects.
+fn format_error(
+    heap: &VmHeap,
+    obj: &IndexMap<String, HogValue>,
+    marked: &mut Vec<HeapReference>,
+    depth: usize,
+) -> Result<Option<String>, crate::VmError> {
+    if !marker(heap, obj.get("__hogError__"))? {
+        return Ok(None);
+    }
+    let type_str = string(heap, obj.get("type"))?.unwrap_or_else(|| "Error".to_string());
+    let message = string(heap, obj.get("message"))?.unwrap_or_default();
+    let payload = match obj.get("payload") {
+        Some(p) if !matches!(p.deref(heap)?, HogLiteral::Null) => {
+            format!(", {}", print_hog_value(heap, p, marked, depth + 1)?)
+        }
+        _ => String::new(),
+    };
+    Ok(Some(format!("{type_str}({}{payload})", escape_string(&message))))
 }
 
 fn marker(heap: &VmHeap, v: Option<&HogValue>) -> Result<bool, crate::VmError> {
