@@ -39,7 +39,8 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_PRODUCT_COLUMNS,
     STRIPE_SUBSCRIPTION_COLUMNS,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -47,7 +48,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
 
 CHARGES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_charges"
 INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"

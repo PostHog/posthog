@@ -34,9 +34,8 @@ import {
     AgentApplicationsRevisionsPartialUpdateParams,
     AgentApplicationsRevisionsPromoteCreateParams,
     AgentApplicationsRevisionsRetrieveParams,
-    AgentApplicationsRevisionsSkillsDestroyParams,
-    AgentApplicationsRevisionsSkillsUpdateBody,
-    AgentApplicationsRevisionsSkillsUpdateParams,
+    AgentApplicationsRevisionsSkillRefsUpdateBody,
+    AgentApplicationsRevisionsSkillRefsUpdateParams,
     AgentApplicationsRevisionsSlackManifestParams,
     AgentApplicationsRevisionsSpecUpdateBody,
     AgentApplicationsRevisionsSpecUpdateParams,
@@ -332,9 +331,6 @@ const agentApplicationsRevisionsBundleUpdate = (): ToolBase<
         if (params.agent_md !== undefined) {
             body['agent_md'] = params.agent_md
         }
-        if (params.skills !== undefined) {
-            body['skills'] = params.skills
-        }
         if (params.tools !== undefined) {
             body['tools'] = params.tools
         }
@@ -595,48 +591,25 @@ const agentApplicationsRevisionsRetrieve = (): ToolBase<
     },
 })
 
-const AgentApplicationsRevisionsSkillsDestroySchema = AgentApplicationsRevisionsSkillsDestroyParams.omit({
+const AgentApplicationsRevisionsSkillRefsUpdateSchema = AgentApplicationsRevisionsSkillRefsUpdateParams.omit({
     project_id: true,
-})
+}).extend(AgentApplicationsRevisionsSkillRefsUpdateBody.shape)
 
-const agentApplicationsRevisionsSkillsDestroy = (): ToolBase<
-    typeof AgentApplicationsRevisionsSkillsDestroySchema,
-    unknown
-> => ({
-    name: 'agent-applications-revisions-skills-destroy',
-    schema: AgentApplicationsRevisionsSkillsDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsSkillsDestroySchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/skills/${encodeURIComponent(String(params.skill_id))}/`,
-        })
-        return result
-    },
-})
-
-const AgentApplicationsRevisionsSkillsUpdateSchema = AgentApplicationsRevisionsSkillsUpdateParams.omit({
-    project_id: true,
-}).extend(AgentApplicationsRevisionsSkillsUpdateBody.shape)
-
-const agentApplicationsRevisionsSkillsUpdate = (): ToolBase<
-    typeof AgentApplicationsRevisionsSkillsUpdateSchema,
+const agentApplicationsRevisionsSkillRefsUpdate = (): ToolBase<
+    typeof AgentApplicationsRevisionsSkillRefsUpdateSchema,
     Schemas.AgentRevision
 > => ({
-    name: 'agent-applications-revisions-skills-update',
-    schema: AgentApplicationsRevisionsSkillsUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsSkillsUpdateSchema>) => {
+    name: 'agent-applications-revisions-skill-refs-update',
+    schema: AgentApplicationsRevisionsSkillRefsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsSkillRefsUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.body !== undefined) {
-            body['body'] = params.body
+        if (params.skill_refs !== undefined) {
+            body['skill_refs'] = params.skill_refs
         }
         const result = await context.api.request<Schemas.AgentRevision>({
             method: 'PUT',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/skills/${encodeURIComponent(String(params.skill_id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/skill_refs/`,
             body,
         })
         return result
@@ -901,8 +874,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-revisions-partial-update': agentApplicationsRevisionsPartialUpdate,
     'agent-applications-revisions-promote-create': agentApplicationsRevisionsPromoteCreate,
     'agent-applications-revisions-retrieve': agentApplicationsRevisionsRetrieve,
-    'agent-applications-revisions-skills-destroy': agentApplicationsRevisionsSkillsDestroy,
-    'agent-applications-revisions-skills-update': agentApplicationsRevisionsSkillsUpdate,
+    'agent-applications-revisions-skill-refs-update': agentApplicationsRevisionsSkillRefsUpdate,
     'agent-applications-revisions-slack-manifest': agentApplicationsRevisionsSlackManifest,
     'agent-applications-revisions-spec-update': agentApplicationsRevisionsSpecUpdate,
     'agent-applications-revisions-system-prompt': agentApplicationsRevisionsSystemPrompt,

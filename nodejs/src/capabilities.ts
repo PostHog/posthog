@@ -136,6 +136,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerEmail: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_email_legacy_pg:
+            return {
+                cdpCyclotronWorkerEmailLegacyPg: true,
+            }
         case PluginServerMode.cdp_precalculated_filters:
             return {
                 cdpPrecalculatedFilters: true,

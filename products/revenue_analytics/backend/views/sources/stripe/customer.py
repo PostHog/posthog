@@ -13,14 +13,13 @@ from products.revenue_analytics.backend.views.sources.constants import (
     POSTHOG_PERSON_DISTINCT_ID_SOURCE_METADATA_KEY,
 )
 from products.revenue_analytics.backend.views.sources.helpers import extract_json_string, get_cohort_expr
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 _METADATA_TO_MAP_EXPR = (
     "mapFromArrays("
