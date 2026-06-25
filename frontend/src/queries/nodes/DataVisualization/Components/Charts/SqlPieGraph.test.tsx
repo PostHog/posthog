@@ -59,25 +59,43 @@ function sliceLabelLines(): string[][] {
 
 async function waitForSlices(): Promise<void> {
     await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
-    await waitFor(() => expect(sliceLabelLines().length).toBeGreaterThan(0), { timeout: 5000 })
+    await waitFor(
+        () => {
+            if (sliceLabelLines().length === 0) {
+                throw new Error('slice labels not rendered yet')
+            }
+        },
+        { timeout: 5000 }
+    )
 }
 
 describe('SqlPieGraph', () => {
-    it('shows slice labels by default plus the aggregation total', async () => {
-        render(<SqlPieGraph {...baseProps({ pie: { showTotal: true } }, [40, 30, 20, 10])} />)
+    it('defaults to values and the total when slice content is unset (existing chart)', async () => {
+        render(<SqlPieGraph {...baseProps({}, [40, 30, 20, 10])} />)
+
+        await waitForSlices()
+
+        // Unset slice content means a pre-existing chart, which keeps the legacy value-on-slice + total
+        expect(sliceLabelLines()).toEqual([['40'], ['30'], ['20'], ['10']])
+        expect(screen.getByText('100')).toBeInTheDocument()
+    })
+
+    it('shows slice labels and hides the total when slice content is labels', async () => {
+        render(<SqlPieGraph {...baseProps({ pie: { sliceContent: 'labels' } }, [40, 30, 20, 10])} />)
 
         await waitForSlices()
 
         expect(sliceLabelLines()).toEqual([['alpha'], ['beta'], ['gamma'], ['delta']])
-        expect(screen.getByText('100')).toBeInTheDocument()
+        expect(screen.queryByText('100')).not.toBeInTheDocument()
     })
 
-    it('shows slice values when slice content is values', async () => {
-        render(<SqlPieGraph {...baseProps({ pie: { sliceContent: 'values' } }, [40, 30, 20, 10])} />)
+    it('respects an explicit showTotal override that hides the total in values mode', async () => {
+        render(<SqlPieGraph {...baseProps({ pie: { sliceContent: 'values', showTotal: false } }, [40, 30, 20, 10])} />)
 
         await waitForSlices()
 
         expect(sliceLabelLines()).toEqual([['40'], ['30'], ['20'], ['10']])
+        expect(screen.queryByText('100')).not.toBeInTheDocument()
     })
 
     it('shows slice values as shares of the total when displaying percentages', async () => {

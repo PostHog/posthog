@@ -1258,6 +1258,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 display: visualizationType,
             }))
 
+            // Newly-picked pies default to labels on slices; existing pies (loaded with the type
+            // already set, so this listener never fires) keep the legacy value-on-slice default.
+            if (
+                visualizationType === ChartDisplayType.ActionsPie &&
+                values.chartSettings.pie?.sliceContent === undefined
+            ) {
+                actions.updateChartSettings({ pie: { sliceContent: 'labels' } })
+            }
+
             if (
                 [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&
                 shouldUseFirstNumericColumnAsContinuousChartXAxis(

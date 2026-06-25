@@ -66,8 +66,11 @@ function LegacyPieChart({
     const formattingSettings = yData[0]?.settings
     const total = slices.reduce((sum, slice) => sum + slice.value, 0)
     const showLegend = chartSettings.showLegend ?? false
-    const showPieTotal = chartSettings.pie?.showTotal ?? true
-    const sliceContent = chartSettings.pie?.sliceContent ?? 'labels'
+    // Unset means an existing chart from before the labels option — keep showing values. New pies
+    // are stamped with 'labels' when the type is picked (see dataVisualizationLogic).
+    const sliceContent = chartSettings.pie?.sliceContent ?? 'values'
+    // The total is a sum-of-values readout, so default it on only when slices show values.
+    const showPieTotal = chartSettings.pie?.showTotal ?? sliceContent === 'values'
     const asPercent = (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 
     const absoluteFormatter = (value: number): string =>

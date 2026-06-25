@@ -41,8 +41,11 @@ export const SqlPieGraph = ({
     const total = useMemo(() => slices.reduce((sum, slice) => sum + slice.value, 0), [slices])
 
     const showLegend = chartSettings.showLegend ?? false
-    const showPieTotal = chartSettings.pie?.showTotal ?? true
-    const sliceContent = chartSettings.pie?.sliceContent ?? 'labels'
+    // Unset means an existing chart from before the labels option — keep showing values. New pies
+    // are stamped with 'labels' when the type is picked (see dataVisualizationLogic).
+    const sliceContent = chartSettings.pie?.sliceContent ?? 'values'
+    // The total is a sum-of-values readout, so default it on only when slices show values.
+    const showPieTotal = chartSettings.pie?.showTotal ?? sliceContent === 'values'
     const asPercent = (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 
     const absoluteFormatter = useCallback(
@@ -52,11 +55,15 @@ export const SqlPieGraph = ({
 
     // `isPercent` makes the chart render on-slice values and tooltips as a share of the total; the
     // total below the chart and the absolute legend line keep using the raw value formatter.
+    // Labels sit toward the rim (on the wider part of each wedge) and skip slices under 10% so a
+    // long tail of thin slices doesn't pile labels up at the center.
     const pieConfig: PieChartConfig = useMemo(
         () => ({
             showLabelOnSlice: sliceContent === 'labels',
             showValueOnSlice: sliceContent === 'values',
             isPercent: asPercent,
+            labelRadiusRatio: 0.72,
+            minSlicePercentForLabel: 0.1,
         }),
         [sliceContent, asPercent]
     )

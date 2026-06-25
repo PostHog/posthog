@@ -124,7 +124,7 @@ export const DisplayTab = (): JSX.Element => {
                                             <LemonLabel>Show on slices</LemonLabel>
                                             <LemonSegmentedButton
                                                 className="w-full"
-                                                value={chartSettings.pie?.sliceContent ?? 'labels'}
+                                                value={chartSettings.pie?.sliceContent ?? 'values'}
                                                 onChange={(value) =>
                                                     updateChartSettings({ pie: { sliceContent: value } })
                                                 }
@@ -147,7 +147,10 @@ export const DisplayTab = (): JSX.Element => {
                                         <LemonSwitch
                                             className="flex-1 w-full"
                                             label="Show total below chart"
-                                            checked={chartSettings.pie?.showTotal ?? true}
+                                            checked={
+                                                chartSettings.pie?.showTotal ??
+                                                (chartSettings.pie?.sliceContent ?? 'values') === 'values'
+                                            }
                                             onChange={(value) => {
                                                 updateChartSettings({ pie: { showTotal: value } })
                                             }}
