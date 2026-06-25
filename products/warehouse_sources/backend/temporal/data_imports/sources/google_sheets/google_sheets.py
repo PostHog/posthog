@@ -31,7 +31,20 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 _REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (30.0, 120.0)
 
 
+_SERVICE_ACCOUNT_NOT_CONFIGURED_MESSAGE = (
+    "PostHog's Google Sheets service account is not configured on this instance. "
+    "Connect a Google account instead, or ask your administrator to configure it."
+)
+
+
 def _service_account_credentials() -> service_account.Credentials:
+    if (
+        not settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY
+        or not settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL
+    ):
+        # Without the private key, google-auth surfaces a cryptic "None could not be converted to
+        # bytes" from the crypto layer. Fail with an actionable message instead.
+        raise ValueError(_SERVICE_ACCOUNT_NOT_CONFIGURED_MESSAGE)
     return service_account.Credentials.from_service_account_info(
         {
             "private_key": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY,

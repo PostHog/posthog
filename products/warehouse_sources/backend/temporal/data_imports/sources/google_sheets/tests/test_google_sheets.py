@@ -4,6 +4,8 @@ from typing import Any, cast
 import pytest
 from unittest import mock
 
+from django.test import override_settings
+
 import gspread
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
@@ -13,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_she
     _REQUEST_TIMEOUT_SECONDS,
     _get_worksheet,
     _retry_on_transient_api_error,
+    _service_account_credentials,
     get_schema_incremental_fields,
     get_schemas,
     google_sheets_client,
@@ -478,6 +481,23 @@ def test_get_schema_incremental_fields_reraises_other_api_errors():
     assert mock_worksheet.get_all_values.call_count == 10
 
 
+# Missing service-account env vars must surface an actionable, non-retryable error — not the cryptic
+# "None could not be converted to bytes" the crypto layer raises on a None private key.
+@override_settings(GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=None, GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL=None)
+def test_service_account_not_configured_raises_actionable_non_retryable_error():
+    with pytest.raises(ValueError) as exc_info:
+        _service_account_credentials()
+
+    message = str(exc_info.value)
+    assert "not configured" in message
+    assert "could not be converted to bytes" not in message
+    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
+    assert any(key in message for key in non_retryable_errors)
+
+
+@override_settings(
+    GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY="dummy", GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL="sa@example.com"
+)
 def test_google_sheets_client_sets_request_timeout():
     """Every gspread client must be built with a bounded (connect, read) timeout. gspread defaults
     to no timeout, so a stalled Sheets API read blocks the threaded sync activity until Temporal's
@@ -518,6 +538,9 @@ def test_get_worksheet_cache_keyed_by_auth_identity():
         mock_client.assert_any_call(99, 2)
 
 
+@override_settings(
+    GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY="dummy", GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL="sa@example.com"
+)
 @pytest.mark.parametrize(
     "integration_id,team_id,expect_oauth",
     [

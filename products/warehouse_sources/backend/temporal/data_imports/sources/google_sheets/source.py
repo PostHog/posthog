@@ -59,6 +59,8 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
             # — retrying can't recover, so ask the user to reconnect.
             "invalid_grant": "Import failed: your Google account connection has expired or been revoked. Please reconnect it.",
             "invalid_scope": "Import failed: your Google account connection is missing the required Sheets permission. Please reconnect it.",
+            # Instance misconfiguration (service account env vars unset) — retrying can't fix it.
+            "Google Sheets service account is not configured": "Import failed: PostHog's Google Sheets service account isn't configured on this instance. Connect a Google account instead, or ask your administrator to configure it.",
         }
 
     def get_schemas(
