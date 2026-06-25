@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 import { useComponentPanelState } from './componentPanelContext'
 import { NotebookComponentShell } from './NotebookComponentShell'
@@ -53,5 +53,51 @@ describe('NotebookComponentShell', () => {
         )
 
         expect(screen.getByTestId('panel-state').textContent).toBe('edit-open view-open')
+    })
+
+    it('prevents toolbar mouse down from changing notebook selection before toggling panels', () => {
+        const toggleComponentPanel = jest.fn()
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                ViewComponent: PanelStateProbe,
+                EditComponent: () => <div>Edit panel</div>,
+            },
+        ])
+
+        const { container } = render(
+            <NotebookComponentShell
+                node={{
+                    id: 'probe-node',
+                    type: 'component',
+                    tagName: 'Probe',
+                    props: {},
+                }}
+                mode="edit"
+                componentPanels={{ filters: true, results: true }}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={toggleComponentPanel}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        const filtersButton = container.querySelector('button[aria-label="Hide filters"]') as HTMLButtonElement
+
+        expect(fireEvent.mouseDown(filtersButton)).toBe(false)
+
+        fireEvent.click(filtersButton)
+
+        expect(toggleComponentPanel).toHaveBeenCalledWith('filters')
     })
 })

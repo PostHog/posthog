@@ -5224,22 +5224,25 @@ export function MarkdownNotebook({
                     rememberedComponentPanels: componentPanelCacheEntry?.remembered,
                     persistComponentPanelVisibility,
                     isSelected: selectedComponentNodeIds.has(node.id),
-                    toggleComponentPanel: (panel) =>
+                    toggleComponentPanel: (panel) => {
+                        const nextPanels = {
+                            ...nodeComponentPanels,
+                            [panel]: !nodeComponentPanels[panel],
+                        }
+
+                        if (!persistComponentPanelVisibility) {
+                            setLocalComponentPanels(node.id, nextPanels)
+                            return
+                        }
+
                         updateNode(node.id, (currentNode) => {
                             if (currentNode.type !== 'component') {
                                 return currentNode
                             }
 
-                            const currentPanels = getComponentPanelVisibility(
-                                currentNode,
-                                DEFAULT_COMPONENT_PANEL_VISIBILITY
-                            )
-                            const nextPanels = {
-                                ...currentPanels,
-                                [panel]: !currentPanels[panel],
-                            }
                             return withPersistedComponentPanelProps(currentNode, componentDefinition, nextPanels)
-                        }),
+                        })
+                    },
                     setLocalComponentPanels,
                     rememberComponentPanels,
                     setBlockRef: (element) => {

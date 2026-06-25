@@ -97,6 +97,7 @@ const Component = ({
               dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
           }
     const { insightName } = useValues(insightLogic(insightLogicProps))
+    const isOutputPaneOpen = componentPanelState?.showViewPanel ?? expanded
     const showSqlOutputToolbar = getNotebookSqlOutputToolbarVisibility({
         componentPanelState,
         expanded,

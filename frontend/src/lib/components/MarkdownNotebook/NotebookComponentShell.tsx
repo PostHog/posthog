@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { KeyboardEvent, ReactNode, memo, useMemo, useState } from 'react'
+import { KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, memo, useMemo, useState } from 'react'
 
 import { IconDatabase, IconEye, IconGraph, IconHide, IconList, IconPencil, IconPeople, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -197,6 +197,14 @@ export function NotebookComponentShell({
             insertParagraphAfterNode()
         }
     }
+    const handleToolbarMouseDown = (event: ReactMouseEvent<HTMLDivElement>): void => {
+        if (event.button !== 0) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+    }
 
     return (
         <div
@@ -210,7 +218,7 @@ export function NotebookComponentShell({
             tabIndex={mode === 'edit' ? 0 : undefined}
             onKeyDown={handleKeyDown}
         >
-            <div className="MarkdownNotebook__component-toolbar">
+            <div className="MarkdownNotebook__component-toolbar" onMouseDown={handleToolbarMouseDown}>
                 <div className="MarkdownNotebook__component-toolbar-left">
                     {canToggleComponentPanels ? (
                         <button
