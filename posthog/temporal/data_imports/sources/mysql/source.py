@@ -18,20 +18,23 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.sources.common.base import FieldType
-from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
-from posthog.temporal.data_imports.sources.mysql.mysql import (
+
+from products.data_warehouse.backend.mysql_helpers import reconcile_mysql_schemas
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    SSHTunnelMixin,
+    ValidateDatabaseHostMixin,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _SSH_HANDSHAKE_EOF_ERROR,
     MySQLImplementation,
     get_connection_metadata as get_mysql_connection_metadata,
 )
-
-from products.data_warehouse.backend.mysql_helpers import reconcile_mysql_schemas
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MYSQL_IMPLEMENTATION = MySQLImplementation()
 
