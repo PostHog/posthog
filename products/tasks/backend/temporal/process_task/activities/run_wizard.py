@@ -45,13 +45,13 @@ def _format_wizard_output(result: ExecutionResult) -> str:
 
 def _build_wizard_command(repo_path: str, project_id: int, package: str) -> str:
     # The wizard reads its access token from the POSTHOG_WIZARD_API_KEY env var injected into the
-    # sandbox (see provision_sandbox), so the token never appears on the command line. --headless
-    # runs the published wizard non-interactively.
+    # sandbox (see provision_sandbox), so the token never appears on the command line.
+    # --headless-DONOTUSE-EXPERIMENTAL runs the published wizard non-interactively.
     return " ".join(
         [
             f"cd {shlex.quote(repo_path)} &&",
             f"npx --yes {shlex.quote(package)}",
-            "--headless",
+            "--headless-DONOTUSE-EXPERIMENTAL",
             "--install-dir .",
             f"--region {shlex.quote(_wizard_region())}",
             f"--project-id {shlex.quote(str(project_id))}",

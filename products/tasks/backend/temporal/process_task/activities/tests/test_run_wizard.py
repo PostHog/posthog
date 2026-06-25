@@ -15,12 +15,13 @@ from products.tasks.backend.temporal.process_task.activities.run_wizard import (
 
 class TestBuildWizardCommand(SimpleTestCase):
     def test_uses_headless_flag_and_does_not_pass_the_token_on_the_command_line(self) -> None:
-        # --headless is the only published-build non-interactive mode (--ci is stripped from the
-        # published package), and the token must come from POSTHOG_WIZARD_API_KEY in the env, never
-        # the command line. A regression to --ci or an inline --api-key would break cloud runs / leak.
+        # --headless-DONOTUSE-EXPERIMENTAL is the published-build non-interactive mode (--ci is
+        # dev/test-only and rejected by published builds), and the token must come from
+        # POSTHOG_WIZARD_API_KEY in the env, never the command line. A regression to --ci or an
+        # inline --api-key would break cloud runs / leak the token.
         command = _build_wizard_command("/tmp/workspace/repos/acme/app", 123, WIZARD_PACKAGE)
 
-        assert "--headless" in command
+        assert "--headless-DONOTUSE-EXPERIMENTAL" in command
         assert "--ci" not in command
         assert "--api-key" not in command
         assert "cd /tmp/workspace/repos/acme/app" in command
