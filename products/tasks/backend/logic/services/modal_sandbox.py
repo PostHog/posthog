@@ -5,6 +5,7 @@ import time
 import uuid
 import shlex
 import shutil
+import asyncio
 import logging
 import tempfile
 import threading
@@ -23,6 +24,10 @@ if TYPE_CHECKING:
 
 import modal
 import requests
+from modal.exception import (
+    ConnectionError as ModalConnectionError,
+    TimeoutError as ModalTimeoutError,
+)
 
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
@@ -35,6 +40,7 @@ from products.tasks.backend.exceptions import (
     SandboxProvisionError,
     SandboxTimeoutError,
     SnapshotCreationError,
+    SnapshotTimeoutError,
 )
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
@@ -85,6 +91,17 @@ SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+
+# Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
+# connection (e.g. the command router's "Deadline exceeded"). These usually succeed on retry, so
+# Temporal should retry them rather than treating them as hard snapshot failures.
+TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
+    ModalTimeoutError,
+    ModalConnectionError,
+    TimeoutError,
+    ConnectionError,
+    asyncio.CancelledError,
+)
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -943,6 +960,17 @@ class ModalSandbox(SandboxBase):
             logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {snapshot_id}")
 
             return snapshot_id
+
+        except TRANSIENT_SNAPSHOT_ERRORS as e:
+            # Transient Modal infra timeout — Temporal retries the activity, so log at warning and
+            # skip error-tracking capture to avoid a fresh issue for every recoverable deadline.
+            logger.warning(f"Transient error creating snapshot for sandbox {self.id}, will retry: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient error creating snapshot: {e}",
+                {"sandbox_id": self.id, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
 
         except Exception as e:
             logger.exception(f"Failed to create snapshot: {e}")
