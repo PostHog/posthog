@@ -149,6 +149,8 @@ export interface TooltipContext<Meta = unknown> {
         value: number
         color: string
         fraction?: number
+        /** Canvas y-pixel of this series at the hovered x — used for cursor-proximity sorting. */
+        yPixel?: number
     }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts

@@ -289,6 +289,7 @@ export function buildSqlTooltipConfig(
         enabled: true,
         pinnable: true,
         placement: 'cursor',
+        sortedByValue: true,
         valueFormatter: (value: number, entry: TooltipContext['seriesData'][number]) =>
             formatSqlSeriesValue(value, (entry.series.meta as SqlLineSeriesMeta | undefined)?.settings),
         showTotal: chartSettings.showTotalRow !== false,
@@ -419,6 +420,7 @@ export function buildLineChartConfig({
                       }),
                   ]
                 : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
+        showCrosshair: true,
         goalLines: schemaGoalLinesToConfigs(goalLines),
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
