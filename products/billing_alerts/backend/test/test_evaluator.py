@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 from posthog.test.base import BaseTest
 
@@ -14,7 +15,7 @@ from products.billing_alerts.backend.models import (
 NOW = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
 
 
-def _billing_response(values: list[int]) -> dict:
+def _billing_response(values: list[int | str]) -> dict[str, Any]:
     return {
         "status": "ok",
         "results": [
@@ -186,6 +187,71 @@ class TestBillingAlertEvaluator(BaseTest):
         assert resolved.kind == BillingAlertEvent.Kind.RESOLVED
         assert resolved.threshold_breached is False
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
+
+    def test_state_machine_records_fresh_same_day_refiring_event_after_resolved_event(self) -> None:
+        alert = self._alert()
+
+        firing = evaluate_and_record_billing_alert(alert, now=NOW, billing_response=_billing_response([60, 60, 100]))
+        BillingAlertEvent.objects.filter(pk=firing.pk).update(notification_sent_at=NOW)
+        BillingAlertConfiguration.objects.filter(pk=alert.pk).update(last_notified_at=NOW)
+        alert.refresh_from_db()
+
+        resolved_at = NOW.replace(hour=13)
+        resolved = evaluate_and_record_billing_alert(
+            alert,
+            now=resolved_at,
+            billing_response=_billing_response([60, 60, 70]),
+        )
+        BillingAlertEvent.objects.filter(pk=resolved.pk).update(notification_sent_at=resolved_at)
+        BillingAlertConfiguration.objects.filter(pk=alert.pk).update(last_notified_at=resolved_at)
+        alert.refresh_from_db()
+
+        refiring = evaluate_and_record_billing_alert(
+            alert,
+            now=NOW.replace(hour=14),
+            billing_response=_billing_response([60, 60, 100]),
+        )
+        alert.refresh_from_db()
+
+        assert refiring.kind == BillingAlertEvent.Kind.FIRING
+        assert refiring.id != firing.id
+        assert refiring.notification_sent_at is None
+        assert event_should_dispatch(refiring) is True
+        assert alert.state == BillingAlertConfiguration.State.FIRING
+        assert (
+            BillingAlertEvent.objects.filter(
+                alert=alert,
+                kind=BillingAlertEvent.Kind.FIRING,
+                evaluation_date=firing.evaluation_date,
+            ).count()
+            == 2
+        )
+
+    def test_state_machine_reuses_same_day_check_event(self) -> None:
+        alert = self._alert()
+
+        first_check = evaluate_and_record_billing_alert(
+            alert,
+            now=NOW,
+            billing_response=_billing_response([60, 60, 70]),
+        )
+        second_check = evaluate_and_record_billing_alert(
+            alert,
+            now=NOW.replace(hour=13),
+            billing_response=_billing_response([60, 60, 65]),
+        )
+
+        assert first_check.kind == BillingAlertEvent.Kind.CHECK
+        assert second_check.kind == BillingAlertEvent.Kind.CHECK
+        assert second_check.id == first_check.id
+        assert (
+            BillingAlertEvent.objects.filter(
+                alert=alert,
+                kind=BillingAlertEvent.Kind.CHECK,
+                evaluation_date=first_check.evaluation_date,
+            ).count()
+            == 1
+        )
 
     def test_state_machine_records_resolved_event_after_snoozed_alert_clears(self) -> None:
         alert = self._alert(state=BillingAlertConfiguration.State.SNOOZED)

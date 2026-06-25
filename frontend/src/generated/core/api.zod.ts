@@ -13,8 +13,6 @@ export const billingAlertsCreateBodyNameMax = 160
 
 export const billingAlertsCreateBodyCurrencyMax = 3
 
-export const billingAlertsCreateBodyUsageTypesItemMax = 100
-
 export const billingAlertsCreateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
 export const billingAlertsCreateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
 export const billingAlertsCreateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
@@ -38,23 +36,6 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Billing metric to evaluate: spend or usage.\n\n\* `spend` - Spend\n\* `usage` - Usage'),
     currency: zod.string().max(billingAlertsCreateBodyCurrencyMax).optional().describe('Currency for spend alerts.'),
-    usage_types: zod
-        .array(zod.string().max(billingAlertsCreateBodyUsageTypesItemMax))
-        .optional()
-        .describe('Billing usage type filters. Empty means all usage types.'),
-    team_ids: zod
-        .array(zod.number().min(1))
-        .optional()
-        .describe('Team IDs to filter billing data to. Empty means all teams in the organization.'),
-    group_by: zod
-        .enum(['total', 'usage_type', 'team', 'usage_type_team'])
-        .describe(
-            '\* `total` - Total\n\* `usage_type` - Usage type\n\* `team` - Team\n\* `usage_type_team` - Usage type and team'
-        )
-        .optional()
-        .describe(
-            'Grouping used for future per-group alert expansion. Current evaluator alerts on the total.\n\n\* `total` - Total\n\* `usage_type` - Usage type\n\* `team` - Team\n\* `usage_type_team` - Usage type and team'
-        ),
     threshold_type: zod
         .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
         .describe(
@@ -95,8 +76,6 @@ export const billingAlertsUpdateBodyNameMax = 160
 
 export const billingAlertsUpdateBodyCurrencyMax = 3
 
-export const billingAlertsUpdateBodyUsageTypesItemMax = 100
-
 export const billingAlertsUpdateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
 export const billingAlertsUpdateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
 export const billingAlertsUpdateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
@@ -120,23 +99,6 @@ export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Billing metric to evaluate: spend or usage.\n\n\* `spend` - Spend\n\* `usage` - Usage'),
     currency: zod.string().max(billingAlertsUpdateBodyCurrencyMax).optional().describe('Currency for spend alerts.'),
-    usage_types: zod
-        .array(zod.string().max(billingAlertsUpdateBodyUsageTypesItemMax))
-        .optional()
-        .describe('Billing usage type filters. Empty means all usage types.'),
-    team_ids: zod
-        .array(zod.number().min(1))
-        .optional()
-        .describe('Team IDs to filter billing data to. Empty means all teams in the organization.'),
-    group_by: zod
-        .enum(['total', 'usage_type', 'team', 'usage_type_team'])
-        .describe(
-            '\* `total` - Total\n\* `usage_type` - Usage type\n\* `team` - Team\n\* `usage_type_team` - Usage type and team'
-        )
-        .optional()
-        .describe(
-            'Grouping used for future per-group alert expansion. Current evaluator alerts on the total.\n\n\* `total` - Total\n\* `usage_type` - Usage type\n\* `team` - Team\n\* `usage_type_team` - Usage type and team'
-        ),
     threshold_type: zod
         .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
         .describe(
@@ -177,8 +139,6 @@ export const billingAlertsPartialUpdateBodyNameMax = 160
 
 export const billingAlertsPartialUpdateBodyCurrencyMax = 3
 
-export const billingAlertsPartialUpdateBodyUsageTypesItemMax = 100
-
 export const billingAlertsPartialUpdateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
 export const billingAlertsPartialUpdateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
 export const billingAlertsPartialUpdateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
@@ -210,23 +170,6 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(billingAlertsPartialUpdateBodyCurrencyMax)
         .optional()
         .describe('Currency for spend alerts.'),
-    usage_types: zod
-        .array(zod.string().max(billingAlertsPartialUpdateBodyUsageTypesItemMax))
-        .optional()
-        .describe('Billing usage type filters. Empty means all usage types.'),
-    team_ids: zod
-        .array(zod.number().min(1))
-        .optional()
-        .describe('Team IDs to filter billing data to. Empty means all teams in the organization.'),
-    group_by: zod
-        .enum(['total', 'usage_type', 'team', 'usage_type_team'])
-        .describe(
-            '\* `total` - Total\n\* `usage_type` - Usage type\n\* `team` - Team\n\* `usage_type_team` - Usage type and team'
-        )
-        .optional()
-        .describe(
-            'Grouping used for future per-group alert expansion. Current evaluator alerts on the total.\n\n\* `total` - Total\n\* `usage_type` - Usage type\n\* `team` - Team\n\* `usage_type_team` - Usage type and team'
-        ),
     threshold_type: zod
         .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
         .describe(

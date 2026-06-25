@@ -9,7 +9,10 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
-from products.billing_alerts.backend.presentation.serializers import BillingAlertConfigurationSerializer
+from products.billing_alerts.backend.presentation.serializers import (
+    BillingAlertConfigurationSerializer,
+    BillingAlertCreateDestinationSerializer,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
@@ -129,14 +132,31 @@ class TestBillingAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not BillingAlertConfiguration.objects.exists()
 
-    def test_team_filters_must_belong_to_organization(self) -> None:
-        other_org = Organization.objects.create(name="Other")
-        other_team = Team.objects.create(organization=other_org, name="Other project")
+    def test_webhook_destinations_require_https(self) -> None:
+        alert = self._alert()
 
-        response = self.client.post(self.url, self._payload(team_ids=[other_team.id]), format="json")
+        serializer = BillingAlertCreateDestinationSerializer(
+            data={"type": "webhook", "webhook_url": "http://example.com/billing-alert"},
+            context={"alert": alert},
+        )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "team_ids" in response.json()["attr"]
+        assert serializer.is_valid() is False
+        assert "webhook_url" in serializer.errors
+
+        serializer = BillingAlertCreateDestinationSerializer(
+            data={"type": "webhook", "webhook_url": "https://"},
+            context={"alert": alert},
+        )
+
+        assert serializer.is_valid() is False
+        assert "webhook_url" in serializer.errors
+
+        serializer = BillingAlertCreateDestinationSerializer(
+            data={"type": "webhook", "webhook_url": "https://example.com/billing-alert"},
+            context={"alert": alert},
+        )
+
+        assert serializer.is_valid(), serializer.errors
 
     def test_check_now_uses_shared_organization_object_permissions(self) -> None:
         alert = BillingAlertConfiguration.objects.create(

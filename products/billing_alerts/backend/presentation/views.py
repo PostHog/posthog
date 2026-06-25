@@ -6,7 +6,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -60,7 +60,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("This organization does not have an execution team.")
         return team
 
-    def perform_create(self, serializer: BillingAlertConfigurationSerializer) -> None:
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         user = cast(User, self.request.user)
         execution_team = self._execution_team()
         serializer.save(
@@ -71,7 +71,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         report_user_action(user, "billing alert created", request=self.request)
 
-    def perform_update(self, serializer: BillingAlertConfigurationSerializer) -> None:
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         user = cast(User, self.request.user)
         serializer.save(updated_by_id=user.id)
         report_user_action(user, "billing alert updated", request=self.request)
@@ -106,12 +106,17 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         request=None,
         responses={200: BillingAlertCheckNowResponseSerializer},
-        description="Evaluate this billing alert immediately against real billing usage or spend data.",
+        description=(
+            "Evaluate this billing alert immediately against real billing usage or spend data. "
+            "Manual checks can send notifications when the evaluation records a dispatchable event."
+        ),
     )
     @action(detail=True, methods=["POST"], url_path="check_now", required_scopes=["billing:write"])
     def check_now(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         event = evaluate_and_record_billing_alert(alert)
+        # Mirrors logs alerting: a manual check runs the same state machine as scheduled checks,
+        # then dispatches if the resulting event is notification-worthy.
         dispatched = dispatch_billing_alert_event(event) if event_should_dispatch(event) else 0
         response = BillingAlertCheckNowResponseSerializer({"event": event, "dispatched_destinations": dispatched})
         report_user_action(request.user, "billing alert checked now", {"alert_id": str(alert.id)}, request=request)

@@ -153,32 +153,41 @@ def evaluate_and_record_billing_alert(
         event_kind = _event_kind(alert, evaluation, next_state, now)
 
         with transaction.atomic():
-            event, _ = BillingAlertEvent.objects.update_or_create(
-                alert=alert,
-                kind=event_kind,
-                evaluation_date=evaluation.evaluation_date,
-                defaults={
-                    "period_start": evaluation.period_start,
-                    "period_end": evaluation.period_end,
-                    "metric": alert.metric,
-                    "current_value": evaluation.current_value,
-                    "baseline_value": evaluation.baseline_value,
-                    "absolute_delta": evaluation.absolute_delta,
-                    "relative_delta_percentage": evaluation.relative_delta_percentage,
-                    "threshold_value_snapshot": alert.threshold_value,
-                    "threshold_percentage_snapshot": alert.threshold_percentage,
-                    "minimum_value_snapshot": alert.minimum_value,
-                    "threshold_breached": evaluation.threshold_breached,
-                    "state_before": state_before,
-                    "state_after": next_state,
-                    "query_duration_ms": evaluation.query_duration_ms,
-                    "error_code": None,
-                    "error_message": None,
-                    "is_transient_error": False,
-                    "reason": evaluation.reason,
-                    "payload": evaluation.payload,
-                },
-            )
+            event_defaults = {
+                "period_start": evaluation.period_start,
+                "period_end": evaluation.period_end,
+                "metric": alert.metric,
+                "current_value": evaluation.current_value,
+                "baseline_value": evaluation.baseline_value,
+                "absolute_delta": evaluation.absolute_delta,
+                "relative_delta_percentage": evaluation.relative_delta_percentage,
+                "threshold_value_snapshot": alert.threshold_value,
+                "threshold_percentage_snapshot": alert.threshold_percentage,
+                "minimum_value_snapshot": alert.minimum_value,
+                "threshold_breached": evaluation.threshold_breached,
+                "state_before": state_before,
+                "state_after": next_state,
+                "query_duration_ms": evaluation.query_duration_ms,
+                "error_code": None,
+                "error_message": None,
+                "is_transient_error": False,
+                "reason": evaluation.reason,
+                "payload": evaluation.payload,
+            }
+            if event_kind == BillingAlertEvent.Kind.CHECK:
+                event, _ = BillingAlertEvent.objects.update_or_create(
+                    alert=alert,
+                    kind=event_kind,
+                    evaluation_date=evaluation.evaluation_date,
+                    defaults=event_defaults,
+                )
+            else:
+                event = BillingAlertEvent.objects.create(
+                    alert=alert,
+                    kind=event_kind,
+                    evaluation_date=evaluation.evaluation_date,
+                    **event_defaults,
+                )
             alert.state = next_state
             alert.last_checked_at = now
             alert.next_check_at = now + timedelta(hours=alert.check_interval_hours)

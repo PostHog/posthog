@@ -18,12 +18,6 @@ class BillingAlertConfiguration(UUIDModel):
         SPEND = "spend", "Spend"
         USAGE = "usage", "Usage"
 
-    class GroupBy(models.TextChoices):
-        TOTAL = "total", "Total"
-        USAGE_TYPE = "usage_type", "Usage type"
-        TEAM = "team", "Team"
-        USAGE_TYPE_TEAM = "usage_type_team", "Usage type and team"
-
     class ThresholdType(models.TextChoices):
         RELATIVE_INCREASE = "relative_increase", "Relative increase"
         ABSOLUTE_VALUE = "absolute_value", "Absolute value"
@@ -47,9 +41,6 @@ class BillingAlertConfiguration(UUIDModel):
 
     metric = models.CharField(max_length=20, choices=Metric.choices, default=Metric.SPEND)
     currency = models.CharField(max_length=3, default="USD")
-    usage_types = models.JSONField(default=list)
-    team_ids = models.JSONField(default=list)
-    group_by = models.CharField(max_length=32, choices=GroupBy.choices, default=GroupBy.TOTAL)
 
     threshold_type = models.CharField(
         max_length=32,
@@ -117,11 +108,6 @@ class BillingAlertEvent(UUIDModel):
         FIRING = "firing", "Firing"
         RESOLVED = "resolved", "Resolved"
         ERRORED = "errored", "Errored"
-        SNOOZED = "snoozed", "Snoozed"
-        UNSNOOZED = "unsnoozed", "Unsnoozed"
-        ENABLED = "enabled", "Enabled"
-        DISABLED = "disabled", "Disabled"
-        THRESHOLD_CHANGED = "threshold_changed", "Threshold changed"
         BROKEN_CONFIG = "broken_config", "Broken config"
 
     alert = models.ForeignKey(BillingAlertConfiguration, on_delete=models.CASCADE, related_name="events")
@@ -145,6 +131,7 @@ class BillingAlertEvent(UUIDModel):
     state_before = models.CharField(max_length=20, null=True, blank=True)
     state_after = models.CharField(max_length=20, null=True, blank=True)
     notification_sent_at = models.DateTimeField(null=True, blank=True)
+    targets_notified = models.JSONField(default=dict)
 
     query_duration_ms = models.PositiveIntegerField(null=True, blank=True)
     error_code = models.CharField(max_length=80, null=True, blank=True)
@@ -164,47 +151,7 @@ class BillingAlertEvent(UUIDModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["alert", "kind", "evaluation_date"],
-                condition=Q(evaluation_date__isnull=False),
-                name="unique_billing_alert_event_date",
-            )
-        ]
-
-
-class BillingAlertDelivery(UUIDModel):
-    class DestinationType(models.TextChoices):
-        SLACK = "slack", "Slack"
-        WEBHOOK = "webhook", "Webhook"
-        TEAMS = "teams", "Microsoft Teams"
-        EMAIL = "email", "Email"
-        IN_APP = "in_app", "In-app"
-
-    class Status(models.TextChoices):
-        QUEUED = "queued", "Queued"
-        SENT = "sent", "Sent"
-        FAILED = "failed", "Failed"
-        SKIPPED = "skipped", "Skipped"
-
-    event = models.ForeignKey(BillingAlertEvent, on_delete=models.CASCADE, related_name="deliveries")
-    destination_type = models.CharField(max_length=32, choices=DestinationType.choices)
-    destination_key = models.CharField(max_length=255)
-    hog_function_id = models.UUIDField(null=True, blank=True)
-    idempotency_key = models.CharField(max_length=255, unique=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.QUEUED)
-    recipient_results = models.JSONField(default=dict)
-    error_message = models.TextField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
-    sent_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = "billing_alerts_delivery"
-        indexes = [
-            models.Index(fields=["event", "destination_type"], name="bill_deliv_event_type_idx"),
-            models.Index(fields=["status", "-created_at"], name="bill_deliv_status_ts_idx"),
-        ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["event", "destination_type", "destination_key"],
-                name="unique_billing_delivery_destination",
+                condition=Q(evaluation_date__isnull=False, kind="check"),
+                name="unique_billing_alert_check_event_date",
             )
         ]

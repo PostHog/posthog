@@ -11479,11 +11479,6 @@ export namespace Schemas {
      * * `firing` - Firing
      * * `resolved` - Resolved
      * * `errored` - Errored
-     * * `snoozed` - Snoozed
-     * * `unsnoozed` - Unsnoozed
-     * * `enabled` - Enabled
-     * * `disabled` - Disabled
-     * * `threshold_changed` - Threshold changed
      * * `broken_config` - Broken config
      */
     export type BillingAlertEventKindEnum = typeof BillingAlertEventKindEnum[keyof typeof BillingAlertEventKindEnum];
@@ -11494,11 +11489,6 @@ export namespace Schemas {
       Firing: 'firing',
       Resolved: 'resolved',
       Errored: 'errored',
-      Snoozed: 'snoozed',
-      Unsnoozed: 'unsnoozed',
-      Enabled: 'enabled',
-      Disabled: 'disabled',
-      ThresholdChanged: 'threshold_changed',
       BrokenConfig: 'broken_config',
     } as const;
 
@@ -11523,11 +11513,6 @@ export namespace Schemas {
        * * `firing` - Firing
        * * `resolved` - Resolved
        * * `errored` - Errored
-       * * `snoozed` - Snoozed
-       * * `unsnoozed` - Unsnoozed
-       * * `enabled` - Enabled
-       * * `disabled` - Disabled
-       * * `threshold_changed` - Threshold changed
        * * `broken_config` - Broken config */
       readonly kind: BillingAlertEventKindEnum;
       /** When this event was recorded. */
@@ -11579,6 +11564,7 @@ export namespace Schemas {
       readonly state_after: string | null;
       /** @nullable */
       readonly notification_sent_at: string | null;
+      readonly targets_notified: unknown;
       /** @nullable */
       readonly query_duration_ms: number | null;
       /** @nullable */
@@ -11594,22 +11580,6 @@ export namespace Schemas {
       /** Number of destination HogFunctions queued. */
       dispatched_destinations: number;
     }
-
-    /**
-     * * `total` - Total
-     * * `usage_type` - Usage type
-     * * `team` - Team
-     * * `usage_type_team` - Usage type and team
-     */
-    export type GroupByEnum = typeof GroupByEnum[keyof typeof GroupByEnum];
-
-
-    export const GroupByEnum = {
-      Total: 'total',
-      UsageType: 'usage_type',
-      Team: 'team',
-      UsageTypeTeam: 'usage_type_team',
-    } as const;
 
     /**
      * * `relative_increase` - Relative increase
@@ -11697,23 +11667,6 @@ export namespace Schemas {
          * @maxLength 3
          */
       currency?: string;
-      /**
-         * Billing usage type filters. Empty means all usage types.
-         * @items.maxLength 100
-         */
-      usage_types?: string[];
-      /**
-         * Team IDs to filter billing data to. Empty means all teams in the organization.
-         * @items.minimum 1
-         */
-      team_ids?: number[];
-      /** Grouping used for future per-group alert expansion. Current evaluator alerts on the total.
-       *
-       * * `total` - Total
-       * * `usage_type` - Usage type
-       * * `team` - Team
-       * * `usage_type_team` - Usage type and team */
-      group_by?: GroupByEnum;
       /** Threshold rule type.
        *
        * * `relative_increase` - Relative increase
@@ -35422,23 +35375,6 @@ export namespace Schemas {
          * @maxLength 3
          */
       currency?: string;
-      /**
-         * Billing usage type filters. Empty means all usage types.
-         * @items.maxLength 100
-         */
-      usage_types?: string[];
-      /**
-         * Team IDs to filter billing data to. Empty means all teams in the organization.
-         * @items.minimum 1
-         */
-      team_ids?: number[];
-      /** Grouping used for future per-group alert expansion. Current evaluator alerts on the total.
-       *
-       * * `total` - Total
-       * * `usage_type` - Usage type
-       * * `team` - Team
-       * * `usage_type_team` - Usage type and team */
-      group_by?: GroupByEnum;
       /** Threshold rule type.
        *
        * * `relative_increase` - Relative increase

@@ -100,10 +100,10 @@ def billing_params(
         "interval": "day",
         "teams_map": _teams_map(organization),
     }
-    if alert.usage_types:
-        params["usage_types"] = alert.usage_types
-    if alert.team_ids:
-        params["team_ids"] = alert.team_ids
+    # TODO: This first version evaluates organization-level totals only. If billing alerts
+    # grow to project, product, or usage-type rules, persist those filters on the alert,
+    # pass them into BillingManager here, and include request-shaping fields in the
+    # Temporal grouping key so alerts with different scopes never share cached data.
     return params
 
 
@@ -262,6 +262,7 @@ def evaluate_billing_alert(
         threshold_percentage = alert.threshold_percentage or Decimal("0")
         threshold_value = baseline_value * (Decimal("1") + (threshold_percentage / Decimal("100")))
         breached = current_value >= max(alert.minimum_value, threshold_value)
+        assert relative_delta_percentage is not None
         direction = "above" if relative_delta_percentage >= 0 else "below"
         reason = (
             f"Current value {current_value} was {abs(relative_delta_percentage).quantize(Decimal('0.01'))}% "

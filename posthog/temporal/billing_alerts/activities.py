@@ -37,8 +37,6 @@ def _group_key(alert: BillingAlertConfiguration) -> tuple[Any, ...]:
     return (
         str(alert.organization_id),
         alert.metric,
-        tuple(alert.usage_types or []),
-        tuple(alert.team_ids or []),
         alert.baseline_window_days,
         alert.evaluation_delay_hours,
     )

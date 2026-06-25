@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from django.db.models import QuerySet
 
@@ -11,11 +12,10 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
-from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.billing_alerts.backend.alert_destinations import DESTINATION_TYPE_BY_TEMPLATE_ID
-from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertDelivery, BillingAlertEvent
+from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 _DESTINATION_TYPES_CACHE_KEY = "_billing_alert_destination_types_by_alert_id"
@@ -62,6 +62,7 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
     state_before = serializers.CharField(read_only=True, allow_null=True)
     state_after = serializers.CharField(read_only=True, allow_null=True)
     notification_sent_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    targets_notified = serializers.JSONField(read_only=True)
     query_duration_ms = serializers.IntegerField(read_only=True, allow_null=True)
     error_code = serializers.CharField(read_only=True, allow_null=True)
     error_message = serializers.CharField(read_only=True, allow_null=True)
@@ -85,46 +86,11 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
             "state_before",
             "state_after",
             "notification_sent_at",
+            "targets_notified",
             "query_duration_ms",
             "error_code",
             "error_message",
             "reason",
-        ]
-
-
-class BillingAlertDeliverySerializer(serializers.ModelSerializer):
-    id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this delivery attempt.")
-    destination_type = serializers.ChoiceField(
-        choices=BillingAlertDelivery.DestinationType.choices,
-        read_only=True,
-        help_text="Destination type that received this alert event.",
-    )
-    destination_key = serializers.CharField(read_only=True, help_text="Destination-specific key used for idempotency.")
-    hog_function_id = serializers.UUIDField(
-        read_only=True,
-        allow_null=True,
-        help_text="HogFunction destination ID, when applicable.",
-    )
-    status = serializers.ChoiceField(
-        choices=BillingAlertDelivery.Status.choices,
-        read_only=True,
-        help_text="Delivery status.",
-    )
-    created_at = serializers.DateTimeField(read_only=True)
-    sent_at = serializers.DateTimeField(read_only=True, allow_null=True)
-    error_message = serializers.CharField(read_only=True, allow_null=True)
-
-    class Meta:
-        model = BillingAlertDelivery
-        fields = [
-            "id",
-            "destination_type",
-            "destination_key",
-            "hog_function_id",
-            "status",
-            "created_at",
-            "sent_at",
-            "error_message",
         ]
 
 
@@ -156,23 +122,6 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         help_text="Billing metric to evaluate: spend or usage.",
     )
     currency = serializers.CharField(max_length=3, required=False, help_text="Currency for spend alerts.")
-    usage_types = serializers.ListField(
-        child=serializers.CharField(max_length=100),
-        required=False,
-        allow_empty=True,
-        help_text="Billing usage type filters. Empty means all usage types.",
-    )
-    team_ids = serializers.ListField(
-        child=serializers.IntegerField(min_value=1),
-        required=False,
-        allow_empty=True,
-        help_text="Team IDs to filter billing data to. Empty means all teams in the organization.",
-    )
-    group_by = serializers.ChoiceField(
-        choices=BillingAlertConfiguration.GroupBy.choices,
-        required=False,
-        help_text="Grouping used for future per-group alert expansion. Current evaluator alerts on the total.",
-    )
     threshold_type = serializers.ChoiceField(
         choices=BillingAlertConfiguration.ThresholdType.choices,
         required=False,
@@ -229,9 +178,6 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "enabled",
             "metric",
             "currency",
-            "usage_types",
-            "team_ids",
-            "group_by",
             "threshold_type",
             "threshold_percentage",
             "threshold_value",
@@ -347,24 +293,6 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             cache[user_id] = dict(UserBasicSerializer(user, context=self.context).data) if user else None
         return cache[user_id]
 
-    def validate_usage_types(self, value: list[str]) -> list[str]:
-        if len(value) != len(set(value)):
-            raise ValidationError("Usage type filters must be unique.")
-        return value
-
-    def validate_team_ids(self, value: list[int]) -> list[int]:
-        if len(value) != len(set(value)):
-            raise ValidationError("Team filters must be unique.")
-
-        organization = self.context["view"].organization
-        known_team_ids = set(
-            Team.objects.filter(organization_id=organization.id, id__in=value).values_list("id", flat=True)
-        )
-        unknown_team_ids = sorted(set(value) - known_team_ids)
-        if unknown_team_ids:
-            raise ValidationError(f"Team filters do not belong to this organization: {unknown_team_ids}.")
-        return value
-
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         current = self.instance
         threshold_type = attrs.get(
@@ -430,8 +358,13 @@ class BillingAlertCreateDestinationSerializer(serializers.Serializer):
                 raise ValidationError(
                     {"slack_workspace_id": "Slack integration does not belong to this billing alert execution team."}
                 )
-        elif destination_type in ("webhook", "teams") and not attrs.get("webhook_url"):
-            raise ValidationError(f"webhook_url is required for {destination_type} destinations.")
+        elif destination_type in ("webhook", "teams"):
+            webhook_url = attrs.get("webhook_url")
+            if not webhook_url:
+                raise ValidationError(f"webhook_url is required for {destination_type} destinations.")
+            parsed_url = urlparse(webhook_url)
+            if parsed_url.scheme != "https" or not parsed_url.netloc:
+                raise ValidationError({"webhook_url": "Webhook URLs must be valid HTTPS URLs."})
         return attrs
 
 

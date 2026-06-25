@@ -34,7 +34,7 @@ def _chunks(items: list[str], size: int) -> list[list[str]]:
 
 
 def _batch_workflow_id(alert_ids: list[str]) -> str:
-    digest = hashlib.sha1(",".join(sorted(alert_ids)).encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(",".join(sorted(alert_ids)).encode("utf-8")).hexdigest()[:16]
     return f"check-billing-alert-batch-{digest}"
 
 

@@ -194,9 +194,9 @@ function splitSlackChannel(slackChannel: string): { channelId: string; channelNa
     return { channelId, channelName: channelName ?? '' }
 }
 
-function isValidHttpUrl(value: string | null): boolean {
+function isValidHttpsUrl(value: string | null): boolean {
     const trimmed = value?.trim()
-    return !!trimmed && URL.canParse(trimmed) && /^https?:\/\//.test(trimmed)
+    return !!trimmed && URL.canParse(trimmed) && new URL(trimmed).protocol === 'https:'
 }
 
 function destinationPayload({
@@ -223,7 +223,7 @@ function destinationPayload({
         }
     }
 
-    if (!isValidHttpUrl(webhookUrl)) {
+    if (!isValidHttpsUrl(webhookUrl)) {
         return null
     }
 

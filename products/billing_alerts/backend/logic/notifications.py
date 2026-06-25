@@ -14,14 +14,15 @@ from products.billing_alerts.backend.alert_destinations import (
     BILLING_ALERT_DESTINATION_IDS_PROPERTY,
     DESTINATION_TYPE_BY_TEMPLATE_ID,
     EVENT_KIND_CONFIG,
+    EventKind,
 )
-from products.billing_alerts.backend.models import BillingAlertDelivery, BillingAlertEvent
+from products.billing_alerts.backend.models import BillingAlertEvent
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
 
 
-def _kind_for_event(event: BillingAlertEvent) -> str | None:
+def _kind_for_event(event: BillingAlertEvent) -> EventKind | None:
     if event.kind == BillingAlertEvent.Kind.BROKEN_CONFIG:
         return "broken"
     if event.kind in (BillingAlertEvent.Kind.FIRING, BillingAlertEvent.Kind.RESOLVED, BillingAlertEvent.Kind.ERRORED):
@@ -77,7 +78,7 @@ def dispatch_billing_alert_event(event: BillingAlertEvent, now: datetime | None 
     now = now or timezone.now()
     with transaction.atomic():
         locked_event = BillingAlertEvent.objects.select_for_update().select_related("alert").get(id=event.id)
-        if locked_event.notification_sent_at is not None:
+        if locked_event.targets_notified or locked_event.notification_sent_at is not None:
             return 0
 
         kind = _kind_for_event(locked_event)
@@ -90,25 +91,6 @@ def dispatch_billing_alert_event(event: BillingAlertEvent, now: datetime | None 
             return 0
 
         destination_ids = [str(destination.id) for destination in destinations]
-        for destination in destinations:
-            destination_type = DESTINATION_TYPE_BY_TEMPLATE_ID.get(destination.template_id)
-            if destination_type is None:
-                continue
-            BillingAlertDelivery.objects.get_or_create(
-                event=locked_event,
-                destination_type=destination_type,
-                destination_key=str(destination.id),
-                defaults={
-                    "hog_function_id": destination.id,
-                    "idempotency_key": f"billing-alert-{locked_event.id}-{destination.id}",
-                    "status": BillingAlertDelivery.Status.QUEUED,
-                },
-            )
-
-        locked_event.notification_sent_at = now
-        locked_event.save(update_fields=["notification_sent_at"])
-        locked_event.alert.last_notified_at = now
-        locked_event.alert.save(update_fields=["last_notified_at", "updated_at"])
 
         try:
             produce_internal_event(
@@ -128,5 +110,11 @@ def dispatch_billing_alert_event(event: BillingAlertEvent, now: datetime | None 
                 event_name=event_name,
             )
             raise
+
+        locked_event.notification_sent_at = now
+        locked_event.targets_notified = {"hog_functions": destination_ids}
+        locked_event.save(update_fields=["notification_sent_at", "targets_notified"])
+        locked_event.alert.last_notified_at = now
+        locked_event.alert.save(update_fields=["last_notified_at", "updated_at"])
 
     return len(destinations)

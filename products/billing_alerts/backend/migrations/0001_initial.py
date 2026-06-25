@@ -38,21 +38,6 @@ class Migration(migrations.Migration):
                     models.CharField(choices=[("spend", "Spend"), ("usage", "Usage")], default="spend", max_length=20),
                 ),
                 ("currency", models.CharField(default="USD", max_length=3)),
-                ("usage_types", models.JSONField(default=list)),
-                ("team_ids", models.JSONField(default=list)),
-                (
-                    "group_by",
-                    models.CharField(
-                        choices=[
-                            ("total", "Total"),
-                            ("usage_type", "Usage type"),
-                            ("team", "Team"),
-                            ("usage_type_team", "Usage type and team"),
-                        ],
-                        default="total",
-                        max_length=32,
-                    ),
-                ),
                 (
                     "threshold_type",
                     models.CharField(
@@ -123,11 +108,6 @@ class Migration(migrations.Migration):
                             ("firing", "Firing"),
                             ("resolved", "Resolved"),
                             ("errored", "Errored"),
-                            ("snoozed", "Snoozed"),
-                            ("unsnoozed", "Unsnoozed"),
-                            ("enabled", "Enabled"),
-                            ("disabled", "Disabled"),
-                            ("threshold_changed", "Threshold changed"),
                             ("broken_config", "Broken config"),
                         ],
                         default="check",
@@ -165,6 +145,7 @@ class Migration(migrations.Migration):
                 ("state_before", models.CharField(blank=True, max_length=20, null=True)),
                 ("state_after", models.CharField(blank=True, max_length=20, null=True)),
                 ("notification_sent_at", models.DateTimeField(blank=True, null=True)),
+                ("targets_notified", models.JSONField(default=dict)),
                 ("query_duration_ms", models.PositiveIntegerField(blank=True, null=True)),
                 ("error_code", models.CharField(blank=True, max_length=80, null=True)),
                 ("error_message", models.TextField(blank=True, null=True)),
@@ -189,82 +170,12 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
-        migrations.CreateModel(
-            name="BillingAlertDelivery",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(
-                        default=posthog.models.utils.uuid7,
-                        editable=False,
-                        primary_key=True,
-                        serialize=False,
-                    ),
-                ),
-                (
-                    "destination_type",
-                    models.CharField(
-                        choices=[
-                            ("slack", "Slack"),
-                            ("webhook", "Webhook"),
-                            ("teams", "Microsoft Teams"),
-                            ("email", "Email"),
-                            ("in_app", "In-app"),
-                        ],
-                        max_length=32,
-                    ),
-                ),
-                ("destination_key", models.CharField(max_length=255)),
-                ("hog_function_id", models.UUIDField(blank=True, null=True)),
-                ("idempotency_key", models.CharField(max_length=255, unique=True)),
-                (
-                    "status",
-                    models.CharField(
-                        choices=[
-                            ("queued", "Queued"),
-                            ("sent", "Sent"),
-                            ("failed", "Failed"),
-                            ("skipped", "Skipped"),
-                        ],
-                        default="queued",
-                        max_length=20,
-                    ),
-                ),
-                ("recipient_results", models.JSONField(default=dict)),
-                ("error_message", models.TextField(blank=True, null=True)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True, blank=True, null=True)),
-                ("sent_at", models.DateTimeField(blank=True, null=True)),
-                (
-                    "event",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="deliveries",
-                        to="billing_alerts.billingalertevent",
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "billing_alerts_delivery",
-                "indexes": [
-                    models.Index(fields=["event", "destination_type"], name="bill_deliv_event_type_idx"),
-                    models.Index(fields=["status", "-created_at"], name="bill_deliv_status_ts_idx"),
-                ],
-            },
-        ),
         migrations.AddConstraint(
             model_name="billingalertevent",
             constraint=models.UniqueConstraint(
-                condition=models.Q(evaluation_date__isnull=False),
+                condition=models.Q(evaluation_date__isnull=False, kind="check"),
                 fields=("alert", "kind", "evaluation_date"),
-                name="unique_billing_alert_event_date",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="billingalertdelivery",
-            constraint=models.UniqueConstraint(
-                fields=("event", "destination_type", "destination_key"),
-                name="unique_billing_delivery_destination",
+                name="unique_billing_alert_check_event_date",
             ),
         ),
     ]
