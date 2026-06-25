@@ -105,6 +105,7 @@ from posthog.schema_enums import (
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
+    FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
     FunnelCorrelationResultsType as FunnelCorrelationResultsType,
     FunnelLayout as FunnelLayout,
@@ -2301,7 +2302,24 @@ class ReplayVisionScannerFindingSignalExtra(BaseModel):
         ...,
         description=("The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`."),
     )
+    distinct_id: str | None = None
+    end_time: float = Field(
+        ...,
+        description=("When the issue ends in the recording, in seconds (the footer's REC_T value)."),
+    )
+    exported_asset_id: float = Field(..., description="The rasterized MP4 asset the scanner analysed.")
     observation_id: str
+    problem_type: str = Field(
+        ...,
+        description=(
+            "Issue category: 'bug' / 'crash' / 'design_flaw' / 'ux_friction'. Kept open"
+            " so new categories don't fail validation."
+        ),
+    )
+    recording_active_seconds: float | None = None
+    recording_duration: float | None = None
+    recording_end_time: str | None = Field(default=None, description="ISO 8601 recording end.")
+    recording_start_time: str | None = Field(default=None, description="ISO 8601 recording start (the REC_T=0 anchor).")
     scanner_id: str
     scanner_name: str
     scanner_type: str = Field(
@@ -2313,6 +2331,13 @@ class ReplayVisionScannerFindingSignalExtra(BaseModel):
         ),
     )
     session_id: str
+    start_time: float = Field(
+        ...,
+        description=(
+            "When the issue starts in the recording, in seconds from recording start (the footer's REC_T value)."
+        ),
+    )
+    url: str = Field(..., description="The page the issue happened on (the footer's URL value).")
 
 
 class ResolvedDateRangeResponse(BaseModel):
@@ -5245,6 +5270,18 @@ class FunnelExclusionSteps(BaseModel):
     )
     funnelFromStep: int
     funnelToStep: int
+
+
+class FunnelsAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnel_step: int | None = Field(
+        default=None,
+        description=("Zero-based step index to evaluate. Null = the last step (overall conversion)."),
+    )
+    metric: FunnelConversionMetric
+    type: Literal["FunnelsAlertConfig"] = "FunnelsAlertConfig"
 
 
 class FunnelsFilterLegacy(BaseModel):

@@ -25,6 +25,7 @@ from temporalio.client import (
 )
 from temporalio.common import RetryPolicy
 
+from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
@@ -390,9 +391,7 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 
 
 def is_cdc_enabled_for_team(team: Team) -> bool:
-    import posthoganalytics
-
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "dwh-postgres-cdc",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
@@ -401,9 +400,7 @@ def is_cdc_enabled_for_team(team: Team) -> bool:
 
 
 def is_xmin_enabled_for_team(team: Team) -> bool:
-    import posthoganalytics
-
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "dwh-postgres-xmin",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
@@ -443,7 +440,7 @@ def get_cdc_extraction_schedule(
     The schedule runs at the source level and the interval is the minimum
     sync_frequency_interval of all CDC-enabled schemas in the source.
     """
-    from posthog.temporal.data_imports.cdc.workflows import CDCExtractionInput
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.workflows import CDCExtractionInput
 
     inputs = CDCExtractionInput(
         team_id=source.team_id,
@@ -602,7 +599,9 @@ def get_discover_schemas_schedule(source: ExternalDataSource) -> Schedule:
     # `delete_external_data_schedule` and `_get_discover_schemas_schedule_id` from this
     # module for self-cleanup when the source vanishes, so it imports from us at module
     # load time. Hoisting this import would deadlock the loader.
-    from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import SyncNewSchemasActivityInputs
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
+        SyncNewSchemasActivityInputs,
+    )
 
     inputs = SyncNewSchemasActivityInputs(source_id=str(source.id), team_id=source.team_id)
 

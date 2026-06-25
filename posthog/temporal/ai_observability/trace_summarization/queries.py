@@ -1,9 +1,9 @@
 """ClickHouse queries for trace summarization.
 
 Routes through `TraceQueryRunner` so reads land on the dedicated `ai_events`
-table when the rollout flag is on (and fall back to the shared `events` table
-otherwise). The runner re-merges the stripped heavy columns into
-`event.properties`, so downstream formatters keep working post-strip.
+table (falling back to the shared `events` table for data beyond the retention
+window). The runner re-merges the heavy columns into `event.properties`, so
+downstream formatters keep working.
 """
 
 from posthog.schema import DateRange, LLMTrace, NodeKind, TraceQuery

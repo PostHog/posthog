@@ -151,6 +151,18 @@
                                                     }
                                                 ]
                                             },
+                                            "eventName": {
+                                                "anyOf": [
+                                                    {
+                                                        "minLength": 1,
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Limit the feed to a single event name. Omit or null for all events."
+                                            },
                                             "filterTestAccounts": {
                                                 "anyOf": [
                                                     {

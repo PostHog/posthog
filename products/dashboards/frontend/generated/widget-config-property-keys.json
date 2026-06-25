@@ -1,6 +1,6 @@
 {
     "configPropertyKeys": {
-        "activity_events_list": ["dateRange", "filterTestAccounts", "limit", "widgetFilters"],
+        "activity_events_list": ["dateRange", "eventName", "filterTestAccounts", "limit", "widgetFilters"],
         "error_tracking_list": [
             "assignee",
             "dateRange",
@@ -99,6 +99,9 @@
             },
             "limit": {
                 "$type": "integer"
+            },
+            "eventName": {
+                "$type": "string"
             }
         },
         "error_tracking_list": {

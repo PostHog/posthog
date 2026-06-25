@@ -1,7 +1,7 @@
 import '~/tests/helpers/mocks/date.mock'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
