@@ -48,6 +48,9 @@ const errorTrackingAssignmentRulesCreate = (): ToolBase<
         if (params.assignee !== undefined) {
             body['assignee'] = params.assignee
         }
+        if (params.order_key !== undefined) {
+            body['order_key'] = params.order_key
+        }
         const result = await context.api.request<Schemas.ErrorTrackingAssignmentRule>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/assignment_rules/`,

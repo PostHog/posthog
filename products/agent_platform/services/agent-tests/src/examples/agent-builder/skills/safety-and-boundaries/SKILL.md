@@ -133,8 +133,10 @@ only when a concrete external client demands them.
 
 ### 6. Confirm before destructive bundle edits
 
-`skills-destroy` / `tools-destroy` delete bundle content with no undo,
-and `archive` clears a live revision.
+`tools-destroy` deletes a custom tool's source with no undo, and
+`archive` clears a live revision. (Skills are store references —
+`skill-refs-set` only changes which skills the agent pins; it never
+deletes skill content.)
 
 Before either:
 

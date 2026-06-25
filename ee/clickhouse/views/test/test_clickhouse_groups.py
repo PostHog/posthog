@@ -179,7 +179,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 400)
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=False)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=False)
     def test_retrieve_group_crm_disabled(self, _):
         index: GroupTypeIndex = 0
         key = "key"
@@ -207,7 +207,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_retrieve_group_crm_enabled(self, _):
         index: GroupTypeIndex = 0
         key = "key"
@@ -246,7 +246,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(notebook.content[1]["type"], "text")
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_find_with_skip_create_notebook_does_not_create_notebook(self, _):
         index: GroupTypeIndex = 0
         key = "key"
@@ -295,7 +295,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @patch("products.notebooks.backend.logic.ResourceNotebook.objects.create", side_effect=IntegrityError)
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_retrieve_group_notebook_transaction_rollback(self, _, mock_relationship_create):
         index: GroupTypeIndex = 0
         key = "key"
@@ -483,6 +483,42 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "attr": "detail",
             },
         )
+        mock_capture.assert_not_called()
+
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_create_group_duplicated_group_key_via_personhog(self, mock_capture):
+        """Personhog upserts on duplicate so the pre-check must catch it."""
+        from posthog.personhog_client.fake_client import fake_personhog_client
+
+        group_type_mapping = create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        group_key = "dup-key-ph"
+
+        with fake_personhog_client() as fake:
+            fake.add_group(
+                team_id=self.team.pk,
+                group_type_index=group_type_mapping.group_type_index,
+                group_key=group_key,
+                id=1,
+            )
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/groups",
+                {
+                    "group_key": group_key,
+                    "group_type_index": 0,
+                    "group_properties": {},
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "A group with this key already exists")
+        create_calls = [c for c in fake.calls if c.method == "create_group"]
+        self.assertEqual(len(create_calls), 0, "create_group should not be called for duplicates")
         mock_capture.assert_not_called()
 
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
@@ -2055,8 +2091,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(metric.name, "Updated by admin")
 
     def _create_dw_table(self, name: str = "stripe_charges"):
-        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
         return DataWarehouseTable.objects.create(

@@ -1,12 +1,24 @@
+import { useState } from 'react'
+
+import { IconCalendar, IconX } from '@posthog/icons'
+import { Button, DatePicker as QuillDatePicker, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
+
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 
 /**
  * Design-system-agnostic single-date picker — the migration seam between the LemonUI
  * calendar family and Quill's DateTimePicker. Callers depend on this dayjs-facing API;
  * the internal rendering swaps from LemonUI to Quill in one place without touching callers.
- * That swap should land behind a feature flag so LemonUI and Quill can run side by side
- * and roll back without a revert.
+ *
+ * The swap is gated by the `QUILL_DATE_PICKER` feature flag so LemonUI and Quill run side
+ * by side and roll back without a revert. The Quill panel does not yet cover the whole
+ * feature surface, so `quillCanRender` falls back to LemonUI whenever a request needs a
+ * capability Quill is missing: hour-only granularity, 12-hour time entry, selection
+ * windows, multi-month, or controlled visibility. Day/minute granularity (with an optional
+ * include-time toggle) is handled; minute entry renders in 24-hour time. Each Quill panel
+ * increment removes one fallback condition.
  *
  * Trigger concerns (placeholder, clearable, format, ...) live here by design — Quill
  * separates the trigger from the picker panel, so the wrapper owns the trigger.
@@ -36,6 +48,8 @@ export interface DatePickerProps {
     use24HourFormat?: boolean
     /** Number of calendar months to render side by side. */
     months?: number
+    /** Latest selectable date. Bounds the Quill panel; when omitted Quill caps at today, so future-date callers must pass this. The LemonUI fallback has no equivalent and stays unbounded above. */
+    maxDate?: dayjs.Dayjs
     /** Placeholder shown on the trigger when no value is set. */
     placeholder?: string
     /** Show a clear affordance on the trigger to reset the value to null. */
@@ -57,7 +71,104 @@ export interface DatePickerProps {
     'data-attr'?: string
 }
 
-export function DatePicker({
+const QUILL_TRIGGER_FORMAT = 'MMMM D, YYYY'
+const QUILL_TRIGGER_DATETIME_FORMAT = 'MMMM D, YYYY HH:mm'
+
+function quillCanRender(props: DatePickerProps): boolean {
+    return (
+        props.granularity !== 'hour' &&
+        props.use24HourFormat !== false &&
+        props.selectionPeriod === undefined &&
+        props.months === undefined &&
+        props.visible === undefined &&
+        props.onOpen === undefined &&
+        props.onClickOutside === undefined &&
+        props.onClose === undefined
+    )
+}
+
+export function DatePicker(props: DatePickerProps): JSX.Element {
+    const quillEnabled = useFeatureFlag('QUILL_DATE_PICKER')
+    if (quillEnabled && quillCanRender(props)) {
+        return <DatePickerQuill {...props} />
+    }
+    return <DatePickerLemon {...props} />
+}
+
+function DatePickerQuill({
+    value,
+    onChange,
+    granularity,
+    showTimeToggle,
+    onToggleTime,
+    placeholder,
+    clearable,
+    format,
+    fullWidth = true,
+    disabledReason,
+    maxDate,
+    'data-attr': dataAttr,
+}: DatePickerProps): JSX.Element {
+    const [open, setOpen] = useState(false)
+    const [includeTime, setIncludeTime] = useState(granularity === 'minute')
+    const labelFormat = format ?? (includeTime ? QUILL_TRIGGER_DATETIME_FORMAT : QUILL_TRIGGER_FORMAT)
+    const label = value ? value.format(labelFormat) : (placeholder ?? 'Select date')
+
+    const handleIncludeTimeChange = (next: boolean): void => {
+        setIncludeTime(next)
+        onToggleTime?.(next)
+    }
+
+    const applyDate = (next: Date): void => {
+        onChange(dayjs(next))
+        setOpen(false)
+    }
+
+    return (
+        <div className={fullWidth ? 'flex w-full items-center gap-1' : 'flex items-center gap-1'}>
+            <Popover open={open} onOpenChange={setOpen}>
+                <PopoverTrigger
+                    render={
+                        <Button
+                            variant="outline"
+                            data-attr={dataAttr}
+                            data-quill
+                            disabled={!!disabledReason}
+                            title={disabledReason}
+                            className={fullWidth ? 'w-full justify-start' : 'justify-start'}
+                        >
+                            <IconCalendar />
+                            {label}
+                        </Button>
+                    }
+                />
+                <PopoverContent align="start" className="w-auto p-0">
+                    <QuillDatePicker
+                        value={value ? value.toDate() : new Date()}
+                        maxDate={maxDate?.toDate()}
+                        showTime={includeTime}
+                        showTimeToggle={!!showTimeToggle}
+                        onIncludeTimeChange={handleIncludeTimeChange}
+                        onApply={applyDate}
+                        onCancel={() => setOpen(false)}
+                    />
+                </PopoverContent>
+            </Popover>
+            {clearable && value && !disabledReason && (
+                <Button
+                    variant="outline"
+                    aria-label="Clear date"
+                    data-attr={dataAttr ? `${dataAttr}-clear` : undefined}
+                    onClick={() => onChange(null)}
+                >
+                    <IconX />
+                </Button>
+            )}
+        </div>
+    )
+}
+
+function DatePickerLemon({
     value,
     onChange,
     granularity,

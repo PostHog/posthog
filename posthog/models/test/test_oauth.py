@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -346,6 +347,7 @@ class TestOAuthModels(TestCase):
         ("reverse domain style", "com.posthog.code://oauth"),
         ("cursor scheme", "cursor://oauth"),
         ("vscode scheme", "vscode://oauth"),
+        ("authority-less native scheme", "com.example.app:/oauth"),
     ]
 
     @parameterized.expand(valid_custom_scheme_uris)
@@ -363,7 +365,13 @@ class TestOAuthModels(TestCase):
         )
         self.assertEqual(app.redirect_uris, redirect_uri)
 
-    def test_custom_scheme_with_fragment_still_rejected(self):
+    @parameterized.expand(
+        [
+            ("authority form", "myapp://callback#fragment"),
+            ("authority-less native", "com.example.app:/oauth#fragment"),
+        ]
+    )
+    def test_custom_scheme_with_fragment_still_rejected(self, _name, redirect_uri):
         with self.assertRaises(ValidationError):
             OAuthApplication.objects.create(
                 name="Invalid Custom Scheme App",
@@ -371,7 +379,7 @@ class TestOAuthModels(TestCase):
                 client_secret="invalid_custom_scheme_client_secret",
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="myapp://callback#fragment",
+                redirect_uris=redirect_uri,
                 organization=self.organization,
                 algorithm="RS256",
             )
@@ -426,6 +434,42 @@ class TestOAuthModels(TestCase):
                 organization=self.organization,
                 algorithm="RS256",
             )
+
+    def test_code_grant_application_requires_redirect_uri(self):
+        with self.assertRaises(ValidationError):
+            OAuthApplication.objects.create(
+                name="No Redirect App",
+                client_id="no_redirect_client_id",
+                client_secret="no_redirect_client_secret",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="",
+                organization=self.organization,
+                algorithm="RS256",
+            )
+
+    def test_valid_allowed_origins_accepted(self):
+        app = self._make_app(
+            "Allowed Origins App",
+            "allowed_origins_client",
+            allowed_origins="https://app.example.com https://www.example.com",
+        )
+        self.assertIn("app.example.com", app.allowed_origins)
+
+    @parameterized.expand(
+        [
+            ("non-https scheme", "http://app.example.com"),
+            ("origin with path", "https://app.example.com/callback"),
+        ]
+    )
+    def test_invalid_allowed_origins_rejected(self, _name, allowed_origins):
+        with self.assertRaises(ValidationError):
+            self._make_app("Bad Origin App", "bad_origin_client", allowed_origins=allowed_origins)
+
+    def test_rs256_without_private_key_rejected(self):
+        with override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": ""}):
+            with self.assertRaises(ValidationError):
+                self._make_app("No Key App", "no_key_client")
 
     def test_invalid_redirect_uri_no_host(self):
         with self.assertRaises(ValidationError):

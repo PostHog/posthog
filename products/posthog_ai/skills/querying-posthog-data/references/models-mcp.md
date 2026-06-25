@@ -79,7 +79,11 @@ GROUP BY day ORDER BY day
 
 ### Harness (client) bucketing
 
-`$mcp_client_name` is the raw client string the MCP client sends (`claude-code/1.2.3`, `Anthropic/ClaudeAI`, `windsurf`, sometimes with a `(via mcp-remote …)` suffix), but newer Anthropic clients stopped sending it — they report identity only via the `x-anthropic-client` header (`mcp_vendor_client`: `ClaudeCode`, `ClaudeAI`, `Cowork`, `ClaudeDesign`) or the User-Agent (`$mcp_client_user_agent`). Grouping on `$mcp_client_name` alone therefore drops nearly all Claude traffic into "Other". Resolve an effective client first — prefer `$mcp_client_name`, then the vendor header (matched case-insensitively), then the User-Agent's leading product token plus its first parenthetical token as a surface suffix (e.g. `claude-code cli`, `claude-code claude-desktop`, `openai-mcp chatgpt`); the version segment between them is dropped so `claude-code/2.1.x` folds to one token. Then bucket with `multiIf`, listing surface-specific tokens before the generic prefix match. Clients whose parenthetical is platform/arch noise (e.g. `cursor darwin arm64`) still fold to one bucket via the generic `startsWith`. This mapping mirrors `HARNESS_REGISTRY` / `categorizeHarness()` in `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts` — keep the two in sync until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
+A "harness" is the friendly product label for the MCP client that made a call — "Claude Agent SDK", "OpenAI Codex", "Cursor", … It is resolved **server-side** by `MCPHarnessBreakdownQueryRunner`, the single source of truth (`products/mcp_analytics/backend/mcp_harness.py`).
+
+**Prefer the typed tool.** For "which harnesses use our MCP, and how reliably?", call the `query-mcp-harness-breakdown` tool (gated behind the `mcp-analytics` flag). It returns calls / errors / error-rate / sessions per harness and accepts the same `dateRange` / `properties` / `filterTestAccounts` filters as the dashboard, so results match the UI exactly — no hand-written bucketing needed. (The session/feedback REST tools — `mcp-analytics-sessions-list` etc. — are disabled, so anything the typed tool doesn't express drops to `execute-sql` below.)
+
+**Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Resolution is two steps: resolve a normalized token from the strongest signal available, then bucket it. An event carries only raw signals — the `x-anthropic-client` header (`mcp_vendor_client`) is the only thing separating Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design); Claude Code's build (cli / sdk / vscode / desktop) rides in the User-Agent; the posthog-node MCP analytics SDK reports its `clientInfo.name` as `$mcp_client_name`, and the hosted server's session-pinned `mcp_session_client_name` covers everyone else; `$mcp_client_user_agent` and `$mcp_oauth_client_name` are last fallbacks. The SQL below mirrors `harness_label_sql` / `HARNESS_TOKEN_SQL` in `mcp_harness.py`; keep them in step until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
 
 **Share of users by harness** (answers "what % of my users are on Claude Code"):
 
@@ -116,6 +120,10 @@ FROM (
             h = 'manus', 'Manus',
             h = 'coderabbit', 'CodeRabbit',
             startsWith(h, 'notion'), 'Notion',
+            startsWith(h, 'linear'), 'Linear',
+            position(h, 'librechat') > 0, 'LibreChat',
+            startsWith(h, 'pi-client'), 'Pi',
+            startsWith(h, 'antigravity'), 'Antigravity',
             h = 'poke', 'Poke',
             h = 'opencode', 'opencode',
             startsWith(h, 'kiro'), 'Kiro',
@@ -125,24 +133,29 @@ FROM (
     FROM (
         SELECT
             distinct_id,
-            lower(trim(replaceRegexpOne(
+            trim(replaceRegexpAll(lower(
                 coalesce(
-                    nullIf(toString(properties.$mcp_client_name), ''),
                     multiIf(
                         lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
                         lower(toString(properties.mcp_vendor_client)) = 'claudeai', 'claude-ai',
                         lower(toString(properties.mcp_vendor_client)) = 'cowork', 'cowork',
                         lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
-                        nullIf(toString(properties.mcp_vendor_client), '')
+                        NULL
                     ),
+                    if(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')) = 'claude-code',
+                       trim(concat(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'), ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)'))),
+                       NULL),
+                    nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
+                    nullIf(nullIf(toString(properties.mcp_session_client_name), ''), 'mcp'),
                     nullIf(trim(concat(
                         extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'),
                         ' ',
                         extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')
                     )), ''),
+                    nullIf(toString(properties.$mcp_oauth_client_name), ''),
                     ''
-                ),
-                '\\s*\\(via mcp-remote[^)]*\\)\\s*', ''))) AS h
+                )
+            ), '\\s*\\(via mcp-remote[^)]*\\)\\s*', '')) AS h
         FROM events
         WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 30 DAY
     )

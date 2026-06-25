@@ -6,8 +6,8 @@ import { useRef, useState } from 'react'
 import { IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -122,7 +122,7 @@ export const LogsQueryControls = (): JSX.Element => {
                 loading={logsLoading || liveTailRunning}
                 disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
             />
-            <AppShortcut
+            <Shortcut
                 name="LogsLiveTail"
                 keybind={[keyBinds.edit]}
                 intent={liveTailRunning ? 'Stop live tail' : 'Start live tail'}
@@ -138,7 +138,7 @@ export const LogsQueryControls = (): JSX.Element => {
                 >
                     Live tail
                 </LemonButton>
-            </AppShortcut>
+            </Shortcut>
         </div>
     )
 }

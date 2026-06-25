@@ -21484,7 +21484,9 @@
                 "Knock",
                 "Leexi",
                 "RB2B",
-                "Superwall"
+                "Superwall",
+                "Liana",
+                "TawkTo"
             ],
             "type": "string"
         },
@@ -21747,7 +21749,7 @@
                 "insight/hog",
                 "team_activity",
                 "home",
-                "apps",
+                "tools",
                 "live",
                 "chat",
                 "search",
@@ -21953,6 +21955,11 @@
             },
             "required": ["action", "form_answers"],
             "type": "object"
+        },
+        "FunnelConversionMetric": {
+            "description": "How a funnel alert measures conversion at its step. `conversion_from_start` = step count / first-step count; `conversion_from_previous` = step count / previous-step count.",
+            "enum": ["conversion_from_start", "conversion_from_previous"],
+            "type": "string"
         },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
@@ -22479,6 +22486,32 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "FunnelsAlertConfig": {
+            "additionalProperties": false,
+            "description": "Alert config for funnel insights. Evaluates the conversion rate (as a percentage) at one step.",
+            "properties": {
+                "funnel_step": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Zero-based step index to evaluate. Null = the last step (overall conversion)."
+                },
+                "metric": {
+                    "$ref": "#/definitions/FunnelConversionMetric"
+                },
+                "type": {
+                    "const": "FunnelsAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "metric"],
             "type": "object"
         },
         "FunnelsDataWarehouseNode": {
@@ -25166,6 +25199,53 @@
             "required": ["type"],
             "type": "object"
         },
+        "LLMSentimentMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "number"
+                },
+                "scores": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["label", "score"],
+            "type": "object"
+        },
+        "LLMSentimentResult": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "message_count": {
+                    "type": "number"
+                },
+                "messages": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/LLMSentimentMessage"
+                    },
+                    "type": "object"
+                },
+                "score": {
+                    "type": "number"
+                },
+                "scores": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["label", "score"],
+            "type": "object"
+        },
         "LLMTrace": {
             "additionalProperties": false,
             "properties": {
@@ -25213,6 +25293,9 @@
                 "requestCost": {
                     "type": "number"
                 },
+                "sentiment": {
+                    "$ref": "#/definitions/LLMSentimentResult"
+                },
                 "tools": {
                     "items": {
                         "type": "string"
@@ -25256,6 +25339,9 @@
                 },
                 "properties": {
                     "type": "object"
+                },
+                "sentiment": {
+                    "$ref": "#/definitions/LLMSentimentResult"
                 }
             },
             "required": ["id", "event", "properties", "createdAt"],
@@ -37857,7 +37943,36 @@
                     "description": "The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`.",
                     "type": "number"
                 },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "end_time": {
+                    "description": "When the issue ends in the recording, in seconds (the footer's REC_T value).",
+                    "type": "number"
+                },
+                "exported_asset_id": {
+                    "description": "The rasterized MP4 asset the scanner analysed.",
+                    "type": "number"
+                },
                 "observation_id": {
+                    "type": "string"
+                },
+                "problem_type": {
+                    "description": "Issue category: 'bug' / 'crash' / 'design_flaw' / 'ux_friction'. Kept open so new categories don't fail validation.",
+                    "type": "string"
+                },
+                "recording_active_seconds": {
+                    "type": "number"
+                },
+                "recording_duration": {
+                    "type": "number"
+                },
+                "recording_end_time": {
+                    "description": "ISO 8601 recording end.",
+                    "type": "string"
+                },
+                "recording_start_time": {
+                    "description": "ISO 8601 recording start (the REC_T=0 anchor).",
                     "type": "string"
                 },
                 "scanner_id": {
@@ -37872,9 +37987,29 @@
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "start_time": {
+                    "description": "When the issue starts in the recording, in seconds from recording start (the footer's REC_T value).",
+                    "type": "number"
+                },
+                "url": {
+                    "description": "The page the issue happened on (the footer's URL value).",
+                    "type": "string"
                 }
             },
-            "required": ["scanner_id", "scanner_name", "scanner_type", "observation_id", "session_id", "confidence"],
+            "required": [
+                "scanner_id",
+                "scanner_name",
+                "scanner_type",
+                "observation_id",
+                "session_id",
+                "confidence",
+                "problem_type",
+                "start_time",
+                "end_time",
+                "url",
+                "exported_asset_id"
+            ],
             "type": "object"
         },
         "ReplayVisionScannerFindingSignalInput": {
@@ -43125,6 +43260,10 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "includeSentiment": {
+                    "description": "Include stored sentiment evaluation results for the trace and its generations.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "TraceQuery",
                     "type": "string"
@@ -43799,6 +43938,10 @@
                 },
                 "groupTypeIndex": {
                     "$ref": "#/definitions/integer"
+                },
+                "includeSentiment": {
+                    "description": "Include stored sentiment evaluation results for returned traces and direct generation events.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "TracesQuery",
