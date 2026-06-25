@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { escapeHogQLString, hogql } from '~/queries/utils'
 
@@ -240,7 +241,12 @@ export const resolveDateRange = (filters: {
  */
 export const dateClauseFor = (filters: HogInvocationsFilters): ReturnType<typeof hogql.raw> => {
     const { start, end } = resolveDateRange(filters)
-    const fmt = (d: dayjs.Dayjs): string => d.utc().format('YYYY-MM-DD HH:mm:ss.SSS')
+    // HogQL interprets bare datetime literals in the *team* timezone (DateTime
+    // fields are compared as toTimeZone(field, team_tz)), so format the window
+    // bounds in the team tz — NOT UTC — or the filter is shifted by the team's
+    // offset for any non-UTC project. Mirrors `toAbsoluteClickhouseTimestamp`.
+    const teamTimezone = teamLogic.findMounted()?.values.currentTeam?.timezone ?? 'UTC'
+    const fmt = (d: dayjs.Dayjs): string => d.tz(teamTimezone).format('YYYY-MM-DD HH:mm:ss.SSS')
     return hogql.raw(`AND scheduled_at >= '${fmt(start)}' AND scheduled_at < '${fmt(end)}'`)
 }
 

@@ -429,7 +429,10 @@ export class RerunPaginatorService {
         const requestedStatus = filter.status?.length ? filter.status : ['failed']
         // The Django serializer accepts ISO 8601 ('2026-05-01T00:00:00Z'), but
         // ClickHouse `DateTime64` only parses 'YYYY-MM-DD HH:MM:SS[.fff]'. Convert
-        // before passing as a query parameter.
+        // before passing as a query parameter. The bound params below are typed
+        // `DateTime64(6, 'UTC')` so the (tz-stripped) UTC wall-clock string is
+        // always interpreted as UTC — an untyped `DateTime64` would be parsed in
+        // the CH server timezone, shifting the window on non-UTC servers.
         const windowStart = toClickhouseDateTime(filter.window_start)
         const windowEnd = toClickhouseDateTime(filter.window_end)
         const cursorScheduledAt = state.progress.cursor?.scheduled_at
@@ -442,7 +445,7 @@ export class RerunPaginatorService {
         const cursor = state.progress.cursor
         const cursorClause =
             cursor && cursor.scheduled_at
-                ? '   AND (scheduled_at, invocation_id) < ({cursor_scheduled_at:DateTime64}, {cursor_invocation_id:String})'
+                ? "   AND (scheduled_at, invocation_id) < ({cursor_scheduled_at:DateTime64(6, 'UTC')}, {cursor_invocation_id:String})"
                 : ''
         const errorKindClause = filter.error_kind?.length
             ? 'AND argMax(error_kind, version) IN {error_kind:Array(String)}'
@@ -469,8 +472,8 @@ export class RerunPaginatorService {
                 WHERE team_id = {team_id:Int64}
                   AND function_kind = {function_kind:String}
                   AND function_id = {function_id:String}
-                  AND scheduled_at >= {window_start:DateTime64}
-                  AND scheduled_at <  {window_end:DateTime64}
+                  AND scheduled_at >= {window_start:DateTime64(6, 'UTC')}
+                  AND scheduled_at <  {window_end:DateTime64(6, 'UTC')}
                   ${invocationIdsClause}
                 ${cursorClause}
                 GROUP BY invocation_id
