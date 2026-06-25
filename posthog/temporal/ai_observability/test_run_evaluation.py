@@ -46,6 +46,7 @@ from .run_evaluation import (
     RunEvaluationWorkflow,
     SendEvaluationDisabledEmailInputs,
     SendTrialUsageEmailInputs,
+    WorkflowResult,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     execute_hog_eval_activity,
@@ -456,7 +457,7 @@ class TestRunEvaluationWorkflow:
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                result: dict[str, Any] = await env.client.execute_workflow(
+                result: WorkflowResult = await env.client.execute_workflow(
                     RunEvaluationWorkflow.run,
                     RunEvaluationInputs(
                         evaluation_id=evaluation_id,
@@ -541,7 +542,7 @@ class TestRunEvaluationWorkflow:
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                result: dict[str, Any] = await env.client.execute_workflow(
+                result: WorkflowResult = await env.client.execute_workflow(
                     RunEvaluationWorkflow.run,
                     RunEvaluationInputs(
                         evaluation_id=evaluation_id,

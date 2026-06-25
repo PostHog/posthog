@@ -218,10 +218,10 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     try:
         resolved = model_spec(evaluation.get("model_configuration")).resolve(team_id)
     except ApplicationError as e:
-        result = terminal_user_error_result_from_application_error(e, allows_na=allows_na)
-        if result is not None:
-            increment_user_errors(result["skip_reason"], provider=result.get("provider"))
-            return result
+        terminal_result = terminal_user_error_result_from_application_error(e, allows_na=allows_na)
+        if terminal_result is not None:
+            increment_user_errors(terminal_result["skip_reason"], provider=terminal_result.get("provider"))
+            return terminal_result
         raise
 
     provider = resolved.provider
@@ -358,12 +358,12 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         increment_errors(type(e).__name__, provider=provider)
         raise
 
-    result = response.parsed
-    if result is None:
+    parsed_result = response.parsed
+    if parsed_result is None:
         logger.exception("LLM judge returned empty structured response", evaluation_id=evaluation["id"])
         raise ValueError(f"LLM judge returned empty structured response for evaluation {evaluation['id']}")
 
-    assert isinstance(result, BooleanEvalResult | BooleanWithNAEvalResult)
+    assert isinstance(parsed_result, BooleanEvalResult | BooleanWithNAEvalResult)
 
     usage = response.usage
 
@@ -378,8 +378,8 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
 
     result_dict: EvaluationActivityResult = {
         "result_type": "boolean",
-        "verdict": result.verdict,
-        "reasoning": result.reasoning,
+        "verdict": parsed_result.verdict,
+        "reasoning": parsed_result.reasoning,
         "input_tokens": usage.input_tokens if usage else 0,
         "output_tokens": usage.output_tokens if usage else 0,
         "total_tokens": usage.total_tokens if usage else 0,
@@ -390,11 +390,11 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         "provider": provider,
     }
 
-    if allows_na and isinstance(result, BooleanWithNAEvalResult):
-        result_dict["applicable"] = result.applicable
-    elif isinstance(result, BooleanEvalResult):
+    if allows_na and isinstance(parsed_result, BooleanWithNAEvalResult):
+        result_dict["applicable"] = parsed_result.applicable
+    elif isinstance(parsed_result, BooleanEvalResult):
         pass
     else:
-        raise ValueError(f"Unexpected result type: {type(result)}")
+        raise ValueError(f"Unexpected result type: {type(parsed_result)}")
 
     return result_dict

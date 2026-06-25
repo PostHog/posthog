@@ -377,6 +377,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             and temporalio.workflow.patched("eval-disabled-email")
         )
         if should_send_disabled_email:
+            assert spec is not None
             email_status_reason = str(status_reason)
             try:
                 await temporalio.workflow.execute_activity(
