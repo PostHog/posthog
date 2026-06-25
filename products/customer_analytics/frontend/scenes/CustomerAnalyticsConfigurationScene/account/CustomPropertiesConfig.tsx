@@ -29,7 +29,7 @@ export function CustomPropertiesConfig(): JSX.Element {
             primaryButton: {
                 children: 'Delete',
                 status: 'danger',
-                onClick: () => deleteDefinition({ id: definition.id }),
+                onClick: () => deleteDefinition({ definition }),
             },
             secondaryButton: { children: 'Cancel' },
         })

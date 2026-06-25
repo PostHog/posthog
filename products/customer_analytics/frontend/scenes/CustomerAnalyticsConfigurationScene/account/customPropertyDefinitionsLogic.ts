@@ -79,9 +79,13 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     const response = await customPropertyDefinitionsList(String(values.currentProjectId))
                     return response.results
                 },
-                deleteDefinition: async ({ id }: { id: string }): Promise<CustomPropertyDefinitionApi[]> => {
-                    await customPropertyDefinitionsDestroy(String(values.currentProjectId), id)
-                    return values.definitions.filter((definition) => definition.id !== id)
+                deleteDefinition: async ({
+                    definition,
+                }: {
+                    definition: CustomPropertyDefinitionApi
+                }): Promise<CustomPropertyDefinitionApi[]> => {
+                    await customPropertyDefinitionsDestroy(String(values.currentProjectId), definition.id)
+                    return values.definitions.filter((existing) => existing.id !== definition.id)
                 },
             },
         ],
@@ -111,6 +115,8 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
     })),
     listeners(({ actions, values }) => ({
         openCreateModal: () => {
+            // Funnel entry for adoption: pairs with the `created` event to measure creation drop-off.
+            posthog.capture(CustomPropertyEvents.CreationStarted)
             actions.resetCustomPropertyForm()
         },
         openEditModal: ({ definition }) => {
@@ -143,8 +149,18 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             }
             lemonToast.error('Failed to save custom property')
         },
-        deleteDefinitionSuccess: () => {
-            posthog.capture(CustomPropertyEvents.Deleted)
+        deleteDefinitionSuccess: ({ payload }) => {
+            // kea types the loader-success payload as optional; at runtime it always carries the deleted definition.
+            const definition = payload?.definition
+            if (definition) {
+                posthog.capture(CustomPropertyEvents.Deleted, {
+                    display_type: definition.display_type,
+                    is_big_number: isNumericDisplayType(definition.display_type)
+                        ? (definition.is_big_number ?? false)
+                        : false,
+                    has_description: !!definition.description?.trim(),
+                })
+            }
             lemonToast.success('Custom property deleted')
         },
         deleteDefinitionFailure: ({ error }) => {

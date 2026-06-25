@@ -154,13 +154,26 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(logic.values.modalVisible).toBe(true)
     })
 
-    it('deletes a definition', async () => {
+    it('deletes a definition and reports its type', async () => {
         useMocks(defaultMocks())
         mountLogic()
         await expectLogic(logic).toDispatchActions(['loadDefinitionsSuccess'])
-        await expectLogic(logic, () => logic.actions.deleteDefinition({ id: 'def-1' }))
+        const definition = buildDefinition({ display_type: 'currency', is_big_number: true, description: null })
+        await expectLogic(logic, () => logic.actions.deleteDefinition({ definition }))
             .toDispatchActions(['deleteDefinitionSuccess'])
             .toMatchValues({ definitions: [] })
-        expect(posthog.capture).toHaveBeenCalledWith(CustomPropertyEvents.Deleted)
+        // Delete carries the same dimensions as create/update so churn is analyzable by type.
+        expect(posthog.capture).toHaveBeenCalledWith(CustomPropertyEvents.Deleted, {
+            display_type: 'currency',
+            is_big_number: true,
+            has_description: false,
+        })
+    })
+
+    it('reports creation started when the create modal opens', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toFinishAllListeners()
+        expect(posthog.capture).toHaveBeenCalledWith(CustomPropertyEvents.CreationStarted)
     })
 })
