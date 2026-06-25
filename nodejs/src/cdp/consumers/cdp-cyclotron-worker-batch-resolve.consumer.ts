@@ -62,13 +62,8 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     public hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService
     // Public for test injection: integration tests override this to simulate
     // Django outages / 5xx without standing up a real Django process.
-    public putBatchJobStatusFn: (
-        teamId: number,
-        batchJobId: string,
-        status: 'completed' | 'failed',
-        truncatedAtCount: number | undefined
-    ) => Promise<void> = (teamId, batchJobId, status, truncatedAtCount) =>
-        this.putBatchJobStatus(teamId, batchJobId, status, truncatedAtCount)
+    public putBatchJobStatusFn: (teamId: number, batchJobId: string, status: 'completed' | 'failed') => Promise<void> =
+        (teamId, batchJobId, status) => this.putBatchJobStatus(teamId, batchJobId, status)
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
@@ -252,9 +247,11 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     }
 
     /**
-     * Audience cap reached. Emit the customer-facing log + metric, then
-     * advance state to pendingTerminal='completed' with truncated_at_count
-     * so the next execution writes the truncation to Django.
+     * Audience cap reached. Surface the truncation to the customer (workflow
+     * log) and ops (Prometheus counter), then flip the state into the
+     * terminal-write phase. Status to Django is plain `completed` — the
+     * truncation count itself is observable via the log + metric, no need
+     * to persist it as queryable data on HogFlowBatchJob.
      */
     private async transitionToTruncatedTerminal(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
         counterBatchHogFlowAudienceTruncated.labels({ hog_flow_id: state.hogFlowId }).inc()
@@ -282,7 +279,6 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const newState: BatchResolverState = {
             ...state,
             pendingTerminal: 'completed',
-            truncatedAtCount: state.totalEnqueued,
         }
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
     }
@@ -331,12 +327,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         }
 
         try {
-            await this.putBatchJobStatusFn(
-                state.teamId,
-                state.batchJobId,
-                state.pendingTerminal,
-                state.truncatedAtCount
-            )
+            await this.putBatchJobStatusFn(state.teamId, state.batchJobId, state.pendingTerminal)
         } catch (err) {
             logger.warn('⚠️', `${this.name} - terminal status write failed, will retry`, {
                 batchJobId: state.batchJobId,
@@ -357,7 +348,6 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         await job.ack()
         logger.info('✅', `${this.name} - batch ${state.batchJobId} → ${state.pendingTerminal}`, {
             totalEnqueued: state.totalEnqueued,
-            truncatedAtCount: state.truncatedAtCount ?? null,
             pagesProcessed: state.pagesProcessed,
         })
     }
@@ -366,23 +356,14 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
      * PUT the terminal status to Django. Endpoint is idempotent — if the row
      * is already in a terminal state, returns 200 no-op.
      */
-    private async putBatchJobStatus(
-        teamId: number,
-        batchJobId: string,
-        status: 'completed' | 'failed',
-        truncatedAtCount: number | undefined
-    ): Promise<void> {
+    private async putBatchJobStatus(teamId: number, batchJobId: string, status: 'completed' | 'failed'): Promise<void> {
         const urlPath = `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status` as const
-        const body: Record<string, unknown> = { status }
-        if (truncatedAtCount !== undefined) {
-            body.truncated_at_count = truncatedAtCount
-        }
 
         const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
             urlPath,
             fetchParams: {
                 method: 'PUT',
-                body: JSON.stringify(body),
+                body: JSON.stringify({ status }),
                 timeoutMs: 10_000,
             },
         })

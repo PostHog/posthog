@@ -39,7 +39,6 @@ export const BatchResolverStateSchema = z.object({
     pagesProcessed: z.number().int().nonnegative(),
     startedAt: z.string(),
     pendingTerminal: z.enum(['completed', 'failed']).optional(),
-    truncatedAtCount: z.number().int().nonnegative().optional(),
 })
 
 /**

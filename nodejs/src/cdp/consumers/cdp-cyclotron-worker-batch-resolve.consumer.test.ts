@@ -120,7 +120,7 @@ async function countChildrenForBatch(batchJobId: string): Promise<number> {
 
 interface MockedDeps {
     fetchPages: jest.Mock // (team, filters, groupTypeIndex, cursor) => Promise<{users_affected, cursor, has_more}>
-    djangoPutStatus: jest.Mock // (teamId, batchJobId, status, truncatedAtCount) => Promise<void>
+    djangoPutStatus: jest.Mock // (teamId, batchJobId, status) => Promise<void>
     queueLogs: jest.Mock
 }
 
@@ -260,7 +260,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
 
         await consumer.processResolverJob(dequeued)
 
-        expect(djangoPut).toHaveBeenCalledWith(TEAM_ID, BATCH_JOB_ID, 'completed', undefined)
+        expect(djangoPut).toHaveBeenCalledWith(TEAM_ID, BATCH_JOB_ID, 'completed')
 
         const after = await readResolverState(jobId)
         expect(after.status).toBe('completed')
@@ -313,7 +313,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
         expect(await countChildrenForBatch(BATCH_JOB_ID)).toBe(0)
     })
 
-    it('truncation: when totalEnqueued >= maxAudienceSize, sets pendingTerminal with truncatedAtCount + emits log + skips fetch', async () => {
+    it('truncation: when totalEnqueued >= maxAudienceSize, sets pendingTerminal + emits log + skips fetch', async () => {
         const initial = makeInitialState({
             maxAudienceSize: 100,
             totalEnqueued: 100, // cap reached
@@ -351,7 +351,6 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
         expect(after.status).toBe('available') // requeued for terminal-write
         expect(after.state).toMatchObject({
             pendingTerminal: 'completed',
-            truncatedAtCount: 100,
         })
     })
 
@@ -420,7 +419,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
 
         expect(fetchPages).toHaveBeenCalledTimes(3)
         expect(djangoPut).toHaveBeenCalledTimes(1)
-        expect(djangoPut).toHaveBeenCalledWith(TEAM_ID, BATCH_JOB_ID, 'completed', undefined)
+        expect(djangoPut).toHaveBeenCalledWith(TEAM_ID, BATCH_JOB_ID, 'completed')
 
         const final = await readResolverState(jobId)
         expect(final.status).toBe('completed')

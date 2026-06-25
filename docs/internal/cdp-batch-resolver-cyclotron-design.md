@@ -198,7 +198,7 @@ The resolver's last act is a PUT to a new internal Django endpoint:
 
 ```text
 PUT /api/projects/<id>/internal/hog_flows/batch_jobs/<batchJobId>/status
-{ status: "COMPLETED", truncated_at_count: 0 }   # or "FAILED", or truncated_at_count > 0
+{ status: "COMPLETED" }   # or "FAILED"
 ```
 
 **Idempotent by design** — if the row is already in a terminal status, the endpoint returns 200 without changing anything. This means the resolver can keep retrying until the write goes through, without worry about double-application.
@@ -209,13 +209,18 @@ This is the _only_ cross-DB write in the entire design, and it's one write per b
 
 ### Truncation (`maxAudienceSize` exceeded)
 
-When `totalEnqueued >= maxAudienceSize` at the start of a page, the resolver exits early and surfaces visibly on three surfaces:
+When `totalEnqueued >= maxAudienceSize` at the start of a page, the resolver exits early and surfaces visibly on two surfaces:
 
-1. **Customer-facing workflow log** — `hogFunctionMonitoringService.queueLogs` emits an entry: `"Audience exceeded the max cap of ${maxAudienceSize}, ${remaining} persons did not receive this workflow."` Visible in the workflow run UI.
+1. **Customer-facing workflow log** — `hogFunctionMonitoringService.queueLogs` emits an entry: `"Audience exceeded the max cap of ${maxAudienceSize}, ${totalEnqueued} persons enqueued; the remainder did not receive this workflow."` Visible in the workflow run UI.
 2. **Prometheus metric** — `cdp_batch_hogflow_audience_truncated{hog_flow_id}` increments. Alertable.
-3. **HogFlowBatchJob** — terminal status is `COMPLETED` (it ran successfully, just hit the cap) with a new `truncated_at_count` integer field carrying the audience size we stopped at.
 
-Status stays as `COMPLETED` rather than a new `COMPLETED_TRUNCATED` enum value — the run completed, the truncation is data, not a different terminal state.
+Status to Django is plain `COMPLETED` — the run completed, the truncation is observable via the log + metric. We _don't_ persist the truncation count as queryable data on `HogFlowBatchJob`:
+
+- The log covers the "did everyone get this?" customer question (visible in run UI).
+- The metric covers the "are we hitting caps often?" ops question (alertable).
+- A persistent field would force a Django migration on this PR and adds a permanent maintenance cost for a "nice to have" use case (a UI badge or analytics query) that nobody has asked for yet.
+
+If a later customer-support flow needs queryable truncation counts, it's a small follow-up migration to add `truncated_at_count` back. YAGNI in the meantime.
 
 ## What this design gets us, problem by problem
 
@@ -234,10 +239,10 @@ Status stays as `COMPLETED` rather than a new `COMPLETED_TRUNCATED` enum value �
 | Failure                                               | Behavior                                                                                                                                                                     |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Transient ClickHouse timeout on a page                | Cyclotron retries job, cursor unchanged, resumes                                                                                                                             |
-| Persistent ClickHouse failure (max retries exhausted) | Job marked failed; resolver PUTs `HogFlowBatchJob.status = FAILED` with the partial `totalEnqueued`. Children already enqueued continue normally.                            |
+| Persistent ClickHouse failure (max retries exhausted) | Job marked failed; resolver PUTs `HogFlowBatchJob.status = FAILED`. Children already enqueued continue normally.                                                             |
 | Worker dies mid-page (before atomic commit)           | Atomic TX rolls back, no partial state. Cyclotron's stall detection makes the job available again after heartbeat timeout, another worker resumes the same page from cursor. |
 | Django down at terminal write                         | Resolver retries the PUT with cyclotron retry semantics. Job stays alive (parked) until Django acknowledges. PUT is idempotent so repeats are safe.                          |
-| Audience exceeds `maxAudienceSize`                    | Early ack with customer log + metric + `truncated_at_count` set (see "Truncation" above).                                                                                    |
+| Audience exceeds `maxAudienceSize`                    | Early ack with customer log + Prometheus counter (see "Truncation" above). Status stays `COMPLETED`, no separate field.                                                      |
 
 ## Design decisions (resolved open questions)
 
@@ -251,7 +256,7 @@ These were the open questions in the first draft of this doc, now resolved with 
 
 4. **Cancellation → out of scope.** Batch cancellation isn't a product feature today; not in v1.
 
-5. **`maxAudienceSize` enforcement → per-page state check + customer log + metric + `truncated_at_count` field on `HogFlowBatchJob`.** Status stays `COMPLETED`; truncation is data, not a different terminal state.
+5. **`maxAudienceSize` enforcement → per-page state check + customer log + Prometheus counter, no DB field.** Status stays `COMPLETED`. We _do not_ persist the truncation count on `HogFlowBatchJob` — the log + metric cover the realistic customer and ops use cases, and dropping the field eliminates a Django migration from this PR (the "migrations + service in same PR" rule) plus a permanent maintenance cost. If a future customer-support flow needs queryable truncation counts, it's a small follow-up migration to add the field back. YAGNI.
 
 ## Migration plan
 
@@ -263,7 +268,6 @@ These were the open questions in the first draft of this doc, now resolved with 
 - Add new worker `CdpCyclotronWorkerBatchResolve`.
 - Add new cyclotron primitive `bulkCreateAndCheckIn`.
 - Add new Django endpoint `PUT /api/projects/<id>/internal/hog_flows/batch_jobs/<id>/status` (idempotent).
-- Add `truncated_at_count` field to `HogFlowBatchJob`.
 - Reuse `HogFlowBatchPersonQueryService` unchanged.
 - Gate dispatch path with `CDP_BATCH_RESOLVER_USE_CYCLOTRON` env flag in `cdp-api.ts`:
   - Flag off → Kafka path (today)
@@ -281,7 +285,7 @@ These were the open questions in the first draft of this doc, now resolved with 
 
 - **Day 1:** Resolver worker skeleton, queue wiring, state shape, env flag.
 - **Day 2:** Per-page execution loop, child enqueue, cursor advance. Implement `bulkCreateAndCheckIn` primitive.
-- **Day 3:** Terminal status PUT to Django (idempotent endpoint + migration for `truncated_at_count`). Truncation handling (log + metric).
+- **Day 3:** Terminal status PUT to Django (idempotent endpoint, no schema migration). Truncation handling (log + metric only).
 - **Day 4:** Tests (unit on resolver, integration end-to-end with 5k synthetic audience).
 - **Day 5:** Canary deploy on flag, observe, iterate.
 

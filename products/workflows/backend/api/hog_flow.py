@@ -1856,7 +1856,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         terminal status, returns 200 without re-writing — the resolver retries
         this call via cyclotron retry semantics, so safe repeats are required.
 
-        Accepts: { status: "completed" | "failed", truncated_at_count?: int }
+        Accepts: { status: "completed" | "failed" }
         """
         from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
 
@@ -1874,14 +1874,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 {"error": "status must be one of: completed, failed"},
                 status=400,
             )
-
-        truncated_at_count = request.data.get("truncated_at_count")
-        if truncated_at_count is not None:
-            if not isinstance(truncated_at_count, int) or truncated_at_count < 0:
-                return Response(
-                    {"error": "truncated_at_count must be a non-negative integer"},
-                    status=400,
-                )
 
         try:
             batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, team=team)
@@ -1903,23 +1895,17 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 {
                     "id": str(batch_job.id),
                     "status": batch_job.status,
-                    "truncated_at_count": batch_job.truncated_at_count,
                     "no_op": True,
                 }
             )
 
         try:
             batch_job.status = new_status
-            update_fields = ["status", "updated_at"]
-            if truncated_at_count is not None:
-                batch_job.truncated_at_count = truncated_at_count
-                update_fields.append("truncated_at_count")
-            batch_job.save(update_fields=update_fields)
+            batch_job.save(update_fields=["status", "updated_at"])
             return Response(
                 {
                     "id": str(batch_job.id),
                     "status": batch_job.status,
-                    "truncated_at_count": batch_job.truncated_at_count,
                     "no_op": False,
                 }
             )

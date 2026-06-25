@@ -36,12 +36,6 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
     filters = models.JSONField(default=dict)
     status = models.CharField(max_length=20, choices=State, default=State.QUEUED)
 
-    # Number of persons actually enqueued before the resolver hit the team's
-    # maxAudienceSize cap. NULL means the run did not truncate (or hasn't yet
-    # reached a terminal state). When set, `status` is still COMPLETED — the
-    # run succeeded, the cap data is here.
-    truncated_at_count = models.IntegerField(null=True, blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.DO_NOTHING, null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
