@@ -81,7 +81,7 @@ import {
     TabularStore,
     ToolContext,
     toolSpanId,
-    readSessionClientKind,
+    readSessionSupportedClientTools,
     WebSearchProvider,
 } from '@posthog/agent-shared'
 
@@ -465,7 +465,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             mcpClients: deps.mcpClients,
             http: deps.http,
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
-            clientKind: readSessionClientKind(session.trigger_metadata),
+            supportedClientTools: readSessionSupportedClientTools(session.trigger_metadata),
             buildMcpConnectUrl: deps.buildMcpConnectUrl,
         }
         const { tools, nameToId } = await buildAgentTools(rev, toolDeps)

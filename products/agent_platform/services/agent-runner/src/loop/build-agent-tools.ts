@@ -41,8 +41,6 @@ import {
     MemoryStore,
     TabularStore,
     Sandbox,
-    type ClientKind,
-    CLIENT_KIND_POSTHOG_CODE,
     ToolContext,
     WebSearchProvider,
 } from '@posthog/agent-shared'
@@ -179,16 +177,18 @@ export interface AgentToolDeps {
      */
     posthogApiBaseUrl: string
     /**
-     * The connecting client's kind (`readSessionClientKind`). Only PostHog Code
-     * can render interactive client-tool punch-outs (forms); other surfaces
-     * (Slack/MCP) get a URL relay instead. Absent → treated as non-PostHog-Code.
+     * The `kind:'client'` tool ids the connecting client can execute this
+     * session (`readSessionSupportedClientTools` ← the /run `supported_client_tools`).
+     * The runner uses it to decide whether an interactive client tool can punch
+     * out a form to this client, or must fall back to a relayed URL (a client
+     * that doesn't list the tool — Slack / MCP — can't render one). Absent /
+     * missing the id → treated as "can't punch out".
      */
-    clientKind?: ClientKind | null
+    supportedClientTools?: readonly string[]
     /**
-     * Builds the connect URL relayed for `connect_mcp` on non-PostHog-Code
-     * surfaces (the same deep-link scheme as `buildApprovalUrl`). Reads the
-     * tool args (`agent_slug`/`name`/`url`). Absent → no relay (the call would
-     * park, same as before).
+     * Builds the connect URL relayed for `connect_mcp` when the client can't
+     * punch out the form (the same deep-link scheme as `buildApprovalUrl`).
+     * Reads the tool args (`agent_slug`/`name`/`url`). Absent → no relay.
      */
     buildMcpConnectUrl?: (args: Record<string, unknown>) => string
 }
@@ -480,15 +480,16 @@ function makeClientTool(
                 throw new Error(`client tool ${spec.id} dispatcher not wired on this driver`)
             }
             if (spec.interactive) {
-                // Interactive punch-outs need a rich client (PostHog Code) to
-                // render the form; on other surfaces (Slack/MCP) nothing receives
+                // Interactive punch-outs need a client that can render the form.
+                // If the client didn't declare it handles this tool (Slack/MCP,
+                // or any client without the punch-out UI), nothing would receive
                 // the client_tool_call and the session would park forever. For
                 // connect_mcp, hand back a connect URL the user can open instead
-                // — the same relay shape approvals use for non-PostHog-Code
-                // clients. Returns immediately (not parked).
+                // (the same relay shape as the approval link). Returns
+                // immediately (not parked).
                 if (
                     spec.id === 'connect_mcp' &&
-                    deps.clientKind !== CLIENT_KIND_POSTHOG_CODE &&
+                    !(deps.supportedClientTools ?? []).includes(spec.id) &&
                     deps.buildMcpConnectUrl
                 ) {
                     const connectUrl = deps.buildMcpConnectUrl(args as Record<string, unknown>)

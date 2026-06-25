@@ -412,17 +412,19 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
     // every non-`client` tool carries `requires_approval`.
     /**
      * **Client-fulfilled tool.** The agent author declares the tool fully
-     * inline (id + description + args_schema); the connecting client
-     * (browser dock, IDE MCP host, etc.) advertises which ids it can
-     * fulfill at session start via `client.handles[]`. The runner
-     * reconciles:
+     * inline (id + description + args_schema); the connecting client (browser
+     * dock, IDE MCP host, etc.) declares which ids it can actually execute this
+     * session via `supported_client_tools` in the /run body (stashed on the
+     * session's `trigger_metadata`).
      *
-     *   - In spec AND in `client.handles[]` → exposed to the model.
-     *   - In spec, NOT handled, `required: false` (default) → hidden
-     *     from the model surface; the agent.md should be written to
-     *     degrade gracefully (text-only narration).
-     *   - In spec, NOT handled, `required: true` → session open fails
-     *     with `client_tool_unsupported`.
+     * Every `client` tool is exposed to the model (no exposure handshake). A
+     * call the connecting client doesn't handle comes back
+     * `unhandled_client_tool`, and the agent.md degrades to text. For an
+     * INTERACTIVE tool — one that punches out a UI (`connect_mcp`,
+     * `set_secret`) — the runner instead checks `supported_client_tools` up
+     * front: if this client supports it, emit a `client_tool_call` and park for
+     * the result; if NOT, fall back (e.g. `connect_mcp` relays a URL) so the
+     * session doesn't park forever on a client that can't render the form.
      *
      * Dispatch path: when the model calls the tool, the runner emits a
      * `client_tool_call` session event carrying the args + a call_id;
