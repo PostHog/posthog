@@ -41,7 +41,7 @@ import {
     createHogTransformerService,
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
-import { CommonConfig } from '../common/config'
+import { CommonConfig, PluginServerMode } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import {
     createCookielessRedisConnectionConfig,
@@ -187,6 +187,7 @@ export class IngestionApiServer implements NodeServer {
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
             ...config,
         }
+        this.validateConfig()
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -199,6 +200,15 @@ export class IngestionApiServer implements NodeServer {
 
     async stop(error?: Error): Promise<void> {
         return this.lifecycle.stop(() => this.getCleanupResources(), error)
+    }
+
+    private validateConfig(): void {
+        if (
+            this.config.PLUGIN_SERVER_MODE === PluginServerMode.ingestion_api &&
+            this.config.INTERNAL_API_SECRET.trim() === ''
+        ) {
+            throw new Error('INTERNAL_API_SECRET must be configured for ingestion-api in production')
+        }
     }
 
     private async startServices(): Promise<void> {
