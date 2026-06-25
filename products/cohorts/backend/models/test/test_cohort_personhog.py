@@ -8,7 +8,7 @@ from posthog.models import Team
 from posthog.test.personhog_fake import get_active_fake
 from posthog.test.persons import add_cohort_members, create_person
 
-from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestGetPersonUuidsByDistinctIds(BaseTest):
@@ -153,7 +153,7 @@ class TestRemoveUserByUuid(BaseTest):
         result = other_team_cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
         assert result is False
-        assert CohortPeople.objects.filter(cohort=other_team_cohort, person=person).exists()
+        assert (other_team_cohort.id, person.id) in get_active_fake()._cohort_members
         mock_remove_ch.assert_not_called()
 
     @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
@@ -369,7 +369,7 @@ class TestInsertCohortMembers(BaseTest):
         inserted = insert_cohort_members(self.team.id, other_cohort.id, [person.id], version=1)
 
         assert inserted == 0
-        assert not CohortPeople.objects.filter(cohort=other_cohort).exists()
+        assert (other_cohort.id, person.id) not in get_active_fake()._cohort_members
         get_active_fake().assert_not_called("insert_cohort_members")
 
     def test_skip_ownership_check_bypasses_team_validation(self):
@@ -425,7 +425,7 @@ class TestDeleteCohortMember(BaseTest):
         result = delete_cohort_member(self.team.id, other_cohort.id, person.id)
 
         assert result is False
-        assert CohortPeople.objects.filter(cohort=other_cohort, person=person).exists()
+        assert (other_cohort.id, person.id) in get_active_fake()._cohort_members
         get_active_fake().assert_not_called("delete_cohort_member")
 
 

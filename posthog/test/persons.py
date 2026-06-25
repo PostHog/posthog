@@ -253,10 +253,8 @@ def _build_person(create_kwargs: dict[str, Any]) -> Person:
         create_kwargs["uuid"] = UUIDT()
     person = Person(**create_kwargs)
     person.id = _next_synthetic_pk()
-    if person.created_at is None:
-        person.created_at = now()
-    if person.version is None:
-        person.version = 0
+    person.created_at = person.created_at or now()
+    person.version = person.version or 0
     person._state.adding = False
     return person
 
@@ -307,8 +305,9 @@ def add_distinct_id(*, person: Person, distinct_id: str, version: int = 0) -> Pe
     """Add a distinct ID to a person in ClickHouse + the personhog fake."""
     _ch_create_person_distinct_id(person.team_id, str(distinct_id), str(person.uuid), version=version)
     _seed_distinct_id_into_fake(person.team_id, person.pk, distinct_id, version=version)
-    if getattr(person, "_distinct_ids", None) is not None and distinct_id not in person._distinct_ids:
-        person._distinct_ids.append(distinct_id)
+    existing_distinct_ids = getattr(person, "_distinct_ids", None)
+    if existing_distinct_ids is not None and distinct_id not in existing_distinct_ids:
+        existing_distinct_ids.append(distinct_id)
     return PersonDistinctId(team_id=person.team_id, person=person, distinct_id=distinct_id, version=version)
 
 
@@ -387,10 +386,8 @@ def create_group(*, team: Team | None = None, group_type_index: int, group_key: 
         create_kwargs["team"] = team
     group = Group(**create_kwargs)
     group.id = _next_synthetic_pk()
-    if group.created_at is None:
-        group.created_at = now()
-    if group.version is None:
-        group.version = 0
+    group.created_at = group.created_at or now()
+    group.version = group.version or 0
     group._state.adding = False
     _seed_group_into_fake(group)
     return group

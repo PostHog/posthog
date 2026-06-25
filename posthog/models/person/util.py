@@ -154,10 +154,8 @@ if TEST:
             person.id = _next_synthetic_pk()
             if not person.uuid:
                 person.uuid = UUIDT()
-            if person.created_at is None:
-                person.created_at = now()
-            if person.version is None:
-                person.version = 0
+            person.created_at = person.created_at or now()
+            person.version = person.version or 0
             person._state.adding = False
             staged.append((person, _person["distinct_ids"]))
 

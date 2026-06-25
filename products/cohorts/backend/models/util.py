@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
@@ -624,7 +625,7 @@ def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="perso
     return person_query, params
 
 
-def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
+def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
     tag_queries(
         product=ProductKey.COHORTS,
         cohort_id=cohort_id,
