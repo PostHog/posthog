@@ -1,8 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
-import { ComponentType, useState } from 'react'
+import { useState } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { TrendInsight } from 'scenes/trends/Trends'
 
 import { mswDecorator } from '~/mocks/browser'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -10,6 +11,7 @@ import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import type { InsightLogicProps, InsightShortId } from '~/types'
+import { InsightType } from '~/types'
 
 import { TrendsBarChart } from './TrendsBarChart'
 
@@ -90,21 +92,7 @@ function Stage({ children }: { children: React.ReactNode }): JSX.Element {
     )
 }
 
-// Uses the real TrendsInsight CSS classes so the snapshot exercises the max-height removal
-// on ActionsBarValue. Reverting that CSS would clip bars and diff the snapshot.
-function BarValueStage({ children }: { children: React.ReactNode }): JSX.Element {
-    return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ width: 720 }}>
-            <div className="TrendsInsight TrendsInsight--ActionsBarValue">{children}</div>
-        </div>
-    )
-}
-
-function renderTrendsBarChart(
-    insightFixture: any,
-    StageComponent: ComponentType<{ children: React.ReactNode }> = Stage
-): JSX.Element {
+function renderTrendsBarChart(insightFixture: any): JSX.Element {
     const [dashboardItemId] = useState(() => `TrendsBarChartStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
@@ -119,9 +107,33 @@ function renderTrendsBarChart(
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <StageComponent>
+                <Stage>
                     <TrendsBarChart />
-                </StageComponent>
+                </Stage>
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+function renderTrendInsight(insightFixture: any): JSX.Element {
+    const [dashboardItemId] = useState(() => `TrendsBarChartStory.${uniqueNode++}` as InsightShortId)
+    const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
+
+    const insightProps: InsightLogicProps = { dashboardItemId, doNotLoad: true, cachedInsight }
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: cachedInsight.query.source,
+        key: insightVizDataNodeKey(insightProps),
+        cachedResults: getCachedResults(cachedInsight, cachedInsight.query.source),
+        doNotLoad: true,
+    }
+
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div style={{ width: 720 }}>
+                    <TrendInsight view={InsightType.TRENDS} />
+                </div>
             </BindLogic>
         </BindLogic>
     )
@@ -524,5 +536,5 @@ const BAR_VALUE_50_BREAKDOWNS_INSIGHT = {
 }
 
 export const BarValue50Breakdowns: Story = {
-    render: () => renderTrendsBarChart(BAR_VALUE_50_BREAKDOWNS_INSIGHT, BarValueStage),
+    render: () => renderTrendInsight(BAR_VALUE_50_BREAKDOWNS_INSIGHT),
 }
