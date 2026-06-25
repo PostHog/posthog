@@ -221,7 +221,7 @@ export const AgentRevisionApiSpecFrameworkPromptOmitItem = {
     ReasoningHint: 'reasoning_hint',
 } as const
 
-export type AgentRevisionApiSpecModelPolicy =
+export type AgentRevisionApiSpecModels =
     | {
           mode: 'auto'
           level?: 'low' | 'medium' | 'high'
@@ -559,7 +559,7 @@ export type AgentRevisionApiSpecResume = {
 }
 
 export type AgentRevisionApiSpec = {
-    model_policy: AgentRevisionApiSpecModelPolicy
+    models: AgentRevisionApiSpecModels
     triggers: AgentRevisionApiSpecTriggersItem[]
     tools: AgentRevisionApiSpecToolsItem[]
     mcps: AgentRevisionApiSpecMcpsItem[]
@@ -567,7 +567,6 @@ export type AgentRevisionApiSpec = {
     identity_providers?: AgentRevisionApiSpecIdentityProvidersItem[]
     secrets: AgentRevisionApiSpecSecretsItem[]
     limits: AgentRevisionApiSpecLimits
-    entrypoint: string
     reasoning?: AgentRevisionApiSpecReasoning
     framework_prompt?: AgentRevisionApiSpecFrameworkPrompt
     resume?: AgentRevisionApiSpecResume
@@ -614,7 +613,7 @@ export interface PaginatedAgentRevisionListApi {
     results: AgentRevisionApi[]
 }
 
-export type PatchedAgentRevisionApiSpecModelPolicy =
+export type PatchedAgentRevisionApiSpecModels =
     | {
           mode: 'auto'
           level?: 'low' | 'medium' | 'high'
@@ -974,7 +973,7 @@ export type PatchedAgentRevisionApiSpecResume = {
 }
 
 export type PatchedAgentRevisionApiSpec = {
-    model_policy: PatchedAgentRevisionApiSpecModelPolicy
+    models: PatchedAgentRevisionApiSpecModels
     triggers: PatchedAgentRevisionApiSpecTriggersItem[]
     tools: PatchedAgentRevisionApiSpecToolsItem[]
     mcps: PatchedAgentRevisionApiSpecMcpsItem[]
@@ -982,7 +981,6 @@ export type PatchedAgentRevisionApiSpec = {
     identity_providers?: PatchedAgentRevisionApiSpecIdentityProvidersItem[]
     secrets: PatchedAgentRevisionApiSpecSecretsItem[]
     limits: PatchedAgentRevisionApiSpecLimits
-    entrypoint: string
     reasoning?: PatchedAgentRevisionApiSpecReasoning
     framework_prompt?: PatchedAgentRevisionApiSpecFrameworkPrompt
     resume?: PatchedAgentRevisionApiSpecResume
@@ -1159,7 +1157,7 @@ export interface AgentRevisionSystemPromptResponseApi {
     revision_id: string
     /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
     framework_prompt_version: number
-    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
+    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md`, and the skills index. Inspect before promotion to confirm the model will see what you expect. */
     system_prompt: string
 }
 
