@@ -23,6 +23,9 @@ interface DashboardsTreeFolderMenuProps {
 }
 
 function openNameDialog(title: string, initialName: string, onSubmit: (name: string) => void): void {
+    // Guard against a fast double-click submitting twice before the dialog closes — the create/rename
+    // actions are fire-and-forget, so without this a double-click yields a duplicate folder / repeated rename.
+    let submitted = false
     LemonDialog.openForm({
         title,
         initialValues: { folderName: initialName },
@@ -32,7 +35,13 @@ function openNameDialog(title: string, initialName: string, onSubmit: (name: str
             </LemonField>
         ),
         errors: { folderName: (name) => (!name?.trim() ? 'You must enter a folder name' : undefined) },
-        onSubmit: ({ folderName }) => onSubmit(folderName),
+        onSubmit: ({ folderName }) => {
+            if (submitted) {
+                return
+            }
+            submitted = true
+            onSubmit(folderName)
+        },
     })
 }
 
