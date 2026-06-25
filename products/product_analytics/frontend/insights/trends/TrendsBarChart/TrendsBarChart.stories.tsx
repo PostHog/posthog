@@ -538,3 +538,18 @@ const BAR_VALUE_50_BREAKDOWNS_INSIGHT = {
 export const BarValue50Breakdowns: Story = {
     render: () => renderTrendInsight(BAR_VALUE_50_BREAKDOWNS_INSIGHT),
 }
+
+// A single breakdown row should still fill the standard chart height — the lone bar must not
+// shrink. Guards the min-height floor on TrendsInsight--ActionsBarValue: drop it back to `auto`
+// and this snapshot collapses to a thin one-row bar instead of filling the container.
+const BAR_VALUE_SINGLE_BREAKDOWN_INSIGHT = {
+    ...BAR_VALUE_50_BREAKDOWNS_INSIGHT,
+    id: 204,
+    short_id: 'barValueSingle',
+    name: 'Page views by URL (single breakdown)',
+    result: BAR_VALUE_50_BREAKDOWNS.slice(0, 1),
+}
+
+export const BarValueSingleBreakdown: Story = {
+    render: () => renderTrendInsight(BAR_VALUE_SINGLE_BREAKDOWN_INSIGHT),
+}
