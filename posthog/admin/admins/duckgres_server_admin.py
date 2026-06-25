@@ -142,7 +142,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if team is None:
             return redirect(reverse("admin:posthog_duckgresserver_provision"))
 
-        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.provision(
             team.organization_id, database_name, team.id, table_name, require_enabled=False
@@ -204,7 +204,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if team is None:
             return redirect(reverse("admin:posthog_duckgresserver_enable_backfill", args=[object_id]))
 
-        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.enable_backfill(server.organization_id, team.id, table_name, require_enabled=False)
         self._report(request, resp, f"Enabled warehouse backfill for team {team.id}")
@@ -232,7 +232,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
                 },
             )
 
-        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.deprovision(server.organization_id, require_enabled=False)
         self._report(request, resp, f"Deprovisioned managed warehouse for org {server.organization_id}")

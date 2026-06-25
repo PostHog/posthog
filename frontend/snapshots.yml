@@ -2596,6 +2596,14 @@ snapshots:
         hash: v1.k794b7964.d8d3e3ecade64da3301879f5c9a72a9e0a4f879fd23adc9c22940150ced641c4._P8QZDgkeQ4Z5Ii0RfD5kHotcs8VMJdg7y7F9UhxXyE
     insights-trendsbarchart--aggregated-compare-breakdown--light:
         hash: v1.k794b7964.71df39ed07e55a63f5769f6771aa97fafb3b45f83bb3316e820b1d5c62eacc17.fqe0WSxWna4P6aIUpMidVoxtseV69UR9iFJyEX0uXv8
+    insights-trendsbarchart--bar-value-50-breakdowns--dark:
+        hash: v1.k794b7964.0aa74828d652bcc08c7edf6e846f25079cd634404524a2f46ecfab9ca58b3253.RC1OqPi8ALE8mT4L0qBcaNeMFwNYDmyvdY32qCX8Lao
+    insights-trendsbarchart--bar-value-50-breakdowns--light:
+        hash: v1.k794b7964.da48bff1f9643e5f27c0371f29bee5b1478389736d9e9baf4d159effe918f7f9.DTLbuDHBCHUpqdykg69Lzh-lasHbn-AzA9k50D9Eig8
+    insights-trendsbarchart--bar-value-single-breakdown--dark:
+        hash: v1.k794b7964.e2b8f5afe06a39c4cf3ae1beb282fed9a64117a91ac92ffa91a8f9fa0a09a69d.QWoL7QbuoCoXDv6xoLFepkGX5DRp5NfndCYdz1TZjE4
+    insights-trendsbarchart--bar-value-single-breakdown--light:
+        hash: v1.k794b7964.13733d2478cb0d86b2fbed8cae08efb73555fbd2798dc199118ccde0bf192b6b.ujkbY4JXzzAH9hNg6G5F5z4q6Lt4CkeCQMYu_H0cAoc
     insights-trendsbarchart--compare--dark:
         hash: v1.k794b7964.471bac2dc88d109f8b59fb9824be9b97aa91a0e92e71053ccfa7483c5d1a33a7.lBVLXYRSp4frYlGbUwXnYMibF-b5l_ZyGDNqL8q3rLI
     insights-trendsbarchart--compare--light:
@@ -5920,6 +5928,14 @@ snapshots:
         hash: v1.k794b7964.0bd456c6e964a5188af656808c54f4068db6ae276ee9900dea8b3a85dc3f4990.kHpau58sqxSbTZS-LCtQvnfQj8kPrD5H8GETjTYre0k
     scenes-app-links--new-link--light:
         hash: v1.k794b7964.fedeccb6543984d61d4f228b673aeaf2c95761a8bf0fe2c9635b537249dc62f0.YR2jcgFvFszd7KiEtQEyv9P2cNR_a2x4Bt9r12XsTlQ
+    scenes-app-llm-observability-evaluationreportconfig--lemon-ui--dark:
+        hash: v1.k794b7964.ea1d41ff2374dfb11c34da6ffd8cab617c7d7e1a6a56cbdd3f0b3652e46948fe._oVFINCGLFekpJ7m3HFlj3I2IBMuwOMprKKohgYuFYM
+    scenes-app-llm-observability-evaluationreportconfig--lemon-ui--light:
+        hash: v1.k794b7964.b7fc455fa57f70b3dc164343efdecea1670f7e14bcaa10f215436947bfd92120.bOhaqNZXO-r7IoPj8bUPzboNgadBnZIAgdvJZTnOeKY
+    scenes-app-llm-observability-evaluationreportconfig--quill--dark:
+        hash: v1.k794b7964.989accfb90b12ec723c89fc011406204615db596cc531fa88e2185115de7f0bf.edcf-JYMawJKfGOrxMrjTa25lFfAxPqklB9t3Xiz9YQ
+    scenes-app-llm-observability-evaluationreportconfig--quill--light:
+        hash: v1.k794b7964.f6cf1c4a9d5417eec0cffde1d81a336ea920c8eac323334a1f9bba11b780da2c.pkcKNQUEVMgNLrrsOh8zYVEXVLi6hctTko8gSQipd0Q
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-globally-mapped--dark:
         hash: v1.k794b7964.47e8408d2f77c9f828bb80911c0a0498cdb3d717059e7aab93523120605390ff.kLOGkmaZPnCOJ3r0lZnRJjkuvSIKbkgKqXRjTqvm6ME
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-globally-mapped--light:

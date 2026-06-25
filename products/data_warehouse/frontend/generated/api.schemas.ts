@@ -1544,6 +1544,7 @@ export interface CredentialApi {
  * * `Superwall` - Superwall
  * * `Liana` - Liana
  * * `TawkTo` - TawkTo
+ * * `Hightouch` - Hightouch
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2191,6 +2192,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Superwall: 'Superwall',
     Liana: 'Liana',
     TawkTo: 'TawkTo',
+    Hightouch: 'Hightouch',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
