@@ -9,17 +9,17 @@ from unittest.mock import MagicMock, patch
 import psycopg.errors
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.cdc.activities import (
+from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
     SLOT_INVALIDATION_RECOVERY_MESSAGE,
     CDCExtractActivity,
     CDCExtractInput,
     cdc_extract_activity,
     cleanup_orphan_slots_activity,
 )
-from posthog.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
-from posthog.temporal.data_imports.cdc.types import ChangeEvent
-from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
-from posthog.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 
 def _make_event(
@@ -130,14 +130,14 @@ def _stub_sync_type_config_merge():
 
 # Shared patch decorator for CDC activity tests
 _CDC_ACTIVITY_PATCHES = [
-    "posthog.temporal.data_imports.cdc.activities.close_old_connections",
-    "posthog.temporal.data_imports.cdc.activities.ExternalDataJob",
-    "posthog.temporal.data_imports.cdc.activities.ExternalDataSource",
-    "posthog.temporal.data_imports.cdc.activities.CDCExtractActivity._get_cdc_schemas",
-    "posthog.temporal.data_imports.cdc.activities.get_cdc_adapter",
-    "posthog.temporal.data_imports.cdc.activities.S3BatchWriter",
-    "posthog.temporal.data_imports.cdc.activities.PostgresProducer",
-    "posthog.temporal.data_imports.cdc.activities.activity",
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections",
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob",
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource",
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCExtractActivity._get_cdc_schemas",
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter",
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter",
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer",
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity",
 ]
 
 
@@ -199,15 +199,17 @@ def _setup_mocks(
 
 class TestGetCDCAdapter:
     def test_returns_postgres_adapter(self):
-        from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
-        from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import get_cdc_adapter
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
+            PostgresCDCAdapter,
+        )
 
         source = _make_source()
         adapter = get_cdc_adapter(source)
         assert isinstance(adapter, PostgresCDCAdapter)
 
     def test_raises_for_unsupported_source(self):
-        from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import get_cdc_adapter
 
         source = _make_source()
         source.source_type = "UnsupportedDB"
@@ -215,8 +217,12 @@ class TestGetCDCAdapter:
             get_cdc_adapter(source)
 
     def test_create_reader_extracts_params(self):
-        from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
-        from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
+            PostgresCDCAdapter,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader import (
+            PgCDCStreamReader,
+        )
 
         adapter = PostgresCDCAdapter()
         source = _make_source()
@@ -230,8 +236,12 @@ class TestGetCDCAdapter:
         assert reader._params.publication_name == "posthog_pub"
 
     def test_create_reader_defaults_when_missing(self):
-        from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
-        from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
+            PostgresCDCAdapter,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader import (
+            PgCDCStreamReader,
+        )
 
         adapter = PostgresCDCAdapter()
         # Minimal connection inputs, omitting the cdc/slot fields to exercise their defaults.
@@ -246,8 +256,12 @@ class TestGetCDCAdapter:
         assert reader._params.publication_name == ""
 
     def test_create_reader_requires_ssl_for_recent_source_without_tunnel(self):
-        from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
-        from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
+            PostgresCDCAdapter,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader import (
+            PgCDCStreamReader,
+        )
 
         adapter = PostgresCDCAdapter()
         source = _make_source()
@@ -259,8 +273,12 @@ class TestGetCDCAdapter:
     def test_create_reader_honors_ssh_tunnel_tls_opt_out(self):
         # Two-arg source_requires_ssl: a recent source reached over an SSH tunnel that opted
         # out of TLS must NOT be force-upgraded on the data path (single-arg would return True).
-        from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
-        from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
+            PostgresCDCAdapter,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader import (
+            PgCDCStreamReader,
+        )
 
         adapter = PostgresCDCAdapter()
         source = _make_source()
@@ -269,7 +287,7 @@ class TestGetCDCAdapter:
         opted_out_config = MagicMock()
         opted_out_config.ssh_tunnel = MagicMock(enabled=True, require_tls=MagicMock(enabled=False))
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.parse_config",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.parse_config",
             return_value=opted_out_config,
         ):
             reader = adapter.create_reader(source)
@@ -286,7 +304,7 @@ def _make_extract_activity(source, log=None) -> CDCExtractActivity:
 
 
 class TestFlushDeferredRuns:
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_sends_kafka_messages_for_deferred_runs(self, MockProducer):
         mock_producer = MagicMock()
         MockProducer.return_value = mock_producer
@@ -320,7 +338,7 @@ class TestFlushDeferredRuns:
 
         assert schema.sync_type_config["cdc_deferred_runs"] == []
 
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_no_op_when_no_deferred_runs(self, MockProducer):
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
@@ -331,7 +349,7 @@ class TestFlushDeferredRuns:
         MockProducer.assert_not_called()
         schema.save.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_multiple_deferred_runs(self, MockProducer):
         mock_producer = MagicMock()
         MockProducer.return_value = mock_producer
@@ -365,7 +383,7 @@ class TestFlushDeferredRuns:
         assert mock_producer.flush.call_count == 3
         assert schema.sync_type_config["cdc_deferred_runs"] == []
 
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_deferred_flush_uses_stored_resource_name_and_replays_partition_config(self, MockProducer):
         """Deferred flush targets the stored Delta resource and replays partition config."""
         mock_producer = MagicMock()
@@ -445,14 +463,14 @@ class TestBuildEventNameMap:
 class TestCDCExtractActivity:
     """Integration tests for cdc_extract_activity with mocked external deps."""
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_streaming_schema_writes_s3_and_sends_kafka(
         self,
         mock_close_conns,
@@ -495,14 +513,14 @@ class TestCDCExtractActivity:
         mock_reader.confirm_position.assert_called_once_with("0/200")
         mock_reader.close.assert_called_once()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_bare_named_schema_matches_schema_qualified_wal_events(
         self,
         mock_close_conns,
@@ -552,14 +570,14 @@ class TestCDCExtractActivity:
         mock_producer.send_batch_notification.assert_called()
         mock_reader.confirm_position.assert_called_once_with("0/100")
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_streaming_job_not_marked_completed_by_activity(
         self,
         mock_close_conns,
@@ -599,14 +617,14 @@ class TestCDCExtractActivity:
         for call in mock_job.save.call_args_list:
             assert "status" not in call.kwargs.get("update_fields", [])
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_snapshot_schema_writes_s3_defers_kafka_and_marks_job_completed(
         self,
         mock_close_conns,
@@ -655,11 +673,11 @@ class TestCDCExtractActivity:
         # Job is completed by the activity (no Kafka consumer to do it)
         assert any("status" in call.kwargs.get("update_fields", []) for call in mock_job.save.call_args_list)
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_no_changes_returns_early_with_completed_status(
         self,
         mock_close_conns,
@@ -694,11 +712,11 @@ class TestCDCExtractActivity:
         assert schema.latest_error is None
         assert schema.last_synced_at is not None
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_no_cdc_schemas_returns_early(
         self,
         mock_close_conns,
@@ -716,14 +734,14 @@ class TestCDCExtractActivity:
 
         mock_get_adapter.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_events_for_unknown_tables_are_filtered(
         self,
         mock_close_conns,
@@ -765,11 +783,11 @@ class TestCDCExtractActivity:
         pa_table = call_args[0][0]
         assert pa_table.num_rows == 1
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_reader_closed_on_error(
         self,
         mock_close_conns,
@@ -803,14 +821,14 @@ class TestCDCExtractActivity:
 
         mock_reader.close.assert_called_once()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_schema_status_set_to_failed_on_error(
         self,
         mock_close_conns,
@@ -860,14 +878,14 @@ class TestCDCExtractActivity:
         # Slot should NOT have been advanced
         mock_reader.confirm_position.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_cdc_last_log_position_updated_per_schema(
         self,
         mock_close_conns,
@@ -906,12 +924,15 @@ class TestCDCExtractActivity:
         # cdc_last_log_position should be updated to the last event's position
         assert schema.sync_type_config["cdc_last_log_position"] == "0/200"
 
-    @patch("posthog.temporal.data_imports.cdc.activities.unpause_external_data_schedule", create=True)
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.unpause_external_data_schedule",
+        create=True,
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_truncate_only_batch_sets_snapshot_and_advances_slot(
         self,
         mock_close_conns,
@@ -947,15 +968,18 @@ class TestCDCExtractActivity:
         assert schema.initial_sync_complete is False
         mock_reader.confirm_position.assert_called_once_with("0/500")
 
-    @patch("posthog.temporal.data_imports.cdc.activities.unpause_external_data_schedule", create=True)
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.unpause_external_data_schedule",
+        create=True,
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_truncate_sets_snapshot_mode(
         self,
         mock_close_conns,
@@ -998,14 +1022,14 @@ class TestCDCExtractActivity:
         assert schema.initial_sync_complete is False
         assert "cdc_last_log_position" not in schema.sync_type_config
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_multi_table_events_grouped_correctly(
         self,
         mock_close_conns,
@@ -1052,14 +1076,14 @@ class TestCDCExtractActivity:
         # Slot should advance to the last event's position
         mock_reader.confirm_position.assert_called_once_with("0/300")
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_unchanged_sibling_table_logs_no_changes_breadcrumb(
         self,
         mock_close_conns,
@@ -1105,15 +1129,18 @@ class TestCDCExtractActivity:
         assert "cdc_extract_no_changes" in logged_events("orders")
         assert "cdc_extract_no_changes" not in logged_events("users")
 
-    @patch("posthog.temporal.data_imports.cdc.activities.unpause_external_data_schedule", create=True)
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.unpause_external_data_schedule",
+        create=True,
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_truncated_schema_log_position_not_updated(
         self,
         mock_close_conns,
@@ -1155,14 +1182,14 @@ class TestCDCExtractActivity:
         assert schema.sync_type_config.get("reset_pipeline") is True
         assert schema.sync_type_config.get("cdc_last_log_position") is None
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_both_mode_creates_two_trackers(
         self,
         mock_close_conns,
@@ -1222,14 +1249,14 @@ class TestCDCExtractActivity:
         resource_names = {call.kwargs["resource_name"] for call in MockProducer.call_args_list}
         assert resource_names == {"users", "users_cdc"}
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_consolidated_table_uses_pinned_folder_name_not_schema_name(
         self,
         mock_close_conns,
@@ -1269,14 +1296,14 @@ class TestCDCExtractActivity:
         # The fix: storage resource name is the pinned folder ("users"), not "public.users".
         assert MockProducer.call_args.kwargs["resource_name"] == "users"
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_partition_config_replayed_to_loader_when_snapshot_partitioned(
         self,
         mock_close_conns,
@@ -1324,14 +1351,14 @@ class TestCDCExtractActivity:
         assert kwargs["partition_mode"] == "numerical"
         assert kwargs["partition_size"] == 1_000_000
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_partition_config_omitted_when_snapshot_unpartitioned(
         self,
         mock_close_conns,
@@ -1370,14 +1397,14 @@ class TestCDCExtractActivity:
         assert kwargs.get("partition_keys") is None
         assert kwargs.get("partition_mode") is None
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_cdc_only_mode_creates_single_cdc_tracker(
         self,
         mock_close_conns,
@@ -1425,15 +1452,15 @@ class TestCDCExtractActivity:
         assert producer_kwargs["resource_name"] == "users_cdc"
         assert producer_kwargs["cdc_write_mode"] == "scd2_append"
 
-    @patch("posthog.temporal.data_imports.cdc.activities.ChangeEventBatcher")
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ChangeEventBatcher")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_micro_batch_flush_sends_kafka_immediately(
         self,
         mock_close_conns,
@@ -1446,7 +1473,9 @@ class TestCDCExtractActivity:
         mock_activity,
         MockBatcher,
     ):
-        from posthog.temporal.data_imports.cdc.batcher import ChangeEventBatcher as RealBatcher
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+            ChangeEventBatcher as RealBatcher,
+        )
 
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
@@ -1488,14 +1517,14 @@ class TestCDCExtractActivity:
         assert send_calls[0].kwargs["is_final_batch"] is False
         assert send_calls[1].kwargs["is_final_batch"] is True
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_deferred_run_stored_per_batch_for_snapshot_schema(
         self,
         mock_close_conns,
@@ -1575,15 +1604,15 @@ class TestSlotAdvanceTransactionSafety:
             (["0/100", "0/100", "0/200", "0/200"], 4, True, ["0/100"]),
         ],
     )
-    @patch("posthog.temporal.data_imports.cdc.activities.ChangeEventBatcher")
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ChangeEventBatcher")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_slot_advances_only_past_completed_transactions(
         self,
         mock_close_conns,
@@ -1600,7 +1629,9 @@ class TestSlotAdvanceTransactionSafety:
         crashes,
         expected_advances,
     ):
-        from posthog.temporal.data_imports.cdc.batcher import ChangeEventBatcher as RealBatcher
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+            ChangeEventBatcher as RealBatcher,
+        )
 
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
@@ -1643,14 +1674,17 @@ class TestSlotAdvanceTransactionSafety:
 class TestErrorClassification:
     """Failures store a friendly, credential-safe message; non-retryable ones stop Temporal retries."""
 
-    @patch("posthog.temporal.data_imports.cdc.activities.get_machine_id", return_value="machine-1")
-    @patch("posthog.temporal.data_imports.cdc.activities.posthoganalytics")
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
+        return_value="machine-1",
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_non_retryable_error_raises_nonretryable_and_captures(
         self,
         mock_close_conns,
@@ -1695,14 +1729,17 @@ class TestErrorClassification:
         assert captured["properties"]["source_id"] == str(source.id)
         mock_reader.close.assert_called_once()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.get_machine_id", return_value="machine-1")
-    @patch("posthog.temporal.data_imports.cdc.activities.posthoganalytics")
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
+        return_value="machine-1",
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_analytics_failure_does_not_mask_nonretryable(
         self,
         mock_close_conns,
@@ -1742,13 +1779,16 @@ class TestErrorClassification:
 
         assert schema.latest_error == cdc_error_info(CDCErrorCategory.AUTH_FAILED).friendly_message
 
-    @patch("posthog.temporal.data_imports.cdc.activities.get_machine_id", return_value="machine-1")
-    @patch("posthog.temporal.data_imports.cdc.activities.posthoganalytics")
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
+        return_value="machine-1",
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_retryable_error_reraises_original_and_does_not_capture(
         self,
         mock_close_conns,
@@ -1822,11 +1862,11 @@ class TestSlotInvalidationRecovery:
 
         return source, schema, mock_reader, mock_adapter
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_invalidated_slot_is_recreated_and_schemas_reset_to_snapshot(
         self,
         mock_close_conns,
@@ -1865,11 +1905,11 @@ class TestSlotInvalidationRecovery:
 
         mock_reader.close.assert_called_once()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_recreate_passes_source_qualified_table_names(
         self,
         mock_close_conns,
@@ -1896,11 +1936,11 @@ class TestSlotInvalidationRecovery:
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
         source.save.assert_called()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_recovery_failure_marks_schemas_failed_and_raises(
         self,
         mock_close_conns,
@@ -1924,11 +1964,11 @@ class TestSlotInvalidationRecovery:
         assert "cannot recreate slot" not in schema.latest_error
         mock_reader.close.assert_called_once()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_non_invalidation_errors_do_not_trigger_recovery(
         self,
         mock_close_conns,
@@ -1975,11 +2015,11 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_get_adapter.return_value = mock_adapter
         return source, mock_adapter
 
-    @patch("posthog.temporal.data_imports.cdc.activities.HeartbeaterSync")
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.HeartbeaterSync")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_retention_cap_lowers_critical_threshold(
         self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
     ):
@@ -1993,11 +2033,11 @@ class TestCleanupOrphanSlotsRetentionCap:
         assert source.status is MockSourceModel.Status.ERROR
         source.save.assert_called()
 
-    @patch("posthog.temporal.data_imports.cdc.activities.HeartbeaterSync")
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.HeartbeaterSync")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_unlimited_retention_keeps_configured_threshold(
         self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
     ):
@@ -2025,14 +2065,14 @@ class TestExtractionHeartbeat:
             ),
         ]
     )
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_records_last_run_heartbeat(
         self,
         _name,
@@ -2131,12 +2171,12 @@ class TestFailureVisibilityJobs:
             ),
         ]
     )
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_failure_visibility_job_creation(
         self,
         _name,
@@ -2177,12 +2217,12 @@ class TestFailureVisibilityJobs:
         # User-facing column carries the friendly, credential-safe copy — never the raw exception.
         assert kwargs["latest_error"] == cdc_error_info(expected_category).friendly_message
 
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_one_failure_row_per_schema(
         self,
         mock_close_conns,

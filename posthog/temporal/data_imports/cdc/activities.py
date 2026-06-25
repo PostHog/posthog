@@ -28,22 +28,6 @@ from temporalio import activity
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
-from posthog.temporal.data_imports.cdc import metrics
-from posthog.temporal.data_imports.cdc.adapters import cdc_supported_source_types, get_cdc_adapter
-from posthog.temporal.data_imports.cdc.batcher import (
-    ChangeEventBatcher,
-    build_scd2_table,
-    deduplicate_table,
-    enrich_delete_rows,
-)
-from posthog.temporal.data_imports.cdc.errors import MAX_FRIENDLY_MESSAGE_LENGTH, CDCErrorInfo, classify_cdc_error
-from posthog.temporal.data_imports.cdc.types import ChangeEvent
-from posthog.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
-from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
-from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import PostgresProducer
-from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
-from posthog.temporal.data_imports.util import NonRetryableException
-from posthog.temporal.data_imports.workflow_activities.create_job_model import _build_schema_snapshot
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -52,6 +36,33 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.cdc import metrics
+from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
+    cdc_supported_source_types,
+    get_cdc_adapter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    ChangeEventBatcher,
+    build_scd2_table,
+    deduplicate_table,
+    enrich_delete_rows,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
+    MAX_FRIENDLY_MESSAGE_LENGTH,
+    CDCErrorInfo,
+    classify_cdc_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
+    PostgresProducer,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
+    _build_schema_snapshot,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -285,7 +296,9 @@ class CDCExtractActivity:
                 **self._partition_kwargs(schema),
             )
 
-            from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import (
+                BatchWriteResult,
+            )
 
             for i, br in enumerate(batch_results):
                 is_final = i == len(batch_results) - 1
