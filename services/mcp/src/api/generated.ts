@@ -11841,6 +11841,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `zip` - zip
+     */
+    export type BundleFormatEnum = typeof BundleFormatEnum[keyof typeof BundleFormatEnum];
+
+
+    export const BundleFormatEnum = {
+      Zip: 'zip',
+    } as const;
+
+    /**
      * * `b2b` - B2B
      * * `b2c` - B2C
      * * `other` - Other
@@ -33272,6 +33282,51 @@ export namespace Schemas {
       Openai: 'openai',
     } as const;
 
+    /**
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex
+     */
+    export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
+
+
+    export const SkillSourceEnum = {
+      User: 'user',
+      Repo: 'repo',
+      Marketplace: 'marketplace',
+      Codex: 'codex',
+    } as const;
+
+    export interface TaskRunArtifactMetadata {
+      /**
+         * Name of the local skill included in a skill_bundle artifact.
+         * @maxLength 255
+         */
+      skill_name: string;
+      /** Local source for the uploaded skill bundle, such as user or repo.
+       *
+       * * `user` - user
+       * * `repo` - repo
+       * * `marketplace` - marketplace
+       * * `codex` - codex */
+      skill_source: SkillSourceEnum;
+      /**
+         * SHA-256 hex digest of the uploaded skill bundle bytes.
+         * @pattern ^[a-f0-9]{64}$
+         */
+      content_sha256: string;
+      /** Archive format used for the local skill bundle.
+       *
+       * * `zip` - zip */
+      bundle_format: BundleFormatEnum;
+      /**
+         * Version of the local skill bundle metadata schema.
+         * @minimum 1
+         */
+      schema_version: number;
+    }
+
     export interface TaskRunArtifactResponse {
       /** Stable identifier for the artifact within this run */
       id?: string;
@@ -33285,6 +33340,8 @@ export namespace Schemas {
       size?: number;
       /** Optional MIME type */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
       /** S3 object key for the artifact */
       storage_path: string;
       /** Timestamp when the artifact was uploaded */
@@ -49556,6 +49613,7 @@ export namespace Schemas {
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
      * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle
      */
     export type TaskRunArtifactTypeEnum = typeof TaskRunArtifactTypeEnum[keyof typeof TaskRunArtifactTypeEnum];
 
@@ -49568,6 +49626,7 @@ export namespace Schemas {
       Artifact: 'artifact',
       TreeSnapshot: 'tree_snapshot',
       UserAttachment: 'user_attachment',
+      SkillBundle: 'skill_bundle',
     } as const;
 
     export interface TaskRunArtifactFinalizeUpload {
@@ -49586,7 +49645,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -49603,6 +49663,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskRunArtifactPrepareUpload {
@@ -49619,7 +49681,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -49637,6 +49700,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskRunArtifactPrepareUploadResponse {
@@ -49652,6 +49717,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
       /** S3 object key reserved for the artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */
@@ -49689,7 +49756,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -49708,6 +49776,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskRunArtifactsFinalizeUploadRequest {
@@ -49991,7 +50061,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -50008,6 +50079,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUpload {
@@ -50024,7 +50097,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -50042,6 +50116,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUploadResponse {
@@ -50057,6 +50133,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
       /** S3 object key reserved for the staged artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */
