@@ -52,7 +52,7 @@ class TestAssignmentRuleAPI(APIBaseTest):
         assert rule.bytecode is not None
         assert len(rule.bytecode) > 0
 
-    def test_create_accepts_frontend_payload_shape_with_extra_fields(self) -> None:
+    def test_create_accepts_order_key_and_ignores_frontend_only_fields(self) -> None:
         response = self.client.post(
             self._url(),
             data={
@@ -69,7 +69,7 @@ class TestAssignmentRuleAPI(APIBaseTest):
         rule = ErrorTrackingAssignmentRule.objects.get(id=response.json()["id"])
         assert rule.filters == VALID_FILTERS
         assert rule.user_id == self.user.id
-        assert rule.order_key == 0
+        assert rule.order_key == 123
         assert rule.disabled_data is None
 
     @parameterized.expand(

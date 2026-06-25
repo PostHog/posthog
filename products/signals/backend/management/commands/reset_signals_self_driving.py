@@ -190,7 +190,7 @@ class Command(BaseCommand):
             delete_external_data_schedule,
         )
         from products.signals.backend.serializers import _DATA_IMPORT_SOURCE_MAP
-        from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+        from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
         dwh_source_types = {ext_source_type for (ext_source_type, _schema_name) in _DATA_IMPORT_SOURCE_MAP.values()}
         sources = list(
