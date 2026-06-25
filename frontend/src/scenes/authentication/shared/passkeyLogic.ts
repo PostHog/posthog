@@ -134,18 +134,6 @@ export const passkeyLogic = kea<passkeyLogicType>([
         ],
     })),
     listeners(({ actions, values, cache }) => ({
-        [loginLogic.actionTypes.precheckSuccess]: ({ precheckResponse }) => {
-            // Non-WebKit browsers auto-open the passkey modal once precheck confirms the user has
-            // passkeys. WebKit can't (it freezes without a gesture) and uses autofill instead — see
-            // startConditionalPasskeyLogin.
-            if (
-                precheckResponse?.webauthn_credentials?.length &&
-                !precheckResponse.sso_enforcement &&
-                !isWebKitBrowser()
-            ) {
-                actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
-            }
-        },
         beginPasskeyLogin: () => {
             // Don't start a second ceremony while one is already in flight (e.g. a double-clicked
             // passkey button) — concurrent WebAuthn ceremonies hang WebKit.

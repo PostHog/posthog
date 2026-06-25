@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isWebKitBrowser } from 'lib/utils/dom'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
@@ -204,11 +205,28 @@ export const loginLogic = kea<loginLogicType>([
             },
         },
     })),
-    listeners(() => ({
+    listeners(({ values }) => ({
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
+        },
+        precheckSuccess: async (_, breakpoint) => {
+            const { precheckResponse } = values
+            // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
+            // Skip on WebKit, it freezes Safari when triggered without a user gesture.
+            if (
+                precheckResponse.webauthn_credentials &&
+                precheckResponse.webauthn_credentials.length > 0 &&
+                !precheckResponse.sso_enforcement &&
+                !isWebKitBrowser()
+            ) {
+                breakpoint()
+                // Dynamic import to avoid circular dependency
+                const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
+                breakpoint()
+                passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
+            }
         },
     })),
     urlToAction(({ actions }) => ({
