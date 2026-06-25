@@ -32,7 +32,7 @@ export function LegendOptionsFilter(): JSX.Element {
             />
             <LemonSelect
                 size="small"
-                value={(legendPosition ?? 'bottom') as LegendPosition}
+                value={(legendPosition ?? 'right') as LegendPosition}
                 options={POSITION_OPTIONS}
                 disabledReason={!showLegend ? 'Enable the legend to set its position' : undefined}
                 onChange={(position) => updateInsightFilter({ legendPosition: position })}
