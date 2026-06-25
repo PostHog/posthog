@@ -94,11 +94,14 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
+from products.data_warehouse.backend.direct_snowflake import upsert_direct_snowflake_table
 from products.data_warehouse.backend.presentation.views.public_source_configs import build_source_configs
+from products.data_warehouse.backend.snowflake_helpers import reconcile_snowflake_schemas
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import (
     mysql_columns_to_dwh_columns,
     postgres_columns_to_dwh_columns,
+    snowflake_columns_to_dwh_columns,
     validate_source_prefix,
 )
 from products.warehouse_sources.backend.facade.models import (
@@ -432,6 +435,27 @@ def get_mysql_source_table_location(
         },
         default_schema=default_schema,
     )
+
+
+def get_snowflake_source_table_location(
+    *,
+    schema_name: str,
+    source_schema: SourceSchema | None,
+    default_schema: str | None,
+    default_catalog: str | None = None,
+) -> tuple[str | None, str, str]:
+    catalog = source_schema.source_catalog if source_schema and source_schema.source_catalog else default_catalog
+    if source_schema and source_schema.source_schema and source_schema.source_table_name:
+        return catalog, source_schema.source_schema, source_schema.source_table_name
+
+    normalized_default_schema = (
+        default_schema.strip() if isinstance(default_schema, str) and default_schema.strip() else None
+    )
+    if normalized_default_schema is None and "." in schema_name:
+        inferred_schema, inferred_table_name = schema_name.split(".", 1)
+        return catalog, inferred_schema, inferred_table_name
+
+    return catalog, normalized_default_schema or "", schema_name
 
 
 CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
@@ -1062,6 +1086,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                         source_schemas=discovered_schemas,
                         team_id=instance.team_id,
                     )
+                elif updated_source.source_type == ExternalDataSourceType.SNOWFLAKE:
+                    reconcile_snowflake_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
                 else:
                     reconcile_mysql_schemas(
                         source=updated_source,
@@ -1565,11 +1595,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
         is_direct_postgres = is_direct_query and source_type == ExternalDataSourceType.POSTGRES
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
+        is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
 
-        if is_direct_query and not (is_direct_postgres or is_direct_mysql):
+        if is_direct_query and not (is_direct_postgres or is_direct_mysql or is_direct_snowflake):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+                data={
+                    "message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."
+                },
             )
 
         if is_direct_query:
@@ -1847,6 +1880,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_schema=source_schema,
                     default_schema=default_source_schema or source_config.to_dict().get("database"),
                 )
+            elif is_direct_snowflake:
+                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
+                    get_snowflake_source_table_location(
+                        schema_name=schema_name,
+                        source_schema=source_schema,
+                        default_schema=default_source_schema,
+                        default_catalog=source_config.to_dict().get("database"),
+                    )
+                )
             else:
                 metadata_source_catalog = source_schema.source_catalog if source_schema else None
                 metadata_source_schema = source_schema.source_schema if source_schema else None
@@ -2003,6 +2045,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         # Direct-mysql columns are keyed by raw, case-sensitive source names.
                         normalize=False,
                     ),
+                    source_schema=cast(str, metadata_source_schema),
+                    source_table_name=cast(str, metadata_source_table_name),
+                )
+                schema_model.save(update_fields=["table"])
+            elif new_source_model.is_direct_snowflake and should_sync:
+                schema_model.table = upsert_direct_snowflake_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
+                    columns=filter_dwh_columns_by_enabled_columns(
+                        snowflake_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        enabled_columns,
+                        source_schema.detected_primary_keys if source_schema else None,
+                        incremental_field,
+                        # Direct-snowflake columns are keyed by raw, case-sensitive source names.
+                        normalize=False,
+                    ),
+                    source_catalog=metadata_source_catalog,
                     source_schema=cast(str, metadata_source_schema),
                     source_table_name=cast(str, metadata_source_table_name),
                 )
@@ -2395,6 +2455,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
             elif instance.source_type == ExternalDataSourceType.MYSQL:
                 reconciled_deleted_schemas = reconcile_mysql_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif instance.source_type == ExternalDataSourceType.SNOWFLAKE:
+                reconciled_deleted_schemas = reconcile_snowflake_schemas(
                     source=instance,
                     source_schemas=schemas,
                     team_id=self.team_id,
@@ -3433,10 +3501,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
 
         if access_method == ExternalDataSource.AccessMethod.DIRECT:
-            if source_type not in (ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL):
+            if source_type not in (
+                ExternalDataSourceType.POSTGRES,
+                ExternalDataSourceType.MYSQL,
+                ExternalDataSourceType.SNOWFLAKE,
+            ):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+                    data={
+                        "message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."
+                    },
                 )
 
             normalized_prefix = prefix.strip() if isinstance(prefix, str) else ""

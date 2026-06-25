@@ -1,6 +1,9 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -14,11 +17,16 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
+from products.data_warehouse.backend.snowflake_helpers import reconcile_snowflake_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import SnowflakeImplementation
+from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
+    SnowflakeImplementation,
+    get_connection_metadata as get_connection_metadata_snowflake,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SNOWFLAKE_IMPLEMENTATION = SnowflakeImplementation()
@@ -255,6 +263,21 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # a broken object on the source side that retrying can't repair.
             "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
         }
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Delegates to `reconcile_snowflake_schemas` so direct-query mode also rebuilds DWH tables."""
+        return reconcile_snowflake_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+    def get_connection_metadata(
+        self, config: SnowflakeSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, str | None]:
+        # `require_ssl` keeps signature parity with Postgres/MySQL; Snowflake transport is always TLS.
+        return get_connection_metadata_snowflake(config)
 
     def validate_credentials(
         self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None
