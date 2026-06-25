@@ -270,7 +270,9 @@ export const customerJourneysCreateBodyNameMax = 400
 export const CustomerJourneysCreateBody = /* @__PURE__ */ zod.object({
     insight: zod
         .number()
-        .describe('ID of the funnel insight this journey is based on. Must reference an insight in the same project.'),
+        .describe(
+            'Numeric id (not the short_id) of the funnel insight this journey is based on. Must reference an insight in the same project.'
+        ),
     name: zod.string().max(customerJourneysCreateBodyNameMax).describe('Human-readable name of the customer journey.'),
     description: zod.string().nullish().describe('Optional free-text description of the customer journey.'),
 })
@@ -299,7 +301,9 @@ export const CustomerJourneysPartialUpdateBody = /* @__PURE__ */ zod.object({
     insight: zod
         .number()
         .optional()
-        .describe('ID of the funnel insight this journey is based on. Must reference an insight in the same project.'),
+        .describe(
+            'Numeric id (not the short_id) of the funnel insight this journey is based on. Must reference an insight in the same project.'
+        ),
     name: zod
         .string()
         .max(customerJourneysPartialUpdateBodyNameMax)

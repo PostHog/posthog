@@ -267,8 +267,8 @@ tools:
         title: Update customer journey
         description: >
             Update fields on an existing Customer Analytics customer journey. Accepts a subset of fields (`insight`,
-            `name`, `description`); unspecified fields are left unchanged. A new `insight` must be the numeric `id`
-            (not the short_id) of a funnel insight that belongs to this project — find one with `insights-list`.
+            `name`, `description`); unspecified fields are left unchanged. A new `insight` must be the numeric `id` (not
+            the short_id) of a funnel insight that belongs to this project — find one with `insights-list`.
         feature_flag: customer-analytics-journeys
     customer-journeys-retrieve:
         operation: customer_journeys_retrieve

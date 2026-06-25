@@ -375,7 +375,7 @@ export interface PatchedCustomPropertyDefinitionApi {
 
 export interface CustomerJourneyApi {
     readonly id: string
-    /** ID of the funnel insight this journey is based on. Must reference an insight in the same project. */
+    /** Numeric id (not the short_id) of the funnel insight this journey is based on. Must reference an insight in the same project. */
     insight: number
     /**
      * Human-readable name of the customer journey.
@@ -405,7 +405,7 @@ export interface PaginatedCustomerJourneyListApi {
 
 export interface PatchedCustomerJourneyApi {
     readonly id?: string
-    /** ID of the funnel insight this journey is based on. Must reference an insight in the same project. */
+    /** Numeric id (not the short_id) of the funnel insight this journey is based on. Must reference an insight in the same project. */
     insight?: number
     /**
      * Human-readable name of the customer journey.

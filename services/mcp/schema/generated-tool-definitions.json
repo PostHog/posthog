@@ -1701,7 +1701,7 @@
         }
     },
     "customer-journeys-create": {
-        "description": "Create a Customer Analytics customer journey. A customer journey pairs a funnel insight with a name so the funnel can be tracked as a named journey on Customer Analytics surfaces. Provide `insight` (the id of an existing funnel insight in this project — see `insights-list`), `name` (required), and an optional `description`. The insight must belong to the same project.",
+        "description": "Create a Customer Analytics customer journey — a named wrapper around an existing funnel insight, so the funnel can be tracked as a journey on Customer Analytics surfaces. Every journey requires a funnel insight: pass `insight` as that insight's numeric `id` (not its `short_id`), plus `name` (required) and an optional `description`. To base the journey on an existing funnel, find it with `insights-list` and use its numeric `id`; to build a new funnel first, save it with `insight-create` (shape the query with `query-funnel`) and pass the numeric `id` it returns. The insight must belong to the same project, and each funnel insight can back only one journey.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create customer journey",
@@ -1746,7 +1746,7 @@
         "feature_flag": "customer-analytics-journeys"
     },
     "customer-journeys-partial-update": {
-        "description": "Update fields on an existing Customer Analytics customer journey. Accepts a subset of fields (`insight`, `name`, `description`); unspecified fields are left unchanged. A new `insight` must reference a funnel insight that belongs to this project.",
+        "description": "Update fields on an existing Customer Analytics customer journey. Accepts a subset of fields (`insight`, `name`, `description`); unspecified fields are left unchanged. A new `insight` must be the numeric `id` (not the short_id) of a funnel insight that belongs to this project — find one with `insights-list`.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Update customer journey",
