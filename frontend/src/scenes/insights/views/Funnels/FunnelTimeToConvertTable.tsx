@@ -54,7 +54,7 @@ export function FunnelTimeToConvertTable(): JSX.Element | null {
         return null
     }
 
-    const isComparing = !!histogramGraphDataPrevious
+    const isComparing = !!histogramGraphDataPrevious && histogramGraphDataPrevious.length > 0
     const rows = buildTimeToConvertCompareRows(histogramGraphData, histogramGraphDataPrevious)
 
     const columns: LemonTableColumns<TimeToConvertCompareRow> = isComparing
