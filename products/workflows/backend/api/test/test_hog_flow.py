@@ -2138,6 +2138,18 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 404, response.json()
 
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_update_batch_job_status_returns_404_for_invalid_uuid(self):
+        # `not-a-uuid` reaches UUIDField → ValidationError, must surface as 404 not 500.
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/not-a-uuid/status",
+            {"status": "completed"},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 404, response.json()
+
     def test_internal_update_batch_job_status_requires_internal_api_secret(self):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")

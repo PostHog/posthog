@@ -18,7 +18,10 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { register } from 'prom-client'
+import supertest from 'supertest'
+import express from 'ultimate-express'
 
+import { setupExpressApp } from '~/api/router'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
@@ -31,6 +34,7 @@ import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { parseJSON } from '~/utils/json-parse'
 
 import { Hub, Team } from '../../src/types'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
@@ -38,6 +42,7 @@ import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from './_tests/fixtures'
 import { insertHogFlow } from './_tests/fixtures-hogflows'
+import { CdpApi } from './cdp-api'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
@@ -2600,5 +2605,215 @@ describe('Workflows E2E (email queue)', () => {
         const bucket = await limiterValkey.useClient({ name: 'read-bucket' }, (client) => client.hgetall(bucketKey))
         const pool = parseFloat(bucket?.pool ?? '0')
         expect(pool).toBeGreaterThanOrEqual(capacity - 1)
+    })
+})
+
+/**
+ * E2E for the batch resolver dispatch path through the cdp-api HTTP boundary.
+ *
+ * Goes through real express + supertest, real CdpApi, real cyclotron-node
+ * Postgres. Verifies that POST `/batch_invocations/<id>` with the
+ * `CDP_BATCH_RESOLVER_USE_CYCLOTRON` flag on creates a resolver cyclotron
+ * job pointing at the right queue with the right state. With the flag off,
+ * the legacy Kafka path takes over.
+ *
+ * The deep state-machine paths (page execution, terminal write, truncation,
+ * Django down → resolver parks) are covered by the integration tests in
+ * `consumers/cdp-cyclotron-worker-batch-resolve.consumer.test.ts`. This
+ * test is the boundary backstop — it caught a real bug (wrong DB URL on
+ * the resolver manager) during development.
+ *
+ * Hub lifecycle follows cdp-api.test.ts: one hub for the suite (beforeAll),
+ * torn down once (afterAll). Per-test isolation comes from resetting the
+ * postgres team data + truncating cyclotron_jobs in beforeEach.
+ */
+describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
+    jest.setTimeout(30000)
+
+    const CYCLOTRON_NODE_DB_URL =
+        process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
+
+    let hub: Hub
+    let team: Team
+    let cyclotronPool: Pool
+    let app: express.Application
+    let server: any
+    let api: CdpApi
+
+    beforeAll(async () => {
+        cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
+
+        // Use real Kafka producers so closeHub can disconnect them cleanly
+        // at afterAll (the default mock holds no real connection and stays
+        // pending, which deadlocks the teardown).
+        MockKafkaProducerWrapper.create = jest.fn((...args) => ActualKafkaProducerWrapper.create(...args))
+        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
+
+        hub = await createHub({
+            SITE_URL: 'http://localhost:8000',
+            CDP_BATCH_RESOLVER_USE_CYCLOTRON: true,
+        })
+
+        const { createMockJobQueue } = require('../../tests/helpers/mocks/job-queue.mock')
+        const deps = createCdpConsumerDeps(hub)
+        api = new CdpApi(hub, deps, {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createMockJobQueue(),
+        })
+        app = setupExpressApp()
+        app.use('/', api.router())
+        server = app.listen(0, () => {})
+    })
+
+    afterAll(async () => {
+        await api?.stop()
+        if (server) {
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+        await closeHub(hub)
+        await cyclotronPool.end()
+    })
+
+    beforeEach(async () => {
+        await resetTestDatabase()
+        await cyclotronPool.query(`DELETE FROM cyclotron_jobs`)
+        team = await getFirstTeam(hub.postgres)
+        // Default the flag on; tests that need the legacy path flip it off.
+        hub.CDP_BATCH_RESOLVER_USE_CYCLOTRON = true
+    })
+
+    async function insertActiveBatchFlow(): Promise<HogFlow> {
+        const flow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: {
+                            type: 'batch',
+                            filters: { properties: [{ key: 'plan', value: 'enterprise', type: 'person' }] },
+                        },
+                    },
+                    function_1: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-fetch',
+                            inputs: { url: { value: 'https://example.com/batch' } },
+                        },
+                    },
+                },
+                edges: [{ from: 'trigger', to: 'function_1', type: 'continue' }],
+            })
+            .build()
+        return await insertHogFlow(hub.postgres, flow)
+    }
+
+    it('POST /batch_invocations with flag on creates a resolver cyclotron job with the right shape', async () => {
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+
+        const response = await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+            .send({
+                filters: { filter_test_accounts: false },
+                max_audience_size: 750,
+                variables: { greeting: 'hi' },
+                group_type_index: 2,
+            })
+            .expect(200)
+
+        expect(response.body).toEqual({ status: 'queued', dispatch: 'cyclotron' })
+
+        // Exactly one resolver job, on the right queue, with state encoding
+        // everything the worker needs to start paging.
+        const rows = await cyclotronPool.query<{
+            id: string
+            queue_name: string
+            status: string
+            parent_run_id: string
+            team_id: number
+            function_id: string
+            state: Buffer | null
+        }>(
+            `SELECT id, queue_name, status::text AS status, parent_run_id, team_id, function_id, state
+             FROM cyclotron_jobs
+             WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(rows.rows).toHaveLength(1)
+        const job = rows.rows[0]
+        expect(job.status).toBe('available')
+        expect(job.parent_run_id).toBe(parentRunId)
+        expect(job.team_id).toBe(team.id)
+        expect(job.function_id).toBe(flow.id)
+        expect(job.state).not.toBeNull()
+
+        const state = parseJSON((job.state as Buffer).toString('utf-8')) as Record<string, unknown>
+        expect(state).toMatchObject({
+            batchJobId: parentRunId,
+            teamId: team.id,
+            hogFlowId: flow.id,
+            maxAudienceSize: 750,
+            variables: { greeting: 'hi' },
+            groupTypeIndex: 2,
+            cursor: null,
+            totalEnqueued: 0,
+            pagesProcessed: 0,
+        })
+        expect(state.pendingTerminal).toBeUndefined()
+    })
+
+    it('POST /batch_invocations with flag off falls back to the legacy Kafka path', async () => {
+        hub.CDP_BATCH_RESOLVER_USE_CYCLOTRON = false
+
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+
+        const response = await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+            .send({ filters: { filter_test_accounts: false } })
+            .expect(200)
+
+        expect(response.body).toEqual({ status: 'queued', dispatch: 'kafka' })
+
+        const rows = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(rows.rows).toHaveLength(0)
+    })
+
+    it('rejects with 400 when the workflow is not a batch trigger', async () => {
+        const flow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: {} },
+                    },
+                    function_1: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-fetch',
+                            inputs: { url: { value: 'https://example.com/' } },
+                        },
+                    },
+                },
+                edges: [{ from: 'trigger', to: 'function_1', type: 'continue' }],
+            })
+            .build()
+        const inserted = await insertHogFlow(hub.postgres, flow)
+        const parentRunId = new UUIDT().toString()
+
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${inserted.id}/batch_invocations/${parentRunId}`)
+            .send({ filters: { filter_test_accounts: false } })
+            .expect(400)
+
+        const rows = await cyclotronPool.query(`SELECT id FROM cyclotron_jobs WHERE parent_run_id = $1`, [parentRunId])
+        expect(rows.rows).toHaveLength(0)
     })
 })

@@ -1,6 +1,6 @@
-import { parseJSON } from '~/utils/json-parse'
+import { z } from 'zod'
 
-import type { HogFunctionFilters } from '../../types'
+import { parseJSON } from '~/utils/json-parse'
 
 /**
  * Cyclotron queue name for the batch audience resolver. Plain FIFO (no
@@ -10,37 +10,48 @@ import type { HogFunctionFilters } from '../../types'
 export const HOGFLOW_BATCH_RESOLVE_QUEUE = 'hogflow_batch_resolve' as const
 
 /**
+ * Zod schema for resolver state. Used to validate the BYTEA blob on every
+ * dequeue — a deployed job carrying state written by a previous shape (field
+ * renamed, required field added, etc.) fails cleanly at the boundary
+ * instead of crashing later with a `Cannot read properties of undefined`.
+ *
+ * `filter_test_accounts` is the only filter field the resolver actually
+ * forwards. `properties` is kept loose (`unknown`) because PostHog's filter
+ * shape evolves; we don't want resolver replays to fail because some
+ * property entry has a new field the worker doesn't care about.
+ */
+export const BatchResolverStateSchema = z.object({
+    batchJobId: z.string().min(1),
+    teamId: z.number().int(),
+    hogFlowId: z.string().min(1),
+    filters: z.object({
+        // Match HogFunctionFilters.properties — each entry is an arbitrary record.
+        // Keep it loose so resolver replays don't fail when PostHog adds new
+        // property-filter fields the worker doesn't care about.
+        properties: z.array(z.record(z.string(), z.any())).optional(),
+        filter_test_accounts: z.boolean().optional(),
+    }),
+    variables: z.record(z.string(), z.unknown()),
+    groupTypeIndex: z.number().int().optional(),
+    maxAudienceSize: z.number().int().nonnegative(),
+    cursor: z.string().nullable(),
+    totalEnqueued: z.number().int().nonnegative(),
+    pagesProcessed: z.number().int().nonnegative(),
+    startedAt: z.string(),
+    pendingTerminal: z.enum(['completed', 'failed']).optional(),
+    truncatedAtCount: z.number().int().nonnegative().optional(),
+})
+
+/**
  * State carried by a single resolver cyclotron job between page executions.
  * Serialized as a JSON Buffer in cyclotron_jobs.state. Each execution reads
  * this, processes one page (~500 persons), and either re-queues itself with
  * an updated state or transitions to the terminal-write phase.
+ *
+ * Source of truth is `BatchResolverStateSchema`; this type is `z.infer`d
+ * so the schema and the type can't drift apart.
  */
-export interface BatchResolverState {
-    batchJobId: string // == HogFlowBatchJob.id, == parentRunId on children
-    teamId: number
-    hogFlowId: string
-    filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>
-    variables: Record<string, unknown>
-    groupTypeIndex?: number
-    maxAudienceSize: number
-
-    cursor: string | null // null on first page
-    totalEnqueued: number
-    pagesProcessed: number
-    startedAt: string // ISO timestamp
-
-    /**
-     * When set, the next execution skips audience fetching and tries to PUT
-     * terminal status to Django. The resolver only acks itself after Django
-     * acknowledges — so if Django is down, the resolver retries via cyclotron
-     * retry semantics until the write goes through.
-     *
-     * `truncatedAtCount` is only relevant when `pendingTerminal === 'completed'`
-     * and the run hit the maxAudienceSize cap (carries the cap data to Django).
-     */
-    pendingTerminal?: 'completed' | 'failed'
-    truncatedAtCount?: number
-}
+export type BatchResolverState = z.infer<typeof BatchResolverStateSchema>
 
 export function serializeResolverState(state: BatchResolverState): Buffer {
     return Buffer.from(JSON.stringify(state))
@@ -50,5 +61,6 @@ export function deserializeResolverState(buf: Buffer | null): BatchResolverState
     if (!buf) {
         throw new Error('Resolver job is missing state')
     }
-    return parseJSON(buf.toString('utf-8')) as BatchResolverState
+    const parsed: unknown = parseJSON(buf.toString('utf-8'))
+    return BatchResolverStateSchema.parse(parsed)
 }

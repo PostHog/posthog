@@ -198,9 +198,12 @@ export class CdpApi {
      */
     private getOrCreateBatchResolverCyclotronManager(): CyclotronV2Manager {
         if (!this.batchResolverCyclotronManager) {
+            if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
+                throw new Error('CYCLOTRON_NODE_DATABASE_URL is not configured — cyclotron batch resolver unavailable')
+            }
             this.batchResolverCyclotronManager = new CyclotronV2Manager({
                 pool: {
-                    dbUrl: this.config.CYCLOTRON_DATABASE_URL,
+                    dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
                     maxConnections: 5,
                 },
             })

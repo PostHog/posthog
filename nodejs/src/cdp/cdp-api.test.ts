@@ -866,7 +866,7 @@ describe('CDP API', () => {
                 })
 
             expect(res.status).toEqual(200)
-            expect(res.body).toEqual({ status: 'queued' })
+            expect(res.body).toEqual({ status: 'queued', dispatch: 'kafka' })
             expect(produceSpy).toHaveBeenCalledWith({
                 topic: 'cdp_batch_hogflow_requests_test',
                 value: Buffer.from(
@@ -892,7 +892,7 @@ describe('CDP API', () => {
                 .send({})
 
             expect(res.status).toEqual(200)
-            expect(res.body).toEqual({ status: 'queued' })
+            expect(res.body).toEqual({ status: 'queued', dispatch: 'kafka' })
             expect(produceSpy).toHaveBeenCalledWith({
                 topic: 'cdp_batch_hogflow_requests_test',
                 value: Buffer.from(

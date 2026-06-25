@@ -54,6 +54,9 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     protected name = 'CdpCyclotronWorkerBatchResolve'
 
     private cyclotronWorker: CyclotronV2Worker
+    // Shared fetch service: same base URL + secret across audience-fetch
+    // and terminal-status calls, constructed once.
+    private internalFetchService: InternalFetchService
     // Public for test injection: integration tests provide a mock that returns
     // synthetic person pages without talking to Django/ClickHouse.
     public hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService
@@ -70,9 +73,13 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
 
+        if (!config.CYCLOTRON_NODE_DATABASE_URL) {
+            throw new Error('CYCLOTRON_NODE_DATABASE_URL is required for CdpCyclotronWorkerBatchResolve')
+        }
+
         this.cyclotronWorker = new CyclotronV2Worker({
             pool: {
-                dbUrl: config.CYCLOTRON_DATABASE_URL,
+                dbUrl: config.CYCLOTRON_NODE_DATABASE_URL,
                 maxConnections: 10,
             },
             queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -80,9 +87,8 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             pollDelayMs: 100,
         })
 
-        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(
-            new InternalFetchService(config.INTERNAL_API_BASE_URL, config.INTERNAL_API_SECRET)
-        )
+        this.internalFetchService = new InternalFetchService(config.INTERNAL_API_BASE_URL, config.INTERNAL_API_SECRET)
+        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(this.internalFetchService)
     }
 
     public override async start(): Promise<void> {
@@ -157,8 +163,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
      * is preserved in state so the page replays cleanly.
      */
     private async processOnePage(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
-        const team = await this.deps.teamManager.getTeam(state.teamId)
-        const hogFlow = await this.hogFlowManager.getHogFlow(state.hogFlowId)
+        const [team, hogFlow] = await Promise.all([
+            this.deps.teamManager.getTeam(state.teamId),
+            this.hogFlowManager.getHogFlow(state.hogFlowId),
+        ])
 
         if (!team || !hogFlow) {
             // Team or HogFlow disappeared (deleted?). Terminate the resolver run.
@@ -364,18 +372,13 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         status: 'completed' | 'failed',
         truncatedAtCount: number | undefined
     ): Promise<void> {
-        const internalFetchService = new InternalFetchService(
-            this.config.INTERNAL_API_BASE_URL,
-            this.config.INTERNAL_API_SECRET
-        )
-
         const urlPath = `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status` as const
         const body: Record<string, unknown> = { status }
         if (truncatedAtCount !== undefined) {
             body.truncated_at_count = truncatedAtCount
         }
 
-        const { fetchResponse, fetchError } = await internalFetchService.fetch({
+        const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
             urlPath,
             fetchParams: {
                 method: 'PUT',

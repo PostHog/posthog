@@ -4,6 +4,7 @@ import uuid as uuid_mod
 from datetime import timedelta
 from typing import Optional, cast
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -1884,7 +1885,11 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, team=team)
-        except HogFlowBatchJob.DoesNotExist:
+        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
+            # `DjangoValidationError` fires when `batch_job_id` is not a parseable
+            # UUID (UUIDField rejects it before the lookup). `ValueError` is a
+            # belt-and-suspenders catch for str→int / str→UUID edge cases on
+            # other backends. Either way, surface as 404, not 500.
             return Response({"error": "Batch job not found"}, status=404)
 
         terminal_states = {
