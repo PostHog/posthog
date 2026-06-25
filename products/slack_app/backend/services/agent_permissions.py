@@ -444,6 +444,7 @@ def post_slack_permission_request_for_task_run(
             logger.info("slack_permission_prompt_no_reject_option", run_id=run_id, request_id=request_id)
             return
 
+        tool_label, tool_detail = _extract_tool_summary(permission_request["tool_call"])
         context_token = uuid.uuid4().hex
         cache.set(
             _interactivity_context_cache_key(context_token),
@@ -460,12 +461,13 @@ def post_slack_permission_request_for_task_run(
                 "default_option_id": default_option["optionId"],
                 "reject_option_id": reject_option_id,
                 "options": options,
+                "tool_label": tool_label,
+                "tool_detail": tool_detail,
                 "created_at": int(time.time()),
             },
             timeout=SLACK_PERMISSION_CONTEXT_TTL_SECONDS,
         )
 
-        tool_label, tool_detail = _extract_tool_summary(permission_request["tool_call"])
         text = f"<@{target_slack_user_id}> the agent needs permission to continue: *{tool_label}*"
         current_autonomy_tier = _initial_autonomy_tier(task_run, SlackAutonomyTier.ASK_BEFORE_WRITE)
         autonomy_tier_options = [

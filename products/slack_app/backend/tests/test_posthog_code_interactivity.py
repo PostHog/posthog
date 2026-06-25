@@ -449,17 +449,20 @@ class TestRepoPickerOptions(TestCase):
 
     @patch("products.slack_app.backend.api.requests.post")
     @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_permission_deny_sends_reject_option(
         self,
         mock_config,
         mock_create_token,
+        mock_send_user_message,
         mock_send_agent_command,
         mock_requests_post,
     ):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_create_token.return_value = "sandbox-token"
+        mock_send_user_message.return_value = SimpleNamespace(success=True, status_code=200, error=None)
         mock_send_agent_command.return_value = SimpleNamespace(success=True, status_code=200, error=None)
         task_run = self._create_permission_run()
         token = self._cache_permission_context(task_run)
@@ -467,11 +470,47 @@ class TestRepoPickerOptions(TestCase):
         response = self._post_interactivity(self._permission_payload(SLACK_PERMISSION_ACTION_DENY, token))
 
         assert response.status_code == 200
+        mock_send_user_message.assert_called_once()
+        followup_args = mock_send_user_message.call_args
+        assert followup_args.args[0].id == task_run.id
+        assert "denied your approval request" in followup_args.args[1]
+        assert "Try a different safe approach" in followup_args.args[1]
+        assert followup_args.kwargs["auth_token"] == "sandbox-token"
         assert mock_send_agent_command.call_args.kwargs["params"] == {"requestId": "perm-1", "optionId": "reject"}
         assert "Denied" in mock_requests_post.call_args.kwargs["json"]["text"]
+        assert "find another path" in mock_requests_post.call_args.kwargs["json"]["text"]
         task_run.refresh_from_db()
         assert task_run.state["slack_permission_rejected"] is True
         assert task_run.state["slack_permission_rejected_request_id"] == "perm-1"
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_permission_deny_does_not_reject_when_denial_followup_fails(
+        self,
+        mock_config,
+        mock_create_token,
+        mock_send_user_message,
+        mock_send_agent_command,
+        mock_requests_post,
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_create_token.return_value = "sandbox-token"
+        mock_send_user_message.return_value = SimpleNamespace(
+            success=False, status_code=502, error="Connection to sandbox failed"
+        )
+        task_run = self._create_permission_run()
+        token = self._cache_permission_context(task_run)
+
+        response = self._post_interactivity(self._permission_payload(SLACK_PERMISSION_ACTION_DENY, token))
+
+        assert response.status_code == 200
+        mock_send_agent_command.assert_not_called()
+        assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
+        assert "couldn't tell the agent" in mock_requests_post.call_args.kwargs["json"]["text"]
+        assert cache.get(_picker_context_cache_key(token)) is not None
 
     @patch("products.slack_app.backend.api.requests.post")
     @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")

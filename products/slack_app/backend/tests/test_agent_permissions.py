@@ -152,6 +152,8 @@ class TestSlackAgentPermissionPrompt(TestCase):
         assert context["request_id"] == "perm-1"
         assert context["expected_slack_user_id"] == "U_ACTOR"
         assert context["reject_option_id"] == "reject"
+        assert context["tool_label"] == "Check available PDF generation tools"
+        assert context["tool_detail"] == 'python3 -c "import reportlab"'
 
     @patch("products.slack_app.backend.services.agent_permissions.SlackIntegration")
     def test_dedupes_repeated_permission_request(self, mock_slack_cls: MagicMock) -> None:
