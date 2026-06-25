@@ -86,6 +86,16 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
     ),
     DiffCheck(
+        key="markdown-format",
+        label="markdown formatting (oxfmt)",
+        triggers=["*.md", "*.mdx"],
+        # Mirrors lint-staged's `format:markdown`, which agents bypass via --no-verify.
+        verify=["pnpm", "exec", "oxfmt", "--check"],
+        fix=["hogli", "format:markdown"],
+        requires="node",
+        takes_files=True,
+    ),
+    DiffCheck(
         key="feature-flags",
         label="FEATURE_FLAGS not alphabetically sorted",
         triggers=["frontend/src/lib/constants.tsx"],
