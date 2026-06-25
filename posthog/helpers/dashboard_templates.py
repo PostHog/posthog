@@ -702,6 +702,55 @@ FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"
 FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = "Feature Flag calls made by unique users per variant"
 
 
+def _get_feature_flag_called_property_filters(feature_flag) -> list[dict[str, Any]]:
+    filters: list[dict[str, Any]] = [
+        {
+            "key": "$feature_flag",
+            "operator": "exact",
+            "type": "event",
+            "value": feature_flag.key,
+        }
+    ]
+    group_type_index = feature_flag.aggregation_group_type_index
+    if group_type_index is not None:
+        filters.append(
+            {
+                "key": f"$group_{group_type_index}",
+                "operator": "is_set",
+                "type": "event",
+                "value": "is_set",
+            }
+        )
+    return filters
+
+
+def _build_feature_flag_called_properties_filter(feature_flag) -> dict[str, Any]:
+    return {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": _get_feature_flag_called_property_filters(feature_flag),
+            }
+        ],
+    }
+
+
+def _get_feature_flag_unique_calls_series(feature_flag) -> dict[str, Any]:
+    series: dict[str, Any] = {
+        "event": "$feature_flag_called",
+        "kind": "EventsNode",
+        "name": "$feature_flag_called",
+    }
+    group_type_index = feature_flag.aggregation_group_type_index
+    if group_type_index is not None:
+        series["math"] = "unique_group"
+        series["math_group_type_index"] = group_type_index
+    else:
+        series["math"] = "dau"
+    return series
+
+
 def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> None:
     dashboard.filters = {"date_from": "-30d"}
     tag, _ = Tag.objects.get_or_create(
@@ -725,22 +774,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> N
                 "filterTestAccounts": False,
                 "interval": "day",
                 "kind": "TrendsQuery",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "operator": "exact",
-                                    "type": "event",
-                                    "value": feature_flag.key,
-                                }
-                            ],
-                        }
-                    ],
-                },
+                "properties": _build_feature_flag_called_properties_filter(feature_flag),
                 "series": [{"event": "$feature_flag_called", "kind": "EventsNode", "name": "$feature_flag_called"}],
                 "trendsFilter": {
                     "aggregationAxisFormat": "numeric",
@@ -782,30 +816,8 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> N
                 "filterTestAccounts": False,
                 "interval": "day",
                 "kind": "TrendsQuery",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "operator": "exact",
-                                    "type": "event",
-                                    "value": feature_flag.key,
-                                }
-                            ],
-                        }
-                    ],
-                },
-                "series": [
-                    {
-                        "event": "$feature_flag_called",
-                        "kind": "EventsNode",
-                        "math": "dau",
-                        "name": "$feature_flag_called",
-                    }
-                ],
+                "properties": _build_feature_flag_called_properties_filter(feature_flag),
+                "series": [_get_feature_flag_unique_calls_series(feature_flag)],
                 "trendsFilter": {
                     "aggregationAxisFormat": "numeric",
                     "display": "ActionsTable",
@@ -1127,14 +1139,15 @@ def _update_tile_with_new_key(insight, new_key: str, old_key: str, descriptionFu
 
         property_group = property_values[0]
         values = property_group.get("values", [])
-        # Only proceed if there's exactly one value and it's a feature flag
-        if len(values) == 1 and values[0].get("key") == "$feature_flag" and values[0].get("value") == old_key:
-            values[0]["value"] = new_key
-            insight.query = insight.query  # Trigger field update
-            # Only update the insight if it matches what we expect for the system created insights
-            insight.description = new_description
-            insight.save()
+        feature_flag_filter = next((value for value in values if value.get("key") == "$feature_flag"), None)
+        if feature_flag_filter is None or feature_flag_filter.get("value") != old_key:
             return
+
+        feature_flag_filter["value"] = new_key
+        insight.query = insight.query  # Trigger field update
+        # Only update the insight if it matches what we expect for the system created insights
+        insight.description = new_description
+        insight.save()
 
 
 def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:

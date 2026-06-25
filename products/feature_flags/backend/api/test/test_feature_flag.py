@@ -4388,6 +4388,68 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_create_group_feature_flag_usage_dashboard(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "rollout_percentage": 50,
+                            "properties": [
+                                {
+                                    "key": "industry",
+                                    "value": "finance",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+
+        dashboard = instance.usage_dashboard
+        assert dashboard is not None
+        assert dashboard.tiles is not None
+        tiles = sorted(
+            dashboard.tiles.all(),
+            key=lambda x: str(x.insight.name if x.insight is not None else ""),
+        )
+        self.assertEqual(len(tiles), 2)
+
+        group_property_filter = {
+            "key": "$group_0",
+            "type": "event",
+            "value": "is_set",
+            "operator": "is_set",
+        }
+        flag_property_filter = {
+            "key": "$feature_flag",
+            "type": "event",
+            "value": "group-feature",
+            "operator": "exact",
+        }
+
+        assert tiles[0].insight is not None
+        total_volume_properties = tiles[0].insight.query["source"]["properties"]["values"][0]["values"]
+        self.assertEqual(total_volume_properties, [flag_property_filter, group_property_filter])
+
+        assert tiles[1].insight is not None
+        unique_calls_series = tiles[1].insight.query["source"]["series"][0]
+        self.assertEqual(unique_calls_series["math"], "unique_group")
+        self.assertEqual(unique_calls_series["math_group_type_index"], 0)
+        unique_calls_properties = tiles[1].insight.query["source"]["properties"]["values"][0]["values"]
+        self.assertEqual(unique_calls_properties, [flag_property_filter, group_property_filter])
+
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_dashboard_enrichment_fails_if_already_enriched(self, mock_report_user_action):
