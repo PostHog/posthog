@@ -25,7 +25,6 @@ import json
 import time
 import shutil
 import socket
-import fnmatch
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -38,7 +37,7 @@ from hogli.hooks import telemetry_property_hooks
 from hogli.manifest import REPO_ROOT
 
 from hogli_commands.build import TRIGGERS as BUILD_TRIGGERS
-from hogli_commands.test_runner import _get_changed_files
+from hogli_commands.change_detection import changed_files, matches_globs
 
 Requirement = Literal["node", "stack"]
 
@@ -117,32 +116,6 @@ DIFF_CHECKS: list[DiffCheck] = [
         requires="stack",
     ),
 ]
-
-
-def _changed(against: str | None) -> list[str]:
-    """Files the branch touches, including uncommitted work. The default base reuses
-    test_runner's logic so `ci:preflight` and `test --changed` agree on 'what changed';
-    on master (no branch to diff) there's simply nothing to preflight."""
-    if against is None:
-        try:
-            return _get_changed_files()
-        except click.UsageError:
-            return []  # on master / detached HEAD: no branch diff to check
-    diff = subprocess.run(
-        ["git", "diff", "--name-only", f"{against}...HEAD"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-    )
-    if diff.returncode != 0:
-        raise click.UsageError(f"git diff against {against!r} failed: {diff.stderr.strip()}")
-    files = {line for line in diff.stdout.splitlines() if line}
-    # Fold in uncommitted/untracked work too, matching the default path.
-    status = subprocess.run(
-        ["git", "status", "--porcelain", "--no-renames"], cwd=REPO_ROOT, capture_output=True, text=True
-    )
-    files.update(line[3:] for line in status.stdout.splitlines() if len(line) > 3)
-    return sorted(files)
 
 
 def _has_node_modules() -> bool:
@@ -309,12 +282,12 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
 @click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result summary as JSON.")
 def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool) -> None:
-    files = _changed(against)
+    files = changed_files(against or "master")
     base = against or "branch base"
 
     triggered: list[DiffCheck] = []
     for chk in DIFF_CHECKS:
-        chk.matched = [f for f in files if any(fnmatch.fnmatch(f, t) for t in chk.triggers)]
+        chk.matched = [f for f in files if matches_globs(f, chk.triggers)]
         if chk.matched:
             triggered.append(chk)
 
