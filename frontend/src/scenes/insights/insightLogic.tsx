@@ -328,7 +328,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                 if (item.id === state.id) {
-                    return { ...state, name: item.name, description: item.description }
+                    // Include query so display-option saves (persistDisplayOptions) are reflected
+                    // immediately without a page refresh. Preserve existing result/last_refresh:
+                    // a bare PATCH doesn't recompute the chart so the response carries result: null.
+                    return {
+                        ...state,
+                        name: item.name,
+                        description: item.description,
+                        query: item.query ?? state.query,
+                    }
                 }
                 return state
             },
@@ -371,6 +379,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     tags: insight.tags,
                     favorited: insight.favorited,
                 }),
+                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) =>
+                    item.id === state.id && item.query
+                        ? { ...state, name: item.name, description: item.description, query: item.query }
+                        : state,
             },
         ],
         insightLoading: [
