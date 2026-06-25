@@ -501,6 +501,177 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 Ok(HogLiteral::Boolean(valid).into())
             }),
         ),
+        (
+            "toInt",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "toInt")?;
+                let res = match args[0].deref(&vm.heap)? {
+                    HogLiteral::Number(n) => Some(if n.is_float() {
+                        n.to_float() as i64
+                    } else {
+                        n.to_integer()
+                    }),
+                    HogLiteral::Boolean(b) => Some(*b as i64),
+                    HogLiteral::String(s) => s.trim().parse::<i64>().ok(),
+                    _ => None,
+                };
+                // ValueError -> null in the reference.
+                Ok(res
+                    .map(|i| HogLiteral::Number(Num::Integer(i)))
+                    .unwrap_or(HogLiteral::Null)
+                    .into())
+            }),
+        ),
+        (
+            "toFloat",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "toFloat")?;
+                let res = match args[0].deref(&vm.heap)? {
+                    HogLiteral::Number(n) => Some(n.to_float()),
+                    HogLiteral::String(s) => s.trim().parse::<f64>().ok(),
+                    _ => None,
+                };
+                Ok(res
+                    .map(|f| HogLiteral::Number(Num::Float(f)))
+                    .unwrap_or(HogLiteral::Null)
+                    .into())
+            }),
+        ),
+        (
+            "ifNull",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "ifNull")?;
+                if matches!(args[0].deref(&vm.heap)?, HogLiteral::Null) {
+                    Ok(args[1].clone())
+                } else {
+                    Ok(args[0].clone())
+                }
+            }),
+        ),
+        (
+            "coalesce",
+            native_func(|vm, args| {
+                for arg in &args {
+                    if !matches!(arg.deref(&vm.heap)?, HogLiteral::Null) {
+                        return Ok(arg.clone());
+                    }
+                }
+                Ok(HogLiteral::Null.into())
+            }),
+        ),
+        (
+            "assumeNotNull",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "assumeNotNull")?;
+                if matches!(args[0].deref(&vm.heap)?, HogLiteral::Null) {
+                    Err(VmError::NativeCallFailed(
+                        "Value is null in assumeNotNull".to_string(),
+                    ))
+                } else {
+                    Ok(args[0].clone())
+                }
+            }),
+        ),
+        (
+            "empty",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "empty")?;
+                // Numbers and booleans are never "empty" (matching the reference); otherwise empty
+                // means falsy: "" / [] / {} / null.
+                let result = match args[0].deref(&vm.heap)? {
+                    HogLiteral::Number(_) | HogLiteral::Boolean(_) => false,
+                    HogLiteral::Null => true,
+                    HogLiteral::String(s) => s.is_empty(),
+                    HogLiteral::Array(a) => a.is_empty(),
+                    HogLiteral::Object(o) => o.is_empty(),
+                    _ => false,
+                };
+                Ok(HogLiteral::Boolean(result).into())
+            }),
+        ),
+        (
+            "keys",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "keys")?;
+                match args[0].deref(&vm.heap)? {
+                    HogLiteral::Object(o) => Ok(HogLiteral::Array(
+                        o.keys().map(|k| HogLiteral::String(k.clone()).into()).collect(),
+                    )
+                    .into()),
+                    // Arrays/tuples -> 0-based index list, matching the reference.
+                    HogLiteral::Array(a) => Ok(HogLiteral::Array(
+                        (0..a.len())
+                            .map(|i| HogLiteral::Number(Num::Integer(i as i64)).into())
+                            .collect(),
+                    )
+                    .into()),
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
+                }
+            }),
+        ),
+        (
+            "round",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "round")?;
+                let n: &Num = args[0].deref(&vm.heap)?.try_as()?;
+                // Python round() is round-half-to-even and returns an int.
+                Ok(HogLiteral::Number(Num::Integer(n.to_float().round_ties_even() as i64)).into())
+            }),
+        ),
+        (
+            "floor",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "floor")?;
+                let n: &Num = args[0].deref(&vm.heap)?.try_as()?;
+                Ok(HogLiteral::Number(Num::Integer(n.to_float().floor() as i64)).into())
+            }),
+        ),
+        (
+            "min2",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "min2")?;
+                let less = {
+                    let a: &Num = args[0].deref(&vm.heap)?.try_as()?;
+                    let b: &Num = args[1].deref(&vm.heap)?.try_as()?;
+                    a.compare(b) == std::cmp::Ordering::Less
+                };
+                Ok(if less { args[0].clone() } else { args[1].clone() })
+            }),
+        ),
+        (
+            "max2",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "max2")?;
+                let greater = {
+                    let a: &Num = args[0].deref(&vm.heap)?.try_as()?;
+                    let b: &Num = args[1].deref(&vm.heap)?.try_as()?;
+                    a.compare(b) == std::cmp::Ordering::Greater
+                };
+                Ok(if greater { args[0].clone() } else { args[1].clone() })
+            }),
+        ),
+        (
+            "range",
+            native_func(|vm, args| {
+                if args.is_empty() || args.len() > 2 {
+                    return Err(VmError::NativeCallFailed(
+                        "range supports 1 or 2 arguments".to_string(),
+                    ));
+                }
+                let (start, end) = if args.len() == 1 {
+                    (0, args[0].deref(&vm.heap)?.try_as::<Num>()?.to_integer())
+                } else {
+                    (
+                        args[0].deref(&vm.heap)?.try_as::<Num>()?.to_integer(),
+                        args[1].deref(&vm.heap)?.try_as::<Num>()?.to_integer(),
+                    )
+                };
+                let arr = (start..end)
+                    .map(|i| HogLiteral::Number(Num::Integer(i)).into())
+                    .collect();
+                Ok(HogLiteral::Array(arr).into())
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
