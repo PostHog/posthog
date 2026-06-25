@@ -431,8 +431,11 @@ class DebugCHQueries(viewsets.ViewSet):
             raise exceptions.ValidationError("metric_type must be one of: mean, funnel, ratio, retention.")
 
         funnel_order_type_filter = request.query_params.get("funnel_order_type") or None
-        if funnel_order_type_filter is not None and funnel_order_type_filter not in {"ordered", "unordered", "strict"}:
-            raise exceptions.ValidationError("funnel_order_type must be one of: ordered, unordered, strict.")
+        if funnel_order_type_filter is not None:
+            if funnel_order_type_filter not in {"ordered", "unordered", "strict"}:
+                raise exceptions.ValidationError("funnel_order_type must be one of: ordered, unordered, strict.")
+            if metric_type_filter != "funnel":
+                raise exceptions.ValidationError("funnel_order_type can only be used with metric_type=funnel.")
 
         params: dict = {
             "cluster": CLICKHOUSE_CLUSTER,
