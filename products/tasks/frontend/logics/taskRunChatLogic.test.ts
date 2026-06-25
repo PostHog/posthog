@@ -106,6 +106,27 @@ describe('taskRunChatLogic', () => {
         expect(logic.values.sendingMessage).toBe(false)
     })
 
+    it('preserves text typed while the send is in flight', async () => {
+        let resolveSend: (value: unknown) => void = () => {}
+        ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolveSend = resolve
+            })
+        )
+        logic.actions.setComposerDraft('hello')
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('hello')
+        }).toDispatchActions(['clearComposerDraft'])
+
+        // User keeps typing before the request resolves; the new text must not be clobbered on success.
+        logic.actions.setComposerDraft('world')
+        resolveSend({})
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.composerDraft).toBe('world')
+    })
+
     it('keeps the draft and toasts when the send fails', async () => {
         ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue(new Error('boom'))
         logic.actions.setComposerDraft('ship it')

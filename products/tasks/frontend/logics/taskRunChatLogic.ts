@@ -64,6 +64,9 @@ export const taskRunChatLogic = kea<taskRunChatLogicType>([
                 return
             }
             actions.setSendingMessage(true)
+            // Clear the draft synchronously before the await so text the user types while the send is in
+            // flight isn't clobbered when the request resolves. A failed send restores the original text.
+            actions.clearComposerDraft()
             try {
                 await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
                     jsonrpc: '2.0',
@@ -71,10 +74,8 @@ export const taskRunChatLogic = kea<taskRunChatLogicType>([
                     params: { content },
                 })
                 actions.pushHumanMessage(content)
-                // Only clear the draft once the send succeeds — a failed send (or missing project) keeps
-                // the user's text so they can retry without retyping.
-                actions.clearComposerDraft()
             } catch {
+                actions.setComposerDraft(content)
                 lemonToast.error('Failed to send message. Please try again.')
             } finally {
                 actions.setSendingMessage(false)
