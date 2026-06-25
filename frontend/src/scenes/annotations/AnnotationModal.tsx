@@ -2,16 +2,9 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconX } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCalendarSelectInput,
-    LemonModal,
-    LemonModalProps,
-    LemonSelect,
-    LemonSelectOptions,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 
+import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
@@ -166,7 +159,7 @@ export function AnnotationModal({
                         }
                         className="flex-1"
                     >
-                        <LemonCalendarSelectInput granularity="minute" />
+                        {({ value, onChange }) => <DatePicker value={value} onChange={onChange} granularity="minute" />}
                     </LemonField>
                     <LemonField name="scope" label="Scope" className="flex-1">
                         <LemonSelect options={scopeOptions} fullWidth />
