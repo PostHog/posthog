@@ -12,7 +12,7 @@ description: >
 
 `hogli ci:preflight` scopes a curated set of checks to the files your branch touched — each mapped to a
 CI failure class that has taken master down — plus an always-on branch-freshness check. It is the
-pre-push counterpart to `hogli ci:insights` (what is *already* broken on master). Run it as part of your
+pre-push counterpart to `hogli ci:insights` (what is _already_ broken on master). Run it as part of your
 definition of done.
 
 ## The loop
