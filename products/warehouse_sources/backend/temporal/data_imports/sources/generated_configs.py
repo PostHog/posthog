@@ -1728,6 +1728,11 @@ class LeverSourceConfig(config.Config):
 
 
 @config.config
+class LianaSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class LightfieldSourceConfig(config.Config):
     pass
 
@@ -3842,6 +3847,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
         ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
         ExternalDataSourceType.LEVER: LeverSourceConfig,
+        ExternalDataSourceType.LIANA: LianaSourceConfig,
         ExternalDataSourceType.LIGHTFIELD: LightfieldSourceConfig,
         ExternalDataSourceType.LIGHTSPEEDRETAIL: LightspeedRetailSourceConfig,
         ExternalDataSourceType.LINEAR: LinearSourceConfig,

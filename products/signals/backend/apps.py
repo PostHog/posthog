@@ -18,9 +18,7 @@ class SignalsConfig(AppConfig):
         importing this product (it depends on warehouse_sources). The gate impl is imported
         lazily so the registry/model stay off the django.setup() path.
         """
-        from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
-            register_emit_signals_gate,
-        )
+        from products.warehouse_sources.backend.facade.hooks import register_emit_signals_gate
 
         def _gate(team_id: int, source_type: str, schema_name: str, ai_data_processing_approved: bool) -> bool:
             from products.signals.backend.emission.gate import emit_signals_enabled  # noqa: PLC0415

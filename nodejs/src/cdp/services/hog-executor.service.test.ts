@@ -75,7 +75,6 @@ describe('Hog Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                emailQueueRouting: hub.CDP_EMAIL_QUEUE_ROUTING,
                 selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
@@ -2255,7 +2254,7 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe('email queue routing config', () => {
+    describe('email queue routing', () => {
         const createEmailInvocation = (): CyclotronJobInvocationHogFunction => {
             const hogFunction = createHogFunction({ name: 'Email function', team_id: 123 })
             const invocation: CyclotronJobInvocationHogFunction = {
@@ -2274,103 +2273,23 @@ describe('Hog Executor', () => {
             return invocation
         }
 
-        const createExecutorWithRouting = (emailQueueRouting: string): HogExecutorService => {
-            const hogInputsService = new HogInputsService(
-                hub.integrationManager,
-                hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
-            )
-            const emailService = new EmailService(
-                {
-                    sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                    sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                    sesRegion: hub.SES_REGION,
-                    sesEndpoint: hub.SES_ENDPOINT,
-                },
-                hub.integrationManager,
-                new TeamWorkflowsConfigService(hub.postgres),
-                hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL,
-                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
-            )
-            const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-            return new HogExecutorService(
-                {
-                    hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                    googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                    fetchRetries: hub.CDP_FETCH_RETRIES,
-                    fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                    fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                    emailQueueRouting,
-                    selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
-                },
-                { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                hogInputsService,
-                emailService,
-                recipientTokensService
-            )
-        }
-
-        it('should send inline when routing is empty', async () => {
-            const exec = createExecutorWithRouting('')
+        it('should route email sends to the dedicated email queue', async () => {
             const invocation = createEmailInvocation()
 
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).not.toBe('email')
-            expect(result.finished).toBe(true)
-        })
-
-        it('should route to email queue when team matches', async () => {
-            const exec = createExecutorWithRouting('123')
-            const invocation = createEmailInvocation()
-
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).toBe('email')
-            expect(result.finished).toBe(false)
-        })
-
-        it('should send inline when team does not match', async () => {
-            const exec = createExecutorWithRouting('456')
-            const invocation = createEmailInvocation()
-
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).not.toBe('email')
-            expect(result.finished).toBe(true)
-        })
-
-        it('should route based on percentage when under threshold', async () => {
-            const exec = createExecutorWithRouting('*:0.5')
-            const invocation = createEmailInvocation()
-
-            jest.spyOn(Math, 'random').mockReturnValue(0.3)
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).toBe('email')
-            expect(result.finished).toBe(false)
-        })
-
-        it('should send inline when percentage roll is above threshold', async () => {
-            const exec = createExecutorWithRouting('*:0.5')
-            const invocation = createEmailInvocation()
-
-            jest.spyOn(Math, 'random').mockReturnValue(0.7)
-            const result = await exec.executeWithAsyncFunctions(invocation)
-
-            expect(result.invocation.queue).not.toBe('email')
-        })
-
-        it('should route all teams when config is *', async () => {
-            const exec = createExecutorWithRouting('*')
-            const invocation = createEmailInvocation()
-
-            const result = await exec.executeWithAsyncFunctions(invocation)
+            const result = await executor.executeWithAsyncFunctions(invocation)
 
             expect(result.invocation.queue).toBe('email')
             expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
             expect(result.finished).toBe(false)
+        })
+
+        it('should send inline when sendEmailsInline is set', async () => {
+            const invocation = createEmailInvocation()
+
+            const result = await executor.executeWithAsyncFunctions(invocation, { sendEmailsInline: true })
+
+            expect(result.invocation.queue).not.toBe('email')
+            expect(result.finished).toBe(true)
         })
     })
 })

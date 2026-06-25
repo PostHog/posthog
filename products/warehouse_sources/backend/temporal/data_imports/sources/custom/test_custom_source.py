@@ -3,11 +3,13 @@ import gzip
 import json
 from datetime import UTC, datetime
 from typing import Any, cast
+from urllib.parse import quote
 
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+import requests
 from parameterized import parameterized
 from requests import Response
 from urllib3.response import HTTPResponse
@@ -19,12 +21,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
+    PREVIEW_MAX_FANOUT_PARENTS,
+    PREVIEW_MAX_ROWS,
+    PROBE_CONNECT_TIMEOUT,
     PROBE_MAX_RESOURCES,
+    PROBE_READ_TIMEOUT,
     CustomSource,
     FanoutChain,
     ManifestValidationError,
+    PreviewResponseTooLargeError,
     _fanout_chain,
+    _json_type_label,
+    _PreviewSession,
     _read_capped_text,
+    _redact_secrets,
     _validate_resource_graph,
     manifest_request_hosts,
     validate_manifest_structure,
@@ -911,6 +921,41 @@ def _fake_resource(name: str) -> MagicMock:
     return resource
 
 
+class _PageResource:
+    """Iterable stand-in for an engine Resource: yields preset pages (list[dict]),
+    applying any registered ``add_filter`` predicates so the preview's parent cap
+    is exercised the same way the real Resource would apply it."""
+
+    def __init__(self, name: str, pages: list[list[dict[str, Any]]]) -> None:
+        self.name = name
+        self._pages = pages
+        self._filters: list[Any] = []
+
+    def add_filter(self, fn: Any) -> "_PageResource":
+        self._filters.append(fn)
+        return self
+
+    def __iter__(self) -> Any:
+        for page in self._pages:
+            yield [item for item in page if all(f(item) for f in self._filters)]
+
+
+class _CountingResource:
+    """Engine Resource that yields one-row pages lazily and records how many rows
+    it produced, so a test can prove preview abandons the generator at the cap
+    instead of draining it."""
+
+    def __init__(self, name: str, total_rows: int) -> None:
+        self.name = name
+        self.total_rows = total_rows
+        self.produced = 0
+
+    def __iter__(self) -> Any:
+        for index in range(self.total_rows):
+            self.produced = index + 1
+            yield [{"id": index}]
+
+
 def _break_unknown_parent(m: dict) -> None:
     m["resources"][1]["endpoint"]["params"]["form_id"]["resource"] = "nonexistent"
 
@@ -1522,3 +1567,308 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
 
         child_params = next((p for p in captured if "since" in p), {})
         assert child_params.get("since") == "2026-06-08T12:53:34Z"
+
+
+def _apikey_manifest() -> dict:
+    """A minimal manifest whose auth is an api_key in a query param, so the
+    injected secret is registered for value-based redaction."""
+    manifest = _minimal_manifest()
+    manifest["client"]["auth"] = {"type": "api_key", "name": "key", "location": "query"}
+    return manifest
+
+
+class TestPreviewSession(SimpleTestCase):
+    def test_send_pins_no_redirect_streams_and_default_timeout(self):
+        prepared = requests.Request("GET", "https://acme.example.com/").prepare()
+        response = Response()
+        response.status_code = 200
+        response.raw = MagicMock()
+        response.raw.stream.return_value = iter([b"{}"])
+
+        with patch.object(requests.Session, "send", return_value=response) as parent_send:
+            _PreviewSession().send(prepared)
+
+        forwarded = parent_send.call_args.kwargs
+        assert forwarded["allow_redirects"] is False
+        assert forwarded["stream"] is True
+        assert forwarded["timeout"] == (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT)
+
+
+class TestJsonTypeLabel(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("null", None, "null"),
+            ("boolean", True, "boolean"),
+            ("integer", 7, "integer"),
+            ("number", 1.5, "number"),
+            ("string", "x", "string"),
+            ("array", [1, 2], "array"),
+            ("object", {"k": 1}, "object"),
+            ("unknown_falls_back_to_string", (1, 2), "string"),
+        ]
+    )
+    def test_labels_each_json_type(self, _name, value, expected):
+        assert _json_type_label(value) == expected
+
+
+class TestCustomSourcePreviewResource(SimpleTestCase):
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_returns_rows_and_inferred_columns(self, mock_resources):
+        mock_resources.return_value = [
+            _PageResource("users", [[{"id": 1, "name": "a", "active": True}, {"id": 2, "name": "b", "active": None}]])
+        ]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert result.error is None
+        assert result.row_count == 2
+        assert result.rows[0]["id"] == 1
+        assert {column["name"]: column["type"] for column in result.columns} == {
+            "id": "integer",
+            "name": "string",
+            "active": "boolean",
+        }
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_column_type_uses_first_non_null_value(self, mock_resources):
+        mock_resources.return_value = [_PageResource("users", [[{"score": None}, {"score": 7}]])]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert {column["name"]: column["type"] for column in result.columns} == {"score": "integer"}
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_row_cap_stops_generator_early(self, mock_resources):
+        resource = _CountingResource("users", total_rows=100)
+        mock_resources.return_value = [resource]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users", max_rows=5)
+
+        assert result.row_count == 5
+        assert resource.produced == 5
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_max_rows_clamped_to_hard_cap(self, mock_resources):
+        one_big_page = [[{"id": index} for index in range(PREVIEW_MAX_ROWS + 50)]]
+        mock_resources.return_value = [_PageResource("users", one_big_page)]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users", max_rows=PREVIEW_MAX_ROWS + 50)
+
+        assert result.row_count == PREVIEW_MAX_ROWS
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_engine_manifest_is_single_page_incremental_stripped_session_injected(self, mock_resources):
+        mock_resources.return_value = [_PageResource("users", [[]])]
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
+        manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        source.preview_resource(config, team_id=999, resource_name="users")
+
+        engine_manifest = mock_resources.call_args.args[0]
+        endpoint = engine_manifest["resources"][0]["endpoint"]
+        assert endpoint["paginator"] == {"type": "single_page"}
+        assert "incremental" not in endpoint
+        assert isinstance(engine_manifest["client"]["session"], _PreviewSession)
+        assert engine_manifest["client"]["max_retries"] == 1
+        assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+        return_value=(False, "blocked: internal host"),
+    )
+    def test_rejects_unsafe_host(self, _mock):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        with self.assertRaises(ManifestValidationError):
+            source.preview_resource(config, team_id=999, resource_name="users")
+
+    def test_unknown_resource_raises_value_error(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        with self.assertRaises(ValueError):
+            source.preview_resource(config, team_id=999, resource_name="does_not_exist")
+
+    def test_invalid_json_raises_manifest_validation_error(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json="{not json}")
+        with self.assertRaises(ManifestValidationError):
+            source.preview_resource(config, team_id=999, resource_name="users")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_fanout_child_runs_ancestors_full_scan(self, mock_resources):
+        mock_resources.return_value = [
+            _PageResource("forms", [[{"id": 1}]]),
+            _PageResource("responses", [[{"token": "t1"}]]),
+        ]
+        manifest = _fanout_manifest()
+        manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
+        manifest["resources"][1]["endpoint"]["incremental"] = {"cursor_path": "submitted_at", "start_param": "since"}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="responses")
+
+        engine_resources = mock_resources.call_args.args[0]["resources"]
+        assert [resource["name"] for resource in engine_resources] == ["forms", "responses"]
+        for resource in engine_resources:
+            assert "incremental" not in resource["endpoint"]
+            assert resource["endpoint"]["paginator"] == {"type": "single_page"}
+        assert result.rows == [{"token": "t1"}]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._build_preview_session")
+    def test_fanout_empty_child_caps_parent_requests_through_real_engine(self, mock_build_session):
+        # End-to-end through the real engine: a parent page far larger than the cap,
+        # every child resolving empty. Empty child pages are dropped before the row
+        # reader sees them, so only the parent cap keeps the per-parent child requests
+        # bounded — the regression a fake-page stand-in can't catch.
+        def _response(body: dict) -> Response:
+            resp = Response()
+            resp.status_code = 200
+            resp._content = json.dumps(body).encode()
+            resp.headers["Content-Type"] = "application/json"
+            return resp
+
+        sent_urls: list[str] = []
+
+        def _send(prepared):
+            sent_urls.append(prepared.url)
+            if prepared.url.endswith("/forms"):
+                return _response({"items": [{"id": f"f{index}"} for index in range(PREVIEW_MAX_FANOUT_PARENTS + 20)]})
+            return _response({"items": []})
+
+        session = MagicMock()
+        session.headers = {}
+        session.prepare_request.side_effect = lambda request: request
+        session.send.side_effect = _send
+        mock_build_session.return_value = session
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="responses")
+
+        assert result.row_count == 0
+        child_requests = [url for url in sent_urls if "/responses" in url]
+        assert len(child_requests) == PREVIEW_MAX_FANOUT_PARENTS
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+        side_effect=lambda hostname, team_id: (hostname == "api.example.com", "blocked: internal host"),
+    )
+    def test_rejects_resource_resolving_to_new_internal_host(self, _mock_safe, mock_resources):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = "https://169.254.169.254/users"
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        with self.assertRaises(ManifestValidationError):
+            source.preview_resource(config, team_id=999, resource_name="users")
+
+        mock_resources.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_live_fetch_error_is_returned_and_secret_redacted(self, mock_resources):
+        class _Boom:
+            name = "users"
+
+            def __iter__(self) -> Any:
+                raise RuntimeError("connect failed for https://api.example.com/users?key=supersecret")
+
+        mock_resources.return_value = [_Boom()]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_apikey_manifest()), auth_api_key="supersecret")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert result.rows == []
+        assert result.row_count == 0
+        assert result.error is not None
+        assert "supersecret" not in result.error
+        assert "***" in result.error
+
+    def test_redact_secrets_redacts_url_encoded_credential(self):
+        secret = "ab/cd+ef=gh"
+        text = f"HTTPError for https://api.example.com/users?key={quote(secret, safe='')}"
+        redacted = _redact_secrets(text, (secret,))
+
+        assert quote(secret, safe="") not in redacted
+        assert "***" in redacted
+
+    @staticmethod
+    def _streamed_response(body_size: int) -> Response:
+        # raw.stream(amt) yields the decoded body in <=amt-byte chunks, like urllib3.
+        response = Response()
+        response.status_code = 200
+        response.raw = MagicMock()
+        payload = b"x" * body_size
+        response.raw.stream.side_effect = lambda amt, **kwargs: (
+            payload[i : i + amt] for i in range(0, len(payload), amt)
+        )
+        return response
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_READ_CHUNK_BYTES", 16
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES",
+        100,
+    )
+    def test_preview_session_aborts_oversized_body_without_full_read(self):
+        # A body far over budget must raise AND stop mid-stream — never inflate the
+        # whole thing (the failure mode of a single decode-everything read).
+        yielded = {"chunks": 0}
+
+        def stream(amt, **kwargs):
+            for _ in range(100):
+                yielded["chunks"] += 1
+                yield b"x" * amt
+
+        response = Response()
+        response.status_code = 200
+        response.raw = MagicMock()
+        response.raw.stream.side_effect = stream
+        with patch.object(requests.Session, "send", return_value=response):
+            with self.assertRaises(PreviewResponseTooLargeError):
+                _PreviewSession().send(MagicMock())
+
+        assert yielded["chunks"] <= 100 // 16 + 1
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_READ_CHUNK_BYTES", 16
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES",
+        100,
+    )
+    def test_preview_session_enforces_budget_across_requests(self):
+        # Each response is under the budget on its own, but together they exceed it:
+        # the budget is the whole preview's, not per response.
+        responses = [self._streamed_response(60), self._streamed_response(60)]
+        with patch.object(requests.Session, "send", side_effect=responses):
+            session = _PreviewSession()
+            session.send(MagicMock())
+            with self.assertRaises(PreviewResponseTooLargeError):
+                session.send(MagicMock())
+
+    def test_preview_session_returns_capped_body(self):
+        body = b'{"items": [{"id": 1}]}'
+        within_cap = Response()
+        within_cap.status_code = 200
+        within_cap.raw = MagicMock()
+        within_cap.raw.stream.side_effect = lambda amt, **kwargs: (body[i : i + amt] for i in range(0, len(body), amt))
+        with patch.object(requests.Session, "send", return_value=within_cap):
+            response = _PreviewSession().send(MagicMock())
+
+        assert response.json() == {"items": [{"id": 1}]}
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_credential_never_appears_in_result(self, mock_resources):
+        mock_resources.return_value = [_PageResource("users", [[{"id": 1}]])]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="topsecret-token")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert "topsecret-token" not in json.dumps(result._asdict())
