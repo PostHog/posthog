@@ -97,7 +97,11 @@ fn run_one(hoge_path: &PathBuf, oracle: &str) -> Outcome {
         Ok(HogLiteral::Null.into())
     });
 
-    let ctx = ExecutionContext::with_defaults(program).with_ext_fn("print".to_string(), print_fn);
+    // The reference VM bounds execution by a 5s timeout, not a step count; use a generous step cap
+    // so compute-heavy corpus programs (e.g. mandelbrot) can finish rather than tripping the default.
+    let ctx = ExecutionContext::with_defaults(program)
+        .with_max_steps(50_000_000)
+        .with_ext_fn("print".to_string(), print_fn);
 
     match sync_execute(&ctx, false) {
         Ok(_) => {

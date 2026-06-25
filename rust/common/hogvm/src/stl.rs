@@ -9,6 +9,7 @@ use crate::{
     construct_free_standing,
     error::VmError,
     memory::VmHeap,
+    print_hog_string_output,
     program::Module,
     util::{get_json_nested, regex_extract, regex_match},
     values::{HogLiteral, HogValue, Num},
@@ -394,6 +395,74 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 Ok(HogLiteral::Number(Num::Float(value)).into())
             }),
         ),
+        (
+            "concat",
+            native_func(|vm, args| {
+                // Stringify each arg via the canonical print-string formatting; nulls become "".
+                let mut out = String::new();
+                for arg in &args {
+                    if !matches!(arg.deref(&vm.heap)?, HogLiteral::Null) {
+                        out.push_str(&print_hog_string_output(&vm.heap, arg)?);
+                    }
+                }
+                Ok(HogLiteral::String(out).into())
+            }),
+        ),
+        (
+            "lower",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "lower")?;
+                match args[0].deref(&vm.heap)? {
+                    HogLiteral::Null => Ok(HogLiteral::Null.into()),
+                    HogLiteral::String(s) => Ok(HogLiteral::String(s.to_lowercase()).into()),
+                    other => Err(VmError::NativeCallFailed(format!(
+                        "lower() expects a string, got {}",
+                        other.type_name()
+                    ))),
+                }
+            }),
+        ),
+        (
+            "upper",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "upper")?;
+                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                Ok(HogLiteral::String(s.to_uppercase()).into())
+            }),
+        ),
+        (
+            "reverse",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "reverse")?;
+                match args[0].deref(&vm.heap)? {
+                    HogLiteral::String(s) => {
+                        Ok(HogLiteral::String(s.chars().rev().collect()).into())
+                    }
+                    HogLiteral::Array(arr) => {
+                        let mut a = arr.clone();
+                        a.reverse();
+                        Ok(HogLiteral::Array(a).into())
+                    }
+                    other => Err(VmError::NativeCallFailed(format!(
+                        "reverse() expects a string or array, got {}",
+                        other.type_name()
+                    ))),
+                }
+            }),
+        ),
+        ("trim", native_func(|vm, args| trim_impl(vm, args, TrimSide::Both))),
+        ("trimLeft", native_func(|vm, args| trim_impl(vm, args, TrimSide::Left))),
+        ("trimRight", native_func(|vm, args| trim_impl(vm, args, TrimSide::Right))),
+        (
+            "isNotNull",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "isNotNull")?;
+                Ok(
+                    HogLiteral::Boolean(!matches!(args[0].deref(&vm.heap)?, HogLiteral::Null))
+                        .into(),
+                )
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -579,6 +648,46 @@ fn collect_sorted_nums(heap: &VmHeap, arr: &[HogValue], name: &str) -> Result<Ve
     }
     nums.sort_unstable_by(|a, b| a.compare(b));
     Ok(nums)
+}
+
+enum TrimSide {
+    Both,
+    Left,
+    Right,
+}
+
+// trim/trimLeft/trimRight: 1 arg strips whitespace; 2nd arg strips a single char (a non-string
+// 2nd arg defaults to space, a multi-char string yields "") — matching the reference.
+fn trim_impl(vm: &HogVM, args: Vec<HogValue>, side: TrimSide) -> Result<HogValue, VmError> {
+    if args.is_empty() || args.len() > 2 {
+        return Err(VmError::NativeCallFailed(
+            "trim takes 1 or 2 arguments".to_string(),
+        ));
+    }
+    let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+    let result = if args.len() == 2 {
+        let chars: Vec<char> = match args[1].deref(&vm.heap)? {
+            HogLiteral::String(c) => c.chars().collect(),
+            _ => vec![' '],
+        };
+        if chars.len() > 1 {
+            String::new()
+        } else {
+            let pat = |x: char| chars.contains(&x);
+            match side {
+                TrimSide::Both => s.trim_matches(pat).to_string(),
+                TrimSide::Left => s.trim_start_matches(pat).to_string(),
+                TrimSide::Right => s.trim_end_matches(pat).to_string(),
+            }
+        }
+    } else {
+        match side {
+            TrimSide::Both => s.trim().to_string(),
+            TrimSide::Left => s.trim_start().to_string(),
+            TrimSide::Right => s.trim_end().to_string(),
+        }
+    };
+    Ok(HogLiteral::String(result).into())
 }
 
 fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {
