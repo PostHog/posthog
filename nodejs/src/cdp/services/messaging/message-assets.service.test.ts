@@ -25,7 +25,9 @@ const CONFIG = {
 const buildOutputsMock = (): jest.Mocked<IngestionOutputs<'message_assets'>> =>
     ({ produce: jest.fn().mockResolvedValue(undefined) }) as unknown as jest.Mocked<IngestionOutputs<'message_assets'>>
 
-const emailParams = (overrides: Partial<CyclotronInvocationQueueParametersEmailType> = {}) =>
+const emailParams = (
+    overrides: Partial<CyclotronInvocationQueueParametersEmailType> = {}
+): CyclotronInvocationQueueParametersEmailType =>
     ({
         type: 'email',
         to: { email: 'recipient@example.com' },
@@ -81,12 +83,13 @@ describe('MessageAssetsService', () => {
         expect(row.s3_key).toBe(expectedKey)
     })
 
-    it('attributes a standalone email send (no action id) to hog_function', async () => {
+    it('skips a standalone email send (no action id) — it would be unretrievable', async () => {
         const invocation = createExampleInvocation({ id: 'fn-1', team_id: 3 })
 
         await service.captureSentEmail(invocation, emailParams())
 
-        expect(producedRow().function_kind).toBe('hog_function')
+        expect(mockS3Send).not.toHaveBeenCalled()
+        expect(outputs.produce).not.toHaveBeenCalled()
     })
 
     it('does nothing when capture is disabled', async () => {
@@ -107,15 +110,20 @@ describe('MessageAssetsService', () => {
 
     it('never throws and skips the metadata row when the object-storage write fails', async () => {
         mockS3Send.mockRejectedValue(new Error('s3 down'))
+        const invocation = createExampleInvocation()
+        invocation.state.actionId = 'email-step'
 
-        await expect(service.captureSentEmail(createExampleInvocation(), emailParams())).resolves.toBeUndefined()
+        await expect(service.captureSentEmail(invocation, emailParams())).resolves.toBeUndefined()
+        expect(mockS3Send).toHaveBeenCalledTimes(1)
         expect(outputs.produce).not.toHaveBeenCalled()
     })
 
     it('never throws when the Kafka produce fails after a successful write', async () => {
         outputs.produce.mockRejectedValue(new Error('kafka down'))
+        const invocation = createExampleInvocation()
+        invocation.state.actionId = 'email-step'
 
-        await expect(service.captureSentEmail(createExampleInvocation(), emailParams())).resolves.toBeUndefined()
+        await expect(service.captureSentEmail(invocation, emailParams())).resolves.toBeUndefined()
         expect(mockS3Send).toHaveBeenCalledTimes(1)
     })
 })

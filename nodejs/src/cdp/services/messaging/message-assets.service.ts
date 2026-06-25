@@ -118,15 +118,22 @@ export class MessageAssetsService {
             // Text-only email — nothing to snapshot. Metrics still record the send.
             return
         }
+        // Only emails sent as a workflow step are retrievable: the Assets API queries
+        // function_kind='hog_flow' keyed by the action node id. A standalone email-
+        // destination send has no action id, so capturing it would write a ClickHouse
+        // row + S3 object that nothing can ever surface — skip it.
+        if (!invocation.state.actionId) {
+            return
+        }
+
+        const row = this.buildRow(invocation, params)
+
+        if (!this.s3Client) {
+            counterMessageAssetsFailed.inc({ stage: 'storage' })
+            return
+        }
 
         try {
-            const row = this.buildRow(invocation, params)
-
-            if (!this.s3Client) {
-                counterMessageAssetsFailed.inc({ stage: 'storage' })
-                return
-            }
-
             await this.s3Client.send(
                 new PutObjectCommand({
                     Bucket: this.config.MESSAGE_ASSETS_OBJECT_STORAGE_BUCKET,
@@ -135,7 +142,18 @@ export class MessageAssetsService {
                     ContentType: 'text/html; charset=utf-8',
                 })
             )
+        } catch (error) {
+            // Nothing stored — don't produce a row that would point at a missing object.
+            counterMessageAssetsFailed.inc({ stage: 'storage' })
+            logger.error('⚠️', `failed to write message asset to object storage: ${error}`, {
+                error: String(error),
+                invocation_id: invocation.id,
+            })
+            captureException(error)
+            return
+        }
 
+        try {
             await this.outputs.produce(MESSAGE_ASSETS_OUTPUT, {
                 // Partition by invocation_id so retried produces for the same
                 // asset land on the same partition and collapse cleanly via the
@@ -143,32 +161,35 @@ export class MessageAssetsService {
                 key: Buffer.from(row.invocation_id),
                 value: Buffer.from(safeClickhouseString(JSON.stringify(row))),
             })
-
-            counterMessageAssetsCaptured.inc({ kind: row.kind })
         } catch (error) {
-            counterMessageAssetsFailed.inc({ stage: 'capture' })
-            logger.error('⚠️', `failed to capture message asset: ${error}`, {
+            // The HTML is in object storage but the metadata row didn't land — the
+            // object is orphaned (unservable) until the lifecycle policy purges it.
+            // Distinct 'kafka' stage so operators can tell this apart from a storage miss.
+            counterMessageAssetsFailed.inc({ stage: 'kafka' })
+            logger.error('⚠️', `failed to produce message asset row: ${error}`, {
                 error: String(error),
                 invocation_id: invocation.id,
             })
             captureException(error)
+            return
         }
+
+        counterMessageAssetsCaptured.inc({ kind: row.kind })
     }
 
     private buildRow(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
     ): MessageAssetRow {
-        const actionId = invocation.state.actionId ?? ''
         const row: MessageAssetRow = {
             team_id: invocation.teamId,
-            // An email step within a hog flow carries an action id; a standalone
-            // email destination doesn't. The workflow API queries by 'hog_flow'.
-            function_kind: actionId ? 'hog_flow' : 'hog_function',
+            // captureSentEmail only reaches buildRow for in-workflow email steps (an
+            // action id is present), so these always attribute to the workflow.
+            function_kind: 'hog_flow',
             function_id: invocation.functionId,
             parent_run_id: invocation.parentRunId ?? '',
             invocation_id: invocation.id,
-            action_id: actionId,
+            action_id: invocation.state.actionId ?? '',
             kind: 'email',
             distinct_id: resolveEmailEngagementDistinctId(invocation) ?? '',
             person_id: invocation.state.globals.person?.id ?? '',

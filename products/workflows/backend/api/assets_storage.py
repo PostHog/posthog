@@ -73,9 +73,11 @@ def render_html_to_pdf(html: bytes) -> bytes:
         try:
             context = browser.new_context()
             page = context.new_page()
-            # The HTML is a self-contained snapshot; networkidle lets remote images
-            # settle before we print.
-            page.set_content(html.decode("utf-8", errors="replace"), wait_until="networkidle", timeout=30000)
+            # Wait for `load` (DOM + same-document resources), not `networkidle`: an email
+            # referencing a slow/unreachable image CDN must not pin the Playwright session
+            # (and the worker behind it) for the full timeout. Remote images still resolve
+            # during page.pdf(). Bounded at 15s to cap the blast radius under concurrency.
+            page.set_content(html.decode("utf-8", errors="replace"), wait_until="load", timeout=15000)
             return page.pdf(print_background=True, format="A4")
         finally:
             if context is not None:

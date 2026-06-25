@@ -171,7 +171,7 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         with patch(f"{_STORAGE_PATH}.presigned_content_url", return_value="https://s3.example/presigned") as mock_url:
             res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
         assert res.status_code == status.HTTP_302_FOUND
-        assert res.url == "https://s3.example/presigned"
+        assert res["Location"] == "https://s3.example/presigned"
         mock_url.assert_called_once_with("message_assets/team/flow/inv-1/step-a.html")
 
     def test_content_404_for_unknown_asset(self):
