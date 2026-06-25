@@ -25,9 +25,9 @@ dev      ops        shared roles/ops env/dev
 prod-us  ops        shared roles/ops roles/ops-prod env/prod-us
 prod-eu  ops        shared roles/ops roles/ops-prod env/prod-eu
 
-dev      logs       shared
-prod-us  logs       shared
-prod-eu  logs       shared
+dev      logs       shared roles/logs env-logs/dev
+prod-us  logs       shared roles/logs env-logs/prod-us
+prod-eu  logs       shared roles/logs env-logs/prod-eu
 
 # prod-us  data       shared
 # prod-us  endpoints  shared
