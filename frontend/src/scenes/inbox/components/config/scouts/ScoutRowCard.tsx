@@ -56,7 +56,9 @@ export function ScoutRowCard({
                             <Tooltip
                                 title={
                                     <div className="flex flex-col gap-1 max-w-sm">
-                                        {config.description ? <span>{config.description}</span> : null}
+                                        {config.description ? (
+                                            <span className="line-clamp-6">{config.description}</span>
+                                        ) : null}
                                         <span className="text-muted">{config.skill_name} · view scout</span>
                                     </div>
                                 }
