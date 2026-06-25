@@ -171,6 +171,11 @@ export interface StreamErrorEnvelope {
     errorTitle: string
     errorMessage?: string
     retryable: boolean
+    status?: number
+}
+
+function streamError(errorTitle: string, retryable: boolean, status: number | undefined): StreamErrorEnvelope {
+    return status === undefined ? { errorTitle, retryable } : { errorTitle, retryable, status }
 }
 
 /**
@@ -180,15 +185,15 @@ export interface StreamErrorEnvelope {
 export function mapHttpStatusToStreamError(status: number | undefined): StreamErrorEnvelope {
     switch (status) {
         case 401:
-            return { errorTitle: 'Cloud authentication expired', retryable: true }
+            return streamError('Cloud authentication expired', true, status)
         case 403:
-            return { errorTitle: 'Cloud access denied', retryable: true }
+            return streamError('Cloud access denied', true, status)
         case 404:
-            return { errorTitle: 'Conversation backing run not found', retryable: false }
+            return streamError('Conversation backing run not found', false, status)
         case 406:
-            return { errorTitle: 'Cloud stream unavailable', retryable: true }
+            return streamError('Cloud stream unavailable', true, status)
         default:
-            return { errorTitle: 'Cloud stream failed', retryable: true }
+            return streamError('Cloud stream failed', true, status)
     }
 }
 
@@ -1051,6 +1056,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
         /** Internal: the read-only replay snapshot finished loading — clears the bootstrap spinner. */
         bootstrapReplayComplete: true,
+        /** Internal: the live run history snapshot finished loading or was intentionally skipped. */
+        bootstrapLogReady: true,
         closeSse: true,
         sseConnecting: true,
         sseOpened: true,
@@ -1134,7 +1141,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             errorMessage?: string | null
             replayedFromHistory?: boolean
         }) => status,
-        handleStreamError: (envelope: { errorTitle: string; errorMessage?: string; retryable: boolean }) => envelope,
+        handleStreamError: (envelope: StreamErrorEnvelope) => envelope,
         // Value-fold side effects emitted by ingestAcpFrame (thread items are derived in the projection).
         setCurrentMode: (mode: string) => ({ mode }),
         setCurrentProgress: (progress: string) => ({ progress }),
@@ -1236,6 +1243,28 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 bootstrapReplayComplete: () => false,
                 handleStreamError: () => false,
                 reset: () => false,
+            },
+        ],
+        // Live-mode bootstrapping remains true after the SSE opens and only clears once the
+        // historical log snapshot has been replayed. Fresh runs explicitly skip history.
+        logBootstrapLoading: [
+            false,
+            {
+                bootstrapRun: () => true,
+                bootstrapLogReady: () => false,
+                bootstrapReplayComplete: () => false,
+                handleStreamError: () => false,
+                reset: () => false,
+            },
+        ],
+        bootstrapError: [
+            null as StreamErrorEnvelope | null,
+            {
+                bootstrapRun: () => null,
+                bootstrapLogReady: () => null,
+                bootstrapReplayComplete: () => null,
+                handleStreamError: (_, envelope) => envelope,
+                reset: () => null,
             },
         ],
         // Whether the bootstrapped run is a resume run — drives the §6 resume-prompt filter in the
@@ -1532,6 +1561,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // to buffer or drain.
             if (justCreatedRun) {
                 actions.openSseForRun({ taskId, runId, startLatest: false })
+                actions.bootstrapLogReady()
                 return
             }
 
@@ -1590,6 +1620,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 // Read-only history — surface the terminal status, do not open SSE. Flag the replay
                 // so the listener records the status without re-emitting termination telemetry.
                 actions.handleTerminalStatus({ status: run.status as SandboxRunStatus, replayedFromHistory: true })
+                actions.bootstrapLogReady()
                 return
             }
 
@@ -1600,6 +1631,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.bufferingLiveFrames = false
             cache.bufferedLiveFrames = undefined
             dedupeBufferedAgainstHistory(buffered, history).forEach((entry) => actions.ingestAcpFrame(entry, 'live'))
+            actions.bootstrapLogReady()
         },
         openSseForRun: ({ taskId, runId, startLatest }) => {
             // A read-only instance must never stream — guard here too, so even a stray or connected

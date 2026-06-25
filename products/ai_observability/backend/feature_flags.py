@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import posthoganalytics
-
 from posthog.models import Team, User
+from posthog.ph_client import feature_enabled_or_false
 
 SENTIMENT_EVALUATIONS_FEATURE_FLAG = "llm-analytics-sentiment-evaluations"
 
@@ -12,7 +11,7 @@ def is_sentiment_evaluations_enabled(user: User, team: Team) -> bool:
     organization_id = str(team.organization_id)
     project_id = str(team.id)
 
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         SENTIMENT_EVALUATIONS_FEATURE_FLAG,
         distinct_id,
         groups={"organization": organization_id, "project": project_id},

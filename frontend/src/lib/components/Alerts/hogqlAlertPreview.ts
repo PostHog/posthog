@@ -1,5 +1,6 @@
 import { InsightsThresholdBounds } from '~/queries/schema/schema-general'
 
+import { hasThresholdBounds, valueBreachesBounds } from './alertPreviewShared'
 import { AlertConfig, isHogQLAlertConfig } from './types'
 
 /** Mirror of the backend's ANY_ROW_MAX_ROWS (products/alerts/backend/evaluation/hogql.py) — keep
@@ -145,17 +146,14 @@ export function deriveHogQLAlertPreview(
     }
 
     // Per-row view (and backtest): with absolute bounds, mark which rows would breach right now.
-    const hasBounds = !!bounds && (bounds.lower != null || bounds.upper != null)
+    const bounded = hasThresholdBounds(bounds)
     const previewRows: HogQLAlertPreviewRow[] = rows.map((row, i) => {
         const value = _cellValue(row, valueIndex)
         const labelCell = labelIndex !== null && Array.isArray(row) && labelIndex < row.length ? row[labelIndex] : null
         return {
             label: labelCell != null ? String(labelCell) : `row ${i + 1}`,
             value,
-            breaching:
-                hasBounds &&
-                value !== null &&
-                ((bounds.lower != null && value < bounds.lower) || (bounds.upper != null && value > bounds.upper)),
+            breaching: valueBreachesBounds(value, bounds),
         }
     })
 
@@ -170,7 +168,7 @@ export function deriveHogQLAlertPreview(
         currentValue,
         previousValue,
         rowCount: rows.length,
-        breachingRows: hasBounds ? previewRows.filter((row) => row.breaching).length : null,
+        breachingRows: bounded ? previewRows.filter((row) => row.breaching).length : null,
         rows: previewRows,
     }
 }

@@ -6,6 +6,7 @@ import {
     McpAnalyticsFeedbackCreateBody,
     McpAnalyticsMissingCapabilitiesCreateBody,
     McpAnalyticsSessionsGenerateIntentParams,
+    McpAnalyticsSessionsGenerateIntentQueryParams,
 } from '@/generated/mcp_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -48,7 +49,9 @@ const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
     },
 })
 
-const McpAnalyticsSessionsGenerateIntentSchema = McpAnalyticsSessionsGenerateIntentParams.omit({ project_id: true })
+const McpAnalyticsSessionsGenerateIntentSchema = McpAnalyticsSessionsGenerateIntentParams.omit({
+    project_id: true,
+}).extend(McpAnalyticsSessionsGenerateIntentQueryParams.shape)
 
 const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
     typeof McpAnalyticsSessionsGenerateIntentSchema,
@@ -61,6 +64,9 @@ const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
         const result = await context.api.request<Schemas.MCPSessionIntent>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/generate_intent/`,
+            query: {
+                date_from: params.date_from,
+            },
         })
         return result
     },

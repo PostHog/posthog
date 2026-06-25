@@ -1,7 +1,7 @@
-import { INTERNAL_SERVICE_CALL_HEADER_NAME } from '~/api/middleware/internal-api-auth'
-import { logger } from '~/utils/logger'
-import { FetchOptions, FetchResponse, internalFetch } from '~/utils/request'
-import { tryCatch } from '~/utils/try-catch'
+import { INTERNAL_SERVICE_CALL_HEADER_NAME } from '~/common/api/middleware/internal-api-auth'
+import { logger } from '~/common/utils/logger'
+import { FetchOptions, FetchResponse, internalFetch } from '~/common/utils/request'
+import { tryCatch } from '~/common/utils/try-catch'
 
 export class InternalFetchService {
     constructor(

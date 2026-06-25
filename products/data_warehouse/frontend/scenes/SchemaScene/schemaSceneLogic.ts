@@ -24,7 +24,7 @@ import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
 import type { schemaSceneLogicType } from './schemaSceneLogicType'
 
-export const SCHEMA_SCENE_TABS = ['configuration', 'metrics'] as const
+export const SCHEMA_SCENE_TABS = ['configuration', 'metrics', 'history'] as const
 export type SchemaSceneTab = (typeof SCHEMA_SCENE_TABS)[number]
 
 export const SCHEMA_CONFIGURATION_SECTIONS = [
