@@ -3,16 +3,16 @@ import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { instrumented } from '~/common/tracing/tracing-utils'
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
-import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
-import { tryCatch } from '~/utils/try-catch'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/common/utils/request'
+import { TeamManager } from '~/common/utils/team-manager'
+import { tryCatch } from '~/common/utils/try-catch'
+import { UUIDT } from '~/common/utils/utils'
 
 import { PluginsServerConfig } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
-import { TeamManager } from '../../utils/team-manager'
-import { UUIDT } from '../../utils/utils'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
 import type {

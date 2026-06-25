@@ -1,7 +1,8 @@
 import { Counter } from 'prom-client'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { Team } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
 
 // A destination that fetches one of PostHog's own ingestion endpoints, authenticating
 // as its own project, re-enters the event pipeline. If that re-ingested event then

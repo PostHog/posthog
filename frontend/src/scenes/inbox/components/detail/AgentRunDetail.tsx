@@ -192,7 +192,7 @@ function TaskLogBody({
         return (
             <div className="h-[calc(100dvh-22rem)] min-h-[420px] w-full overflow-hidden rounded border border-primary bg-surface-primary">
                 {/* In-progress runs stream live; terminal runs show the static replay. */}
-                <SandboxRunViewer taskId={task.id} runId={runId} replayOnly={replayOnly} />
+                <SandboxRunViewer taskId={task.id} runId={runId} interaction={replayOnly ? 'read-only' : 'live'} />
             </div>
         )
     }

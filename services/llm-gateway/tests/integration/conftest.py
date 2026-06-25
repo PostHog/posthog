@@ -33,6 +33,10 @@ TEST_POSTHOG_API_KEY = "phx_fake_personal_api_key"
 CLOUDFLARE_REQUEST_TIMEOUT = 120.0
 CLOUDFLARE_MAX_RETRIES = 0
 
+# The CF-hosted models the gateway prices and allowlists (see COST_ALIASES). Smoke-tested end-to-end
+# so a routing/pricing regression for any one model fails CI rather than surfacing only in prod.
+CLOUDFLARE_SMOKE_MODELS = ["@cf/moonshotai/kimi-k2.6", "@cf/zai-org/glm-5.2"]
+
 MOCK_MODEL_COSTS = {
     "gpt-4o": {
         "litellm_provider": "openai",
@@ -98,6 +102,14 @@ MOCK_MODEL_COSTS = {
         "mode": "chat",
         "input_cost_per_token": 0.00000095,
         "output_cost_per_token": 0.000004,
+    },
+    "openai/@cf/zai-org/glm-5.2": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 262144,
+        "supports_function_calling": True,
+        "mode": "chat",
+        "input_cost_per_token": 0.0000014,
+        "output_cost_per_token": 0.0000044,
     },
 }
 

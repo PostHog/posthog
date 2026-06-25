@@ -12,6 +12,7 @@
             "widgetFilters"
         ],
         "session_replay_list": [
+            "collectionId",
             "dateRange",
             "filterTestAccounts",
             "limit",
@@ -268,6 +269,9 @@
                 "$enum": ["ASC", "DESC"]
             },
             "savedFilterId": {
+                "$type": "string"
+            },
+            "collectionId": {
                 "$type": "string"
             }
         },

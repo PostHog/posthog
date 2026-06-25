@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { logger } from '~/common/utils/logger'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { hrefFrom, isClick, isKeypress, isMouseActivity } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import {
@@ -8,7 +9,6 @@ import {
     activeMillisecondsFromSegmentationEvents,
     toSegmentationEvent,
 } from '~/ingestion/pipelines/sessionreplay/segmentation'
-import { logger } from '~/utils/logger'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB

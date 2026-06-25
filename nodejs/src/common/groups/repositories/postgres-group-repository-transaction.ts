@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
+import { TransactionClient } from '~/common/utils/db/postgres'
 import { Properties } from '~/plugin-scaffold'
 import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '~/types'
-import { TransactionClient } from '~/utils/db/postgres'
 
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
 import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'

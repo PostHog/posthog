@@ -23,6 +23,7 @@ from .conftest import (
     CLOUDFLARE_API_KEY,
     CLOUDFLARE_MAX_RETRIES,
     CLOUDFLARE_REQUEST_TIMEOUT,
+    CLOUDFLARE_SMOKE_MODELS,
     TEST_POSTHOG_API_KEY,
 )
 
@@ -157,6 +158,21 @@ class TestAnthropicMessages:
         assert response is not None
         text_block = _get_text_block(response)
         assert text_block.text is not None
+
+    @pytest.mark.skipif(not CLOUDFLARE_CONFIGURED, reason="CLOUDFLARE_API_KEY/ACCOUNT_ID not set")
+    @pytest.mark.parametrize("model", CLOUDFLARE_SMOKE_MODELS)
+    def test_each_cloudflare_model_routes_and_bills(self, cloudflare_anthropic_client: Anthropic, model: str):
+        response = cloudflare_anthropic_client.messages.create(
+            model=model,
+            messages=[{"role": "user", "content": "Say 'hello' and nothing else."}],
+            max_tokens=300,
+        )
+
+        text_block = _get_text_block(response)
+        assert text_block.text is not None
+        assert response.usage is not None
+        assert response.usage.input_tokens > 0
+        assert response.usage.output_tokens > 0
 
 
 class TestAnthropicMultipleModels:
