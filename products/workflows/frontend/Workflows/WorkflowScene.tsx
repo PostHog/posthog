@@ -11,6 +11,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -80,13 +81,22 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
 
         {
-            label: 'Invocations',
+            // Once the new Invocations (beta) tab is on, the old log viewer becomes "Logs"
+            // to match the hog function scene and avoid two "Invocations" tabs.
+            label: runsV2Enabled ? 'Logs' : 'Invocations',
             key: 'logs',
             content: <WorkflowLogs id={workflowSceneProps.id!} />,
         },
         runsV2Enabled
             ? {
-                  label: 'Invocations (preview)',
+                  label: (
+                      <div className="flex flex-row">
+                          <div>Invocations</div>
+                          <LemonTag className="ml-2 uppercase" type="warning">
+                              Beta
+                          </LemonTag>
+                      </div>
+                  ),
                   key: 'invocations',
                   content: <WorkflowInvocations id={workflowSceneProps.id!} />,
               }

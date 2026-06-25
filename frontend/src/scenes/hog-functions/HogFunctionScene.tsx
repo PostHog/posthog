@@ -453,7 +453,14 @@ export function HogFunctionScene(): JSX.Element {
         !featureFlags[FEATURE_FLAGS.HOG_INVOCATION_RESULTS_RUNS_TAB]
             ? null
             : {
-                  label: 'Invocations',
+                  label: (
+                      <div className="flex flex-row">
+                          <div>Invocations</div>
+                          <LemonTag className="ml-2 uppercase" type="warning">
+                              Beta
+                          </LemonTag>
+                      </div>
+                  ),
                   key: 'invocations',
                   content: <HogInvocations id={id} functionKind="hog_function" />,
               },
