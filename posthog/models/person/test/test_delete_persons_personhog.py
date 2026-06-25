@@ -30,9 +30,7 @@ class TestDeletePersonsFromPostgresRouting(SimpleTestCase):
             delete_persons_from_postgres(team_id=1, persons=[mock_person])
 
         mock_person.delete.assert_not_called()
-        mock_routing_counter.labels.assert_called_with(
-            operation="delete_persons", source="personhog", client_name=ANY
-        )
+        mock_routing_counter.labels.assert_called_with(operation="delete_persons", source="personhog", client_name=ANY)
 
     def test_personhog_sends_correct_uuids(self):
         mock_persons = []

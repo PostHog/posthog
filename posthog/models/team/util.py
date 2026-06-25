@@ -180,7 +180,9 @@ def _delete_groups_for_teams(team_ids: list[int]) -> None:
 
     for team_id in team_ids:
         while True:
-            resp = client.delete_groups_batch_for_team(DeleteGroupsBatchForTeamRequest(team_id=team_id, batch_size=10000))
+            resp = client.delete_groups_batch_for_team(
+                DeleteGroupsBatchForTeamRequest(team_id=team_id, batch_size=10000)
+            )
             if resp.deleted_count == 0:
                 break
         PERSONHOG_ROUTING_TOTAL.labels(

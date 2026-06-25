@@ -71,7 +71,7 @@ sole source of truth. In tests, a `FakePersonHogClient` stands in for the real s
 DB is not used at all — the router blocks ORM access to persons-DB models while the fake is active.
 The helpers seed the fake (and ClickHouse for persons) so code under test reads consistent data.
 
-Tests that exercise the persons DB *layer itself* (the temporal `sync_person_distinct_ids` / `backfill_*`
+Tests that exercise the persons DB _layer itself_ (the temporal `sync_person_distinct_ids` / `backfill_*`
 activities, the dagster persons-maintenance jobs, and `test_person_schema`) are excluded from the fake
 in the root `conftest.py` and keep direct persons-DB access.
 
