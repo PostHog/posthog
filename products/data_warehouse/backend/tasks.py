@@ -1,3 +1,5 @@
+from django.db.models.functions import Now
+
 import structlog
 from celery import shared_task
 from prometheus_client import Counter
@@ -9,6 +11,7 @@ from products.data_warehouse.backend.external_data_source.notifications import (
     get_team_ids_with_recent_sync_failures,
     notify_external_data_sync_failures,
 )
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 
@@ -81,3 +84,20 @@ def send_external_data_failure_digest_catchup() -> None:
     if team_ids:
         EXTERNAL_DATA_FAILURE_DIGEST_SCHEDULED_COUNTER.labels(trigger="catchup").inc(len(team_ids))
         logger.info("Dispatched external data failure digest catch-up for %d teams", len(team_ids))
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def soft_delete_orphaned_external_data_schemas() -> None:
+    """Retire schemas whose source was soft-deleted but that were never cascaded.
+
+    A deleted source's Temporal schedules are torn down, so these rows never run
+    again to self-clean — they linger as FAILED zombies in the UI and the failure
+    digest. Soft-delete them in bulk (mirrors migration 0018_fix_orphaned_schemas)
+    so they drop out. Cross-team maintenance, hence the scope-audit skip.
+    """
+    count = ExternalDataSchema.objects.filter(source__deleted=True, deleted=False).update(
+        deleted=True, deleted_at=Now()
+    )
+    if count:
+        logger.info("Soft-deleted orphaned external data schemas", count=count)

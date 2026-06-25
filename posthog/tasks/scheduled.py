@@ -79,7 +79,10 @@ from products.conversations.backend.tasks import (
     wake_snoozed_tickets,
 )
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
-from products.data_warehouse.backend.tasks import send_external_data_failure_digest_catchup
+from products.data_warehouse.backend.tasks import (
+    send_external_data_failure_digest_catchup,
+    soft_delete_orphaned_external_data_schemas,
+)
 from products.endpoints.backend.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
@@ -436,6 +439,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="15"),
         send_external_data_failure_digest_catchup.s(),
         name="send external data failure digest catch-up",
+    )
+
+    # Retire schemas orphaned by a deleted source so they stop showing as failing.
+    sender.add_periodic_task(
+        crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="45"),
+        soft_delete_orphaned_external_data_schemas.s(),
+        name="soft-delete orphaned external data schemas",
     )
 
     # Every 30 minutes, send decide request counts to the main posthog instance
