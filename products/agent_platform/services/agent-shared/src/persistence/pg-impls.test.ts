@@ -213,7 +213,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
                 usage_total: { ...EMPTY_USAGE_TOTAL },
                 acl: [],
                 pending_elevation_requests: [],
-                is_preview: false,
                 created_at: new Date(Date.now() + i).toISOString(),
                 updated_at: new Date(Date.now() + i).toISOString(),
             })
@@ -283,7 +282,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: cost },
             acl: [],
             pending_elevation_requests: [],
-            is_preview: false,
             created_at: created,
             updated_at: created,
         })
@@ -341,7 +339,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
-            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -355,7 +352,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
         expect(after!.pending_inputs).toHaveLength(1)
     })
 
-    it('findByExternalKey resolves on (application_id, external_key, scope)', async () => {
+    it('findByExternalKey resolves on (application_id, external_key, revision_id)', async () => {
         if (!reachable) {
             return
         }
@@ -385,22 +382,17 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
-            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
-        const liveScope = { isPreview: false, revisionId: rev.id }
-        const found = await queue.findByExternalKey(app.id, 'slack:C01:T1', liveScope)
+        const found = await queue.findByExternalKey(app.id, 'slack:C01:T1', rev.id)
         expect(found!.id).toBe('22222222-2222-2222-2222-222222222222')
-        const missing = await queue.findByExternalKey(app.id, 'nope', liveScope)
+        const missing = await queue.findByExternalKey(app.id, 'nope', rev.id)
         expect(missing).toBeNull()
-        // A preview-scoped lookup on the same key + revision does not see the
-        // live row — preview/live sessions are isolated at the SQL filter.
-        const crossScope = await queue.findByExternalKey(app.id, 'slack:C01:T1', {
-            isPreview: true,
-            revisionId: rev.id,
-        })
-        expect(crossScope).toBeNull()
+        // A lookup scoped to a different revision does not see the row — resume
+        // never crosses a revision boundary.
+        const otherRevision = await queue.findByExternalKey(app.id, 'slack:C01:T1', randomUUID())
+        expect(otherRevision).toBeNull()
     })
 
     it('getForApplication scopes by (id, application_id) — null for another application', async () => {
@@ -435,7 +427,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
-            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -536,7 +527,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
-            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -635,7 +625,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
-            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -657,7 +646,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             proposed_args: { team_id: 42, dry_run: false },
             assistant_message: asstMsg,
             approver_scope: { type: 'agent' as const, allow_edit: false },
-            is_preview: false,
             expires_at: new Date(Date.now() + 60_000).toISOString(),
         }
 
@@ -723,7 +711,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
-            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -744,7 +731,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             tool_name: 'tool.dispatch',
             assistant_message: asstMsg,
             approver_scope: { type: 'agent' as const, allow_edit: false },
-            is_preview: false,
             expires_at: new Date(Date.now() + 60_000).toISOString(),
         }
 
@@ -817,7 +803,6 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
-            is_preview: false,
             created_at: ts,
             updated_at: ts,
         })
