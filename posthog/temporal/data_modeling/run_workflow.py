@@ -68,8 +68,8 @@ from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, Duck
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
-from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
+from products.data_warehouse.backend.logic.data_load.create_table import create_table_from_saved_query
+from products.data_warehouse.backend.logic.data_load.saved_query_service import a_pause_saved_query_schedule
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.rate_limit import update_materialization_ready_for_saved_query
 from products.endpoints.backend.services.materialization import prepare_executable_query

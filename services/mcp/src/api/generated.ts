@@ -12762,6 +12762,22 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export type ClusteringConfigEventFiltersItem = { [key: string]: unknown };
+
+    export interface ClusteringConfig {
+      /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
+      event_filters: ClusteringConfigEventFiltersItem[];
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export type ClusteringConfigSetEventFiltersEventFiltersItem = { [key: string]: unknown };
+
+    export interface ClusteringConfigSetEventFilters {
+      /** PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters. */
+      event_filters: ClusteringConfigSetEventFiltersEventFiltersItem[];
+    }
+
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
@@ -16097,6 +16113,7 @@ export namespace Schemas {
      * * `Superwall` - Superwall
      * * `Liana` - Liana
      * * `TawkTo` - TawkTo
+     * * `Hightouch` - Hightouch
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16744,6 +16761,7 @@ export namespace Schemas {
       Superwall: 'Superwall',
       Liana: 'Liana',
       TawkTo: 'TawkTo',
+      Hightouch: 'Hightouch',
     } as const;
 
     /**
@@ -17404,7 +17422,8 @@ export namespace Schemas {
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
        * * `Liana` - Liana
-       * * `TawkTo` - TawkTo */
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22619,7 +22638,8 @@ export namespace Schemas {
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
        * * `Liana` - Liana
-       * * `TawkTo` - TawkTo */
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -29037,6 +29057,20 @@ export namespace Schemas {
       Close: 'close',
       PermissionResponse: 'permission_response',
       SetConfigOption: 'set_config_option',
+    } as const;
+
+    /**
+     * * `up` - up
+     * * `down` - down
+     * * `flat` - flat
+     */
+    export type MetricAnomalyDirectionEnum = typeof MetricAnomalyDirectionEnum[keyof typeof MetricAnomalyDirectionEnum];
+
+
+    export const MetricAnomalyDirectionEnum = {
+      Up: 'up',
+      Down: 'down',
+      Flat: 'flat',
     } as const;
 
     /**
@@ -40942,6 +40976,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
+      model?: string;
+      /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -48298,7 +48347,8 @@ export namespace Schemas {
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
        * * `Liana` - Liana
-       * * `TawkTo` - TawkTo */
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -48985,7 +49035,8 @@ export namespace Schemas {
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
        * * `Liana` - Liana
-       * * `TawkTo` - TawkTo */
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -49664,7 +49715,8 @@ export namespace Schemas {
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
        * * `Liana` - Liana
-       * * `TawkTo` - TawkTo */
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -51117,6 +51169,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
+      model?: string;
+      /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
@@ -52039,6 +52106,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run. */
+      model?: string;
+      /** Reasoning effort to warm the sandbox on for models that expose an effort control.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     /**
@@ -52692,7 +52774,10 @@ export namespace Schemas {
        * * `regex` - regex
        * * `not_regex` - not_regex */
       op?: OpEnum;
-      /** Value to compare against. For regex operators this is the pattern. */
+      /**
+         * Value to compare against. For regex operators this is the pattern.
+         * @maxLength 1024
+         */
       value: string;
       /** Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.
        *
@@ -52755,20 +52840,6 @@ export namespace Schemas {
       change_ratio: number;
     }
 
-    /**
-     * * `up` - up
-     * * `down` - down
-     * * `flat` - flat
-     */
-    export type _MetricAnomalyReportDirectionEnum = typeof _MetricAnomalyReportDirectionEnum[keyof typeof _MetricAnomalyReportDirectionEnum];
-
-
-    export const _MetricAnomalyReportDirectionEnum = {
-      Up: 'up',
-      Down: 'down',
-      Flat: 'flat',
-    } as const;
-
     export interface _MetricQueryPoint {
       /** Bucket start as ISO 8601 timestamp. */
       time: string;
@@ -52828,7 +52899,7 @@ export namespace Schemas {
        * * `up` - up
        * * `down` - down
        * * `flat` - flat */
-      direction: _MetricAnomalyReportDirectionEnum;
+      direction: MetricAnomalyDirectionEnum;
       /**
          * First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.
          * @nullable
@@ -52943,7 +53014,7 @@ export namespace Schemas {
        * * `day` - day
        * * `week` - week */
       interval?: MetricQueryIntervalEnum | null;
-      /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'. */
+      /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid (maximum 10). Mutually exclusive with 'metricName'. */
       clauses?: _MetricClause[];
       /**
          * Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.
@@ -56059,10 +56130,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type EnvironmentsLlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
-
     export type EnvironmentsLlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -56838,7 +56905,7 @@ export namespace Schemas {
 
     export type EnvironmentsMetricsValuesRetrieveParams = {
     /**
-     * Max number of names to return. Defaults to 100, capped at 1000.
+     * Max number of names to return. Defaults to 100; maximum 1000.
      */
     limit?: number;
     /**
@@ -62484,10 +62551,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
-
     export type LlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -63310,7 +63373,7 @@ export namespace Schemas {
 
     export type MetricsValuesRetrieveParams = {
     /**
-     * Max number of names to return. Defaults to 100, capped at 1000.
+     * Max number of names to return. Defaults to 100; maximum 1000.
      */
     limit?: number;
     /**
