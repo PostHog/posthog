@@ -27,7 +27,6 @@ from posthog.schema import (
 )
 
 from posthog.api.cohort import CohortSerializer
-from products.approvals.backend.policies import PolicyEngine
 from posthog.event_usage import EventSource, report_user_action
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import mute_selected_signals
@@ -38,6 +37,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
+from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
