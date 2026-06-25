@@ -17,25 +17,27 @@ export interface TaskRunInteractionLogicProps {
     onRunStarted?: (runId: string) => void
 }
 
-/** A follow-up message staged in the "Up next" buffer while the agent is mid-turn. */
+/** The follow-up staged in the "Up next" buffer while the agent is mid-turn. */
 export interface QueuedMessage {
     id: string
     content: string
 }
 
-/** Cap on staged "Up next" messages, mirroring the Max queue limit. */
-const QUEUE_LIMIT = 10
+/** Stable id for the single staged "Up next" message — the queue never holds more than one. */
+const QUEUED_MESSAGE_ID = 'queued'
 
 /**
  * Max-agnostic interaction facade for a single task run. The UI binds to this one logic to drive every
- * user → run interaction — sending follow-ups, staging an editable "Up next" queue while the agent is
+ * user → run interaction — sending follow-ups, staging an editable "Up next" message while the agent is
  * busy, and (re-exposed from `sandboxStreamLogic`) answering questions / approving operations. It owns no
  * transport: the SSE stream, thread projection, run status, and permission routing all live in
  * `sandboxStreamLogic`, which this connects to by `streamKey` (the `runId`).
  *
- * Queueing is client-side: a follow-up typed while the agent is working a turn is held here (editable,
- * removable) and flushed — combined into one `user_message` — when the turn completes. This mirrors the
- * PostHog AI sandbox flush path without any conversation/Max coupling.
+ * Queueing is client-side and holds at most a single message: a follow-up typed while the agent is working
+ * a turn is staged here (editable, removable), and a second follow-up typed before the turn ends is
+ * concatenated onto it rather than fanning out into separate messages. The single staged message is flushed
+ * as one `user_message` when the turn completes. This mirrors the PostHog AI sandbox flush path without any
+ * conversation/Max coupling.
  */
 export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'sandbox', 'taskRunInteractionLogic']),
@@ -68,11 +70,12 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
         // clears the right place and a failed send preserves it for retry ('draft' → composer, 'queue' →
         // the staged buffer combined into this send).
         sendNow: (content: string, source: 'draft' | 'queue') => ({ content, source }),
-        enqueueMessage: (content: string, id: string) => ({ content, id }),
+        // Stage a follow-up, concatenating onto any message already queued so the buffer stays a single message.
+        enqueueMessage: (content: string) => ({ content }),
         updateQueuedMessage: (id: string, content: string) => ({ id, content }),
         removeQueuedMessage: (id: string) => ({ id }),
         clearQueue: true,
-        // Internal: drain the "Up next" buffer (combined) when the agent is idle.
+        // Internal: drain the staged "Up next" message when the agent is idle.
         flushQueue: true,
     }),
 
@@ -99,7 +102,12 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
         queuedMessages: [
             [] as QueuedMessage[],
             {
-                enqueueMessage: (state, { content, id }) => [...state, { id, content }],
+                // The buffer holds a single message under a stable id — a second follow-up concatenates onto
+                // the staged content rather than appending a new entry.
+                enqueueMessage: (state, { content }) =>
+                    state.length > 0
+                        ? [{ id: QUEUED_MESSAGE_ID, content: `${state[0].content}\n\n${content}` }]
+                        : [{ id: QUEUED_MESSAGE_ID, content }],
                 updateQueuedMessage: (state, { id, content }) =>
                     state.map((message) => (message.id === id ? { ...message, content } : message)),
                 removeQueuedMessage: (state, { id }) => state.filter((message) => message.id !== id),
@@ -118,10 +126,9 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
         ],
         // In-flight indicator for the composer's send button — a live send or a new-run start.
         isSubmitting: [(s) => [s.sending, s.startingRun], (sending, startingRun): boolean => sending || startingRun],
-        queueFull: [(s) => [s.queuedMessages], (queuedMessages): boolean => queuedMessages.length >= QUEUE_LIMIT],
     }),
 
-    listeners(({ actions, values, props, cache }) => ({
+    listeners(({ actions, values, props }) => ({
         submit: () => {
             const content = values.draft.trim()
             if (!content) {
@@ -133,15 +140,11 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
                 actions.startNewRun(content)
                 return
             }
-            if (values.queueFull) {
-                return
-            }
-            // While the agent is working — or there are already staged messages — hold this one in the
-            // queue so it can't jump ahead; otherwise send it straight from the draft. When idle with a
-            // non-empty queue, drain right away so the staged messages don't linger.
+            // While the agent is working — or a message is already staged — concatenate this onto the single
+            // queued message so follow-ups never jump ahead or fan out; otherwise send it straight from the
+            // draft. When idle with a staged message, drain right away so it doesn't linger.
             if (values.isBusy || values.queuedMessages.length > 0) {
-                cache.queueSeq = (cache.queueSeq ?? 0) + 1
-                actions.enqueueMessage(content, String(cache.queueSeq))
+                actions.enqueueMessage(content)
                 actions.clearDraft()
                 if (!values.isBusy) {
                     actions.flushQueue()
@@ -151,15 +154,15 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
             }
         },
 
-        // Drain the "Up next" buffer as one combined message — but only when the run can actually take it,
-        // so a flush against a terminal/in-flight send keeps the staged messages rather than dropping them.
-        // The queue is cleared by `sendNow` on success, not here, so a failed flush retains the messages.
+        // Drain the staged "Up next" message — but only when the run can actually take it, so a flush against
+        // a terminal/in-flight send keeps it rather than dropping it. The queue is cleared by `sendNow` on
+        // success, not here, so a failed flush retains the message.
         flushQueue: () => {
-            if (values.queuedMessages.length === 0 || !values.canSend) {
+            const [queued] = values.queuedMessages
+            if (!queued || !values.canSend) {
                 return
             }
-            const combined = values.queuedMessages.map((message) => message.content).join('\n\n')
-            actions.sendNow(combined, 'queue')
+            actions.sendNow(queued.content, 'queue')
         },
 
         sendNow: async ({ content, source }) => {

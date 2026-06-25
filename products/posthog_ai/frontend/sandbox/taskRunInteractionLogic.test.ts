@@ -145,13 +145,14 @@ describe('taskRunInteractionLogic', () => {
         expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
     })
 
-    it('flushes the queue as one combined message when the turn completes', async () => {
+    it('concatenates follow-ups into a single staged message and flushes it when the turn completes', async () => {
         setThinking(true)
         logic.actions.setDraft('first')
         logic.actions.submit()
         logic.actions.setDraft('second')
         logic.actions.submit()
-        expect(logic.values.queuedMessages).toHaveLength(2)
+        // A second follow-up concatenates onto the first rather than fanning out into a separate message.
+        expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'first\n\nsecond' }])
 
         // Turn completes → drain. The flush itself sends while idle.
         setThinking(false)
