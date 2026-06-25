@@ -330,6 +330,12 @@ export const EvaluationStatusEnumApi = {
  * * `model_not_allowed` - Model not available on the trial plan
  * * `provider_key_deleted` - Provider API key was deleted
  * * `no_default_model` - No default model available for the selected provider
+ * * `provider_key_invalid` - Provider API key is invalid
+ * * `provider_key_permission_denied` - Provider API key lacks model access
+ * * `provider_key_quota_exceeded` - Provider API key quota exceeded
+ * * `provider_key_rate_limited` - Provider API key is rate limited
+ * * `model_not_found` - Model not found
+ * * `hog_error` - Hog evaluation code failed
  */
 export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
 
@@ -338,6 +344,12 @@ export const StatusReasonEnumApi = {
     ModelNotAllowed: 'model_not_allowed',
     ProviderKeyDeleted: 'provider_key_deleted',
     NoDefaultModel: 'no_default_model',
+    ProviderKeyInvalid: 'provider_key_invalid',
+    ProviderKeyPermissionDenied: 'provider_key_permission_denied',
+    ProviderKeyQuotaExceeded: 'provider_key_quota_exceeded',
+    ProviderKeyRateLimited: 'provider_key_rate_limited',
+    ModelNotFound: 'model_not_found',
+    HogError: 'hog_error',
 } as const
 
 /**
@@ -463,6 +475,8 @@ export interface EvaluationApi {
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
     readonly status_reason: StatusReasonEnumApi | null
+    /** Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI. */
+    readonly status_reason_detail: string | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
      *
      * * `llm_judge` - LLM as a judge
@@ -541,6 +555,8 @@ export interface PatchedEvaluationApi {
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
     readonly status_reason?: StatusReasonEnumApi | null
+    /** Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI. */
+    readonly status_reason_detail?: string | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
      *
      * * `llm_judge` - LLM as a judge

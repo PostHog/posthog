@@ -911,8 +911,17 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertEqual(eval_obj.status, "active")
         self.assertIsNone(eval_obj.status_reason)
 
-    def test_rejects_re_enable_when_provider_key_still_missing(self):
-        eval_obj = self._create_errored_eval(status_reason="provider_key_deleted")
+    @parameterized.expand(
+        [
+            ("provider_key_deleted",),
+            ("provider_key_invalid",),
+            ("provider_key_permission_denied",),
+            ("provider_key_quota_exceeded",),
+            ("provider_key_rate_limited",),
+        ]
+    )
+    def test_rejects_re_enable_when_provider_key_still_missing(self, status_reason):
+        eval_obj = self._create_errored_eval(status_reason=status_reason)
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
@@ -921,6 +930,67 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("provider API key", str(response.data))
+
+    @parameterized.expand(
+        [
+            ("provider_key_invalid", LLMProviderKey.State.INVALID),
+            ("provider_key_permission_denied", LLMProviderKey.State.ERROR),
+            ("provider_key_quota_exceeded", LLMProviderKey.State.ERROR),
+            ("provider_key_rate_limited", LLMProviderKey.State.ERROR),
+        ]
+    )
+    def test_rejects_re_enable_when_provider_key_is_still_not_usable(self, status_reason, key_state):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=key_state,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(status_reason=status_reason, provider_key=key)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("working provider API key", str(response.data))
+
+    def test_rejects_re_enable_when_model_not_found_without_new_model(self):
+        eval_obj = self._create_errored_eval(status_reason="model_not_found")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Choose an available model", str(response.data))
+
+    def test_allows_re_enable_when_model_not_found_with_new_model(self):
+        eval_obj = self._create_errored_eval(status_reason="model_not_found", model="missing-model")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {
+                "enabled": True,
+                "model_configuration": {
+                    "provider": "openai",
+                    "model": "gpt-5-mini",
+                    "provider_key_id": None,
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+        self.assertIsNone(eval_obj.status_reason)
 
     def test_allows_re_enable_when_provider_key_attached(self):
         key = LLMProviderKey.objects.create(
