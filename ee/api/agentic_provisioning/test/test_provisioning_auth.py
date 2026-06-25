@@ -735,6 +735,44 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
 
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_cimd_scope_ceiling_refreshes_on_agentic_auth_after_metadata_edit(self, mock_get, _url_mock):
+        from posthog.api.oauth.cimd import _cache_key, register_cimd_provisioning_application_task
+
+        initial = _make_cimd_metadata()
+        initial["com.posthog"] = {"scopes": ["insight:read"]}
+        mock_get.return_value = _cimd_mock_response(initial)
+        register_cimd_provisioning_application_task(CIMD_PROV_URL)
+
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
+        assert app.scopes == ["insight:read"]
+
+        # Partner edits the live metadata to widen the ceiling; the cached doc goes stale.
+        real_cache.delete(_cache_key(CIMD_PROV_URL))
+        widened = _make_cimd_metadata()
+        widened["com.posthog"] = {"scopes": ["insight:read", "dashboard:read"]}
+        mock_get.return_value = _cimd_mock_response(widened)
+
+        # A later agentic provisioning auth request must propagate the edit — the bug was that
+        # this raw-lookup path never refreshed, so the ceiling stayed frozen at registration.
+        _, challenge = _pkce_pair()
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_cimd_refresh_e2e",
+                "email": "cimd-refresh-e2e@example.com",
+                "client_id": CIMD_PROV_URL,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 200
+
+        app.refresh_from_db()
+        assert app.scopes == ["insight:read", "dashboard:read"]
+
     @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
     def test_existing_cimd_app_gets_provisioning_backfilled(self, mock_refresh, _url_mock):
         OAuthApplication.objects.create(
