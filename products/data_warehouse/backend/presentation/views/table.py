@@ -123,7 +123,9 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
-        from products.data_warehouse.backend.presentation.views.external_data_schema import SimpleExternalDataSchemaSerializer
+        from products.data_warehouse.backend.presentation.views.external_data_schema import (
+            SimpleExternalDataSchemaSerializer,
+        )
 
         return SimpleExternalDataSchemaSerializer(instance.externaldataschema_set.first(), read_only=True).data or None
 

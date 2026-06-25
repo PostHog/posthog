@@ -48,7 +48,9 @@ class TestWebhookS3SinkConfig:
     def test_consumer_uses_latest_offset_reset(self):
         consumer = _make_consumer()
 
-        with patch("products.data_warehouse.backend.logic.webhook_consumer.consumer.ConfluentConsumer") as mock_consumer_cls:
+        with patch(
+            "products.data_warehouse.backend.logic.webhook_consumer.consumer.ConfluentConsumer"
+        ) as mock_consumer_cls:
             mock_consumer_cls.return_value = MagicMock()
             consumer._create_consumer()
 
@@ -58,7 +60,9 @@ class TestWebhookS3SinkConfig:
     def test_auto_commit_disabled(self):
         consumer = _make_consumer()
 
-        with patch("products.data_warehouse.backend.logic.webhook_consumer.consumer.ConfluentConsumer") as mock_consumer_cls:
+        with patch(
+            "products.data_warehouse.backend.logic.webhook_consumer.consumer.ConfluentConsumer"
+        ) as mock_consumer_cls:
             mock_consumer_cls.return_value = MagicMock()
             consumer._create_consumer()
 
@@ -68,7 +72,9 @@ class TestWebhookS3SinkConfig:
     def test_subscribe_with_correct_topic(self):
         consumer = _make_consumer(config=_make_config(input_topic="my-topic"))
 
-        with patch("products.data_warehouse.backend.logic.webhook_consumer.consumer.ConfluentConsumer") as mock_consumer_cls:
+        with patch(
+            "products.data_warehouse.backend.logic.webhook_consumer.consumer.ConfluentConsumer"
+        ) as mock_consumer_cls:
             mock_instance = MagicMock()
             mock_consumer_cls.return_value = mock_instance
             consumer._create_consumer()

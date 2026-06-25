@@ -98,7 +98,9 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         self.assertFalse(Node.objects.filter(saved_query_id=saved_query_id).exists())
 
     @patch("products.data_warehouse.backend.presentation.views.saved_query.sync_saved_query_workflow")
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=False)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=False
+    )
     def test_materialize_updates_node_type(self, _mock_workflow_exists, _mock_sync_workflow):
         # create
         create_response = self.client.post(
@@ -125,7 +127,9 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         node.refresh_from_db()
         self.assertEqual(node.type, NodeType.MAT_VIEW)
 
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=True
+    )
     def test_revert_materialization_updates_node_type(self, _mock_workflow_exists):
         # create materialized
         create_response = self.client.post(

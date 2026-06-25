@@ -20,7 +20,9 @@ pytestmark = [
     pytest.mark.django_db,
 ]
 
-SENDER_PATH = "products.data_warehouse.backend.logic.external_data_source.notifications.send_external_data_failure_digest"
+SENDER_PATH = (
+    "products.data_warehouse.backend.logic.external_data_source.notifications.send_external_data_failure_digest"
+)
 
 
 def _create_team_and_source() -> tuple[Team, ExternalDataSource]:

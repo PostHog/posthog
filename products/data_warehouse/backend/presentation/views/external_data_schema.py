@@ -21,6 +21,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.utils import str_to_bool
 
+from products.data_warehouse.backend.direct_mysql import hide_direct_mysql_table
+from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table
 from products.data_warehouse.backend.logic.data_load.service import (
     cancel_external_data_workflow,
     external_data_workflow_exists,
@@ -33,8 +35,6 @@ from products.data_warehouse.backend.logic.data_load.service import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
-from products.data_warehouse.backend.direct_mysql import hide_direct_mysql_table
-from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table
 from products.data_warehouse.backend.logic.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,

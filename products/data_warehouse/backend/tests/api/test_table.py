@@ -11,8 +11,8 @@ import boto3
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
-from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
+from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 

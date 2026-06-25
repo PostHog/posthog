@@ -34,13 +34,13 @@ from posthog.models import Team
 from posthog.models.project import Project
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
+from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.data_warehouse.backend.presentation.views.external_data_source import (
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
 )
-from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -728,7 +728,9 @@ class TestExternalDataSource(APIBaseTest):
 
         with (
             patch.object(ExternalDataSchemaSerializer, "update", _failing_update),
-            patch("products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"),
+            patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
@@ -2061,7 +2063,9 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_capture_exception.call_count == 2  # one for source, one for schema
 
     # TODO: update this test
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.trigger_external_data_source_workflow")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.trigger_external_data_source_workflow"
+    )
     def test_reload_external_data_source(self, mock_trigger):
         source = self._create_external_data_source()
 
@@ -2399,7 +2403,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.trigger_external_data_source_workflow")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.trigger_external_data_source_workflow"
+    )
     def test_reload_direct_external_data_source_refreshes_schemas(self, mock_trigger, mock_get_source):
         mock_get_source.return_value.parse_config.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
@@ -3060,11 +3066,16 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(public_schema.sync_type_config["schema_metadata"]["source_schema"], "public")
         self.assertEqual(analytics_schema.sync_type_config["schema_metadata"]["source_schema"], "analytics")
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
     )
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.get_primary_key_columns")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.cdc_pg_connection")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
@@ -3154,11 +3165,16 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table.assert_called_once()
         assert mock_add_table.call_args.args[1:] == ("analytics", "events")
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
     )
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.get_primary_key_columns")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.cdc_pg_connection")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
@@ -3269,11 +3285,16 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table.assert_called_once()
         assert mock_add_table.call_args.args[1:] == ("analytics", "events")
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
     )
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.get_primary_key_columns")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.cdc_pg_connection")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
@@ -3353,8 +3374,13 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table.assert_not_called()
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.get_primary_key_columns")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.cdc_pg_connection")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
@@ -3432,8 +3458,13 @@ class TestExternalDataSource(APIBaseTest):
         mock_setup_cdc_resources.assert_not_called()
         mock_capture_exception.assert_not_called()
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_rejects_cdc_schemas_when_source_cdc_disabled(
         self,
@@ -3829,7 +3860,8 @@ class TestExternalDataSource(APIBaseTest):
             patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)),
             patch.object(source, "get_schemas", return_value=[fake_schema]),
             patch(
-                "products.data_warehouse.backend.presentation.views.external_data_source.is_xmin_enabled_for_team", return_value=True
+                "products.data_warehouse.backend.presentation.views.external_data_source.is_xmin_enabled_for_team",
+                return_value=True,
             ),
         ):
             response = self.client.post(
@@ -8526,7 +8558,10 @@ class TestCheckCDCPrerequisitesWizard(APIBaseTest):
 
 
 class TestEnableCDC(APIBaseTest):
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     def test_enable_cdc_rejects_source_type_without_cdc_support(self, _flag) -> None:
         # Stripe has no CDC adapter — the viewset must surface that as a 400, not crash.
         source = ExternalDataSource.objects.create(
@@ -8546,7 +8581,10 @@ class TestEnableCDC(APIBaseTest):
         assert response.status_code == 400
         assert "CDC is not supported" in response.json()["message"]
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=False)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=False,
+    )
     def test_enable_cdc_rejects_when_team_flag_off(self, _flag) -> None:
         source = _make_postgres_source(self.team.pk, self.user)
         response = self.client.post(
@@ -8556,7 +8594,10 @@ class TestEnableCDC(APIBaseTest):
         )
         assert response.status_code == 403
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     def test_enable_cdc_rejects_when_already_enabled(self, _flag) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
         response = self.client.post(
@@ -8573,7 +8614,10 @@ class TestEnableCDC(APIBaseTest):
             ("none", None),
         ]
     )
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     def test_enable_cdc_rejects_invalid_management_mode(self, _name: str, mode_value, _flag) -> None:
         source = _make_postgres_source(self.team.pk, self.user)
         response = self.client.post(
@@ -8584,7 +8628,10 @@ class TestEnableCDC(APIBaseTest):
         assert response.status_code == 400
         assert "cdc_management_mode" in response.json()["message"]
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=["wal_level must be 'logical'", "Missing REPLICATION privilege"],
@@ -8619,7 +8666,10 @@ class TestEnableCDC(APIBaseTest):
             ("ssh_tunnel_error", BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")),
         ]
     )
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
     def test_enable_cdc_connection_failure_returns_400_without_capture(self, _name, exc, mock_capture, _flag) -> None:
         source = _make_postgres_source(self.team.pk, self.user)
@@ -8634,7 +8684,10 @@ class TestEnableCDC(APIBaseTest):
         # User/upstream connection failures must not pollute error tracking.
         mock_capture.assert_not_called()
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
     @patch.object(PostgresCDCAdapter, "validate_prerequisites", side_effect=ValueError("unexpected bug"))
     def test_enable_cdc_unexpected_error_is_still_captured(self, _check, mock_capture, _flag) -> None:
@@ -8647,12 +8700,17 @@ class TestEnableCDC(APIBaseTest):
         assert response.status_code == 400
         mock_capture.assert_called_once()
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_cdc_extraction_schedule")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.ensure_cdc_slot_cleanup_schedule")
     def test_enable_cdc_posthog_managed_success(
@@ -8714,12 +8772,17 @@ class TestEnableCDC(APIBaseTest):
         mock_sync_extraction.assert_called_once()
         mock_ensure_cleanup.assert_called_once()
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_cdc_extraction_schedule")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.ensure_cdc_slot_cleanup_schedule")
     def test_enable_cdc_succeeds_for_supabase(
@@ -8742,12 +8805,17 @@ class TestEnableCDC(APIBaseTest):
 
         assert response.status_code == 200, response.content
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_cdc_extraction_schedule")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.ensure_cdc_slot_cleanup_schedule")
     def test_enable_cdc_self_managed_passes_publication_name(
@@ -8795,12 +8863,17 @@ class TestEnableCDC(APIBaseTest):
         assert ji["cdc_management_mode"] == "self_managed"
         assert ji["cdc_publication_name"] == "customer_pub"
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
     def test_enable_cdc_returns_400_when_slot_setup_fails(self, mock_setup_cdc_resources, _check, _flag) -> None:
         source = _make_postgres_source(self.team.pk, self.user)
         mock_setup_cdc_resources.return_value = "Failed to create replication slot: connection lost"
@@ -8818,7 +8891,10 @@ class TestEnableCDC(APIBaseTest):
         assert source.deleted is False
         assert (source.job_inputs or {}).get("cdc_enabled") is not True
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
@@ -8886,7 +8962,10 @@ class TestEnableCDC(APIBaseTest):
         assert (source.job_inputs or {}).get("cdc_enabled") is not True
         assert source.deleted is False
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_enabled_for_team",
+        return_value=True,
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
@@ -9999,7 +10078,9 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [table["table"] for table in response.json()] == ["users"]
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.trigger_external_data_source_workflow")
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.trigger_external_data_source_workflow"
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),
