@@ -24,10 +24,11 @@ hcl/
     roles/logs/              # LOGS objects identical across all cloud envs
     env/<env>/ops.hcl        # per-env OPS overlays (sharded_tophog zoo_path, prod-us ProfileEvents2, dev prom_metrics)
     env-logs/<env>/          # per-env LOGS overlays (kafka/zoo_path/distributed variants; traces on prod only)
-    golden/<env>-<role>.hcl  # captured cluster baseline per node — check.sh diffs the composition against this
+    golden/<env>-<role>.hcl  # resolved composition per node (the desired schema); check.sh diffs against it
     sql/<env>-<role>.sql     # generated build-from-scratch CREATE schema per node (apply to a fresh ClickHouse)
-    check.sh                 # CI guard: validate + diff every node vs golden + verify sql/ is fresh
+    check.sh                 # CI guard: validate + diff every node vs golden + verify golden/ & sql/ are fresh
     diff.sh                  # preview the DDL your uncommitted edits produce, per node
+    gen-golden.sh            # (re)generate golden/  — hclexp load per node
     gen-sql.sh               # (re)generate sql/
     codegen/gen_migration.py # turn an edit into run_sql_with_exceptions(...) operations
 ```
@@ -81,11 +82,10 @@ docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
 
 4. **Refresh the generated artifacts** so the guard passes:
    ```bash
-   bash $OPS/gen-sql.sh                                           # rebuild sql/
-   # Refresh the affected golden(s) to the intended post-change state:
-   $OPS/bin/hclexp load -layer <the node's layers, comma-separated> -out $OPS/golden/<env>-<role>.hcl
+   bash $OPS/gen-golden.sh      # rebuild golden/ (resolved compositions); optional [env] [role] filter
+   bash $OPS/gen-sql.sh         # rebuild sql/
    ```
-   (Golden = the predicted post-apply state; the dump pipeline re-introspects after deploy to confirm
+   (Golden = the desired post-apply schema; the dump pipeline re-introspects after deploy to confirm
    the real cluster converged to it.)
 
 5. **Verify**:

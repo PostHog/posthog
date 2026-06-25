@@ -6,9 +6,10 @@
 #      skipping refs that intentionally point outside the composed set (the
 #      `system` database, the main events cluster, and the OPS-only data table
 #      that the shared distributed tables read from).
-#   2. `hclexp diff`s the stack against the vendored golden golden/<env>-<role>.hcl,
-#      asserting zero drift. Compositions with no golden (e.g. `local`, `endpoints`
-#      — no captured host) are validated only.
+#   2. `hclexp diff`s the stack against golden/<env>-<role>.hcl, asserting zero drift.
+#      The golden is the resolved composition (run ops/gen-golden.sh to refresh it), so
+#      this catches a stale golden — a layer edited without regenerating. Reality-fidelity
+#      (HCL vs the real cluster) is the post-deploy introspection's job, not this guard.
 #
 # Run from the repo root. Uses ./posthog/clickhouse/hcl/bin/hclexp. Exits non-zero
 # on any drift or unexpected validation error.

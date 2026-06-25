@@ -1,13 +1,3 @@
-node "prod-us-iad-ch-1c-ops" {
-  macros = {
-    cluster         = "ops"
-    hostClusterRole = "ops"
-    hostClusterType = "offline"
-    replica         = "c"
-    shard           = "1"
-  }
-}
-
 database "posthog" {
   table "events_main" {
     column "uuid" {
