@@ -71,7 +71,8 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const postgresGroupRepository = new PostgresGroupRepository(postgres)
 
     const postgresPersonRepository = new PostgresPersonRepository(postgres, {
-        calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+        // createHub is legacy/test-only; ingestion configures this on its own infra (see createIngestionTestInfra).
+        calculatePropertiesSize: 0,
     })
     const personRepository = buildPersonRepository(
         personhogClient,

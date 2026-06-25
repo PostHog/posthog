@@ -9,7 +9,6 @@ from django.db.models import Model
 
 from posthog.models.signals import model_activity_signal
 
-from products.data_warehouse.backend.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -21,6 +20,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 @pytest.mark.parametrize(

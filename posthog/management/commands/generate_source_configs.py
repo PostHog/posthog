@@ -18,9 +18,8 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from posthog.temporal.data_imports.sources import SourceRegistry
-
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -28,10 +27,10 @@ logger.setLevel(logging.INFO)
 
 # Generates `@config.Config` dataclasses to be used by sources to parse inputs from the frontend.
 # The source of the configs come from the sources `get_source_config()` method (inherited from `BaseSource`).
-# For an example, look at posthog/temporal/data_imports/sources/stripe/source.py
+# For an example, look at products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py
 
 # This file shouldn't often need to be updated unless if we extend what fields sources can have.
-# There exists a test file here: posthog/temporal/data_imports/sources/common/test/test_source_config_generator.py
+# There exists a test file here: products/warehouse_sources/backend/temporal/data_imports/sources/common/test/test_source_config_generator.py
 
 # To start SourceConfigGenerator, run `pnpm generate:source-configs`
 
@@ -66,8 +65,8 @@ class SourceConfigGenerator:
     def generate_source_config(self, source_type: ExternalDataSourceType, source_config: SourceConfig) -> None:
         self.imports.update(
             [
-                "from posthog.temporal.data_imports.sources.common import config",
-                "from products.data_warehouse.backend.types import ExternalDataSourceType",
+                "from products.warehouse_sources.backend.temporal.data_imports.sources.common import config",
+                "from products.warehouse_sources.backend.types import ExternalDataSourceType",
             ]
         )
 

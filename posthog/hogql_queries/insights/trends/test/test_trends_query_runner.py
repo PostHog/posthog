@@ -3091,7 +3091,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.posthoganalytics.feature_enabled")
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.feature_enabled_or_false")
     def test_session_property_pre_aggregation_modifier_gate(
         self,
         _name: str,
@@ -3107,7 +3107,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert runner.modifiers.sessionPropertyPreAggregation is expected
 
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.posthoganalytics.feature_enabled")
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.feature_enabled_or_false")
     def test_session_property_pre_aggregation_modifier_clears_on_dashboard_reapply(self, patch_feature_enabled):
         # apply_dashboard_filters re-runs __post_init__. The modifier must reflect the *current*
         # query state, not the initial one — so a session-breakdown query that gets overridden
