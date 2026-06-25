@@ -35,7 +35,12 @@ const MISSING_PROP_OR_KEY = /must have a .* prop|Undefined key for logic/
 
 // Routing path -> scene is data-independent, so reaching one of these means the scene's own
 // logic threw on build, not that an entity was genuinely missing.
-const ERROR_SCENES: string[] = [Scene.Error404, Scene.ErrorNetwork, Scene.ErrorProjectUnavailable]
+const ERROR_SCENES: string[] = [
+    Scene.Error404,
+    Scene.ErrorNetwork,
+    Scene.ErrorProjectUnavailable,
+    Scene.ErrorAccessDenied,
+]
 
 // Index routes resolve without an entity id; the entity routes additionally build the id-keyed
 // scene logics (insightSceneLogic, dashboardLogic) that the index routes never construct.
