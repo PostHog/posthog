@@ -285,11 +285,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             actions.removeQueuedAction(action)
                             actions.movedItem(action.item, oldPath, newPath)
                             if (action.item.type === 'dashboard') {
-                                // Arm-agnostic primary-metric signal for the dashboards-list-view experiment
-                                // (flag: dashboards-list-view · experiment: 379125). Deliberately fired from the
-                                // shared move path, NOT from dashboardsFileSystemLogic: that logic mounts only in
-                                // the tree arm, so emitting there would miss control-arm moves and break the
-                                // cross-arm organization-rate comparison. method/count + undo net-out deferred.
+                                // EXPERIMENT CLEANUP (flag dashboards-list-view · experiment 379125): a
+                                // dashboard-specific event in the generic move path — a deliberate altitude
+                                // compromise. It lives here, not in dashboardsFileSystemLogic, because that logic
+                                // mounts only in the tree arm, so emitting there would miss control-arm moves and
+                                // break the arm-agnostic primary metric. Remove or relocate (e.g. behind a generic
+                                // post-move analytics hook) once we agree on a solution / the experiment ends.
+                                // method/count + undo net-out deferred.
                                 eventUsageLogic.actions.reportDashboardMovedToFolder({
                                     fromDepth: splitPath(oldPath).length,
                                     toDepth: splitPath(newPath).length,
