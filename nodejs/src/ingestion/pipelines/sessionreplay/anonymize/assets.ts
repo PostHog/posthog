@@ -41,7 +41,7 @@ export function applyBlur(ctx: ScrubContext, attrs: Record<string, unknown>): vo
         }
         if (isImageDataUri(existing)) {
             attrs[key] = PLACEHOLDER_SRC
-            ctx.blurJobs?.push({ attrs, key, dataUri: existing })
+            ctx.blurJobs?.push({ dataUri: existing, apply: (blurred) => (attrs[key] = blurred) })
         } else {
             const scrubbed = scrubUrl(ctx, existing)
             attrs[key] = PLACEHOLDER_SRC

@@ -25,9 +25,11 @@ describe('anonymize-step', () => {
         )
     })
 
-    it('downscale-blurs a data-image media source via the deferred job pass', async () => {
+    it('blurs a data-image media source via the deferred job pass', async () => {
+        // Small patterned PNG (portable across libvips/libpng builds; a solid color would blur to
+        // identical bytes, so we use a checkerboard the blur visibly changes).
         const onePxPng =
-            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg=='
         const parsedMessage = parsedMessageWith({
             win1: [
                 {

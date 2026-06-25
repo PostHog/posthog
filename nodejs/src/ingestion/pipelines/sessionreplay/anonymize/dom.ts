@@ -1,7 +1,6 @@
 /** Walks parsed rrweb serialized nodes, scrubbing text content and attributes in place. */
 import { applyBlur, hasMediaSrcAttr, isMediaSrcAttr, isMediaTag } from './assets'
 import { ScrubContext, isObject } from './config'
-import { scrubCss } from './css'
 import { scrubText } from './text'
 import { scrubUrl } from './url'
 
@@ -94,13 +93,10 @@ function walkNode(ctx: ScrubContext, node: AnyNode, parent: ParentKind): boolean
             break
         }
         case NodeType.Text: {
-            // Script is code, not PII; redacting it would corrupt replay.
-            if (parent === 'script') {
+            // Script and style are code/CSS, not user PII; redacting them would corrupt replay
+            // (and break far more than it saves), so they pass through untouched.
+            if (parent === 'script' || parent === 'style' || node.isStyle === true) {
                 return false
-            }
-            // CSS can carry PII in url() targets; scrub those but leave the rest of the rules intact.
-            if (parent === 'style' || node.isStyle === true) {
-                return scrubCssContent(ctx, node)
             }
             changed = scrubTextContent(ctx, node) || changed
             break
@@ -121,18 +117,6 @@ function scrubTextContent(ctx: ScrubContext, node: AnyNode): boolean {
         return false
     }
     const result = scrubText(ctx, node.textContent)
-    if (result.changed) {
-        node.textContent = result.value
-        return true
-    }
-    return false
-}
-
-function scrubCssContent(ctx: ScrubContext, node: AnyNode): boolean {
-    if (typeof node.textContent !== 'string') {
-        return false
-    }
-    const result = scrubCss(ctx, node.textContent)
     if (result.changed) {
         node.textContent = result.value
         return true
@@ -169,8 +153,6 @@ function scrubAttrs(ctx: ScrubContext, attrs: Record<string, unknown>, kind: Tag
         let result
         if (isUrlAttr(name)) {
             result = scrubUrl(ctx, value)
-        } else if (name === 'style') {
-            result = scrubCss(ctx, value)
         } else if (isUserTextAttr(name) || isDataAttr(name)) {
             // Deny-by-default for author-controlled `data-*` (data-email, data-user-id, …); `data-original-*`
             // are blur stashes we already URL-scrubbed, so leave them alone.

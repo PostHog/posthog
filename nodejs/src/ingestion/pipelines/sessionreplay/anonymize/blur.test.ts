@@ -1,8 +1,11 @@
+import sharp from 'sharp'
+
 import { blurImageDataUri, isImageDataUri, runBlurJobs } from './blur'
 
-// A 1x1 transparent PNG.
+// A small patterned PNG (portable across libvips/libpng builds; a bare 1x1 is rejected by some,
+// and a solid color blurs to identical bytes, so we use a checkerboard the blur visibly changes).
 const ONE_PX_PNG =
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg=='
 
 describe('anonymize/blur', () => {
     it('detects image data URIs', () => {
@@ -11,12 +14,27 @@ describe('anonymize/blur', () => {
         expect(isImageDataUri('data:text/plain,hi')).toBe(false)
     })
 
-    it('downscale-blurs a base64 image into a PNG data URI', async () => {
+    it('gaussian-blurs a base64 image into a PNG data URI', async () => {
         const out = await blurImageDataUri(ONE_PX_PNG)
         expect(out).not.toBeNull()
         expect(out!.startsWith('data:image/png;base64,')).toBe(true)
         // It is a real, different encoding, not the original bytes echoed back.
         expect(out).not.toBe(ONE_PX_PNG)
+    })
+
+    it('falls back to a downsample when the gaussian blur throws', async () => {
+        // Force the Gaussian path to fail; the resize-only fallback should still produce an image.
+        const proto = Object.getPrototypeOf(sharp(Buffer.from([0])))
+        const spy = jest.spyOn(proto, 'blur').mockImplementation(() => {
+            throw new Error('blur boom')
+        })
+        try {
+            const out = await blurImageDataUri(ONE_PX_PNG)
+            expect(out).not.toBeNull()
+            expect(out!.startsWith('data:image/png;base64,')).toBe(true)
+        } finally {
+            spy.mockRestore()
+        }
     })
 
     it('returns null for non-image and remote sources', async () => {
@@ -32,16 +50,16 @@ describe('anonymize/blur', () => {
         await expect(runBlurJobs(undefined)).resolves.toBeUndefined()
     })
 
-    it('runBlurJobs replaces the attribute with the blurred result', async () => {
+    it('runBlurJobs applies the blurred result in place', async () => {
         const attrs: Record<string, unknown> = { src: 'placeholder' }
-        await runBlurJobs([{ attrs, key: 'src', dataUri: ONE_PX_PNG }])
+        await runBlurJobs([{ dataUri: ONE_PX_PNG, apply: (blurred) => (attrs.src = blurred) }])
         expect(typeof attrs.src).toBe('string')
         expect((attrs.src as string).startsWith('data:image/png;base64,')).toBe(true)
     })
 
-    it('runBlurJobs leaves the attribute untouched when blur fails', async () => {
+    it('runBlurJobs leaves the target untouched when blur fails', async () => {
         const attrs: Record<string, unknown> = { src: 'placeholder' }
-        await runBlurJobs([{ attrs, key: 'src', dataUri: 'https://example.com/x.png' }])
+        await runBlurJobs([{ dataUri: 'https://example.com/x.png', apply: (blurred) => (attrs.src = blurred) }])
         expect(attrs.src).toBe('placeholder')
     })
 })

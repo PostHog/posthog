@@ -195,11 +195,14 @@ describe('anonymize/dom', () => {
         expect(attrs['data-original-src']).toBe('https://example.com/u/abc.png')
     })
 
-    it('scrubs url() targets in an inline style attribute and in <style> css text', () => {
+    it('leaves CSS untouched: the inline style attribute and <style> text pass through verbatim', () => {
+        // CSS is author stylesheet content, not user PII; scrubbing url() targets broke far
+        // more (SVG sprite fragments, CDN asset paths) than it ever saved, so we no longer touch it.
         const attrs: Record<string, unknown> = { style: 'background: url(/users/SecretUser/bg.png)' }
-        scrubMutation(ctx, { source: 0, attributes: [{ id: 2, attributes: attrs }] })
-        expect(attrs.style).not.toContain('SecretUser')
+        expect(scrubMutation(ctx, { source: 0, attributes: [{ id: 2, attributes: attrs }] })).toBe(false)
+        expect(attrs.style).toBe('background: url(/users/SecretUser/bg.png)')
 
+        const cssText = '.a { background: url(/users/SecretUser/x.png) }'
         const event = {
             type: 2,
             timestamp: 1,
@@ -213,16 +216,14 @@ describe('anonymize/dom', () => {
                             id: 2,
                             tagName: 'style',
                             attributes: {},
-                            childNodes: [
-                                { type: 3, id: 3, textContent: '.a { background: url(/users/SecretUser/x.png) }' },
-                            ],
+                            childNodes: [{ type: 3, id: 3, textContent: cssText }],
                         },
                     ],
                 },
                 initialOffset: { top: 0, left: 0 },
             },
         }
-        scrubFullSnapshot(ctx, event.data)
-        expect(event.data.node.childNodes[0].childNodes[0].textContent).not.toContain('SecretUser')
+        expect(scrubFullSnapshot(ctx, event.data)).toBe(false)
+        expect(event.data.node.childNodes[0].childNodes[0].textContent).toBe(cssText)
     })
 })

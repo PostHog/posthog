@@ -4,6 +4,7 @@ import { RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionr
 import { logger } from '~/utils/logger'
 
 import { runBlurJobs } from './blur'
+import { scrubCanvasMutation } from './canvas'
 import { BlurJob, ScrubContext, isObject } from './config'
 import { scrubCompressedFullSnapshot, scrubCompressedMutation } from './cv'
 import { scrubFullSnapshot, scrubMutation } from './dom'
@@ -73,6 +74,9 @@ function routeEvent(ctx: ScrubContext, event: Record<string, unknown>): boolean 
             }
             if (data.source === RRWebEventSource.Input) {
                 return scrubStringField(ctx, data, 'text', 'text')
+            }
+            if (data.source === RRWebEventSource.CanvasMutation) {
+                return scrubCanvasMutation(ctx, data)
             }
             return false
         }

@@ -7,11 +7,10 @@ export const NUMBER_CHAR = '#'
 /** Strings with more than this many words are fully redacted (free-text guard). */
 export const DEFAULT_MAX_WORDS_LEN = 8
 
-/** A media image whose placeholder should be replaced by an async downscale-blur later. */
+/** A pending image blur: `dataUri` is Gaussian-blurred async, then `apply` writes the result back in place. */
 export interface BlurJob {
-    attrs: Record<string, unknown>
-    key: string
     dataUri: string
+    apply: (blurred: string) => void
 }
 
 /** Per-scrub context: the active allow lists plus tunables read by the scrubbers. */
