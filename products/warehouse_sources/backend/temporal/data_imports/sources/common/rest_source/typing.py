@@ -130,6 +130,9 @@ class ClientConfig(TypedDict, total=False):
     # Optional pre-built session. Sources that need SSRF-guarding or other custom
     # transport behaviour pass one here; left unset, RESTClient builds a tracked session.
     session: Optional[Session]
+    # Cap on retry attempts per request. Left unset, RESTClient uses its default;
+    # the inline preview sets 1 so a rate-limited endpoint errors instead of sleeping.
+    max_retries: int
 
 
 class IncrementalArgs(TypedDict, total=False):
