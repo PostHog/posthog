@@ -918,6 +918,20 @@ pub async fn update_team_autocapture_exceptions(
     Ok(())
 }
 
+pub async fn update_team_timezone(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    timezone: &str,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    sqlx::query("UPDATE posthog_team SET timezone = $1 WHERE id = $2")
+        .bind(timezone)
+        .bind(team_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 /// Build a `FeatureFlagList` with proper `EvaluationMetadata` from a list of flags.
 ///
 /// Scans each flag's filters for `PropertyType::Flag` dependencies and produces
@@ -1286,6 +1300,10 @@ impl TestContext {
         enabled: bool,
     ) -> Result<(), Error> {
         update_team_autocapture_exceptions(self.non_persons_writer.clone(), team_id, enabled).await
+    }
+
+    pub async fn update_team_timezone(&self, team_id: i32, timezone: &str) -> Result<(), Error> {
+        update_team_timezone(self.non_persons_writer.clone(), team_id, timezone).await
     }
 
     pub async fn get_person_id_by_distinct_id(

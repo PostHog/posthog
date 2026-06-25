@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -30,42 +29,42 @@ import {
 } from '~/layout/scenes/SceneLayout'
 
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
-import { CollapsibleContent } from './CollapsibleContent'
-import { TaskRunItem } from './TaskRunItem'
-import { TaskSessionView } from './TaskSessionView'
+import { TaskRun } from '../types'
+import { TaskRunChat } from './TaskRunChat'
 
 export interface TaskDetailPageProps {
     taskId: string
+    /** Mobile shows the single-column layout, where a back button is needed to return to the list. */
+    isMobile: boolean
 }
 
-export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
+export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
     const {
         task,
         taskLoading,
+        taskNotFound,
+        taskError,
         runs,
-        selectedRunId,
         selectedRun,
+        selectedRunId,
         runsLoading,
-        logs,
-        logsLoading,
-        shouldPoll,
-        streamEntries,
-        isStreaming,
+        runsError,
+        selectedRunDataLoading,
+        selectedRunNotFound,
+        selectedRunError,
     } = useValues(sceneLogic)
-    const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
+    const { runTask, deleteTask, loadTask, loadTaskRuns, loadSelectedTaskRun } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
-    if (taskLoading && !task) {
-        return (
-            <div className="flex items-center justify-center h-32">
-                <Spinner />
-            </div>
-        )
+    if (taskNotFound && !task) {
+        return <NotFound object="task" />
     }
 
-    if (!task) {
+    const isTaskPending = taskLoading && !task
+
+    if (!isTaskPending && !task && !taskError) {
         return <NotFound object="task" />
     }
 
@@ -73,13 +72,43 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const latestRun = runs.length > 0 ? runs[0] : null
     const isLatestRunInProgress = latestRun?.status === 'in_progress' || latestRun?.status === 'queued'
     const isLatestRunCompleted = latestRun?.status === 'completed'
-    const runButtonText = !hasBeenRun ? 'Run task' : isLatestRunCompleted ? 'Run again' : 'Retry task'
+    const runButtonText = !hasBeenRun ? 'Run task' : 'Retry task'
 
     const prUrl = selectedRun?.output?.pr_url as string | undefined
+    const titleActions =
+        isTaskPending || !task ? (
+            <TaskActionsSkeleton />
+        ) : (
+            <div className="flex items-center gap-2">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconExternal />}
+                    onClick={() => window.open(`posthog-code://task/${task.id}`, '_blank')}
+                >
+                    Open in PostHog Code
+                </LemonButton>
+                {prUrl && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconGithub />}
+                        onClick={() => window.open(prUrl, '_blank')}
+                    >
+                        View PR
+                    </LemonButton>
+                )}
+                {!isLatestRunInProgress && !isLatestRunCompleted && (
+                    <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
+                        {runButtonText}
+                    </LemonButton>
+                )}
+            </div>
+        )
 
     return (
-        <SceneContent>
-            {sceneMenuBarEnabled && (
+        <SceneContent className="h-full min-h-0">
+            {sceneMenuBarEnabled && task && (
                 <SceneMenuBar>
                     <SceneMenuBarMenu label="File" dataAttr="task-menubar-file">
                         <SceneMenuBarFileItems dataAttrKey="task" />
@@ -92,150 +121,252 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 </SceneMenuBar>
             )}
             <ScenePanel>
-                <ScenePanelInfoSection>
-                    <div className="flex flex-col gap-3">
-                        <div>
-                            <div className="text-xs text-muted mb-1">Task ID</div>
-                            <div className="font-mono text-sm">{task.slug}</div>
-                        </div>
-                        <div>
-                            <div className="text-xs text-muted mb-1">Repository</div>
-                            <div className="text-sm">{task.repository}</div>
-                        </div>
-                        <div>
-                            <div className="text-xs text-muted mb-1">Created by</div>
-                            <div className="text-sm">
-                                {task.created_by?.first_name || task.created_by?.email || 'Unknown'}
-                            </div>
-                        </div>
-                        <div>
-                            <div className="text-xs text-muted mb-1">Created</div>
-                            <div className="text-sm">{dayjs(task.created_at).format('MMM D, YYYY HH:mm')}</div>
-                        </div>
-                    </div>
-                </ScenePanelInfoSection>
-
-                <ScenePanelDivider />
-
-                <ScenePanelActionsSection>
-                    <ButtonPrimitive menuItem variant="danger" onClick={deleteTask}>
-                        <IconArchive />
-                        Archive task
-                    </ButtonPrimitive>
-                </ScenePanelActionsSection>
-
-                {runs.length > 0 && (
+                {isTaskPending || !task ? (
+                    <TaskPanelSkeleton />
+                ) : (
                     <>
-                        <ScenePanelDivider />
                         <ScenePanelInfoSection>
-                            <div className="text-xs font-semibold text-muted mb-2">Run History</div>
-                            <div className="flex flex-col gap-1">
-                                {runs.map((run) => (
-                                    <TaskRunItem
-                                        key={run.id}
-                                        run={run}
-                                        isSelected={run.id === selectedRunId}
-                                        onClick={() => setSelectedRunId(run.id, taskId)}
-                                    />
-                                ))}
+                            <div className="flex flex-col gap-3">
+                                <div>
+                                    <div className="text-xs text-muted mb-1">Task ID</div>
+                                    <div className="font-mono text-sm">{task.slug}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-muted mb-1">Repository</div>
+                                    <div className="text-sm">{task.repository}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-muted mb-1">Created by</div>
+                                    <div className="text-sm">
+                                        {task.created_by?.first_name || task.created_by?.email || 'Unknown'}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-muted mb-1">Created</div>
+                                    <div className="text-sm">{dayjs(task.created_at).format('MMM D, YYYY HH:mm')}</div>
+                                </div>
                             </div>
                         </ScenePanelInfoSection>
+
+                        <ScenePanelDivider />
+
+                        <ScenePanelActionsSection>
+                            <ButtonPrimitive menuItem variant="danger" onClick={deleteTask}>
+                                <IconArchive />
+                                Archive task
+                            </ButtonPrimitive>
+                        </ScenePanelActionsSection>
                     </>
                 )}
             </ScenePanel>
 
-            <SceneTitleSection
-                name={task?.title}
-                description={null}
-                resourceType={{ type: 'task' }}
-                isLoading={false}
-                canEdit={false}
-                forceBackTo={{
-                    key: 'tasks',
-                    name: 'Tasks',
-                    path: urls.taskTracker(),
-                }}
-                actions={
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconExternal />}
-                            onClick={() => window.open(`posthog-code://task/${task.id}`, '_blank')}
-                        >
-                            Open in PostHog Code
-                        </LemonButton>
-                        {prUrl && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconGithub />}
-                                onClick={() => window.open(prUrl, '_blank')}
-                            >
-                                View PR
-                            </LemonButton>
-                        )}
-                        {!isLatestRunInProgress && (
-                            <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
-                                {runButtonText}
-                            </LemonButton>
-                        )}
-                    </div>
-                }
-            />
+            {taskError && !task ? (
+                <TaskLoadErrorBanner message={taskError} onRetry={loadTask} />
+            ) : (
+                <>
+                    {taskError && <TaskLoadErrorBanner message={taskError} onRetry={loadTask} />}
 
-            {selectedRun && (
-                <div className="flex items-center gap-4 -mt-2 mb-2 px-2 text-xs text-muted">
-                    <span>
-                        Created: <TZLabel time={selectedRun.created_at} showSeconds />
-                    </span>
-                    {selectedRun.completed_at && (
-                        <span>
-                            Completed: <TZLabel time={selectedRun.completed_at} showSeconds />
-                        </span>
-                    )}
-                    {selectedRun.completed_at && (
-                        <span>
-                            Duration:{' '}
-                            {humanFriendlyDuration(
-                                dayjs(selectedRun.completed_at).diff(selectedRun.created_at, 'second')
-                            )}
-                        </span>
-                    )}
-                </div>
-            )}
-
-            {task.description && (
-                <div className="relative -mt-2 mb-2 px-2">
-                    <CollapsibleContent>
-                        <LemonMarkdown lowKeyHeadings className="text-sm">
-                            {task.description}
-                        </LemonMarkdown>
-                    </CollapsibleContent>
-                </div>
-            )}
-
-            {runsLoading ? (
-                <div className="flex items-center justify-center h-32">
-                    <Spinner />
-                </div>
-            ) : runs.length === 0 ? (
-                <div className="text-center py-16">
-                    <p className="text-muted">This task hasn't been run yet</p>
-                </div>
-            ) : selectedRun ? (
-                <div className="flex-1 overflow-hidden">
-                    <TaskSessionView
-                        logs={logs}
-                        logsLoading={logsLoading}
-                        streamEntries={streamEntries}
-                        isPolling={shouldPoll}
-                        isStreaming={isStreaming}
-                        initialPrompt={task.description}
-                        run={selectedRun}
+                    <SceneTitleSection
+                        name={task?.title || 'Task'}
+                        description={null}
+                        resourceType={{ type: 'task' }}
+                        isLoading={isTaskPending}
+                        canEdit={false}
+                        forceBackTo={
+                            isMobile
+                                ? {
+                                      key: 'tasks',
+                                      name: 'Tasks',
+                                      path: urls.taskTracker(),
+                                  }
+                                : undefined
+                        }
+                        actions={titleActions}
                     />
-                </div>
-            ) : null}
+
+                    {selectedRun && <TaskRunMetadata selectedRun={selectedRun} />}
+
+                    <LemonDivider />
+
+                    <TaskRunLogState
+                        taskId={taskId}
+                        selectedRun={selectedRun}
+                        selectedRunId={selectedRunId}
+                        runsLength={runs.length}
+                        runsLoading={runsLoading}
+                        runsError={runsError}
+                        selectedRunDataLoading={selectedRunDataLoading}
+                        selectedRunNotFound={selectedRunNotFound}
+                        selectedRunError={selectedRunError}
+                        onRetryRuns={loadTaskRuns}
+                        onRetrySelectedRun={loadSelectedTaskRun}
+                    />
+                </>
+            )}
         </SceneContent>
     )
+}
+
+function TaskPanelSkeleton(): JSX.Element {
+    return (
+        <ScenePanelInfoSection>
+            <div className="flex flex-col gap-3">
+                <div>
+                    <div className="text-xs text-muted mb-1">Task ID</div>
+                    <LemonSkeleton className="h-5 w-24" />
+                </div>
+                <div>
+                    <div className="text-xs text-muted mb-1">Repository</div>
+                    <LemonSkeleton className="h-5 w-36" />
+                </div>
+                <div>
+                    <div className="text-xs text-muted mb-1">Created by</div>
+                    <LemonSkeleton className="h-5 w-32" />
+                </div>
+                <div>
+                    <div className="text-xs text-muted mb-1">Created</div>
+                    <LemonSkeleton className="h-5 w-40" />
+                </div>
+            </div>
+        </ScenePanelInfoSection>
+    )
+}
+
+function TaskActionsSkeleton(): JSX.Element {
+    return (
+        <div className="flex items-center gap-2">
+            <LemonSkeleton className="h-7 w-40" />
+            <LemonSkeleton className="h-7 w-24" />
+        </div>
+    )
+}
+
+function TaskRunLogSkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-3 max-w-6xl mx-auto w-full" data-attr="task-run-log-skeleton">
+            <LemonSkeleton className="h-4 w-40" />
+            <LemonSkeleton className="h-20 w-11/12" />
+            <LemonSkeleton className="h-4 w-32 ml-auto opacity-60" />
+            <LemonSkeleton className="h-24 w-4/5 ml-auto opacity-40" />
+        </div>
+    )
+}
+
+function TaskLoadErrorBanner({ message, onRetry }: { message: string; onRetry: () => void }): JSX.Element {
+    return (
+        <LemonBanner
+            type="error"
+            className="max-w-200"
+            action={{
+                children: 'Retry',
+                onClick: onRetry,
+            }}
+            data-attr="task-load-error"
+        >
+            <p>We couldn't load this task.</p>
+            <p className="text-muted mb-0">{message}</p>
+        </LemonBanner>
+    )
+}
+
+function TaskRunsErrorBanner({ message, onRetry }: { message: string; onRetry: () => void }): JSX.Element {
+    return (
+        <LemonBanner
+            type="error"
+            action={{
+                children: 'Retry',
+                onClick: onRetry,
+            }}
+            data-attr="task-runs-load-error"
+        >
+            <p>We couldn't load this task's runs.</p>
+            <p className="text-muted mb-0">{message}</p>
+        </LemonBanner>
+    )
+}
+
+function TaskRunMetadata({ selectedRun }: { selectedRun: TaskRun }): JSX.Element {
+    return (
+        <div className="flex items-center gap-4 text-xs text-muted">
+            <dl className="inline-flex gap-1 items-center">
+                <dt className="m-0">Created:</dt>
+                <dd className="m-0 inline-flex items-center">
+                    <TZLabel time={selectedRun.created_at} showSeconds />
+                </dd>
+            </dl>
+            {selectedRun.completed_at && (
+                <dl className="inline-flex gap-1 items-center">
+                    <dt className="m-0">Completed:</dt>
+                    <dd className="m-0 inline-flex items-center">
+                        <TZLabel time={selectedRun.completed_at} showSeconds />
+                    </dd>
+                </dl>
+            )}
+            {selectedRun.completed_at && (
+                <dl className="inline-flex gap-1 items-center">
+                    <dt className="m-0">Duration:</dt>
+                    <dd className="m-0 inline-flex items-center">
+                        {humanFriendlyDuration(dayjs(selectedRun.completed_at).diff(selectedRun.created_at, 'second'))}
+                    </dd>
+                </dl>
+            )}
+        </div>
+    )
+}
+
+function TaskRunLogState({
+    taskId,
+    selectedRun,
+    selectedRunId,
+    runsLength,
+    runsLoading,
+    runsError,
+    selectedRunDataLoading,
+    selectedRunNotFound,
+    selectedRunError,
+    onRetryRuns,
+    onRetrySelectedRun,
+}: {
+    taskId?: string
+    selectedRun: TaskRun | null
+    selectedRunId: string | null
+    runsLength: number
+    runsLoading: boolean
+    runsError: string | null
+    selectedRunDataLoading: boolean
+    selectedRunNotFound: boolean
+    selectedRunError: string | null
+    onRetryRuns: () => void
+    onRetrySelectedRun: () => void
+}): JSX.Element | null {
+    if (runsError) {
+        return <TaskRunsErrorBanner message={runsError} onRetry={onRetryRuns} />
+    }
+    if (runsLoading && runsLength === 0) {
+        return <TaskRunLogSkeleton />
+    }
+    if (selectedRunNotFound) {
+        return <NotFound object="task run" className="m-0 py-8" />
+    }
+    if (selectedRunError) {
+        return <TaskRunsErrorBanner message={selectedRunError} onRetry={onRetrySelectedRun} />
+    }
+    if (selectedRunDataLoading && !selectedRun) {
+        return <TaskRunLogSkeleton />
+    }
+    if (runsLength === 0 && !selectedRunId) {
+        return (
+            <div className="text-center py-16">
+                <p className="text-muted">This task hasn't been run yet</p>
+            </div>
+        )
+    }
+    if (taskId && selectedRun) {
+        return (
+            <div className="flex-1 min-h-0 overflow-hidden max-w-6xl mx-auto w-full">
+                <TaskRunChat taskId={taskId} runId={selectedRun.id} />
+            </div>
+        )
+    }
+    return selectedRunId ? <TaskRunLogSkeleton /> : null
 }

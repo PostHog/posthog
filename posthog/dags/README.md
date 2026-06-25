@@ -160,7 +160,7 @@ export DEBUG=1 # Important: Set DEBUG=1 when running locally to use local resour
 dagster dev --workspace $DAGSTER_HOME/workspace.yaml
 ```
 
-The Dagster UI will be available at http://localhost:3000 by default, where you can:
+The Dagster UI will be available at http://localhost:3030 by default, where you can:
 
 - Browse assets, jobs, and schedules
 - Manually trigger job runs

@@ -58,7 +58,7 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
             // The chart's own legend carries the series name + first-to-last change, gated on the
             // insight's "Show legend" toggle, so there's only ever one legend and no in-chart names.
             showSeriesLabels: false,
-            legend: { show: !!showLegend, position: 'bottom' },
+            legend: { show: !!showLegend },
             xTickFormatter: createXAxisTickCallback({
                 interval: interval ?? 'day',
                 allDays: currentPeriodResult?.days ?? [],

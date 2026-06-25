@@ -1,7 +1,8 @@
 import { Counter } from 'prom-client'
 
-import { APP_METRICS_OUTPUT, AppMetricsOutput } from '../../ingestion/common/outputs'
-import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
+import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampOrNow } from '../../utils/utils'

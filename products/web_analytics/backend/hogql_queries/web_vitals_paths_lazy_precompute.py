@@ -29,7 +29,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     LAZY_TTL_SECONDS,
@@ -43,6 +42,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     test_account_filter_expr,
     user_filter_expr,
 )
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import web_ensure_precomputed
 
 _FAMILY = "web_vitals_paths"
 
@@ -203,7 +203,7 @@ def ensure_web_vitals_paths_precomputed(
         "team_tz": ast.Constant(value=runner.team.timezone),
     }
 
-    return ensure_precomputed(
+    return web_ensure_precomputed(
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=time_range_start,

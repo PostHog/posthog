@@ -1,18 +1,21 @@
+import './card.css'
+
 import * as React from 'react'
 
-import './card.css'
 import { cn } from './lib/utils'
 
 function Card({
     className,
     size = 'default',
+    flush = false,
     ...props
-}: React.ComponentProps<'div'> & { size?: 'default' | 'sm' }): React.ReactElement {
+}: React.ComponentProps<'div'> & { size?: 'default' | 'sm'; flush?: boolean }): React.ReactElement {
     return (
         <div
             data-quill
             data-slot="card"
             data-size={size}
+            data-flush={flush ? '' : undefined}
             className={cn('quill-card group/card flex flex-col', className)}
             {...props}
         />
@@ -20,13 +23,7 @@ function Card({
 }
 
 function CardHeader({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return (
-        <div
-            data-slot="card-header"
-            className={cn('quill-card__header group/card-header', className)}
-            {...props}
-        />
-    )
+    return <div data-slot="card-header" className={cn('quill-card__header group/card-header', className)} {...props} />
 }
 
 const CardTitle = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(({ className, ...props }, ref) => (

@@ -7,7 +7,7 @@ from posthog.models.utils import UUIDModel
 
 class WebAnalyticsAchievementProgress(TeamScopedRootMixin, UUIDModel):
     """Per-track achievement progress for a scope holder. `user` is NULL for team-scoped tracks
-    (Goal Hog, Mighty Hog) — never sum per-user rows into team totals. `state` holds the JSON
+    (Conversions, Traffic) — never sum per-user rows into team totals. `state` holds the JSON
     detail: `unlocked_stages` (stage -> ISO timestamp), `pending_celebrations` (stages awaiting a
     client acknowledge), and `streak` (`last_visit_date`, `grace_used`)."""
 

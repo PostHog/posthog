@@ -1,9 +1,11 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 
 from posthog.api.services.query import ExecutionMode
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
@@ -47,6 +49,10 @@ class ExtractionResult:
     # any-row SQL alerts use this so the notification names all violating rows. Trends breakdowns
     # keep first-breach-only for parity with their historical messages.
     aggregate_breaches: bool = False
+    # Name the (single) series in the breach message even when it isn't a breakdown — single-row SQL
+    # alerts set this so a resolved label column surfaces, e.g. "(Burn rate 24h)". Breakdowns already
+    # name every row via ``is_breakdown``; this covers the one-series case where the name is meaningful.
+    include_series_label: bool = False
 
 
 def zero_sentinel_series() -> ComparableSeries:
@@ -90,9 +96,34 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
     return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
+@dataclass
+class SimulationContext:
+    """Alert-less inputs for a read-only detector simulation. Each extractor reads only the fields its
+    kind needs: trends uses ``series_index``/``date_from``, SQL uses ``config``; both use ``team``,
+    ``user``, and ``detector_config`` (the latter sizes the lookback window)."""
+
+    team: Team
+    detector_config: dict[str, Any]
+    user: User | None = None
+    series_index: int = 0
+    date_from: str | None = None
+    config: dict[str, Any] | None = None
+
+
 class Extractor(Protocol):
     # The dispatcher resolves execution_mode once (via execution_mode_for_alert) and passes it in, so
     # the cache/recompute decision lives at one site instead of being re-derived in each extractor.
     def extract(
         self, alert: AlertConfiguration, insight: Insight, query: object, execution_mode: ExecutionMode
     ) -> ExtractionResult: ...
+
+
+class DetectorExtractor(Extractor, Protocol):
+    """An ``Extractor`` that can also build its series for a read-only simulation (no
+    ``AlertConfiguration``). One implementation per detector-supported kind, registered in
+    ``dispatcher.DETECTOR_EXTRACTORS`` — the single source of truth for both the alert-check path
+    (``extract``) and the simulation path (``simulate``)."""
+
+    def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
+        """Return the extracted series plus the chart interval (None for kinds with no time interval)."""
+        ...

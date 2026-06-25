@@ -1,6 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
 export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
@@ -86,7 +87,7 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
 
                                     const options = {
                                       api_host: import.meta.env.VITE_POSTHOG_HOST,
-                                      defaults: '2026-01-30',
+                                      defaults: '${SDK_DEFAULTS_DATE}',
                                     } as const
 
                                     createRoot(document.getElementById('root')).render(

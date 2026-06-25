@@ -12,10 +12,17 @@ import { userLogic } from 'scenes/userLogic'
 
 import { Breadcrumb } from '~/types'
 
+import {
+    captureInboxReportClosed,
+    captureInboxReportOpened,
+    InboxReportCloseMethod,
+    InboxReportOpenMethod,
+} from './inboxAnalytics'
 import { isAgentRunReport, isFinishedRunReport } from './inboxMembership'
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { INBOX_PIPELINE_STATUS_FILTERS } from './logics/inboxFiltersLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
+import { scratchpadLogic } from './logics/scratchpadLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { InboxFlatListTabKey, INBOX_STAFF_ONLY_TAB_KEYS, INBOX_TAB_KEYS, InboxTabKey, SignalReport } from './types'
 
@@ -36,6 +43,16 @@ function isStaffOnlyTab(tab: string | undefined): boolean {
  * so opening it can render the detail instantly from the list row instead of waiting on a fresh
  * `GET`. The background fetch still runs to converge on the authoritative record.
  */
+// The Fleet memory callout reads the same singleton `scratchpadLogic` the panel filters, so a
+// leftover search (especially a no-match one) would make it count zero and hide itself. Clear the
+// search whenever the scratchpad closes — by any path (close button, report/scout open, Back nav).
+function clearScratchpadSearch(): void {
+    const mounted = scratchpadLogic.findMounted()
+    if (mounted?.values.searchText) {
+        mounted.actions.setSearchText('')
+    }
+}
+
 function findLoadedReport(id: string, runsReports: SignalReport[]): SignalReport | null {
     const fromRuns = runsReports.find((r) => r.id === id)
     if (fromRuns) {
@@ -49,6 +66,41 @@ function findLoadedReport(id: string, runsReports: SignalReport[]): SignalReport
         }
     }
     return null
+}
+
+/**
+ * Position (1-based) and size of the report's list, for `Inbox report opened`. Prefers the active
+ * Runs list when it's open, then any mounted flat-tab list that holds the report. Null when the
+ * report isn't in a loaded list (e.g. a cold deep-link).
+ */
+function findReportRank(
+    id: string,
+    activeTab: InboxTabKey,
+    runsReports: SignalReport[]
+): { rank: number | null; listSize: number | null } {
+    const lists: SignalReport[][] = []
+    if (activeTab === 'runs') {
+        lists.push(runsReports)
+    }
+    for (const tabKey of Object.keys(INBOX_FLAT_TAB_LIST_PARAMS) as InboxFlatListTabKey[]) {
+        const mounted = reportListLogic.findMounted({ tabKey, listParams: INBOX_FLAT_TAB_LIST_PARAMS[tabKey] })
+        if (mounted) {
+            lists.push(mounted.values.reports)
+        }
+    }
+    for (const list of lists) {
+        const idx = list.findIndex((r) => r.id === id)
+        if (idx >= 0) {
+            return { rank: idx + 1, listSize: list.length }
+        }
+    }
+    return { rank: null, listSize: null }
+}
+
+/** Open-report engagement tracking state, kept on the logic's `cache` (not reactive). */
+interface InboxOpenTracking {
+    report: SignalReport
+    openedAt: number
 }
 
 /**
@@ -66,13 +118,24 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     })),
 
     actions({
-        setSelectedReportId: (id: string | null) => ({ id }),
+        setSelectedReportId: (id: string | null, openMethod: InboxReportOpenMethod = 'unknown') => ({
+            id,
+            openMethod,
+        }),
         // Seed (or clear) the selected report synchronously from an already-loaded list row, so the
         // detail renders without a spinner while the authoritative fetch runs in the background.
         seedSelectedReport: (report: SignalReport | null) => ({ report }),
         setActiveTab: (tab: InboxTabKey) => ({ tab }),
-        // Scout detail surface: selecting a scout opens its full-width detail over the list.
-        setSelectedScoutSkillName: (skillName: string | null) => ({ skillName }),
+        // Scout detail surface: selecting a scout opens its full-width detail over the list. An
+        // optional finding id deep-links to one emitted finding within that scout (highlighted +
+        // scrolled into view if it's still in the recent window).
+        setSelectedScoutSkillName: (skillName: string | null, findingId: string | null = null) => ({
+            skillName,
+            findingId,
+        }),
+        // Scout fleet-memory (scratchpad) surface: a full-width browse/search view over the list,
+        // mutually exclusive with the report and scout-detail views. Reached from the fleet-memory callout.
+        setScratchpadOpen: (open: boolean) => ({ open }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
@@ -130,6 +193,23 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 setSelectedScoutSkillName: (_, { skillName }) => skillName,
             },
         ],
+        isScratchpadOpen: [
+            false,
+            {
+                setScratchpadOpen: (_, { open }) => open,
+                // Opening a report or a scout closes the memory view.
+                setSelectedReportId: (state, { id }) => (id ? false : state),
+                setSelectedScoutSkillName: (state, { skillName }) => (skillName ? false : state),
+            },
+        ],
+        // The finding deep-linked within the selected scout, if any. Cleared whenever a scout is
+        // (re)selected without a finding — navigating to a scout from the fleet drops any prior finding.
+        selectedScoutFindingId: [
+            null as string | null,
+            {
+                setSelectedScoutSkillName: (_, { findingId }) => findingId,
+            },
+        ],
         isRunningSessionAnalysis: [
             false,
             {
@@ -175,11 +255,29 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.loadRuns()
             }
         },
-        setSelectedReportId: ({ id }) => {
+        setSelectedReportId: ({ id, openMethod }) => {
+            // Close the previously open report (if any) before opening/clearing. `next_report` when
+            // switching straight to another report, `deselected` when returning to the list.
+            const open: InboxOpenTracking | undefined = cache.openTracking
+            if (open) {
+                const closeMethod: InboxReportCloseMethod = id ? 'next_report' : 'deselected'
+                captureInboxReportClosed({
+                    report: open.report,
+                    timeSpentMs: Date.now() - open.openedAt,
+                    closeMethod,
+                })
+                cache.previousReportId = open.report.id
+                cache.openTracking = undefined
+            }
             if (!id) {
                 actions.seedSelectedReport(null)
                 return
             }
+            // Opening a report closes the scratchpad (reducer) — clear its transient search so the
+            // callout doesn't stay hidden behind a stale no-match filter on the way back.
+            clearScratchpadSearch()
+            // The open method is resolved once the authoritative record lands in loadSelectedReportSuccess.
+            cache.pendingOpenMethod = openMethod
             // A report and a scout detail are mutually exclusive full-width views.
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
@@ -188,9 +286,47 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             actions.seedSelectedReport(findLoadedReport(id, values.runsTabReports))
             actions.loadSelectedReport({ id })
         },
+        // Fire `Inbox report opened` once the authoritative record lands (skip background refreshes
+        // of the already-open report). Rank/list_size come from whichever loaded list holds it.
+        loadSelectedReportSuccess: ({ selectedReportResponse }) => {
+            const report = selectedReportResponse
+            // Skip already-open refreshes, and stale loads for a report the user already navigated away
+            // from before the fetch returned (else we'd log a phantom open + a later bogus dwell close).
+            if (!report || values.selectedReportId !== report.id || cache.openTracking?.report.id === report.id) {
+                return
+            }
+            const { rank, listSize } = findReportRank(report.id, values.activeTab, values.runsTabReports)
+            captureInboxReportOpened({
+                report,
+                openMethod: (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
+                previousReportId: cache.previousReportId ?? null,
+                rank,
+                listSize,
+            })
+            cache.openTracking = { report, openedAt: Date.now() }
+            cache.pendingOpenMethod = undefined
+        },
         setSelectedScoutSkillName: ({ skillName }) => {
-            if (skillName !== null && values.selectedReportId !== null) {
-                actions.setSelectedReportId(null)
+            if (skillName !== null) {
+                // Opening a scout detail closes the scratchpad (reducer) — clear its transient search.
+                clearScratchpadSearch()
+                if (values.selectedReportId !== null) {
+                    actions.setSelectedReportId(null)
+                }
+            }
+        },
+        setScratchpadOpen: ({ open }) => {
+            if (open) {
+                // Close the open report/scout through their own actions so report dwell-time
+                // bookkeeping runs (clearing the id in a reducer would skip the close tracking).
+                if (values.selectedReportId !== null) {
+                    actions.setSelectedReportId(null)
+                }
+                if (values.selectedScoutSkillName !== null) {
+                    actions.setSelectedScoutSkillName(null)
+                }
+            } else {
+                clearScratchpadSearch()
             }
         },
         loadSourceConfigsSuccess: () => {
@@ -222,6 +358,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
         beforeUnmount: () => {
             clearInterval(cache.sessionAnalysisPollInterval)
+            // Flush dwell time for a report still open when the scene unmounts (navigated away).
+            const open: InboxOpenTracking | undefined = cache.openTracking
+            if (open) {
+                captureInboxReportClosed({
+                    report: open.report,
+                    timeSpentMs: Date.now() - open.openedAt,
+                    closeMethod: 'unmount',
+                })
+                cache.openTracking = undefined
+            }
         },
     })),
 
@@ -235,40 +381,61 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             { replace: false },
         ],
         setSelectedReportId: () => [
-            // When a report is cleared because a scout was just selected (mutually exclusive views),
-            // honor the scout's URL rather than bouncing to the list and clobbering the scout route.
+            // When a report is cleared because a scout or the memory view was just opened (mutually
+            // exclusive views), honor that surface's URL rather than bouncing to the list.
             values.selectedReportId
                 ? urls.inboxReport(values.activeTab, values.selectedReportId)
-                : values.selectedScoutSkillName
-                  ? urls.inboxScout(values.selectedScoutSkillName)
-                  : urls.inbox(values.activeTab),
+                : values.isScratchpadOpen
+                  ? urls.inboxScratchpad()
+                  : values.selectedScoutSkillName
+                    ? urls.inboxScout(values.selectedScoutSkillName, values.selectedScoutFindingId ?? undefined)
+                    : urls.inbox(values.activeTab),
             router.values.searchParams,
             router.values.hashParams,
             { replace: false },
         ],
         setSelectedScoutSkillName: () => [
             values.selectedScoutSkillName
-                ? urls.inboxScout(values.selectedScoutSkillName)
-                : values.selectedReportId
-                  ? urls.inboxReport(values.activeTab, values.selectedReportId)
-                  : urls.inbox(values.activeTab),
+                ? urls.inboxScout(values.selectedScoutSkillName, values.selectedScoutFindingId ?? undefined)
+                : values.isScratchpadOpen
+                  ? urls.inboxScratchpad()
+                  : values.selectedReportId
+                    ? urls.inboxReport(values.activeTab, values.selectedReportId)
+                    : urls.inbox(values.activeTab),
+            router.values.searchParams,
+            router.values.hashParams,
+            { replace: false },
+        ],
+        setScratchpadOpen: () => [
+            values.isScratchpadOpen ? urls.inboxScratchpad() : urls.inbox(values.activeTab),
             router.values.searchParams,
             router.values.hashParams,
             { replace: false },
         ],
     })),
 
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.inboxScratchpad()]: () => {
+            if (!values.isScratchpadOpen) {
+                actions.setScratchpadOpen(true)
+            }
+        },
         [urls.inbox()]: () => {
+            cache.inboxListVisited = true
             if (values.selectedReportId !== null) {
                 actions.setSelectedReportId(null)
             }
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
             }
+            if (values.isScratchpadOpen) {
+                actions.setScratchpadOpen(false)
+            }
         },
         [urls.inbox(':tab')]: ({ tab }: { tab?: string }) => {
-            // A bare report deep-link `/inbox/<reportId>`  redirected to report form
+            // A bare report deep-link `/inbox/<reportId>`  redirected to report form. Mark the list as
+            // visited only when we're actually staying on a list view — otherwise the redirected report
+            // would be misclassified as an in-app click instead of a deep-link.
             if (tab && !isInboxTabKey(tab) && tab !== 'scouts') {
                 router.actions.replace(
                     urls.inboxReport('reports', tab),
@@ -277,6 +444,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 )
                 return
             }
+            cache.inboxListVisited = true
             // Staff-only tabs (Runs, Not actionable): bounce non-staff to the default tab.
             if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
                 actions.setActiveTab('pulls')
@@ -291,11 +459,32 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
             }
+            if (values.isScratchpadOpen) {
+                actions.setScratchpadOpen(false)
+            }
         },
         [urls.inboxScout(':skillName')]: ({ skillName }: { skillName?: string }) => {
+            // `/inbox/scouts/scratchpad` also matches this pattern; the memory handler owns that path.
+            if (skillName === 'scratchpad') {
+                return
+            }
             const name = skillName ?? null
-            if (values.selectedScoutSkillName !== name) {
+            // Also reset the finding when landing on the bare scout URL after a finding deep-link.
+            if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== null) {
                 actions.setSelectedScoutSkillName(name)
+            }
+        },
+        [urls.inboxScout(':skillName', ':findingId')]: ({
+            skillName,
+            findingId,
+        }: {
+            skillName?: string
+            findingId?: string
+        }) => {
+            const name = skillName ?? null
+            const finding = findingId ?? null
+            if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== finding) {
+                actions.setSelectedScoutSkillName(name, finding)
             }
         },
         [urls.inboxReport(':tab', ':reportId')]: ({ tab, reportId }: { tab?: string; reportId?: string }) => {
@@ -312,7 +501,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
             const id = reportId ?? null
             if (values.selectedReportId !== id) {
-                actions.setSelectedReportId(id)
+                // First route to a report before any list URL was seen → cold deep-link; otherwise an in-app click.
+                actions.setSelectedReportId(id, id ? (cache.inboxListVisited ? 'click' : 'deeplink') : 'unknown')
             }
         },
     })),

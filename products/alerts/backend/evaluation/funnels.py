@@ -54,7 +54,7 @@ class FunnelsExtractor:
             insight,
             team=alert.team,
             execution_mode=execution_mode,
-            user=None,
+            user=alert.created_by,
             analytics_props={"source": EventSource.ALERT},
         )
 
@@ -88,11 +88,15 @@ def _current_period_only(result: Any) -> Any:
     With compare-to-previous on, the funnel runner concatenates current + previous rows (each tagged
     ``compare_label``). Funnel alerts evaluate the current period; without this, ``funnel_step: null``
     (the default) would resolve to a previous-period last row and mix periods. No-op when compare is off.
+
+    For a breakdown funnel the runner emits the previous-period breakdowns as their own groups, which
+    filter down to empty — drop those, or an empty group would resolve ``funnel_step`` to -1 and raise.
     """
     if not isinstance(result, list):
         return result
     if result and isinstance(result[0], list):
-        return [[row for row in steps if _is_current_period_row(row)] for steps in result]
+        filtered = [[row for row in steps if _is_current_period_row(row)] for steps in result]
+        return [steps for steps in filtered if steps]
     return [row for row in result if _is_current_period_row(row)]
 
 

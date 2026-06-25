@@ -60,10 +60,12 @@ export interface ChartLoadParams {
     force?: boolean
 }
 
-// app_metrics2 fields emitted by the team-global rate limiter in the error tracking ingestion pipeline.
-const EXCEPTIONS_APP_SOURCE = 'exceptions'
-const RECORDED_METRIC_NAME = 'allowed'
-const DROPPED_METRIC_NAME = 'rate_limited'
+// app_metrics2 fields emitted by the rate limiters in the error tracking ingestion pipeline.
+// The team-global limiter uses app_source_id `${teamId}:exceptions:global`; the per-issue
+// limiter uses the issue id directly. Both share the same source and metric names.
+export const EXCEPTIONS_APP_SOURCE = 'exceptions'
+export const RECORDED_METRIC_NAME = 'allowed'
+export const DROPPED_METRIC_NAME = 'rate_limited'
 
 export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
     path([

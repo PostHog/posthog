@@ -20,7 +20,7 @@
  * per category. Owner-facing debug stays in log_entries.
  */
 
-import { AgentApplication, AgentSession } from '../spec/spec'
+import { AgentApplication, AgentRevision, AgentSession } from '../spec/spec'
 
 /**
  * Coarse, user-facing buckets the notifier maps every failure to. The bus
@@ -32,6 +32,9 @@ export type FailureCategory = 'transient_infra' | 'configuration' | 'quota_exhau
 export interface FailureNotifierInput {
     session: AgentSession
     application: AgentApplication
+    /** The resolved/hit revision this session ran. Carries the `encrypted_env`
+     *  the notifier resolves its outbound secret (e.g. Slack bot token) from. */
+    revision: AgentRevision
     /** Raw reason — owner-facing only. Never reaches the notifier's output channel. */
     reason: string
     category: FailureCategory

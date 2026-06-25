@@ -11,7 +11,7 @@ import {
 } from 'lib/components/Alerts/funnelAlertOptions'
 import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
-import { isAnyRowHogQLConfig, isFunnelsAlertConfig } from 'lib/components/Alerts/types'
+import { isFunnelsAlertConfig } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils/strings'
 
@@ -189,7 +189,6 @@ export function HogQLDefinitionFields({
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }): JSX.Element {
     const hasMultipleColumns = (hogqlColumns?.length ?? 0) > 1
-    const isAnyRow = isAnyRowHogQLConfig(alertForm.config)
     return (
         <>
             <div className="flex gap-3 items-center">
@@ -203,9 +202,13 @@ export function HogQLDefinitionFields({
                                 value={value ?? 'last_row'}
                                 onChange={(newValue) => {
                                     onChange(newValue)
-                                    // Any-row mode checks unrelated rows — a relative condition is meaningless.
+                                    // Any-row rows are unrelated entities, not a time series: a relative
+                                    // condition has no prior value, and anomaly detection has nothing to
+                                    // score. Reset both so we can't land in an unsupported any-row+detector
+                                    // (or any-row+relative) state.
                                     if (newValue === 'any_row') {
                                         onSetAlertFormValue('condition', { type: AlertConditionType.ABSOLUTE_VALUE })
+                                        onSetAlertFormValue('detector_config', null)
                                     }
                                 }}
                                 options={[
@@ -245,9 +248,9 @@ export function HogQLDefinitionFields({
                     )}
                 </Group>
             </div>
-            {isAnyRow && hasMultipleColumns && (
+            {hasMultipleColumns && (
                 <div className="flex gap-3 items-center">
-                    <Tooltip title="Names the breaching row in notifications and the check history.">
+                    <Tooltip title="Names the evaluated row in notifications and the check history.">
                         <div className="flex items-center gap-1">
                             Labeled by <IconInfo className="text-muted" />
                         </div>
