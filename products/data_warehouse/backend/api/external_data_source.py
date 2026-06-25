@@ -1375,7 +1375,8 @@ class DraftCustomManifestRequestSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if not (attrs.get("docs_url") or attrs.get("docs_text")):
+        # Strip first: a whitespace-only docs_text is truthy but useless (it'd fetch an empty URL).
+        if not ((attrs.get("docs_url") or "").strip() or (attrs.get("docs_text") or "").strip()):
             raise serializers.ValidationError("Provide either docs_url or docs_text.")
         return attrs
 

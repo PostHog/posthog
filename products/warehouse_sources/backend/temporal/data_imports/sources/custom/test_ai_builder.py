@@ -93,6 +93,16 @@ class TestPrompts(SimpleTestCase):
         self.assertIn('{"bad": true}', prompt)
         self.assertIn("resources: must not be empty", prompt)
 
+    def test_repair_prompt_includes_error_when_prior_json_unparseable(self) -> None:
+        # Unparseable reply → no prior manifest, but the error must still reach the model.
+        prompt = build_user_prompt(
+            source_name="Acme",
+            docs_text="DOCS-BODY",
+            prior_manifest_json=None,
+            prior_error="response was not valid JSON",
+        )
+        self.assertIn("response was not valid JSON", prompt)
+
 
 class TestDraftManifestSync(SimpleTestCase):
     def test_happy_path_returns_ok_first_attempt(self) -> None:

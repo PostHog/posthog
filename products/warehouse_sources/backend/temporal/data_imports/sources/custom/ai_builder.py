@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     MAX_MANIFEST_RESOURCES,
     CustomSource,
     ManifestValidationError,
+    _validate_incremental_configs,
     _validate_resource_graph,
     validate_manifest_structure,
 )
@@ -234,16 +235,21 @@ def build_user_prompt(
         docs_text,
         "</docs>",
     ]
-    if prior_manifest_json and prior_error:
+    # Feed back the prior failure whenever there is one — including when the last reply was
+    # unparseable JSON (no prior_manifest_json), so the model still learns it must return raw JSON.
+    if prior_error:
         sections += [
             "",
-            "Your previous manifest failed validation. Fix the problem and return a corrected manifest.",
-            "Previous manifest:",
-            "<previous_manifest>",
-            prior_manifest_json,
-            "</previous_manifest>",
-            f"Validation error: {_collapse_untrusted(prior_error)}",
+            "Your previous attempt failed. Fix the problem and return a corrected manifest.",
         ]
+        if prior_manifest_json:
+            sections += [
+                "Previous manifest:",
+                "<previous_manifest>",
+                prior_manifest_json,
+                "</previous_manifest>",
+            ]
+        sections.append(f"Error: {_collapse_untrusted(prior_error)}")
     sections += [
         "",
         "Return the complete RESTAPIConfig manifest as a single JSON object now.",
@@ -273,6 +279,10 @@ def _validate_manifest(
     try:
         validate_manifest_structure(manifest)
         _validate_resource_graph(manifest)
+        # Mirror the create path (validate_credentials): structural checks miss a non-string
+        # datetime_format, which get_schemas ignores but create-time validation rejects — so a draft
+        # that skips this would be a false "ok" the user can't actually create.
+        _validate_incremental_configs(manifest)
     except (ManifestValidationError, ValueError) as exc:
         return [], str(exc)
 
