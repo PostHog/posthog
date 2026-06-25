@@ -1673,9 +1673,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
-                        # Only genuine platform failures reach error tracking. User-input query
-                        # errors (USER_ERROR / cancelled / rate-limited) classify as SUCCESS above
-                        # and are deliberately not captured — they're returned to the user as 4xx.
+                        # Capture only what classifies as a FAILURE outcome. User-input query errors
+                        # (USER_ERROR / cancelled / rate-limited) classify as SUCCESS above and are
+                        # deliberately not captured — they're returned to the user as 4xx. Note this
+                        # gate is the SLO outcome, not a strict platform-vs-user split:
+                        # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
+                        # those are user-input limits — see _classify_error_for_slo.
                         capture_exception(exc)
                     raise
 

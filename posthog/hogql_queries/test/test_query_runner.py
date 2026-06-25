@@ -656,9 +656,8 @@ class TestQueryRunner(BaseTest):
         assert completed_kwargs["properties"].outcome == expected_outcome
         assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
 
-        # User-input errors (SUCCESS outcome) must not be captured to error tracking; only genuine
-        # platform failures (FAILURE outcome) are. This is what keeps benign HogQL query errors out
-        # of error tracking.
+        # User-input errors (SUCCESS outcome) must not be captured to error tracking; only FAILURE
+        # outcomes are. This is what keeps benign HogQL query errors out of error tracking.
         captured = any(call.args and call.args[0] is raised_exc for call in mock_capture_exception.call_args_list)
         assert captured == expected_captured
 
