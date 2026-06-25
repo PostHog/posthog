@@ -9,7 +9,7 @@ from posthog.sync import database_sync_to_async_pool
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
+from products.warehouse_sources.backend.facade.temporal import prepare_s3_files_for_querying
 
 LOGGER = get_logger(__name__)
 

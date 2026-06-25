@@ -10,7 +10,7 @@ class RevenueAnalyticsConfig(AppConfig):
         # Register the warehouse view-sync so the data-import pipeline can trigger it without
         # importing this product (it depends on warehouse_sources). The impl is imported lazily
         # to keep the revenue views/orchestrator off the django.setup() path.
-        from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+        from products.warehouse_sources.backend.facade.temporal import (
             register_revenue_view_sync,
         )
 

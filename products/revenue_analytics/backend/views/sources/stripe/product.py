@@ -6,7 +6,7 @@ from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHand
 from products.revenue_analytics.backend.views.schemas.product import SCHEMA
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+from products.warehouse_sources.backend.facade.sources import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
 

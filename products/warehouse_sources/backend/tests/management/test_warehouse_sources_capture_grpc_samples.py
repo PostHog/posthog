@@ -6,13 +6,13 @@ from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.sampling import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc.sampling import (
     CAPTURE_CONFIG_REDIS_KEY,
     CAPTURE_COUNTER_KEY_PREFIX,
-    CaptureConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sample_scrub import CaptureConfig
 
-COMMAND = "warehouse_sources_capture_http_samples"
+COMMAND = "warehouse_sources_capture_grpc_samples"
 
 
 @pytest.fixture
@@ -54,11 +54,9 @@ def fake_redis():
         return deleted
 
     def _scan(cursor=0, match=None, count=200):
-        # Single-pass scan emulation
         if match is None:
             keys = list(store.keys())
         else:
-            # Convert glob to regex-ish — only support trailing *
             prefix = match.rstrip("*").encode() if isinstance(match, str) else match
             keys = [k for k in store.keys() if k.startswith(prefix)]
         return 0, keys
@@ -70,7 +68,7 @@ def fake_redis():
     client.scan.side_effect = _scan
     client._store = store
 
-    with patch("posthog.management.commands.warehouse_sources_capture_http_samples.get_client", return_value=client):
+    with patch("products.warehouse_sources.backend.management.commands.warehouse_sources_capture_grpc_samples.get_client", return_value=client):
         yield client
 
 
@@ -86,23 +84,21 @@ def _run(*args: str) -> str:
 
 
 def test_enable_writes_redis_key_with_ttl(fake_redis):
-    output = _run("enable", "--source-type", "stripe", "--limit", "10", "--ttl", "30m")
+    output = _run("enable", "--source-type", "google_ads", "--limit", "10", "--ttl", "30m")
 
     raw = fake_redis._store.get(CAPTURE_CONFIG_REDIS_KEY.encode())
     assert raw is not None
     config = json.loads(raw)
     assert config["capture_id"]
-    assert config["rules"][0]["source_type"] == "stripe"
+    assert config["rules"][0]["source_type"] == "google_ads"
     assert config["rules"][0]["limit"] == 10
-    # TTL was passed through `ex` to set()
     assert fake_redis.set.call_args.kwargs["ex"] == 30 * 60
     assert "Capture enabled" in output
-    assert "Rules:" in output
+    assert "warehouse-sources-grpc-samples" in output
 
 
 def test_enable_defaults_filters_to_wildcard(fake_redis):
     _run("enable")
-
     raw = fake_redis._store.get(CAPTURE_CONFIG_REDIS_KEY.encode())
     rule = json.loads(raw)["rules"][0]
     assert rule["source_type"] == "*"
@@ -111,12 +107,11 @@ def test_enable_defaults_filters_to_wildcard(fake_redis):
     assert rule["schema_id"] == "*"
 
 
-def test_enable_with_response_code_class(fake_redis):
-    _run("enable", "--response-code", "4xx", "--limit", "5", "--ttl", "5m")
-
+def test_enable_with_grpc_status_class(fake_redis):
+    _run("enable", "--response-code", "resource_exhausted", "--limit", "5", "--ttl", "5m")
     raw = fake_redis._store.get(CAPTURE_CONFIG_REDIS_KEY.encode())
     rule = json.loads(raw)["rules"][0]
-    assert rule["response_code"] == "4xx"
+    assert rule["response_code"] == "resource_exhausted"
 
 
 @pytest.mark.parametrize(
@@ -126,7 +121,7 @@ def test_enable_with_response_code_class(fake_redis):
         ("5m", 5 * 60),
         ("2h", 2 * 60 * 60),
         ("1d", 86400),
-        ("600", 600),  # Plain integer fallback
+        ("600", 600),
     ],
 )
 def test_enable_parses_ttl_units(fake_redis, ttl_str, expected_seconds):
@@ -148,33 +143,75 @@ def test_enable_supports_extra_rules(fake_redis):
     _run(
         "enable",
         "--source-type",
-        "stripe",
+        "google_ads",
         "--limit",
         "100",
         "--ttl",
         "30m",
         "--rule",
-        "source_type=hubspot,response_code=*,team_id=12,limit=10",
+        "source_type=bigquery,response_code=*,team_id=12,limit=10",
         "--rule",
-        "source_type=mailchimp,response_code=429,limit=5",
+        "source_type=google_ads,response_code=unavailable,limit=5",
     )
 
     raw = fake_redis._store.get(CAPTURE_CONFIG_REDIS_KEY.encode())
     rules = json.loads(raw)["rules"]
     assert len(rules) == 3
-    # Primary rule first
-    assert rules[0]["source_type"] == "stripe" and rules[0]["limit"] == 100
-    assert rules[1]["source_type"] == "hubspot" and rules[1]["team_id"] == "12"
-    assert rules[2]["source_type"] == "mailchimp" and rules[2]["response_code"] == "429"
+    assert rules[0]["source_type"] == "google_ads" and rules[0]["limit"] == 100
+    assert rules[1]["source_type"] == "bigquery" and rules[1]["team_id"] == "12"
+    assert rules[2]["response_code"] == "unavailable"
 
 
-def test_enable_extra_rule_inherits_default_limit(fake_redis):
-    """A --rule without limit should fall back to the --limit flag."""
-    _run("enable", "--limit", "42", "--ttl", "30m", "--rule", "source_type=hubspot")
+def test_enable_pure_rule_flags_drop_implicit_wildcard_primary(fake_redis):
+    """Driving capture purely via --rule must not prepend the all-wildcard primary.
+
+    Otherwise (first-match-wins) the wildcard primary would shadow every targeted
+    rule. Mirrors the multi-rule example in the command docstring.
+    """
+    _run(
+        "enable",
+        "--ttl",
+        "1h",
+        "--rule",
+        "source_type=google_ads,response_code=resource_exhausted,limit=20",
+        "--rule",
+        "source_type=bigquery,response_code=*,team_id=12,limit=10",
+    )
 
     raw = fake_redis._store.get(CAPTURE_CONFIG_REDIS_KEY.encode())
     rules = json.loads(raw)["rules"]
-    assert rules[1]["limit"] == 42
+    assert len(rules) == 2
+    assert rules[0]["source_type"] == "google_ads"
+    assert rules[1]["source_type"] == "bigquery"
+
+
+def test_enable_keeps_primary_when_it_has_an_explicit_filter(fake_redis):
+    """A primary with any explicit filter is kept alongside --rule entries."""
+    _run(
+        "enable",
+        "--source-type",
+        "google_ads",
+        "--ttl",
+        "1h",
+        "--rule",
+        "source_type=bigquery,limit=10",
+    )
+    raw = fake_redis._store.get(CAPTURE_CONFIG_REDIS_KEY.encode())
+    rules = json.loads(raw)["rules"]
+    assert len(rules) == 2
+    assert rules[0]["source_type"] == "google_ads"
+    assert rules[1]["source_type"] == "bigquery"
+
+
+def test_enable_extra_rule_inherits_default_limit(fake_redis):
+    # No explicit primary filter + a --rule → the wildcard primary is dropped, so
+    # the bigquery rule is the only rule and still inherits the --limit default.
+    _run("enable", "--limit", "42", "--ttl", "30m", "--rule", "source_type=bigquery")
+    raw = fake_redis._store.get(CAPTURE_CONFIG_REDIS_KEY.encode())
+    rules = json.loads(raw)["rules"]
+    assert len(rules) == 1
+    assert rules[0]["source_type"] == "bigquery"
+    assert rules[0]["limit"] == 42
 
 
 def test_enable_rejects_malformed_rule(fake_redis):
@@ -191,13 +228,13 @@ def test_disable_clears_key_and_counters(fake_redis):
     config = CaptureConfig(capture_id="cap-7", rules=())
     fake_redis._store[CAPTURE_CONFIG_REDIS_KEY.encode()] = config.to_json().encode()
     fake_redis._store[f"{CAPTURE_COUNTER_KEY_PREFIX}:cap-7:0".encode()] = b"3"
-    fake_redis._store[f"{CAPTURE_COUNTER_KEY_PREFIX}:cap-7:seq:stripe".encode()] = b"5"
+    fake_redis._store[f"{CAPTURE_COUNTER_KEY_PREFIX}:cap-7:seq:google_ads".encode()] = b"5"
 
     output = _run("disable")
 
     assert CAPTURE_CONFIG_REDIS_KEY.encode() not in fake_redis._store
     assert f"{CAPTURE_COUNTER_KEY_PREFIX}:cap-7:0".encode() not in fake_redis._store
-    assert f"{CAPTURE_COUNTER_KEY_PREFIX}:cap-7:seq:stripe".encode() not in fake_redis._store
+    assert f"{CAPTURE_COUNTER_KEY_PREFIX}:cap-7:seq:google_ads".encode() not in fake_redis._store
     assert "Capture disabled" in output
 
 
@@ -217,13 +254,13 @@ def test_list_when_disabled(fake_redis):
 
 
 def test_list_prints_active_config(fake_redis):
-    _run("enable", "--source-type", "stripe", "--response-code", "4xx", "--limit", "20", "--ttl", "30m")
+    _run("enable", "--source-type", "google_ads", "--response-code", "unavailable", "--limit", "20", "--ttl", "30m")
     output = _run("list")
 
     assert "capture_id:" in output
     assert "rules (1):" in output
-    assert "source_type='stripe'" in output
-    assert "response_code='4xx'" in output
+    assert "source_type='google_ads'" in output
+    assert "response_code='unavailable'" in output
     assert "limit=20" in output
 
 

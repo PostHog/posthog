@@ -7,7 +7,7 @@ from products.revenue_analytics.backend.views.schemas.subscription import SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import extract_json_string
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+from products.warehouse_sources.backend.facade.sources import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 

@@ -18,7 +18,7 @@ class SignalsConfig(AppConfig):
         importing this product (it depends on warehouse_sources). The gate impl is imported
         lazily so the registry/model stay off the django.setup() path.
         """
-        from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+        from products.warehouse_sources.backend.facade.temporal import (
             register_emit_signals_gate,
         )
 
