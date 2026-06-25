@@ -48,7 +48,6 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
             trigger: 'chat',
             requesterDisplay: principalDisplay(sessionPrincipal),
             triggerMetadata: clientKind ? { client_kind: clientKind } : undefined,
-            isPreview: resolved.isPreview,
         }
     )
     if (outcome.kind === 'elevation_required') {
