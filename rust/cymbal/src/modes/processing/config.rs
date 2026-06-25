@@ -125,6 +125,11 @@ pub struct ProcessingConfig {
     )]
     pub error_tracking_rate_limiter_bucket_ttl_seconds: u64,
 
+    // Comma separated list of team IDs the error-tracking rate limiter applies to.
+    // If empty, it applies to all teams (that have limits configured).
+    #[envconfig(from = "ERROR_TRACKING_RATE_LIMITER_ENABLED_TEAM_IDS", default = "")]
+    pub error_tracking_rate_limiter_enabled_team_ids: String,
+
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]

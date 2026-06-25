@@ -110,7 +110,13 @@ impl Stage for RateLimitingStage {
             .get_rate_limit_settings(&self.ctx.posthog_pool, team_ids)
             .await;
 
-        let outcomes = apply_rate_limits(&limiter, &settings, &mut items).await;
+        let outcomes = apply_rate_limits(
+            &limiter,
+            &settings,
+            self.ctx.rate_limiter_enabled_team_ids.as_ref(),
+            &mut items,
+        )
+        .await;
 
         self.emit_metrics(&outcomes).await;
 
@@ -130,6 +136,7 @@ impl Stage for RateLimitingStage {
 async fn apply_rate_limits(
     limiter: &RedisRateLimiter,
     settings: &HashMap<i32, RateLimitSettings>,
+    enabled_teams: Option<&HashSet<i32>>,
     items: &mut [ExceptionEventPipelineItem],
 ) -> HashMap<(i32, LimitKind, Outcome), u32> {
     // Group surviving (Ok) events by (team_id, issue_id). Vec<usize> stays in input order.
@@ -147,6 +154,11 @@ async fn apply_rate_limits(
     let mut drops: Vec<(usize, EventError)> = Vec::new();
 
     for ((team_id, issue_id), indices) in groups {
+        // Team allowlist: when set, only listed teams are rate-limited.
+        if enabled_teams.is_some_and(|allowed| !allowed.contains(&team_id)) {
+            continue;
+        }
+
         let Some(team_settings) = settings.get(&team_id) else {
             continue; // no row → team hasn't opted in
         };
@@ -413,7 +425,7 @@ mod tests {
         let mut cfg = HashMap::new();
         cfg.insert(1, settings(Some(1), Some(1)));
 
-        let outcomes = apply_rate_limits(&limiter, &cfg, &mut items).await;
+        let outcomes = apply_rate_limits(&limiter, &cfg, None, &mut items).await;
 
         // Redis errored, so the whole group is kept (fail open): nothing is
         // flipped to Err, and no allowed/limited outcomes are tallied.
@@ -433,7 +445,7 @@ mod tests {
         let mut cfg = HashMap::new();
         cfg.insert(7, settings(Some(100), Some(100)));
 
-        apply_rate_limits(&limiter, &cfg, &mut items).await;
+        apply_rate_limits(&limiter, &cfg, None, &mut items).await;
 
         assert!(items[0].is_ok()); // kept
         assert!(matches!(items[1], Err(EventError::RateLimitedProject(7))));
@@ -450,11 +462,31 @@ mod tests {
             (0..3).map(|_| event(42, Some(Uuid::now_v7()))).collect();
         let cfg = HashMap::new(); // team 42 has no settings row
 
-        let outcomes = apply_rate_limits(&limiter, &cfg, &mut items).await;
+        let outcomes = apply_rate_limits(&limiter, &cfg, None, &mut items).await;
 
         assert!(items.iter().all(|item| item.is_ok())); // opted-out team untouched
         assert_eq!(runner.call_count(), 0); // and we never hit redis for it
         assert!(outcomes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn only_rate_limits_allowlisted_teams() {
+        // Redis admits nothing, so any team that IS rate-limited loses its events.
+        let runner = Arc::new(FakeScriptRunner::returning(vec![0, 0]));
+        let limiter = limiter_with(runner.clone());
+        let issue = Uuid::now_v7();
+        let mut items: Vec<ExceptionEventPipelineItem> =
+            vec![event(1, Some(issue)), event(2, Some(issue))];
+        let mut cfg = HashMap::new();
+        cfg.insert(1, settings(Some(1), Some(1)));
+        cfg.insert(2, settings(Some(1), Some(1)));
+        let allowed: HashSet<i32> = [1].into_iter().collect();
+
+        apply_rate_limits(&limiter, &cfg, Some(&allowed), &mut items).await;
+
+        assert!(items[0].is_err()); // team 1 is allowlisted -> rate-limited
+        assert!(items[1].is_ok()); // team 2 is not -> untouched despite having settings
+        assert_eq!(runner.call_count(), 1); // only the allowlisted team hit redis
     }
 
     fn decision(issue: u32, team: u32) -> RateLimitDecision {
