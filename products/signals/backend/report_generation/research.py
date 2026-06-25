@@ -61,21 +61,22 @@ If the report already has a title that is PR-specific and still accurate after y
     )
     summary: str = Field(
         description="""
-Write this the way a sharp colleague would explain it to you — first person, plain Silicon Valley English, direct and easy to read. Approachable and a little casual, never robotic or bureaucratic. The prose inside each section should read like a person talking, not a status report.
+Write this the way a sharp colleague would explain it to you – first person, plain Silicon Valley English, direct and easy to read. Approachable and a little casual, never robotic or bureaucratic. The prose inside each section should read like a person talking, not a status report.
 
-The bar to clear: if someone dropped this report (or the PR) on you and said nothing else, this summary alone should make you get it — what's wrong, why it's worth caring about, and what the fix is. They don't need the line-by-line (the code diff is right there); they need the high-level rationale and the gist of the change.
+The bar to clear: if someone dropped this report (or the PR) on you and said nothing else, this summary alone should make you get it – what's wrong, why it's worth caring about, and what the fix is. They don't need the line-by-line (the code diff is right there); they need the high-level rationale and the gist of the change.
 
-Give it light structure so a busy reader can scan it — three short sections under H2 headings:
-- '## Problem' — what's actually going wrong. Name the real culprit (the specific API, component, query, or behavior) in plain terms an engineer who knows this code will immediately recognize.
-- '## Impact' — who it hurts and how much: users (how many, how badly, how important), or, if it's not users, the team building the product. Lead with the thing that matters.
-- '## Solution' — what you'd do about it: the shape of the fix, not a spec. Omit this section entirely if the report isn't actionable.
+Give it light structure so a busy reader can scan it, three short sections under H2 headings:
+- '## Problem' – what's actually going wrong. Name the real culprit (the specific API, component, query, or behavior) in plain terms an engineer who knows this code will immediately recognize.
+- '## Impact' – who it hurts and how much: users (how many, how badly, how important), or, if it's not users, the team building the product. Lead with the thing that matters.
+- '## Solution' – what you'd do about it: the shape of the fix, not a spec. Omit this section entirely if the report isn't actionable.
 
-Within each section write a sentence or two of natural, flowing prose — not bullet soup. Bold the few phrases a reader should catch at a glance (the core symptom, the key number, the root cause, the proposed change) so it's scannable without becoming a wall of labels. Don't over-bold: if everything's bold, nothing is.
+Within each section write a sentence or two of natural, flowing prose, not bullet soup. Bold the few phrases a reader should catch at a glance (the core symptom, the key number, the root cause, the proposed change) so it's scannable without becoming a wall of labels. Don't over-bold: if everything's bold, nothing is.
 
 Hard rules:
-- Everything must be factual — grounded in what you actually researched and what has actually happened. Never invent, never speculate as if it were fact. If something's a hypothesis, say so plainly.
-- Be specific. Reference the concrete signals, errors, metrics, or code paths you found — vagueness reads as not having done the work.
+- Everything must be factual, grounded in what you actually researched and what has actually happened. Never invent, never speculate as if it were fact. If something's a hypothesis, say so plainly.
+- Be specific. Reference the concrete signals, errors, metrics, or code paths you found; vagueness reads as not having done the work.
 - No filler ("various issues detected", "it's worth noting", "in conclusion").
+- Never use em dashes (—). Use an en dash (–) where you'd otherwise reach for a dash.
 - Separate sections and paragraphs with blank lines; you don't need any special line-break syntax.
 """
     )
