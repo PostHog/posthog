@@ -235,6 +235,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
+                            {ticket?.organization_id && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">Organization</span>
+                                    <span className="text-xs truncate text-right" title={ticket.organization_id}>
+                                        {ticket.organization_id}
+                                    </span>
+                                </div>
+                            )}
                             {ticket?.channel_source === 'slack' &&
                                 ticket?.slack_channel_id &&
                                 ticket?.slack_thread_ts && (
