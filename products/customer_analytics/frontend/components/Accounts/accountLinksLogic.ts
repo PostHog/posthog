@@ -20,6 +20,7 @@ const ORGANIZATION_GROUP_TYPE_INDEX = 0
 const REVENUE_DASHBOARD_ID = 259114
 const BILLING_ADMIN_ORIGIN = 'https://billing.posthog.com'
 const SLACK_ARCHIVES_ORIGIN = 'https://posthog.slack.com/archives'
+const SALESFORCE_ORIGIN = 'https://posthog.my.salesforce.com'
 
 export interface AccountLinksLogicProps {
     accountId: string
@@ -133,6 +134,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                 const billingId = account?.properties?.billing_id ?? null
                 const slackChannelId = account?.properties?.slack_channel_id ?? null
                 const usageDashboardLink = account?.properties?.usage_dashboard_link ?? null
+                const sfdcId = account?.properties?.sfdc_id ?? null
                 const backUrl =
                     removeProjectIdIfPresent(currentLocation.pathname) + currentLocation.search + currentLocation.hash
                 return [
@@ -175,6 +177,13 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         to: billingId ? `${BILLING_ADMIN_ORIGIN}/admin/billing/customer/${billingId}/change/` : null,
                         targetBlank: true,
                         disabledReason: billingId ? null : 'No billing ID set',
+                    },
+                    {
+                        key: 'salesforce',
+                        label: 'Salesforce',
+                        to: sfdcId ? `${SALESFORCE_ORIGIN}/${sfdcId}` : null,
+                        targetBlank: true,
+                        disabledReason: sfdcId ? null : 'No Salesforce ID set',
                     },
                 ]
             },
