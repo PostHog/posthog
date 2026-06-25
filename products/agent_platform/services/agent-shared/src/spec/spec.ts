@@ -415,23 +415,26 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
     /**
      * **Client-fulfilled tool.** The agent author declares the tool fully
      * inline (id + description + args_schema); the connecting client (browser
-     * dock, IDE MCP host, etc.) declares which ids it can actually execute this
-     * session via `supported_client_tools` in the /run body (stashed on the
-     * session's `trigger_metadata`).
+     * dock, IDE MCP host, etc.) declares which ids it can execute this session
+     * via `supported_client_tools` in the /run body (stashed on the session's
+     * `trigger_metadata`). The runner gates EXPOSURE on it:
      *
-     * Every `client` tool is exposed to the model (no exposure handshake). A
-     * call the connecting client doesn't handle comes back
-     * `unhandled_client_tool`, and the agent.md degrades to text. For an
-     * INTERACTIVE tool — one that punches out a UI (`connect_mcp`,
-     * `set_secret`) — the runner instead checks `supported_client_tools` up
-     * front: if this client supports it, emit a `client_tool_call` and park for
-     * the result; if NOT, fall back (e.g. `connect_mcp` relays a URL) so the
-     * session doesn't park forever on a client that can't render the form.
+     *   - id in `supported_client_tools` → exposed to the model.
+     *   - NOT declared, `required: false` (default) → hidden from the model
+     *     surface; write agent.md to degrade gracefully (text-only narration).
+     *   - NOT declared, `required: true` → session open fails with
+     *     `client_tool_unsupported`.
+     *
+     * Non-chat surfaces (Slack, cron, webhook, MCP) declare nothing, so client
+     * tools — including interactive punch-outs like `connect_mcp` /
+     * `set_secret` — are simply not exposed there; the model never sees a tool
+     * it can't get a result for.
      *
      * Dispatch path: when the model calls the tool, the runner emits a
      * `client_tool_call` session event carrying the args + a call_id;
      * the client executes locally and POSTs the result to
-     * `/sessions/<id>/client_tool_result`.
+     * `/sessions/<id>/client_tool_result`. Interactive tools park the session
+     * until that result arrives.
      */
     z.object({
         kind: z.literal('client'),
