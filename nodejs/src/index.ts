@@ -1,7 +1,8 @@
 // NOTE: Keep these as ~ imports as we can validate the build output this way
 import { PluginServerMode } from '~/common/config'
 import { initTracing } from '~/common/tracing/otel'
-import { defaultConfig } from '~/config/config'
+import { defaultConfig, overrideConfigWithEnv } from '~/config/config'
+import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { PluginServer } from '~/server'
 import { NodeServer } from '~/servers/base-server'
 import { ErrorTrackingServer } from '~/servers/error-tracking-server'
@@ -15,6 +16,9 @@ import { RecordingApiServer } from '~/servers/recording-api-server'
 import { initSuperProperties } from '~/utils/posthog'
 
 function createServer(): NodeServer {
+    const { PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE } = overrideConfigWithEnv(getDefaultIngestionConsumerConfig())
+    initSuperProperties(PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE)
+
     switch (defaultConfig.PLUGIN_SERVER_MODE) {
         case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_combined:
@@ -48,7 +52,6 @@ function createServer(): NodeServer {
     }
 }
 
-initSuperProperties()
 initTracing()
 const server = createServer()
 void server.start()

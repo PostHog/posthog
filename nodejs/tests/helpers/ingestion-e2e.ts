@@ -9,6 +9,21 @@ import { buildGroupRepository, buildPersonRepository, createPersonHogClient } fr
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { IngestionConsumerConfig, getDefaultIngestionConsumerConfig } from '~/ingestion/config'
+import {
+    ErrorTrackingConsumerConfig,
+    getDefaultErrorTrackingConsumerConfig,
+} from '~/ingestion/pipelines/errortracking/config'
+import {
+    MetricsIngestionConsumerConfig,
+    getDefaultMetricsIngestionConsumerConfig,
+} from '~/ingestion/pipelines/metrics/config'
+import {
+    SessionRecordingApiConfig,
+    SessionRecordingConfig,
+    getDefaultSessionRecordingApiConfig,
+    getDefaultSessionRecordingConfig,
+} from '~/ingestion/pipelines/sessionreplay/config'
 
 import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
@@ -315,12 +330,20 @@ export interface IngesterLike {
     stop(): Promise<void>
 }
 
+/** The full config an ingestion test sees — PluginsServerConfig plus every ingestion domain's config. */
+export type IngestionTestConfig = PluginsServerConfig &
+    IngestionConsumerConfig &
+    ErrorTrackingConsumerConfig &
+    MetricsIngestionConsumerConfig &
+    SessionRecordingConfig &
+    SessionRecordingApiConfig
+
 /**
  * Set of primitives the test harness exposes to an ingester builder. Built
  * directly from primitive Manager/factory calls — no hub involved.
  */
 export interface IngestionTestInfra {
-    config: PluginsServerConfig
+    config: IngestionTestConfig
     postgres: PostgresRouter
     redisPool: RedisPool
     teamManager: TeamManager
@@ -346,7 +369,7 @@ export interface TeamIngesterTestContext<T extends IngesterLike> {
 
 export interface TeamIngesterTestConfig {
     teamOverrides?: Partial<Team>
-    pluginServerConfig?: Partial<PluginsServerConfig>
+    pluginServerConfig?: Partial<IngestionTestConfig>
 }
 
 export type BuildIngester<T extends IngesterLike> = (
@@ -360,10 +383,15 @@ export type BuildIngester<T extends IngesterLike> = (
  * the infra plus a `close` that tears down every resource it owns.
  */
 export async function createIngestionTestInfra(
-    configOverrides: Partial<PluginsServerConfig> = {}
+    configOverrides: Partial<IngestionTestConfig> = {}
 ): Promise<IngestionTestInfra> {
-    const serverConfig: PluginsServerConfig = {
+    const serverConfig: IngestionTestConfig = {
         ...defaultConfig,
+        ...getDefaultIngestionConsumerConfig(),
+        ...getDefaultErrorTrackingConsumerConfig(),
+        ...getDefaultMetricsIngestionConsumerConfig(),
+        ...getDefaultSessionRecordingConfig(),
+        ...getDefaultSessionRecordingApiConfig(),
         ...configOverrides,
     }
 
@@ -442,7 +470,7 @@ export async function createIngestionTestInfra(
  * consumer under test — different pipelines have different deps.
  */
 export function createTestWithTeamIngester<T extends IngesterLike>(
-    baseConfig: Partial<PluginsServerConfig>,
+    baseConfig: Partial<IngestionTestConfig>,
     buildIngester: BuildIngester<T>
 ) {
     return (

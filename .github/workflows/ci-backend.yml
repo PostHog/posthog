@@ -287,16 +287,22 @@ jobs:
             # (e.g. posthog/hogql/test/test_direct_postgres_query.py imports
             # postgres) — a PR touching them must run the full matrix or it would
             # silently skip those tests. `coupled` is kept complete by the guard
-            # test posthog/temporal/data_imports/sources/tests/test_ci_core_coupled_sources.py.
+            # test products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_ci_core_coupled_sources.py.
             # Fails OPEN: empty/non-source/coupled file list → false → full matrix.
             # PR events only; push and merge_group always run everything.
+            # continue-on-error keeps the fail-open promise even when the runner can't
+            # start the step at all: a very large PR (e.g. a big rename) makes
+            # BACKEND_FILES exceed the process env limit ("Argument list too long"),
+            # which would otherwise hard-fail this job and skip every dependent test job.
+            # On that failure the job output below defaults to false → full matrix.
             - name: Determine if only data warehouse sources changed
               id: sources
+              continue-on-error: true
               if: github.event_name == 'pull_request'
               env:
                   BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
               run: |
-                  prefix="posthog/temporal/data_imports/sources/"
+                  prefix="products/warehouse_sources/backend/temporal/data_imports/sources/"
                   # Space-separated, double-quoted, single line — parsed by the guard test.
                   coupled="common google_search_console mysql postgres salesforce stripe"
                   only_sources=false
@@ -566,7 +572,8 @@ jobs:
                   #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags)
                   #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
                   #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
-                  #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal
+                  #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
+                  #                   products/warehouse_sources/backend/temporal, products/signals/backend/emission
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
                   # matrix — turbo-tests handles them.
                   core=()
@@ -575,7 +582,7 @@ jobs:
                   while IFS= read -r f; do
                       [[ -z "$f" ]] && continue
                       case "$f" in
-                          posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*)
+                          posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/warehouse_sources/backend/temporal/*|products/signals/backend/emission/*)
                               temporal+=("$f")
                               ;;
                           posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/api/test/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
@@ -769,11 +776,14 @@ jobs:
               env:
                   # --reuse-db: keep the test database between sequential product runs to avoid
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
+                  # --durations-path: turbo runs products from products/<name>/, so pytest-split
+                  # needs an explicit path back to the repo-root durations file for balanced sharding.
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
+                      --durations-path ../../.test_durations
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
-                      ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
+                      ${{ github.ref == 'refs/heads/master' && '--store-durations' || '' }}
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
 
             - name: Upload timing data
@@ -2438,7 +2448,7 @@ jobs:
                       # anyway, so the shard dies either way) and was the reason the
                       # transaction=True overhead in async tests looked like "the
                       # timeout problem" instead of a per-test cost worth fixing.
-                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal products/warehouse_sources/backend/temporal products/signals/backend/emission -m "not async_migrations" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
