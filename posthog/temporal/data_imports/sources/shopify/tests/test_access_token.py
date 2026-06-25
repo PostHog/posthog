@@ -3,11 +3,11 @@ from unittest import mock
 
 from requests.exceptions import ChunkedEncodingError, SSLError
 
-from posthog.temporal.data_imports.sources.shopify.shopify import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     _get_shopify_access_token,
 )
-from posthog.temporal.data_imports.sources.shopify.source import ShopifySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
 
 
 def _mock_response(status_code: int, ok: bool, json_data: dict | None = None) -> mock.MagicMock:
@@ -20,7 +20,7 @@ def _mock_response(status_code: int, ok: bool, json_data: dict | None = None) ->
 
 def _patched_token_post(post: mock.MagicMock):
     return mock.patch(
-        "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
         return_value=mock.MagicMock(post=post),
     )
 

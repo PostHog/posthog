@@ -10,12 +10,16 @@ from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
-from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
-from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
-from posthog.temporal.data_imports.sources.shopify.utils import ShopifyGraphQLObject, safe_unwrap, unwrap
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.utils import (
+    ShopifyGraphQLObject,
+    safe_unwrap,
+    unwrap,
+)
 
 from .constants import (
     SHOPIFY_ACCESS_TOKEN_CHECK,
