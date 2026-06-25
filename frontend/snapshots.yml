@@ -1769,9 +1769,9 @@ snapshots:
     components-verticalnesteddnd--base--light:
         hash: v1.k794b7964.b210ce352a085f9ed57aed4675cc78d23db5d2312f276ec790040b2ce27e293a.duU6Lgj4ID4h_Qo76s2bErUZYu2IuRIHoy4D7_tCGT4
     dashboards-dashboard-widgets-overview--all-widget-types--dark:
-        hash: v1.k794b7964.afac6daacd209c9756ac18f4d550450c28cd0796ab3e0d2f81f8730e033132ea.o1IvcXj0C0otWKihcqxykKFKG0OUxCWvqNq6IJJMCjI
+        hash: v1.k794b7964.e86ceb254b401c489ab99a971210ae6fcff0e47bb7eb512daf896b47fc2473d7.gdReADxQa9J9TbRINl5Oyg7NSoRwOfgdP_20x6IXN9I
     dashboards-dashboard-widgets-overview--all-widget-types--light:
-        hash: v1.k794b7964.f32b343aa7fcaabf6767b6c533d85b40f8b7a3cc1b9d80fe7d2253859a890ad5.VQg2i7X9FGt-fh-vmxr027ufi0Bnkg7BmQAhOtTXqgs
+        hash: v1.k794b7964.ce4054465ab9e06e075e861a445d1b9ef950b0b8daf695d96c861b35e2a879e9.b-JT0h-0O_q3tb2zrAFJrbj-0TDVU2X9oqsO59LA25A
     dashboards-dashboard-widgets-widget-types-activity-recent-events--default--dark:
         hash: v1.k794b7964.efdbea5790ee8e35bd2ae969acc32686edd47bf2990008fcd3d6f572f309f18b.4ZbAHTXiE7te8-Ck6clsY28Y5-JOOCpIPfSguR6E4Es
     dashboards-dashboard-widgets-widget-types-activity-recent-events--default--light:
@@ -1856,6 +1856,26 @@ snapshots:
         hash: v1.k794b7964.36c039ca5a5530ad1271f73bdf22b34554ed93496949ea1488b16a14bb5ba029.j7gTAPQ3J8pdVisoXvSHDUgS8Kl5vlBmF9hU3VnCw0o
     dashboards-dashboard-widgets-widget-types-experiments-experiments-widget-settings--default--light:
         hash: v1.k794b7964.8715a7b54c54caeceabc7ada435074e73e2b0b3d8bada7d9f7f53e56b305d815.BNfFt-AV0Y6mZeXlQVNA3CZrm_kkfncCe-uU5dvbTg4
+    dashboards-dashboard-widgets-widget-types-logs-recent-logs--default--dark:
+        hash: v1.k794b7964.0f9312239687a9841e3a64d86b072b5ea99b03544c49e9d6959c19d0c6135162.bdT9uvy9Tpxue_rUFh8nJ7Ht06Y-SWetkkZUmoXJ3Gk
+    dashboards-dashboard-widgets-widget-types-logs-recent-logs--default--light:
+        hash: v1.k794b7964.d4505c8d16a7c0bdd66bda95ccd49d5b65838ed13b2e043f72d60ce23d9a6031.cVx0ytD0TowHR2xwDsaLcJ1EW0cMcLJV7xsrQwyK_LE
+    dashboards-dashboard-widgets-widget-types-logs-recent-logs--empty--dark:
+        hash: v1.k794b7964.0ec7815aa88b420d9292711daae7973abb744c5eab0639178a1b41e8b58f5797.Q_34NDcflyV4tsqYZDK3vrElY8lfZ6Jy1CBuTQFeEwM
+    dashboards-dashboard-widgets-widget-types-logs-recent-logs--empty--light:
+        hash: v1.k794b7964.42ae3df5188a34f09e4b50009422baa5d7c4a85e3226de4b89bc434cd3a74dfa.X2tXR6LYJpYINithLSzgFNB6x1vAN4kL0BAddXdUmfc
+    dashboards-dashboard-widgets-widget-types-logs-recent-logs--loading--dark:
+        hash: v1.k794b7964.954f969df71e68210eb28e790cafcfd9dbb84fb5e2e495164c2386b3fe144683.U8q83nj5C-RGsXMPyJx1WYKJ1N7kT5EaBrLxFS0WC4I
+    dashboards-dashboard-widgets-widget-types-logs-recent-logs--loading--light:
+        hash: v1.k794b7964.0ba9a8683302da2288af83e44f00621c301935816f523b190d1133f4769da27e.yP1oU56Kp7xpJib9MkFxPpn6imDc6BBOlffzkvgaxcE
+    dashboards-dashboard-widgets-widget-types-logs-recent-logs--tile-filters-read-only--dark:
+        hash: v1.k794b7964.38714458c55dd6d9fc7e760b4b06b672112db46ea7a7745ab2e1fec513b76962.CF6vEIevd4YEVIQzekjrOFs1_KzfpQdIwa3ZblHxPmU
+    dashboards-dashboard-widgets-widget-types-logs-recent-logs--tile-filters-read-only--light:
+        hash: v1.k794b7964.735d0ceb3593450c3d187506dadd86468152e877d2c46d53598f1eb46bb22416.wVPvAIkuFdBzcx8YtfmAI-IsVZa6GOm7_k-HUndD80g
+    dashboards-dashboard-widgets-widget-types-logs-recent-logs-widget-settings--default--dark:
+        hash: v1.k794b7964.86d586185cb4e94b369d945f2561a9ae8259114cecd98c84100b5151ea716790.8_30Xs68L3gsplLfCW2buncUGpbweXOwVUrHx6NnlmM
+    dashboards-dashboard-widgets-widget-types-logs-recent-logs-widget-settings--default--light:
+        hash: v1.k794b7964.0759c3c3f60e858fa3d4632b3bcaf50aeda25b8f0fd7913b118f40c213c22d83.7hKsAP4ErvrMc_UgRY6Fl3OBdnqlGd-m1_5BnEjGVoI
     dashboards-dashboard-widgets-widget-types-session-replay-recent-recordings--default--dark:
         hash: v1.k794b7964.1a5baf14a6ff53a6072ebc87ed92ec20014d81c90e9718dd144c869c7c0f1a6d.mntf80pED3WsfNCXd5dto32xdxLBogMzx9mjVP0E4Qk
     dashboards-dashboard-widgets-widget-types-session-replay-recent-recordings--default--light:
