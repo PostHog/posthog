@@ -328,7 +328,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                 if (item.id === state.id) {
-                    return { ...state, name: item.name, description: item.description }
+                    // Also sync query (display-option saves); preserve result — bare PATCHes return result: null.
+                    return {
+                        ...state,
+                        name: item.name,
+                        description: item.description,
+                        query: (item.query ?? state.query) as QueryBasedInsightModel['query'],
+                    }
                 }
                 return state
             },
@@ -371,6 +377,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     tags: insight.tags,
                     favorited: insight.favorited,
                 }),
+                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) =>
+                    item.id === state.id
+                        ? { ...state, name: item.name, description: item.description, query: item.query ?? state.query }
+                        : state,
             },
         ],
         insightLoading: [
