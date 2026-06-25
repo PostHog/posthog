@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import json
 import uuid
 import dataclasses
 from collections.abc import Callable
@@ -1405,6 +1407,26 @@ class DraftCustomManifestResponseSerializer(serializers.Serializer):
     )
 
 
+# Local-dev only canned draft (see the `draft_custom_manifest` stub branch). Lets the intro→builder
+# flow be exercised without the LLM gateway, which needs prod-style ingress to route get_llm_client's
+# product path — the bare local gateway 404s it.
+_STUB_CUSTOM_MANIFEST = {
+    "client": {"base_url": "https://api.example.com/v1", "auth": {"type": "bearer"}},
+    "resources": [
+        {
+            "name": "users",
+            "primary_key": "id",
+            "endpoint": {
+                "path": "/users",
+                "data_selector": "data",
+                "incremental": {"cursor_path": "updated_at", "start_param": "since"},
+            },
+        },
+        {"name": "orders", "primary_key": "id", "endpoint": {"path": "/orders", "data_selector": "data"}},
+    ],
+}
+
+
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSource
@@ -2695,6 +2717,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         serializer = DraftCustomManifestRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+
+        # Local-dev shortcut: skip the gateway and return a canned, already-valid manifest so the UI
+        # flow is testable without standing up the LLM gateway. DEBUG + opt-in only; inert in prod.
+        if settings.DEBUG and os.environ.get("CUSTOM_SOURCE_AI_STUB"):
+            return Response(
+                status=status.HTTP_200_OK,
+                data={
+                    "draft_status": "ok",
+                    "manifest_json": json.dumps(_STUB_CUSTOM_MANIFEST, indent=2),
+                    "resource_names": [resource["name"] for resource in _STUB_CUSTOM_MANIFEST["resources"]],
+                    "attempts": 1,
+                    "error": None,
+                },
+            )
 
         if self.team.organization.is_ai_data_processing_approved is not True:
             return Response(
