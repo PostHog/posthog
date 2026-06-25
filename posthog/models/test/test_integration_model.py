@@ -937,6 +937,35 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         assert result["status_code"] == 502
 
+    def test_get_open_pr_base_for_head_returns_base_ref_of_open_pr(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = [{"base": {"ref": "master"}, "head": {"ref": "posthog-code/fix"}}]
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response) as mock_get:
+            result = github.get_open_pr_base_for_head("PostHog/posthog", "posthog-code/fix")
+        assert result == "master"
+        # Query is scoped to open PRs whose head is the branch, in the repo owner's namespace.
+        assert mock_get.call_args.kwargs["params"] == {
+            "head": "PostHog:posthog-code/fix",
+            "state": "open",
+            "per_page": 1,
+        }
+
+    def test_get_open_pr_base_for_head_returns_none_when_no_open_pr(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = []
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
+            assert github.get_open_pr_base_for_head("PostHog/posthog", "master") is None
+
+    def test_get_open_pr_base_for_head_returns_none_on_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_get", return_value=None):
+            assert github.get_open_pr_base_for_head("PostHog/posthog", "posthog-code/fix") is None
+
     def test_get_diff_truncates_oversized_diff(self):
         from posthog.models.integration import _MAX_DIFF_CHARS
 
