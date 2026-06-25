@@ -720,6 +720,39 @@ class TestConversationEvents(BaseTest):
                 assert "$groups" not in call.kwargs["properties"]
 
     @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_persists_organization_id(self, mock_get_persons, mock_capture):
+        from posthog.models.person.person import Person
+
+        person_org = Organization.objects.create(name="Persist Org")
+        person_user = User.objects.create(email="persist@example.com", distinct_id="customer-123")
+        OrganizationMembership.objects.create(user=person_user, organization=person_org)
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+
+        assert self.ticket.organization_id is None
+        capture_ticket_created(self.ticket)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.organization_id == str(person_org.id)
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._resolve_org_groups")
+    def test_capture_message_received_uses_stored_organization_id(self, mock_resolve, mock_capture):
+        self.ticket.organization_id = "stored-org-123"
+        self.ticket.save(update_fields=["organization_id"])
+
+        capture_message_received(self.ticket, "msg-456", "Hello support")
+
+        mock_resolve.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is True
+        groups = call_kwargs["properties"]["$groups"]
+        assert groups["organization"] == "stored-org-123"
+        assert groups["project"] == str(self.team.uuid)
+        assert groups["instance"] == SITE_URL
+
+    @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_status_changed_system_actor_uses_customer_distinct_id(self, mock_capture):
         """System actions (e.g. snooze wake) use the customer's distinct_id, not an actor's."""
         capture_ticket_status_changed(self.ticket, "on_hold", "open", actor_type="system")
