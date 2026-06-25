@@ -2,10 +2,10 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 
-import { capturePlayback } from '~/recording-rasterizer/capture/capture'
-import { PlayerController } from '~/recording-rasterizer/capture/player'
-import { RasterizationError } from '~/recording-rasterizer/errors'
-import { CaptureConfig } from '~/recording-rasterizer/types'
+import { capturePlayback } from '~/session-replay/recording-rasterizer/capture/capture'
+import { PlayerController } from '~/session-replay/recording-rasterizer/capture/player'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { CaptureConfig } from '~/session-replay/recording-rasterizer/types'
 
 jest.mock(
     'puppeteer-capture',
@@ -25,7 +25,7 @@ jest.mock(
     { virtual: true }
 )
 
-jest.mock('~/recording-rasterizer/logger', () => ({
+jest.mock('~/session-replay/recording-rasterizer/logger', () => ({
     createLogger: () => ({
         info: jest.fn(),
         warn: jest.fn(),

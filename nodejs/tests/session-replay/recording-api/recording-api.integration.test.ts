@@ -49,9 +49,9 @@ import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/
 import { DynamoDBKeyStore, MemoryKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { MemoryCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
-import { RecordingApi } from '~/recording-api/recording-api'
-import { RecordingService } from '~/recording-api/recording-service'
-import { KeyStore, RecordingApiConfig, SessionKey, SessionKeyDeletedError } from '~/recording-api/types'
+import { RecordingApi } from '~/session-replay/recording-api/recording-api'
+import { RecordingService } from '~/session-replay/recording-api/recording-service'
+import { KeyStore, RecordingApiConfig, SessionKey, SessionKeyDeletedError } from '~/session-replay/recording-api/types'
 import { PostgresRouter } from '~/utils/db/postgres'
 import { parseJSON } from '~/utils/json-parse'
 

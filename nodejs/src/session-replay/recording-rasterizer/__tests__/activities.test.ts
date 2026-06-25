@@ -1,11 +1,11 @@
 import * as fs from 'fs/promises'
 
-import { BrowserPool } from '~/recording-rasterizer/capture/browser-pool'
-import { rasterizeRecording } from '~/recording-rasterizer/capture/recorder'
-import { RasterizationError } from '~/recording-rasterizer/errors'
-import { uploadToS3 } from '~/recording-rasterizer/storage'
-import { createActivities } from '~/recording-rasterizer/temporal/activities'
-import { RasterizeRecordingInput, RecordingResult } from '~/recording-rasterizer/types'
+import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
+import { createActivities } from '~/session-replay/recording-rasterizer/temporal/activities'
+import { RasterizeRecordingInput, RecordingResult } from '~/session-replay/recording-rasterizer/types'
 
 jest.mock('@temporalio/activity', () => ({
     Context: {
@@ -31,10 +31,10 @@ jest.mock('@temporalio/common', () => ({
     },
 }))
 
-jest.mock('~/recording-rasterizer/capture/recorder')
-jest.mock('~/recording-rasterizer/storage')
-jest.mock('~/recording-rasterizer/metrics')
-jest.mock('~/recording-rasterizer/logger', () => ({
+jest.mock('~/session-replay/recording-rasterizer/capture/recorder')
+jest.mock('~/session-replay/recording-rasterizer/storage')
+jest.mock('~/session-replay/recording-rasterizer/metrics')
+jest.mock('~/session-replay/recording-rasterizer/logger', () => ({
     createLogger: () => ({
         info: jest.fn(),
         warn: jest.fn(),
