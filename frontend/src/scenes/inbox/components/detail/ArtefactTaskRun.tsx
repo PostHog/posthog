@@ -106,7 +106,7 @@ export function ArtefactTaskRun({
 
             {expanded && task && runId ? (
                 <div className="mt-2 h-[420px] overflow-hidden rounded border border-primary bg-surface-primary">
-                    <SandboxRunViewer taskId={task.id} runId={runId} replayOnly={replayOnly} />
+                    <SandboxRunViewer taskId={task.id} runId={runId} interaction={replayOnly ? 'read-only' : 'live'} />
                 </div>
             ) : null}
         </div>

@@ -25,7 +25,7 @@ const REV: AgentRevision = {
     state: 'live',
     bundle_uri: 's3://x/',
     bundle_sha256: null,
-    spec: { model: 'claude-sonnet-4-6' } as unknown as AgentRevision['spec'],
+    spec: { model: 'anthropic/claude-sonnet-4-6' } as unknown as AgentRevision['spec'],
     encrypted_env: 'fernet-blob',
 }
 
@@ -46,7 +46,6 @@ function makeSession(triggerMetadata: Record<string, unknown> | null): AgentSess
         usage_total: { input_tokens: 0, output_tokens: 0, cost_total: 0 },
         acl: [],
         pending_elevation_requests: [],
-        is_preview: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     } as unknown as AgentSession
@@ -188,35 +187,6 @@ describe('SlackFailureNotifier', () => {
         expect(logger.warn).toHaveBeenCalledTimes(1)
         expect(logger.warn.mock.calls[0]![1]).toBe('slack_failure_notifier_post_failed')
         expect(logger.warn.mock.calls[0]![0]).toMatchObject({ slack_error: 'channel_not_found' })
-    })
-
-    it('preview-mode short-circuit: no fetch, no resolver call, structured skip log', async () => {
-        // A draft revision running in preview mode must never reply into a real
-        // Slack workspace on failure — the author needs to inspect the failure
-        // surface in the agent-builder UI, not see noise on a customer channel.
-        // Pin the contract: the resolver isn't even reached (no token decrypt),
-        // and the skip is logged with the slug+channel for grep-ability.
-        const fetch = vi.fn()
-        const http: HttpFetcher = { fetch: fetch as unknown as HttpFetcher['fetch'] }
-        const logger = { warn: vi.fn(), info: vi.fn() }
-        const resolver = tokenResolver('xoxb-real-but-must-not-decrypt')
-        const n = new SlackFailureNotifier({ http, resolver, logger })
-
-        const session = makeSession(SLACK_META)
-        session.is_preview = true
-
-        await n.notify({
-            session,
-            application: APP,
-            revision: REV,
-            reason: 'docker run failed',
-            category: 'transient_infra',
-        })
-
-        expect(fetch).not.toHaveBeenCalled()
-        expect(resolver.resolve).not.toHaveBeenCalled()
-        expect(logger.info).toHaveBeenCalledTimes(1)
-        expect(logger.info.mock.calls[0]![1]).toBe('slack_failure_notifier_skipped_preview')
     })
 
     it('swallows resolver throws and skips post', async () => {

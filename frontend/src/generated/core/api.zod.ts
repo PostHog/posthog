@@ -10239,6 +10239,13 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Seed personal GitHub manage callback state before opening installation settings on GitHub.
+ */
+export const UsersIntegrationsGithubPrepareCallbackCreateBody = /* @__PURE__ */ zod.object({
+    installation_id: zod.string().describe('GitHub App installation id being managed on github.com.'),
+})
+
+/**
  * Start GitHub linking: either full App install or OAuth-only (user-to-server).
  *
  * ``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested

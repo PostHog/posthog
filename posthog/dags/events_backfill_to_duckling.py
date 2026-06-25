@@ -405,6 +405,38 @@ def _connection_dropped(exc: BaseException) -> bool:
     return False
 
 
+# Transient S3 responses (5xx and throttling) that DuckLake surfaces back through the PG
+# wire while touching object storage: glob() listing the run's files, ducklake_add_data_files
+# reading Parquet footers, and the ranged DELETE's data-file rewrites. S3 occasionally returns
+# 503 SlowDown/Service Unavailable or 500 InternalError under load (e.g. right after an export
+# writes a fan-out of files and registration immediately lists them).
+_TRANSIENT_S3_MARKERS = (
+    "http 503",
+    "service unavailable",
+    "http 500",
+    "internalerror",
+    "http 429",
+    "too many requests",
+    "slowdown",
+    "slow down",
+    "reduce your request rate",
+)
+
+
+def _is_transient_s3_error(exc: BaseException) -> bool:
+    """True when `exc` is a transient S3 5xx/throttle surfaced by duckgres while reading or
+    listing object storage. Unlike _connection_dropped the worker is healthy — S3 just
+    hiccuped — so it is retryable on the SAME connection (no reconnect) after a backoff.
+
+    Gated on the message actually referencing object storage / an HTTP transport error so a
+    genuine SQL error that merely contains a number like "500" can't be misclassified.
+    """
+    msg = str(exc).lower()
+    if not any(token in msg for token in ("s3://", "http error", "http get", "http put", "http head")):
+        return False
+    return any(marker in msg for marker in _TRANSIENT_S3_MARKERS)
+
+
 class _DuckgresSession:
     """A duckgres connection that transparently reconnects to a fresh worker when
     the current worker drops mid-statement.
@@ -443,35 +475,56 @@ class _DuckgresSession:
         return self._conn
 
     def run(self, what: str, op: Callable[[psycopg.Connection[Any]], Any]) -> Any:
-        """Run `op(conn)`, reconnecting to a fresh worker and retrying if the
-        worker/connection drops mid-statement. Non-connection errors propagate
-        immediately (no retry); the last connection error is re-raised once the
-        attempt budget is exhausted.
+        """Run `op(conn)`, retrying on two recoverable failure classes:
+
+          * worker/connection drop mid-statement → reconnect to a fresh worker and replay;
+          * transient S3 5xx/throttle while touching object storage → replay on the SAME
+            connection (the worker is healthy) after a backoff.
+
+        Any other (genuine SQL/logic) error propagates immediately. The last recoverable
+        error is re-raised once the attempt budget is exhausted. `op` MUST be idempotent —
+        a replay can re-run an already-applied op (see the class docstring).
         """
         last_exc: Exception | None = None
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
             try:
                 return op(self._conn)
             except Exception as exc:
-                if not _connection_dropped(exc):
+                dropped = _connection_dropped(exc)
+                transient_s3 = _is_transient_s3_error(exc)
+                if not (dropped or transient_s3):
                     raise
                 last_exc = exc
                 if attempt == self.MAX_ATTEMPTS:
                     break
-                self._context.log.warning(
-                    f"duckgres worker/connection dropped during {what} "
-                    f"(attempt {attempt}/{self.MAX_ATTEMPTS}); reconnecting to a fresh worker: {exc}"
-                )
-                logger.warning(
-                    "duckling_duckgres_reconnect",
-                    what=what,
-                    attempt=attempt,
-                    error=str(exc),
-                    error_type=type(exc).__name__,
-                )
-                self._reconnect()
+                if dropped:
+                    self._context.log.warning(
+                        f"duckgres worker/connection dropped during {what} "
+                        f"(attempt {attempt}/{self.MAX_ATTEMPTS}); reconnecting to a fresh worker: {exc}"
+                    )
+                    logger.warning(
+                        "duckling_duckgres_reconnect",
+                        what=what,
+                        attempt=attempt,
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
+                    self._reconnect()
+                else:
+                    # Transient S3 hiccup — the worker is fine, just back off and replay.
+                    self._context.log.warning(
+                        f"transient S3 error during {what} "
+                        f"(attempt {attempt}/{self.MAX_ATTEMPTS}); retrying after backoff: {exc}"
+                    )
+                    logger.warning(
+                        "duckling_duckgres_transient_s3_retry",
+                        what=what,
+                        attempt=attempt,
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
                 time.sleep(min(2**attempt, 30))
-        assert last_exc is not None  # only reached after a connection-drop break
+        assert last_exc is not None  # only reached after a recoverable-error break
         raise last_exc
 
     def _reconnect(self) -> None:
