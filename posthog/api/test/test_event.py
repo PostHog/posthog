@@ -101,10 +101,11 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        # Auth/team/membership/instance-setting lookups, a persons-DB group-type-mapping lookup,
-        # plus the HogQL pipeline's per-probe access-control checks (the progressive-window loop
-        # probes several windows on this sparse dataset; the schema is built once and shared).
-        with self.assertNumQueries(17):
+        # Auth/team/membership/instance-setting lookups, plus the HogQL pipeline's per-probe
+        # access-control checks (the progressive-window loop probes several windows on this
+        # sparse dataset; the schema is built once and shared). Group-type-mapping is read via
+        # personhog, not Postgres, so it's not in this count.
+        with self.assertNumQueries(16):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -129,11 +130,11 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        # Auth/team/membership/access-control/instance-setting lookups, a persons-DB
-        # group-type-mapping lookup, plus the HogQL pipeline's per-probe access-control checks.
-        # The progressive-window loop probes several windows on this sparse dataset; the HogQL
-        # schema is built once and shared across them.
-        expected_queries = 25
+        # Auth/team/membership/access-control/instance-setting lookups, plus the HogQL
+        # pipeline's per-probe access-control checks. The progressive-window loop probes several
+        # windows on this sparse dataset; the HogQL schema is built once and shared across them.
+        # Group-type-mapping is read via personhog, not Postgres, so it's not in this count.
+        expected_queries = 24
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
