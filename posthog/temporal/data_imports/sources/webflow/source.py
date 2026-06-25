@@ -33,6 +33,10 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
+    # Only the static endpoint catalog is credential-free; CMS-collection discovery (a network
+    # call) is skipped when credentials are absent, so the public-docs path stays I/O-free.
+    lists_tables_without_credentials = True
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.WEBFLOW
@@ -73,24 +77,27 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
         # dynamically and expose one schema per collection. Best-effort: if the
         # token can't list collections (missing scope, transient error) we still
         # return the static endpoints rather than failing the whole source.
-        try:
-            for collection in list_collections(config.api_token, config.site_id):
-                slug = collection.get("slug")
-                if not slug:
-                    continue
-                schemas.append(
-                    SourceSchema(
-                        name=f"{COLLECTION_SCHEMA_PREFIX}{slug}",
-                        supports_incremental=False,
-                        supports_append=False,
-                        incremental_fields=[],
-                        label=collection.get("displayName"),
+        # Skip the network call entirely without credentials (e.g. the credential-free
+        # public-docs catalog path), so an unauthenticated caller can't trigger it.
+        if config.api_token and config.site_id:
+            try:
+                for collection in list_collections(config.api_token, config.site_id):
+                    slug = collection.get("slug")
+                    if not slug:
+                        continue
+                    schemas.append(
+                        SourceSchema(
+                            name=f"{COLLECTION_SCHEMA_PREFIX}{slug}",
+                            supports_incremental=False,
+                            supports_append=False,
+                            incremental_fields=[],
+                            label=collection.get("displayName"),
+                        )
                     )
-                )
-        except Exception as e:
-            # Best-effort: a missing scope, transient network error, or schema-discovery
-            # bug shouldn't fail the whole source. Log so the cause is debuggable.
-            logger.debug("Webflow: failed to discover CMS collections, returning static endpoints only", exc_info=e)
+            except Exception as e:
+                # Best-effort: a missing scope, transient network error, or schema-discovery
+                # bug shouldn't fail the whole source. Log so the cause is debuggable.
+                logger.debug("Webflow: failed to discover CMS collections, returning static endpoints only", exc_info=e)
 
         if names is not None:
             names_set = set(names)

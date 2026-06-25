@@ -13,7 +13,6 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 import { harnessLogo } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
-    aggregateHarnessRows,
     type BucketRow,
     buildBucketKeys,
     buildDailyActivity,
@@ -22,7 +21,6 @@ import {
     buildToolDailySeries,
     categorizeHarness,
     deltaPct,
-    type HarnessRawRow,
     mcpDashboardOverviewLogic,
     normalizeBucket,
     pickNotableSessions,
@@ -132,27 +130,6 @@ describe('mcpDashboardOverviewLogic', () => {
             [100, 0, null],
         ])('deltaPct(%s, %s) = %s', (current, previous, expected) => {
             expect(deltaPct(current, previous)).toBe(expected)
-        })
-    })
-
-    describe('aggregateHarnessRows', () => {
-        it('folds raw clients into categories, sums counts, and sorts by volume', () => {
-            const raw: HarnessRawRow[] = [
-                { client: 'claude-code/1.0', total_calls: 100, errors: 10, sessions: 5 },
-                { client: 'claude-code/2.0', total_calls: 50, errors: 5, sessions: 3 },
-                { client: 'cursor/0.4', total_calls: 40, errors: 0, sessions: 2 },
-            ]
-            const result = aggregateHarnessRows(raw)
-            expect(result).toHaveLength(2)
-            expect(result[0]).toEqual({
-                category: 'Claude Code',
-                total_calls: 150,
-                errors: 15,
-                error_rate_pct: 10,
-                sessions: 8,
-                raw_clients: ['claude-code/1.0', 'claude-code/2.0'],
-            })
-            expect(result[1]).toMatchObject({ category: 'Cursor', total_calls: 40, error_rate_pct: 0 })
         })
     })
 
@@ -433,9 +410,14 @@ describe('mcpDashboardOverviewLogic', () => {
             jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
         })
 
-        function reloadCallsSince(callIndex: number): { query: string; filters: Record<string, any> }[] {
+        function reloadCallsSince(callIndex: number): any[] {
             return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
         }
+
+        // HogQL query nodes carry filters under `.filters`; the typed
+        // MCPHarnessBreakdownQuery node carries dateRange/properties/filterTestAccounts
+        // at the top level. This reads whichever shape a reload used.
+        const filtersOf = (call: any): Record<string, any> => call.filters ?? call
 
         it('reloads every tile when the date filter changes', async () => {
             const logic = mcpDashboardOverviewLogic()
@@ -451,10 +433,10 @@ describe('mcpDashboardOverviewLogic', () => {
             // Six tiles: KPI + the five breakdown queries.
             expect(reloads.length).toBe(6)
             // The five breakdowns pass the raw selected range straight through.
-            const breakdowns = reloads.filter((call) => call.filters.dateRange.date_from === '-30d')
+            const breakdowns = reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')
             expect(breakdowns).toHaveLength(5)
             // The KPI tile widens to an absolute doubled window so it can compare against the prior period.
-            const kpi = reloads.find((call) => call.query.includes('AS bucket'))
+            const kpi = reloads.find((call) => call.query?.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
             expect(dayjs(kpi?.filters.dateRange.date_from).isValid()).toBe(true)
         })
@@ -474,7 +456,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             const reloads = reloadCallsSince(callsBefore)
             expect(reloads.length).toBe(6)
-            expect(reloads.every((call) => call.filters.filterTestAccounts === enabled)).toBe(true)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
         })
 
         it('defaults the filter from the team test_account_filters_default_checked setting', async () => {
@@ -487,7 +469,7 @@ describe('mcpDashboardOverviewLogic', () => {
             // No explicit toggle, yet every tile filters internal users because the team default is on.
             const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
             expect(reloads.length).toBeGreaterThanOrEqual(6)
-            expect(reloads.every((call) => call.filters.filterTestAccounts === true)).toBe(true)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
         })
 
         const EVENT_FILTER: AnyPropertyFilter = {
@@ -519,9 +501,9 @@ describe('mcpDashboardOverviewLogic', () => {
 
             const reloads = reloadCallsSince(callsBefore)
             expect(reloads.length).toBe(6)
-            expect(reloads.every((call) => JSON.stringify(call.filters.properties) === JSON.stringify([filter]))).toBe(
-                true
-            )
+            expect(
+                reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
+            ).toBe(true)
         })
 
         it('syncs property filters to the URL and clears the param when emptied', async () => {

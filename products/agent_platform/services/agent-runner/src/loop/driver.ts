@@ -176,19 +176,21 @@ export interface RunSessionDeps {
      * `X-PostHog-Trace-Id`, and `X-PostHog-Properties` (the `$agent_*`
      * attribution) so the gateway-emitted `$ai_generation` events attribute to
      * the right user, trace, and agent application. The `gatewayMetadataStreamFn`
-     * wrapper merges these with a per-turn `Idempotency-Key` + `X-Request-Id` of
-     * the form `agent:<session>:<turn>` and forwards them to pi-ai's per-call
-     * `options.headers`. Presence also signals `errorContext()` to mark
-     * failures as `source: ai_gateway`.
+     * wrapper merges these with a per-turn `Idempotency-Key` of the form
+     * `agent:<session>:<turn>:<nonce>` and forwards them to pi-ai's per-call
+     * `options.headers` (it does NOT send `X-Request-Id` — the gateway mints its
+     * own and returns it in the response header). Presence also signals
+     * `errorContext()` to mark failures as `source: ai_gateway`.
      */
     gatewayHeaders?: Record<string, string>
     /**
      * Gateway read client + the team's `phc_` bearer. When set, after every
      * pi-ai turn the runner fetches `GET /v1/usage/<request_id>` (using the
-     * id stamped by `gatewayMetadataStreamFn`) and merges the
-     * gateway-computed cost into `usage_total.cost_total`. Best-effort: a
-     * transient fetch failure or NaN body is logged + skipped so a gateway
-     * blip can't strand the turn.
+     * gateway's settlement id captured from the response by
+     * `gatewayMetadataStreamFn`) and merges the gateway-computed cost into
+     * `usage_total.cost_total`. Best-effort: a transient fetch failure, a
+     * missing id, or a NaN body is logged/skipped so a gateway blip can't
+     * strand the turn.
      */
     gatewayUsage?: {
         client: GatewayClient
@@ -1359,24 +1361,30 @@ export function translateAssistantNamesBack(
 }
 
 /**
- * Stamp `Idempotency-Key` + caller gateway headers (`X-PostHog-Distinct-Id`,
- * `X-PostHog-Trace-Id`) on every outbound call, and capture the gateway's
- * settlement reference into `turnRequestIds` (keyed by the outbound-call
- * counter) so the sink can fetch settled cost via `GET /v1/usage/<id>` after
- * `turn_end`.
+ * Stamp `Idempotency-Key` + any caller-supplied gateway headers
+ * (`X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`) on every outbound model call,
+ * and capture the gateway's settlement reference into `turnRequestIds` (keyed
+ * by the outbound-call counter) so the sink can fetch settled cost via
+ * `GET /v1/usage/<id>` after `turn_end`.
  *
- * Idempotency-Key must be unique per outbound call. `outboundTurn` resets to 0
- * on every resume, so `agent:<session>:<turn>` alone collides across turns —
- * the gateway replays the stale response cached under its Idempotency-Key
- * window (0-token follow-ups). The per-call `randomUUID()` nonce keeps it
- * unique across resumes yet stable within a call, so pi-ai's SDK-level retries
- * still collapse onto one billed row.
+ * Idempotency-Key MUST be unique per outbound call. `outboundTurn` is a
+ * per-`runSession` counter that resets to 0 on every resume, so a key of just
+ * `agent:<session>:<turn>` collides across turns: the first call of every
+ * follow-up reuses `agent:<session>:1`, which the gateway already has cached
+ * under its 24h Idempotency-Key window from the session's first turn, so the
+ * follow-up replays that stale response with no output (0 tokens). The per-call
+ * `randomUUID()` nonce keeps it unique across resumes yet stable within a call,
+ * so pi-ai's SDK-level retries on transient 5xx still collapse onto one billed
+ * row.
  *
- * The usage lookup keys off the GATEWAY's id, not ours: the gateway mints its
- * own settlement reference (a client-chosen one would let a caller collapse
- * every debit as a duplicate) and returns it in the `X-Request-ID` response
- * header. We read it via pi-ai's `onResponse`. Keying off the runner-chosen id
- * never matched the ledger → cost was always $0.
+ * The usage lookup keys off the GATEWAY's id, not ours. The gateway mints its
+ * own settlement reference server-side — a client-chosen id would let a caller
+ * collapse every debit as a duplicate — and returns it in the `X-Request-ID`
+ * response header; it ignores any inbound `X-Request-Id`. We read it back via
+ * pi-ai's `onResponse` (header keys are lowercased). Keying off the
+ * runner-chosen id never matched the ledger → `getUsage` 404'd every turn and
+ * cost stayed $0. A missing header (no `onResponse`, gateway misroute) just
+ * leaves the turn's entry unset → cost merge is skipped (fail-open).
  */
 function gatewayMetadataStreamFn(
     base: StreamFn,

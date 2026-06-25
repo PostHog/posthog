@@ -638,33 +638,35 @@ describe('driver runSession', () => {
      * cost fetch. Uses a recording `streamFn` injected via deps so we can
      * inspect the headers pi-ai would see, and a fake GatewayClient so we
      * can drive cost merge without hitting a real /v1/usage. The behaviour
-     * here is load-bearing for the ai-gateway path — without the per-turn
-     * `request_id` stamp + Idempotency-Key, the gateway can't dedupe pi-ai
-     * retries onto a single billed row, and without the post-turn
-     * `getUsage` merge `usage_total.cost_total` stays zero forever.
+     * here is load-bearing for the ai-gateway path: the Idempotency-Key lets
+     * the gateway collapse pi-ai retries onto one billed row, and the post-turn
+     * `getUsage` keyed by the gateway's OWN response id is the sole source of
+     * `usage_total.cost_total` — key it wrong and cost stays zero forever.
      */
     describe('gateway metadata + post-turn settled cost', () => {
-        // A streamFn that delegates to `streamSimple` (faux provider) but records
-        // each call's options.headers. When `gatewayRequestId` is set it also
-        // fires `onResponse` with an `X-Request-ID` header to mimic the gateway's
-        // minted settlement reference — the faux provider returns no headers, so
-        // the cost-lookup path is otherwise never exercised.
+        // Build a streamFn that delegates to `streamSimple` but records every
+        // call's options.headers. When `gatewayRequestId` is given it first
+        // fires `onResponse` with that id in the (lowercased) `x-request-id`
+        // header — the faux provider returns no response headers, so this
+        // simulates the gateway stamping its server-minted settlement id.
         function recordingStreamFn(
             calls: Array<{ headers: Record<string, string> | undefined }>,
             gatewayRequestId?: string
         ): Parameters<typeof runSession>[2]['streamFn'] {
-            return (model, ctx, opts) => {
+            return async (model, ctx, opts) => {
                 calls.push({ headers: opts?.headers as Record<string, string> | undefined })
                 if (gatewayRequestId) {
-                    void opts?.onResponse?.({ status: 200, headers: { 'x-request-id': gatewayRequestId } }, model)
+                    await opts?.onResponse?.({ status: 200, headers: { 'x-request-id': gatewayRequestId } }, model)
                 }
                 return streamSimple(model, ctx, opts)
             }
         }
 
-        it('stamps Idempotency-Key per turn and looks up settled cost by the gateway X-Request-ID', async () => {
+        it('keys settled cost by the gateway response id, not the Idempotency-Key', async () => {
             const calls: Array<{ headers: Record<string, string> | undefined }> = []
-            const GW_ID = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4'
+            // The gateway mints this server-side and returns it in X-Request-ID;
+            // the runner must fetch usage by THIS id, never its own outbound key.
+            const GW_ID = 'a1b2c3d4e5f600112233445566778899'
             const getUsage = vi.fn(async (requestId: string) => ({
                 request_id: requestId,
                 team_id: 1,
@@ -680,40 +682,23 @@ describe('driver runSession', () => {
                 gatewayEmitsGenerations: true,
             })
             expect(out.state).toBe('completed')
+            // One outbound call carrying the static gateway headers + the per-turn
+            // Idempotency-Key. X-Request-Id is NOT sent (the gateway ignores any
+            // inbound value and mints its own).
             expect(calls).toHaveLength(1)
             expect(calls[0].headers).toMatchObject({
                 'X-PostHog-Distinct-Id': 'team:1:agent:app',
                 'X-PostHog-Trace-Id': TEST_SESSION_ID,
             })
-            // Idempotency-Key dedupes pi-ai retries (unique per call via the
-            // nonce — see the resume test). We no longer send X-Request-Id: the
-            // gateway ignores an inbound one and mints its own.
-            const idemKey = calls[0].headers?.['Idempotency-Key']
-            expect(idemKey).toMatch(new RegExp(`^agent:${TEST_SESSION_ID}:1:[0-9a-f-]{36}$`))
+            const idempotencyKey = calls[0].headers?.['Idempotency-Key']
+            expect(idempotencyKey).toMatch(new RegExp(`^agent:${TEST_SESSION_ID}:1:[0-9a-f-]{36}$`))
             expect(calls[0].headers ?? {}).not.toHaveProperty('X-Request-Id')
-            // Cost is looked up by the GATEWAY's id (captured from the response
-            // header), NOT our idempotency key — keying off ours never matched
-            // the ledger, so cost was always $0.
+            // getUsage was keyed by the GATEWAY id from the response header, not
+            // our Idempotency-Key (the old bug); the cost merged into usage_total.
             expect(getUsage).toHaveBeenCalledTimes(1)
             expect(getUsage).toHaveBeenCalledWith(GW_ID, { phc: 'phc_test' })
-            expect(getUsage).not.toHaveBeenCalledWith(idemKey, { phc: 'phc_test' })
+            expect(getUsage).not.toHaveBeenCalledWith(idempotencyKey, { phc: 'phc_test' })
             expect(session.usage_total.cost_total).toBeCloseTo(0.42, 5)
-        })
-
-        it('skips the cost lookup when the gateway returns no X-Request-ID (fail open, cost stays 0)', async () => {
-            const calls: Array<{ headers: Record<string, string> | undefined }> = []
-            const getUsage = vi.fn(async () => ({ request_id: 'x', team_id: 1, cost_usd: '9.99' }))
-            const session = makeSession()
-            const out = await run(makeRev(), session, {
-                script: [stop('hi back')],
-                // No gatewayRequestId → no X-Request-ID header captured.
-                streamFn: recordingStreamFn(calls),
-                gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
-                gatewayEmitsGenerations: true,
-            })
-            expect(out.state).toBe('completed')
-            expect(getUsage).not.toHaveBeenCalled()
-            expect(session.usage_total.cost_total).toBe(0)
         })
 
         it('uses a unique Idempotency-Key per call so resumes never collide', async () => {
@@ -749,7 +734,7 @@ describe('driver runSession', () => {
         it('survives a getUsage NaN/failure without polluting cost_total', async () => {
             const calls: Array<{ headers: Record<string, string> | undefined }> = []
             const getUsage = vi.fn(async () => ({
-                request_id: `agent:${TEST_SESSION_ID}:1`,
+                request_id: 'gw-nan',
                 team_id: 1,
                 cost_usd: 'not-a-number',
                 settled_at: new Date().toISOString(),
@@ -757,13 +742,39 @@ describe('driver runSession', () => {
             const session = makeSession()
             const out = await run(makeRev(), session, {
                 script: [stop('hi back')],
-                streamFn: recordingStreamFn(calls, 'gw_nan_ref'),
+                // Simulate the gateway returning an id so the cost fetch is reached.
+                streamFn: recordingStreamFn(calls, 'gw-nan'),
                 gatewayHeaders: {},
                 gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
                 gatewayEmitsGenerations: true,
             })
             expect(out.state).toBe('completed')
-            expect(getUsage).toHaveBeenCalledWith('gw_nan_ref', { phc: 'phc_test' })
+            expect(getUsage).toHaveBeenCalledWith('gw-nan', { phc: 'phc_test' })
+            expect(session.usage_total.cost_total).toBe(0)
+        })
+
+        it('fails open when the gateway returns no X-Request-ID: no getUsage, cost stays 0', async () => {
+            // No gateway id → recordingStreamFn lets the faux provider fire
+            // onResponse with empty headers (the gateway-misroute / header-strip
+            // case). turnRequestIds never gets an id, so the cost fetch is
+            // skipped cleanly instead of 404'ing on a bogus key.
+            const calls: Array<{ headers: Record<string, string> | undefined }> = []
+            const getUsage = vi.fn(async () => ({
+                request_id: 'unused',
+                team_id: 1,
+                cost_usd: '9.99',
+                settled_at: new Date().toISOString(),
+            }))
+            const session = makeSession()
+            const out = await run(makeRev(), session, {
+                script: [stop('hi back')],
+                streamFn: recordingStreamFn(calls),
+                gatewayHeaders: {},
+                gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
+                gatewayEmitsGenerations: true,
+            })
+            expect(out.state).toBe('completed')
+            expect(getUsage).not.toHaveBeenCalled()
             expect(session.usage_total.cost_total).toBe(0)
         })
 

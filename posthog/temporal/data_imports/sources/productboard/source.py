@@ -44,6 +44,8 @@ def _probe_path(schema_name: Optional[str]) -> str:
 
 @SourceRegistry.register
 class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PRODUCTBOARD

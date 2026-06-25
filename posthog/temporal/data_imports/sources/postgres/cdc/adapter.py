@@ -7,7 +7,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
+from posthog.temporal.data_imports.cdc.errors import cdc_error_info
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
+from posthog.temporal.data_imports.sources.postgres.cdc.errors import classify_postgres_cdc_error
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     add_table_to_publication,
     cdc_pg_connection,
@@ -28,6 +30,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
 from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 
 if TYPE_CHECKING:
+    from posthog.temporal.data_imports.cdc.errors import CDCErrorInfo
     from posthog.temporal.data_imports.cdc.types import CDCStreamReader
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -110,6 +113,10 @@ class PostgresCDCAdapter:
 
     def is_slot_invalidation_error(self, exc: BaseException) -> bool:
         return is_slot_invalidation_error(exc)
+
+    def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
+        category = classify_postgres_cdc_error(exc)
+        return cdc_error_info(category) if category is not None else None
 
     def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         """Drop the dead replication slot and create a fresh one against the existing

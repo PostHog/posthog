@@ -1858,6 +1858,29 @@ export namespace Schemas {
       ActivityEventsList: 'activity_events_list',
     } as const;
 
+    export type ActivityEventsListWidgetUpdateRequestOpenApiWidgetType = typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ActivityEventsListWidgetUpdateRequestOpenApiWidgetType = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
+    export interface ActivityEventsListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: ActivityEventsListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the recent events widget. Omit to leave unchanged. */
+      config?: ActivityEventsListWidgetConfig;
+    }
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -14117,6 +14140,94 @@ export namespace Schemas {
       source: string;
     }
 
+    /**
+     * * `text` - text
+     * * `number` - number
+     * * `currency` - currency
+     * * `percent` - percent
+     * * `date` - date
+     * * `datetime` - datetime
+     * * `boolean` - boolean
+     */
+    export type CustomPropertyDisplayTypeEnum = typeof CustomPropertyDisplayTypeEnum[keyof typeof CustomPropertyDisplayTypeEnum];
+
+
+    export const CustomPropertyDisplayTypeEnum = {
+      Text: 'text',
+      Number: 'number',
+      Currency: 'currency',
+      Percent: 'percent',
+      Date: 'date',
+      Datetime: 'datetime',
+      Boolean: 'boolean',
+    } as const;
+
+    /**
+     * A team-scoped definition of a custom account property — the attribute side of the model.
+     *
+     * Holds only the property's shape (name, display type, big-number flag). Per-account values are
+     * stored separately, so this serializer never reads or writes account values. The numeric-only
+     * big-number rule and the unique-name conflict are enforced behind the facade.
+     */
+    export interface CustomPropertyDefinition {
+      readonly id: string;
+      /**
+         * Human-readable name of the custom property. Unique within the team.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Optional description of what the property represents.
+         * @nullable
+         */
+      description?: string | null;
+      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+       *
+       * * `text` - text
+       * * `number` - number
+       * * `currency` - currency
+       * * `percent` - percent
+       * * `date` - date
+       * * `datetime` - datetime
+       * * `boolean` - boolean */
+      display_type: CustomPropertyDisplayTypeEnum;
+      /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
+      is_big_number?: boolean;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
+     * An account's current value for a custom property (read shape).
+     */
+    export interface CustomPropertyValue {
+      /** Unique id of this value record. */
+      readonly id: string;
+      /** Account the value belongs to. */
+      readonly account_id: string;
+      /** Custom property definition the value is for. */
+      readonly definition_id: string;
+      /** The stored value, typed per the property's data type. */
+      readonly value: string | number | boolean;
+      /** When this value was set. */
+      readonly created_at: string;
+      /**
+         * Id of the user who set this value, if known.
+         * @nullable
+         */
+      readonly created_by_id: number | null;
+    }
+
+    export interface CustomPropertyValueWrite {
+      /** UUID of the custom property definition whose value to set for this account. */
+      definition: string;
+      /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties. */
+      value: string | number | boolean;
+    }
+
     export interface CustomerJourney {
       readonly id: string;
       insight: number;
@@ -19468,6 +19579,29 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
+    export type ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType = {
+      ErrorTrackingList: 'error_tracking_list',
+    } as const;
+
+    export interface ErrorTrackingListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the top issues widget. Omit to leave unchanged. */
+      config?: ErrorTrackingListWidgetConfig;
+    }
+
     export interface ErrorTrackingRecommendation {
       /** Recommendation UUID. */
       id: string;
@@ -21229,6 +21363,29 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
     } as const;
 
+    export type ExperimentResultsWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ExperimentResultsWidgetUpdateRequestOpenApiWidgetType = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
+    export interface ExperimentResultsWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: ExperimentResultsWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the experiment results widget. Omit to leave unchanged. */
+      config?: ExperimentResultsWidgetConfig;
+    }
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -21286,6 +21443,29 @@ export namespace Schemas {
     export const ExperimentsListWidgetTypeEnum = {
       ExperimentsList: 'experiments_list',
     } as const;
+
+    export type ExperimentsListWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ExperimentsListWidgetUpdateRequestOpenApiWidgetType = {
+      ExperimentsList: 'experiments_list',
+    } as const;
+
+    export interface ExperimentsListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: ExperimentsListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the experiments list widget. Omit to leave unchanged. */
+      config?: ExperimentsListWidgetConfig;
+    }
 
     export interface ExplainRequest {
       /** UUID of the log entry to explain */
@@ -24113,6 +24293,8 @@ export namespace Schemas {
       readonly snapshots: readonly HeatmapSnapshotMetadata[];
       /** Soft-delete flag; deleted heatmaps are hidden from the list. */
       deleted?: boolean;
+      /** Whether the headless browser dismisses cookie/consent banners before capturing the screenshot. Only applies to 'screenshot' heatmaps. */
+      block_consent_modals?: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -26138,6 +26320,90 @@ export namespace Schemas {
       Low: 'low',
     } as const;
 
+    /**
+     * The resolved person behind one side of a link, with a curated set of properties that mirror
+     * the match signals (geo, device, campaign) so a reviewer can judge whether the link is plausible.
+     */
+    export interface IdentityMatchingPerson {
+      /** Distinct ID this person was resolved from. */
+      distinct_id: string;
+      /**
+         * When this person was first seen — person created_at (UTC).
+         * @nullable
+         */
+      first_seen: string | null;
+      /**
+         * When this person was last seen, when tracked — person last_seen_at (UTC).
+         * @nullable
+         */
+      last_seen: string | null;
+      /**
+         * Person's email, when set.
+         * @nullable
+         */
+      email: string | null;
+      /**
+         * Person's name property, when set.
+         * @nullable
+         */
+      name: string | null;
+      /**
+         * GeoIP city ($geoip_city_name).
+         * @nullable
+         */
+      city: string | null;
+      /**
+         * GeoIP country code ($geoip_country_code).
+         * @nullable
+         */
+      country: string | null;
+      /**
+         * Browser ($browser).
+         * @nullable
+         */
+      browser: string | null;
+      /**
+         * Operating system ($os).
+         * @nullable
+         */
+      os: string | null;
+      /**
+         * Device type, e.g. Desktop or Mobile ($device_type).
+         * @nullable
+         */
+      device_type: string | null;
+      /**
+         * Browser timezone ($timezone).
+         * @nullable
+         */
+      timezone: string | null;
+      /**
+         * Initial campaign source ($initial_utm_source).
+         * @nullable
+         */
+      utm_source: string | null;
+      /**
+         * Initial campaign medium ($initial_utm_medium).
+         * @nullable
+         */
+      utm_medium: string | null;
+      /**
+         * Initial campaign name ($initial_utm_campaign).
+         * @nullable
+         */
+      utm_campaign: string | null;
+      /**
+         * Initial referring domain ($initial_referring_domain).
+         * @nullable
+         */
+      referring_domain: string | null;
+      /**
+         * Initial Google click ID ($initial_gclid); present when the person arrived via a paid Google ad.
+         * @nullable
+         */
+      gclid: string | null;
+    }
+
     export interface IdentityMatchingLink {
       /** Identity matching run that produced this link. */
       job_id: string;
@@ -26185,6 +26451,10 @@ export namespace Schemas {
       orphan_paid_touch: boolean;
       /** The matched person already had a paid click ID inside the window. */
       anchor_paid_touch: boolean;
+      /** Resolved person behind the anonymous distinct ID; null when no profile exists for it. */
+      orphan_person: IdentityMatchingPerson | null;
+      /** Resolved identified person behind the matched person key; null when no profile exists for it. */
+      anchor_person: IdentityMatchingPerson | null;
     }
 
     export interface IdentityMatchingLinksResponse {
@@ -26361,6 +26631,7 @@ export namespace Schemas {
     /**
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -26388,6 +26659,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
@@ -26403,6 +26675,7 @@ export namespace Schemas {
     export const IntegrationKindEnum = {
       Anthropic: 'anthropic',
       Apns: 'apns',
+      AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -26430,6 +26703,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
+      S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
@@ -26445,6 +26719,7 @@ export namespace Schemas {
        *
        * * `anthropic` - Anthropic
        * * `apns` - Apple Push
+       * * `aws-s3` - Aws S3
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
@@ -26472,6 +26747,7 @@ export namespace Schemas {
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
        * * `reddit-ads` - Reddit Ads
+       * * `s3-compatible` - S3 Compatible
        * * `salesforce` - Salesforce
        * * `slack` - Slack
        * * `slack-posthog-code` - Slack Posthog Code
@@ -29890,6 +30166,15 @@ export namespace Schemas {
       results: CoreEvent[];
     }
 
+    export interface PaginatedCustomPropertyDefinitionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CustomPropertyDefinition[];
+    }
+
     export interface PaginatedCustomerJourneyList {
       count: number;
       /** @nullable */
@@ -33238,6 +33523,8 @@ export namespace Schemas {
       ai_resolved?: boolean;
       /** @nullable */
       escalation_reason?: string | null;
+      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+      readonly ai_triage: unknown;
       readonly created_at: string;
       readonly updated_at: string;
       readonly message_count: number;
@@ -35110,6 +35397,44 @@ export namespace Schemas {
       filter?: unknown;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    /**
+     * A team-scoped definition of a custom account property — the attribute side of the model.
+     *
+     * Holds only the property's shape (name, display type, big-number flag). Per-account values are
+     * stored separately, so this serializer never reads or writes account values. The numeric-only
+     * big-number rule and the unique-name conflict are enforced behind the facade.
+     */
+    export interface PatchedCustomPropertyDefinition {
+      readonly id?: string;
+      /**
+         * Human-readable name of the custom property. Unique within the team.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Optional description of what the property represents.
+         * @nullable
+         */
+      description?: string | null;
+      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+       *
+       * * `text` - text
+       * * `number` - number
+       * * `currency` - currency
+       * * `percent` - percent
+       * * `date` - date
+       * * `datetime` - datetime
+       * * `boolean` - boolean */
+      display_type?: CustomPropertyDisplayTypeEnum;
+      /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
+      is_big_number?: boolean;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedCustomerJourney {
@@ -39042,6 +39367,8 @@ export namespace Schemas {
       type?: HeatmapType;
       /** Set true to soft-delete the saved heatmap. */
       deleted?: boolean;
+      /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+      block_consent_modals?: boolean;
     }
 
     export interface PatchedScheduledChange {
@@ -40577,6 +40904,8 @@ export namespace Schemas {
       ai_resolved?: boolean;
       /** @nullable */
       escalation_reason?: string | null;
+      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+      readonly ai_triage?: unknown;
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly message_count?: number;
@@ -40681,6 +41010,43 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const SessionReplayListWidgetUpdateRequestOpenApiWidgetType = {
+      SessionReplayList: 'session_replay_list',
+    } as const;
+
+    export interface SessionReplayListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: SessionReplayListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the recent recordings widget. Omit to leave unchanged. */
+      config?: SessionReplayListWidgetConfig;
+    }
+
+    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi;
+
+    /**
+     * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
+     */
+    export interface PatchedUpdateDashboardWidgetsBatchRequestOpenApi {
+      /**
+         * Widget tiles to update atomically, each identified by its tile_id. config shape is per widget_type; see dashboard-widget-catalog-list for per-type config_schema (1–10 per request).
+         * @minItems 1
+         * @maxItems 10
+         */
+      widgets?: UpdateDashboardWidgetRequest[];
     }
 
     /**
@@ -45834,6 +46200,8 @@ export namespace Schemas {
       type?: HeatmapType;
       /** Set true to soft-delete the saved heatmap. */
       deleted?: boolean;
+      /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+      block_consent_modals?: boolean;
     }
 
     /**
@@ -50215,6 +50583,11 @@ export namespace Schemas {
       target_language?: string;
     }
 
+    export interface UpdateDashboardWidgetsBatchResponse {
+      /** Updated dashboard widget tiles in request order. */
+      tiles: DashboardTile[];
+    }
+
     export interface UpdateTextTileRequest {
       /** ID of the dashboard tile to update. Use dashboard-get to look up tile IDs. */
       tile_id: number;
@@ -50293,6 +50666,11 @@ export namespace Schemas {
     export interface UserAuthSession {
       /** Identifier used to revoke this login session. */
       readonly id: string;
+      /**
+         * When this login session was first created — the original sign-in time.
+         * @nullable
+         */
+      readonly created_at: string | null;
       /** When this login session last made a request (refreshed periodically). */
       readonly last_activity: string;
       /** Approximate city and country derived from the IP address, if known. */
@@ -52068,6 +52446,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by creation date or author. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Full-text search across notebook title and content.
+     */
+    search?: string;
     };
 
     export type EnvironmentsAlertsListParams = {
@@ -52284,6 +52670,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsCoreMemoryListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsCustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -52597,6 +52994,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsWidgetsBatchCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsUpdateWidgetsBatchParams = {
+    format?: EnvironmentsDashboardsUpdateWidgetsBatchFormat;
+    };
+
+    export type EnvironmentsDashboardsUpdateWidgetsBatchFormat = typeof EnvironmentsDashboardsUpdateWidgetsBatchFormat[keyof typeof EnvironmentsDashboardsUpdateWidgetsBatchFormat];
+
+
+    export const EnvironmentsDashboardsUpdateWidgetsBatchFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -54489,6 +54898,7 @@ export namespace Schemas {
     /**
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -54516,6 +54926,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
@@ -54542,6 +54953,7 @@ export namespace Schemas {
     export const EnvironmentsIntegrationsListKind = {
       Anthropic: 'anthropic',
       Apns: 'apns',
+      AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -54569,6 +54981,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
+      S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
@@ -56834,6 +57247,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by creation date or author. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Full-text search across notebook title and content.
+     */
+    search?: string;
     };
 
     export type ActionsListParams = {
@@ -58034,6 +58455,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type CustomPropertyDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
@@ -58370,6 +58802,18 @@ export namespace Schemas {
 
 
     export const DashboardsWidgetsBatchCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsUpdateWidgetsBatchParams = {
+    format?: DashboardsUpdateWidgetsBatchFormat;
+    };
+
+    export type DashboardsUpdateWidgetsBatchFormat = typeof DashboardsUpdateWidgetsBatchFormat[keyof typeof DashboardsUpdateWidgetsBatchFormat];
+
+
+    export const DashboardsUpdateWidgetsBatchFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -60791,6 +61235,7 @@ export namespace Schemas {
     /**
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -60818,6 +61263,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
@@ -60844,6 +61290,7 @@ export namespace Schemas {
     export const IntegrationsListKind = {
       Anthropic: 'anthropic',
       Apns: 'apns',
+      AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -60871,6 +61318,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
+      S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
@@ -62684,13 +63132,21 @@ export namespace Schemas {
      */
     content_max_chars?: number;
     /**
+     * ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.
+     */
+    date_from?: string;
+    /**
+     * ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry from the prior page).
+     */
+    date_to?: string;
+    /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */
     keys_only?: boolean;
     /**
-     * Max rows to return (default 20, hard cap 100).
+     * Max rows to return (default 20, hard cap 500).
      * @minimum 1
-     * @maximum 100
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -63347,6 +63803,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter to the actions belonging to one scanner.
+     */
+    scanner?: string;
     };
 
     export type VisionObservationsListParams = {

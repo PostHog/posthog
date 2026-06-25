@@ -200,7 +200,9 @@ class AkeneoSourceConfig(config.Config):
 
 @config.config
 class AlgoliaSourceConfig(config.Config):
-    pass
+    application_id: str
+    api_key: str
+    index_name: str
 
 
 @config.config
@@ -745,7 +747,7 @@ class CoinGeckoSourceConfig(config.Config):
 
 @config.config
 class CoinMarketCapSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -997,7 +999,7 @@ class EZOfficeInventorySourceConfig(config.Config):
 
 @config.config
 class EasypostSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1243,7 +1245,8 @@ class GainsightPxSourceConfig(config.Config):
 
 @config.config
 class GiphySourceConfig(config.Config):
-    pass
+    api_key: str
+    search_query: str | None = None
 
 
 @config.config
@@ -1712,7 +1715,7 @@ class LeexiSourceConfig(config.Config):
 
 @config.config
 class LemlistSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2141,7 +2144,8 @@ class OpenFDASourceConfig(config.Config):
 
 @config.config
 class OpenWeatherSourceConfig(config.Config):
-    pass
+    api_key: str
+    locations: str
 
 
 @config.config
@@ -2648,7 +2652,7 @@ class RollbarSourceConfig(config.Config):
 
 @config.config
 class RootlySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2753,7 +2757,8 @@ class SecodaSourceConfig(config.Config):
 
 @config.config
 class SegmentSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["api", "eu1"] = config.value(default="api")
 
 
 @config.config
@@ -3049,7 +3054,7 @@ class SystemeSourceConfig(config.Config):
 
 @config.config
 class TMDbSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3266,7 +3271,8 @@ class VeeqoSourceConfig(config.Config):
 
 @config.config
 class VercelSourceConfig(config.Config):
-    pass
+    access_token: str
+    team_id: str | None = None
 
 
 @config.config
@@ -3320,7 +3326,9 @@ class WooCommerceSourceConfig(config.Config):
 
 @config.config
 class WordpressSourceConfig(config.Config):
-    pass
+    site_url: str
+    username: str | None = None
+    application_password: str | None = None
 
 
 @config.config
@@ -3422,7 +3430,7 @@ class ZapierSupportedStorageSourceConfig(config.Config):
 
 @config.config
 class ZendeskSellSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
