@@ -1,16 +1,16 @@
-import { BlockProxy } from '~/recording-rasterizer/capture/block-proxy'
-import { BrowserPool } from '~/recording-rasterizer/capture/browser-pool'
-import { capturePlayback } from '~/recording-rasterizer/capture/capture'
-import { CapturePage } from '~/recording-rasterizer/capture/capture-page'
-import { PlayerController } from '~/recording-rasterizer/capture/player'
-import { rasterizeRecording } from '~/recording-rasterizer/capture/recorder'
-import { RasterizeRecordingInput } from '~/recording-rasterizer/types'
+import { BlockProxy } from '~/session-replay/recording-rasterizer/capture/block-proxy'
+import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { capturePlayback } from '~/session-replay/recording-rasterizer/capture/capture'
+import { CapturePage } from '~/session-replay/recording-rasterizer/capture/capture-page'
+import { PlayerController } from '~/session-replay/recording-rasterizer/capture/player'
+import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
+import { RasterizeRecordingInput } from '~/session-replay/recording-rasterizer/types'
 
-jest.mock('~/recording-rasterizer/capture/capture')
-jest.mock('~/recording-rasterizer/capture/capture-page')
-jest.mock('~/recording-rasterizer/capture/block-proxy')
-jest.mock('~/recording-rasterizer/capture/player')
-jest.mock('~/recording-rasterizer/logger', () => ({
+jest.mock('~/session-replay/recording-rasterizer/capture/capture')
+jest.mock('~/session-replay/recording-rasterizer/capture/capture-page')
+jest.mock('~/session-replay/recording-rasterizer/capture/block-proxy')
+jest.mock('~/session-replay/recording-rasterizer/capture/player')
+jest.mock('~/session-replay/recording-rasterizer/logger', () => ({
     createLogger: () => ({
         info: jest.fn(),
         warn: jest.fn(),
