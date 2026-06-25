@@ -160,23 +160,30 @@ Every row's **core count is explicit** — comparing a 1-core row to a 4-core ro
 (an earlier version of this table did exactly that and so misleadingly showed parallel FFI
 "beating" single-threaded in-process Rust).
 
-| mode | cores | marshalling? | events/s (representative) | vs Node (same cores) |
-|---|---|---|---|---|
-| Node (V8) | 1 | — | ~10–15k | 1.00× |
-| Rust in-process | 1 | no | ~17–20k | **~1.3–1.5×** |
-| Rust in-process | 4 | no | ~60–80k | (≈3.7× the 1-core Rust) |
-| Rust-from-Node FFI | 1 | yes | ~12k | **~0.8–1.0×** (≈ or below Node) |
-| Rust-from-Node FFI | 4 | yes | ~28–36k | ~1.9–2.4× |
+One coherent run (same machine state — compare these rows to each other, not to other runs):
 
-**The FFI boundary is the dominant cost, not the VM.** The napi round-trip (serde-materialising
-10k events × a 128-element series into `serde_json::Value`, then results back) costs ~250–300 ms —
-*larger than the 4-core compute itself* (~130–160 ms). So **single-threaded Rust-from-Node is
-actually ≈ or slower than pure Node**: the marshalling tax cancels Rust's single-core edge (note
-how `ffi single` ≈ 12k lands below both `Rust in-process single` and even Node). FFI only beats
-Node by spending cores against that fixed tax. The honest wins are in-process: **Rust beats Node
-~1.4× single-core and scales ~3.7× on 4 cores.** The FFI path is marshalling-bound and never used
-the efficient typed-array transfer its own design section (§3) advocated — a flat `Float64Array`
-per-event boundary instead of JS objects → `serde_json::Value` is the obvious next optimization.
+| mode | cores | boundary | events/s | vs Node (same cores) |
+|---|---|---|---|---|
+| Node (V8) | 1 | — | 10.7k | 1.00× |
+| Rust in-process | 1 | none | 17.7k | **1.6×** |
+| Rust in-process | 4 | none | 66.2k | (3.7× the 1-core Rust) |
+| Rust-from-Node FFI | 1 | JS objects → `serde_json::Value` | 12.9k | ~1.2× (≈ Node) |
+| Rust-from-Node FFI | 4 | JS objects → `serde_json::Value` | 29.0k | ~2.7× |
+| **Rust-from-Node FFI (flat)** | 1 | packed `Float64Array` | **16.9k** | **~1.6× — ≈ in-process** |
+| **Rust-from-Node FFI (flat)** | 4 | packed `Float64Array` | **67.0k** | **~6.2× — ≈ in-process** |
+
+**The FFI boundary was the dominant cost — and it's fixable.** With the JS-object boundary the napi
+round-trip (walking 10k events × a 128-element series into `serde_json::Value`, then results back)
+cost ~250–300 ms — *larger than the 4-core compute itself* (~150 ms) — so object-FFI single (12.9k)
+barely beat Node and object-FFI parallel (29k) reached only ~44% of in-process parallel (66k).
+Replacing it with a **flat `Float64Array` boundary** (every event's series packed contiguously +
+one `k` per event, transferred as a bulk copy; Rust rebuilds the globals natively and returns
+results as a `Float64Array`) **closes the gap entirely**: flat-FFI single (16.9k) ≈ in-process
+single (17.7k) and flat-FFI parallel (67.0k) ≈ in-process parallel (66.2k). So Rust-from-Node can be
+as fast as in-process — the boundary, not the VM or the FFI itself, was the ceiling. (`executeBatch`
+keeps the generic JS-object path; `executeBatchFlat` is the lean one. The flat path is
+workload-shaped — it knows the `{series, k}` schema — so a production version would pass each
+product's fixed schema flat rather than as JS objects.)
 
 #### Perf investigation (why Rust started out *slower* than Node, and the fix)
 Initially Rust single-thread lost to V8 (0.76×) — suspicious for an interpreter. A `callgrind`
@@ -192,10 +199,12 @@ handling:
   array-heavy workloads, but real for instruction-heavy ones.)
 
 Net: that perf work roughly doubled Rust single-thread throughput, flipping it from ~0.76× to
-~1.4× Node (both single-core) and giving ~3.7× rayon scaling on 4 cores. Lesson: "Rust is slow"
+~1.6× Node (both single-core) and giving ~3.7× rayon scaling on 4 cores. Lesson: "Rust is slow"
 was an implementation bug, not a property of the language. The *separate* lesson from the FFI
-decomposition above: once you cross the napi boundary, marshalling — not the VM — sets the ceiling,
-so the in-process parallel path is the one that actually leaves Node far behind.
+decomposition above: marshalling — not the VM — set the FFI ceiling, and switching the boundary
+from JS objects to a packed `Float64Array` removed it, so Rust-from-Node now matches in-process
+(~6× Node on 4 cores). Both the parallel paths — in-process and lean-boundary FFI — leave Node far
+behind.
 
 What remains (Phase 2): the residual cost is the value model itself — `Vec::clone` (12%) and
 `drop_in_place<HogLiteral>` (~16%) from cloning/dropping a `Vec<HogValue>` on every array op.
