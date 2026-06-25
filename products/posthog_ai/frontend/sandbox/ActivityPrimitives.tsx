@@ -130,6 +130,19 @@ export function ActivityHeader({
                 hasDetails && isDetailsExpanded && 'bg-fill-button-tertiary-active'
             )}
             onClick={hasDetails ? onToggleDetails : undefined}
+            onKeyDown={
+                hasDetails
+                    ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              onToggleDetails()
+                          }
+                      }
+                    : undefined
+            }
+            role={hasDetails ? 'button' : undefined}
+            tabIndex={hasDetails ? 0 : undefined}
+            aria-expanded={hasDetails ? isDetailsExpanded : undefined}
             aria-label={hasDetails ? (isDetailsExpanded ? 'Collapse history' : 'Expand history') : undefined}
         >
             {icon && (
