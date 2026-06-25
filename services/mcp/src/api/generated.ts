@@ -5243,6 +5243,26 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
+    export type LLMSentimentMessageScores = {[key: string]: number} | null;
+
+    export interface LLMSentimentMessage {
+      label: string;
+      score: number;
+      scores?: LLMSentimentMessageScores;
+    }
+
+    export type LLMSentimentResultMessages = {[key: string]: LLMSentimentMessage} | null;
+
+    export type LLMSentimentResultScores = {[key: string]: number} | null;
+
+    export interface LLMSentimentResult {
+      label: string;
+      message_count?: number | null;
+      messages?: LLMSentimentResultMessages;
+      score: number;
+      scores?: LLMSentimentResultScores;
+    }
+
     export type LLMTraceEventProperties = { [key: string]: unknown };
 
     export interface LLMTraceEvent {
@@ -5250,6 +5270,7 @@ export namespace Schemas {
       event: AIEventType | string;
       id: string;
       properties: LLMTraceEventProperties;
+      sentiment?: LLMSentimentResult | null;
     }
 
     export type LLMTracePersonProperties = { [key: string]: unknown };
@@ -5277,6 +5298,7 @@ export namespace Schemas {
       outputTokens?: number | null;
       person?: LLMTracePerson | null;
       requestCost?: number | null;
+      sentiment?: LLMSentimentResult | null;
       tools?: string[] | null;
       totalCost?: number | null;
       totalLatency?: number | null;
@@ -6756,6 +6778,8 @@ export namespace Schemas {
       filterTestAccounts?: boolean | null;
       groupKey?: string | null;
       groupTypeIndex?: number | null;
+      /** Include stored sentiment evaluation results for returned traces and direct generation events. */
+      includeSentiment?: boolean | null;
       kind?: 'TracesQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -6800,6 +6824,8 @@ export namespace Schemas {
 
     export interface TraceQuery {
       dateRange?: DateRange | null;
+      /** Include stored sentiment evaluation results for the trace and its generations. */
+      includeSentiment?: boolean | null;
       kind?: 'TraceQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -9183,6 +9209,20 @@ export namespace Schemas {
       /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
       breakdown_results?: BreakdownSimulationResult[];
     }
+
+    /**
+     * * `trace` - trace
+     * * `generation` - generation
+     * * `evaluation` - evaluation
+     */
+    export type AnalysisLevelEnum = typeof AnalysisLevelEnum[keyof typeof AnalysisLevelEnum];
+
+
+    export const AnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+      Evaluation: 'evaluation',
+    } as const;
 
     /**
      * * `USR` - user
@@ -12613,25 +12653,11 @@ export namespace Schemas {
       truncated: boolean;
     }
 
-    /**
-     * * `trace` - trace
-     * * `generation` - generation
-     * * `evaluation` - evaluation
-     */
-    export type ClusteringJobAnalysisLevelEnum = typeof ClusteringJobAnalysisLevelEnum[keyof typeof ClusteringJobAnalysisLevelEnum];
-
-
-    export const ClusteringJobAnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-      Evaluation: 'evaluation',
-    } as const;
-
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
-      analysis_level: ClusteringJobAnalysisLevelEnum;
+      analysis_level: AnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at: string;
@@ -28749,14 +28775,6 @@ export namespace Schemas {
       preferences: unknown;
     }
 
-    export type MessageSentimentScores = {[key: string]: number};
-
-    export interface MessageSentiment {
-      label: string;
-      score: number;
-      scores: MessageSentimentScores;
-    }
-
     /**
      * * `liquid` - liquid
      */
@@ -35262,7 +35280,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
-      analysis_level?: ClusteringJobAnalysisLevelEnum;
+      analysis_level?: AnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at?: string;
@@ -46545,77 +46563,6 @@ export namespace Schemas {
       send_async?: boolean;
     }
 
-    export type SentimentResultScores = {[key: string]: number};
-
-    export type SentimentResultMessages = {[key: string]: MessageSentiment};
-
-    export interface SentimentResult {
-      label: string;
-      score: number;
-      scores: SentimentResultScores;
-      messages: SentimentResultMessages;
-      message_count: number;
-    }
-
-    export type SentimentBatchResponseResults = {[key: string]: SentimentResult};
-
-    export interface SentimentBatchResponse {
-      results: SentimentBatchResponseResults;
-    }
-
-    /**
-     * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
-     *
-     * `filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
-     * path used (dateRange, filterTestAccounts, properties), so the migration is
-     * behaviour-preserving for callers that pass a request unchanged.
-     */
-    export interface SentimentGenerationsRequest {
-      filters?: unknown;
-    }
-
-    export interface SentimentGenerationsResponse {
-      results: unknown[][];
-    }
-
-    /**
-     * * `trace` - trace
-     * * `generation` - generation
-     */
-    export type SentimentRequestAnalysisLevelEnum = typeof SentimentRequestAnalysisLevelEnum[keyof typeof SentimentRequestAnalysisLevelEnum];
-
-
-    export const SentimentRequestAnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-    } as const;
-
-    export interface SentimentRequest {
-      /**
-         * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
-         * @minItems 1
-         * @maxItems 5
-         */
-      ids: string[];
-      /** Whether the IDs are 'trace' IDs or 'generation' IDs.
-       *
-       * * `trace` - trace
-       * * `generation` - generation */
-      analysis_level?: SentimentRequestAnalysisLevelEnum;
-      /** If true, bypass cache and reclassify. */
-      force_refresh?: boolean;
-      /**
-         * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
-         * @nullable
-         */
-      date_from?: string | null;
-      /**
-         * End of date range for the lookup. Defaults to now.
-         * @nullable
-         */
-      date_to?: string | null;
-    }
-
     export interface SessionGroupSummary {
       readonly id: string;
       /** Title of the group session summary */
@@ -54212,6 +54159,14 @@ export namespace Schemas {
      */
     enabled?: boolean;
     /**
+     * Filter by evaluation type
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
+     */
+    evaluation_type?: EnvironmentsEvaluationsListEvaluationType;
+    /**
      * Multiple values may be separated by commas.
      */
     id__in?: string[];
@@ -54239,6 +54194,15 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type EnvironmentsEvaluationsListEvaluationType = typeof EnvironmentsEvaluationsListEvaluationType[keyof typeof EnvironmentsEvaluationsListEvaluationType];
+
+
+    export const EnvironmentsEvaluationsListEvaluationType = {
+      Hog: 'hog',
+      LlmJudge: 'llm_judge',
+      Sentiment: 'sentiment',
+    } as const;
 
     export type EnvironmentsEventsListParams = {
     /**
@@ -55988,14 +55952,6 @@ export namespace Schemas {
      */
     search?: string;
     };
-
-    export type EnvironmentsLlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
 
     export type EnvironmentsLlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 
@@ -60172,6 +60128,14 @@ export namespace Schemas {
      */
     enabled?: boolean;
     /**
+     * Filter by evaluation type
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
+     */
+    evaluation_type?: EvaluationsListEvaluationType;
+    /**
      * Multiple values may be separated by commas.
      */
     id__in?: string[];
@@ -60199,6 +60163,15 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type EvaluationsListEvaluationType = typeof EvaluationsListEvaluationType[keyof typeof EvaluationsListEvaluationType];
+
+
+    export const EvaluationsListEvaluationType = {
+      Hog: 'hog',
+      LlmJudge: 'llm_judge',
+      Sentiment: 'sentiment',
+    } as const;
 
     export type EventDefinitionsListParams = {
     /**
@@ -62404,14 +62377,6 @@ export namespace Schemas {
      */
     search?: string;
     };
-
-    export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 
