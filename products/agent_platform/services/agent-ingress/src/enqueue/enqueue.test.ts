@@ -44,7 +44,7 @@ function makePair(): { app: AgentApplication; rev: AgentRevision } {
         state: 'live' as const,
         bundle_uri: 's3://x/',
         bundle_sha256: null,
-        spec: AgentSpecSchema.parse({ model: 'x' }),
+        spec: AgentSpecSchema.parse({ model: 'test/x' }),
         encrypted_env: null,
     }
     return { app, rev }
