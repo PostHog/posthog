@@ -14,7 +14,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from posthog.api.oauth.cimd import _cache_key
+from posthog.api.oauth.cimd import _blocked_key, _cache_key
 from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
@@ -608,6 +608,8 @@ class TestProvisioningAuthentication(APIBaseTest):
         )
         self.addCleanup(cimd_app.delete)
         self.addCleanup(real_cache.delete, _cache_key(cimd_url))
+        # _identify_pkce_partner warms the blocklist cache with a 1-year TTL; clear it too.
+        self.addCleanup(real_cache.delete, _blocked_key(cimd_url))
 
         if cache_is_fresh:
             real_cache.set(_cache_key(cimd_url), True, timeout=300)
