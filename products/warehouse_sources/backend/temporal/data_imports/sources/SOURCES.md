@@ -481,6 +481,7 @@ doesn't conflict with concurrent PRs.
 - leexi
 - less_annoying_crm
 - lever
+- liana
 - lightfield
 - linkedin_pages
 - linkrunner
