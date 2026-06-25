@@ -85,8 +85,8 @@ catalogs:
       specifier: ^0.35.0
       version: 0.35.0
     posthog-js:
-      specifier: ^1.393.0
-      version: 1.393.0
+      specifier: ^1.393.4
+      version: 1.393.4
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -350,7 +350,7 @@ importers:
         version: 3.1.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -378,7 +378,7 @@ importers:
         version: 1.5.15
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -460,7 +460,7 @@ importers:
         version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
       '@storybook/react-webpack5':
         specifier: ^8.6.14
-        version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
+        version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
       '@storybook/test-runner':
         specifier: ^0.19.1
         version: 0.19.1(storybook@8.6.18(prettier@3.8.2))
@@ -514,7 +514,7 @@ importers:
         version: 2.0.0(webpack@5.105.4)
       webpack:
         specifier: ^5.94.0
-        version: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+        version: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-cli:
         specifier: ^5.1.4
         version: 5.1.4(webpack@5.105.4)
@@ -782,7 +782,7 @@ importers:
         version: link:../packages/quill/packages/charts
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.393.0)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.393.4)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -1106,7 +1106,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -1985,22 +1985,25 @@ importers:
         version: 18.3.7(@types/react@18.3.27)
       '@vitejs/plugin-react':
         specifier: ^5.1.1
-        version: 5.2.0(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
+        version: 5.2.0(vite@6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
       jest:
         specifier: ^29.7.0
-        version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
       typescript:
         specifier: 6.0.3
         version: 6.0.3
       vite:
         specifier: ^6.3.5
-        version: 6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
+        version: 6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
       vite-plugin-dts:
         specifier: ^4.5.4
-        version: 4.5.4(@types/node@25.8.0)(rollup@4.60.4)(typescript@6.0.3)(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
+        version: 4.5.4(@types/node@22.18.8)(rollup@4.60.4)(typescript@6.0.3)(vite@6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
 
   packages/quill/packages/components:
     dependencies:
+      '@posthog/quill-charts':
+        specifier: workspace:^
+        version: link:../charts
       '@posthog/quill-primitives':
         specifier: workspace:^
         version: link:../primitives
@@ -2567,7 +2570,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2631,7 +2634,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2671,7 +2674,7 @@ importers:
         version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2717,7 +2720,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2816,7 +2819,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2900,7 +2903,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2936,7 +2939,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3020,7 +3023,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3188,7 +3191,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3269,7 +3272,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3353,7 +3356,7 @@ importers:
         version: 2.1.1
       jest:
         specifier: '*'
-        version: 30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+        version: 30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.5(react@18.3.1)
@@ -3401,7 +3404,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3554,7 +3557,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3692,7 +3695,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3798,7 +3801,7 @@ importers:
         version: 17.0.4
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3844,7 +3847,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4135,6 +4138,9 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+      msw:
+        specifier: '*'
+        version: 2.14.6(@types/node@25.8.0)(typescript@6.0.3)
 
   products/toolbar: {}
 
@@ -4166,7 +4172,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4194,7 +4200,7 @@ importers:
         version: 1.2.1
       jest:
         specifier: '*'
-        version: 30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+        version: 30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.5(react@18.3.1)
@@ -4206,7 +4212,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4221,7 +4227,7 @@ importers:
         version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.393.0)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.393.4)(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
@@ -4239,7 +4245,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4331,7 +4337,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.393.0
+        version: 1.393.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -9646,8 +9652,8 @@ packages:
   '@posthog/core@1.35.1':
     resolution: {integrity: sha512-2a9JgJgR+Ow8lrUQHVZYXH9EgXskYDlpbgNW6UvtsVxp8pEEFD8PxjZMnzq73Dx3NhAwNUrnVpb8KeZzHAtoSA==}
 
-  '@posthog/core@1.36.0':
-    resolution: {integrity: sha512-ZZA1AgSVDpk+S1y+HBqzQwavMoJk/mJ050TYqj9BpcH3lw6Pxcb9cjN4PobAjtGIIAyFirKNU249vnj4Q3rgXg==}
+  '@posthog/core@1.37.2':
+    resolution: {integrity: sha512-qq9ASrhqxEcfzMQ/kc7dC00pibIcSbQ57FwVHxOGQOeSHr+uN18LA01ESsQX+UcgJ1beFvM6goa8SMxW99OLUw==}
 
   '@posthog/core@1.7.1':
     resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
@@ -9711,6 +9717,9 @@ packages:
 
   '@posthog/types@1.391.0':
     resolution: {integrity: sha512-oJ6jkqVMq+T4ax9F0rUllJc0KHpSgpaMwTNYWkE70iBiyXDVyhcNBmYnNKzSODgpzsaQNI6VfK8JrRYbkSJZZw==}
+
+  '@posthog/types@1.391.1':
+    resolution: {integrity: sha512-ASwd7Nf4pViqdYRYaNRyPYRVKWa1CcHUAUWR0XeQJLGdNnsWACBwe0sSieb/cHnKsRXjRwO/23KIY83lm/Ccpw==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -19789,8 +19798,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.393.0:
-    resolution: {integrity: sha512-BNu62XUNkFEIq7ZQJwvgtZIgWUfn0HozVcYHO8P1WMq2Crx+d+/l7TJsO6YHf3aUUiJn+L8L8NX7XgFZxW3/tw==}
+  posthog-js@1.393.4:
+    resolution: {integrity: sha512-mOBSVQczEfyLnW3aFRbLXZEuE0Rfbmhqm9UCnuLeMFUUz0uYTkbnyhl5+Uc+BLSGfyiXHLf3nm2BqxYC+G/PXA==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -22420,8 +22429,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.433.0:
-    resolution: {integrity: sha512-3irjQmcrnZ9qgBixI7ofa4RdO3I0BR5cS7ujUClze3gaxRloGhfdKbg626QTObdcxT/4NZhaD4pbGlftffVrKA==}
+  unlayer-types@1.434.0:
+    resolution: {integrity: sha512-oxG9Ze3o9WbZe/7oLXjCjMNTik/3RFnnb6qd8lm7XmUoVd3A/eF4ecbRr3hdi73E6C0gp+Vdr1afv2K2cMTQpA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -27075,7 +27084,6 @@ snapshots:
       '@inquirer/type': 4.0.7(@types/node@25.8.0)
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@inquirer/core@11.2.1(@types/node@22.18.8)':
     dependencies:
@@ -27100,7 +27108,6 @@ snapshots:
       signal-exit: 4.1.0
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@inquirer/figures@2.0.7': {}
 
@@ -27111,7 +27118,6 @@ snapshots:
   '@inquirer/type@4.0.7(@types/node@25.8.0)':
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@ioredis/commands@1.10.0':
     optional: true
@@ -27204,6 +27210,41 @@ snapshots:
       - supports-color
       - ts-node
       - utf-8-validate
+
+  '@jest/core@29.7.0':
+    dependencies:
+      '@jest/console': 29.7.0
+      '@jest/reporters': 29.7.0
+      '@jest/test-result': 29.7.0
+      '@jest/transform': 29.7.0
+      '@jest/types': 29.6.3
+      '@types/node': 22.18.8
+      ansi-escapes: 4.3.2
+      chalk: 4.1.2
+      ci-info: 3.8.0
+      exit: 0.1.2
+      graceful-fs: 4.2.11
+      jest-changed-files: 29.7.0
+      jest-config: 29.7.0(@types/node@22.18.8)
+      jest-haste-map: 29.7.0
+      jest-message-util: 29.7.0
+      jest-regex-util: 29.6.3
+      jest-resolve: 29.7.0
+      jest-resolve-dependencies: 29.7.0
+      jest-runner: 29.7.0
+      jest-runtime: 29.7.0
+      jest-snapshot: 29.7.0
+      jest-util: 29.7.0
+      jest-validate: 29.7.0
+      jest-watcher: 29.7.0
+      micromatch: 4.0.8
+      pretty-format: 29.7.0
+      slash: 3.0.0
+      strip-ansi: 6.0.1
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
 
   '@jest/core@29.7.0(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@6.0.3))':
     dependencies:
@@ -27326,6 +27367,42 @@ snapshots:
       graceful-fs: 4.2.11
       jest-changed-files: 30.0.5
       jest-config: 30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+      jest-haste-map: 30.0.5
+      jest-message-util: 30.0.5
+      jest-regex-util: 30.0.1
+      jest-resolve: 30.0.5
+      jest-resolve-dependencies: 30.0.5
+      jest-runner: 30.0.5
+      jest-runtime: 30.0.5
+      jest-snapshot: 30.0.5
+      jest-util: 30.0.5
+      jest-validate: 30.0.5
+      jest-watcher: 30.0.5
+      micromatch: 4.0.8
+      pretty-format: 30.0.5
+      slash: 3.0.0
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - esbuild-register
+      - supports-color
+      - ts-node
+
+  '@jest/core@30.0.5(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))':
+    dependencies:
+      '@jest/console': 30.0.5
+      '@jest/pattern': 30.0.1
+      '@jest/reporters': 30.0.5
+      '@jest/test-result': 30.0.5
+      '@jest/transform': 30.0.5
+      '@jest/types': 30.0.5
+      '@types/node': 22.18.8
+      ansi-escapes: 4.3.2
+      chalk: 4.1.2
+      ci-info: 4.3.0
+      exit-x: 0.2.2
+      graceful-fs: 4.2.11
+      jest-changed-files: 30.0.5
+      jest-config: 30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       jest-haste-map: 30.0.5
       jest-message-util: 30.0.5
       jest-regex-util: 30.0.1
@@ -28021,11 +28098,38 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react'
 
+  '@microsoft/api-extractor-model@7.33.5(@types/node@22.18.8)':
+    dependencies:
+      '@microsoft/tsdoc': 0.16.0
+      '@microsoft/tsdoc-config': 0.18.1
+      '@rushstack/node-core-library': 5.21.0(@types/node@22.18.8)
+    transitivePeerDependencies:
+      - '@types/node'
+
   '@microsoft/api-extractor-model@7.33.5(@types/node@25.8.0)':
     dependencies:
       '@microsoft/tsdoc': 0.16.0
       '@microsoft/tsdoc-config': 0.18.1
       '@rushstack/node-core-library': 5.21.0(@types/node@25.8.0)
+    transitivePeerDependencies:
+      - '@types/node'
+
+  '@microsoft/api-extractor@7.58.1(@types/node@22.18.8)':
+    dependencies:
+      '@microsoft/api-extractor-model': 7.33.5(@types/node@22.18.8)
+      '@microsoft/tsdoc': 0.16.0
+      '@microsoft/tsdoc-config': 0.18.1
+      '@rushstack/node-core-library': 5.21.0(@types/node@22.18.8)
+      '@rushstack/rig-package': 0.7.2
+      '@rushstack/terminal': 0.22.4(@types/node@22.18.8)
+      '@rushstack/ts-command-line': 5.3.4(@types/node@22.18.8)
+      diff: 8.0.4
+      lodash: 4.18.1
+      minimatch: 10.2.3
+      resolve: 1.22.8
+      semver: 7.5.4
+      source-map: 0.6.1
+      typescript: 6.0.3
     transitivePeerDependencies:
       - '@types/node'
 
@@ -29963,9 +30067,9 @@ snapshots:
     dependencies:
       '@posthog/types': 1.391.0
 
-  '@posthog/core@1.36.0':
+  '@posthog/core@1.37.2':
     dependencies:
-      '@posthog/types': 1.391.0
+      '@posthog/types': 1.391.1
 
   '@posthog/core@1.7.1':
     dependencies:
@@ -30015,9 +30119,9 @@ snapshots:
       '@posthog/core': 1.35.1
       posthog-node: 5.25.0
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.393.0)(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.393.4)(react@18.3.1)':
     dependencies:
-      posthog-js: 1.393.0
+      posthog-js: 1.393.4
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
@@ -30025,6 +30129,8 @@ snapshots:
   '@posthog/siphash@1.1.1': {}
 
   '@posthog/types@1.391.0': {}
+
+  '@posthog/types@1.391.1': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -30708,6 +30814,19 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.60.4':
     optional: true
 
+  '@rushstack/node-core-library@5.21.0(@types/node@22.18.8)':
+    dependencies:
+      ajv: 8.18.0
+      ajv-draft-04: 1.0.0(ajv@8.18.0)
+      ajv-formats: 3.0.1(ajv@8.18.0)
+      fs-extra: 11.3.5
+      import-lazy: 4.0.0
+      jju: 1.4.0
+      resolve: 1.22.8
+      semver: 7.5.4
+    optionalDependencies:
+      '@types/node': 22.18.8
+
   '@rushstack/node-core-library@5.21.0(@types/node@25.8.0)':
     dependencies:
       ajv: 8.18.0
@@ -30721,6 +30840,10 @@ snapshots:
     optionalDependencies:
       '@types/node': 25.8.0
 
+  '@rushstack/problem-matcher@0.2.1(@types/node@22.18.8)':
+    optionalDependencies:
+      '@types/node': 22.18.8
+
   '@rushstack/problem-matcher@0.2.1(@types/node@25.8.0)':
     optionalDependencies:
       '@types/node': 25.8.0
@@ -30730,6 +30853,14 @@ snapshots:
       resolve: 1.22.8
       strip-json-comments: 3.1.1
 
+  '@rushstack/terminal@0.22.4(@types/node@22.18.8)':
+    dependencies:
+      '@rushstack/node-core-library': 5.21.0(@types/node@22.18.8)
+      '@rushstack/problem-matcher': 0.2.1(@types/node@22.18.8)
+      supports-color: 8.1.1
+    optionalDependencies:
+      '@types/node': 22.18.8
+
   '@rushstack/terminal@0.22.4(@types/node@25.8.0)':
     dependencies:
       '@rushstack/node-core-library': 5.21.0(@types/node@25.8.0)
@@ -30737,6 +30868,15 @@ snapshots:
       supports-color: 8.1.1
     optionalDependencies:
       '@types/node': 25.8.0
+
+  '@rushstack/ts-command-line@5.3.4(@types/node@22.18.8)':
+    dependencies:
+      '@rushstack/terminal': 0.22.4(@types/node@22.18.8)
+      '@types/argparse': 1.0.38
+      argparse: 1.0.10
+      string-argv: 0.3.2
+    transitivePeerDependencies:
+      - '@types/node'
 
   '@rushstack/ts-command-line@5.3.4(@types/node@25.8.0)':
     dependencies:
@@ -31512,7 +31652,7 @@ snapshots:
       ts-dedent: 2.2.0
       vite: 5.4.21(@types/node@25.8.0)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
 
-  '@storybook/builder-webpack5@8.6.18(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
+  '@storybook/builder-webpack5@8.6.18(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
     dependencies:
       '@storybook/core-webpack': 8.6.18(storybook@8.6.18(prettier@3.8.2))
       '@types/semver': 7.7.1
@@ -31530,12 +31670,12 @@ snapshots:
       semver: 7.8.0
       storybook: 8.6.18(prettier@3.8.2)
       style-loader: 3.3.3(webpack@5.105.4)
-      terser-webpack-plugin: 5.6.0(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack@5.105.4)
+      terser-webpack-plugin: 5.6.0(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack@5.105.4)
       ts-dedent: 2.2.0
       url: 0.11.1
       util: 0.12.5
       util-deprecate: 1.0.2
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-dev-middleware: 6.1.3(webpack@5.105.4)
       webpack-hot-middleware: 2.25.4
       webpack-virtual-modules: 0.6.2
@@ -31629,7 +31769,7 @@ snapshots:
     dependencies:
       storybook: 8.6.18(prettier@3.8.2)
 
-  '@storybook/preset-react-webpack@8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
+  '@storybook/preset-react-webpack@8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
     dependencies:
       '@storybook/core-webpack': 8.6.18(storybook@8.6.18(prettier@3.8.2))
       '@storybook/react': 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
@@ -31644,7 +31784,7 @@ snapshots:
       semver: 7.8.0
       storybook: 8.6.18(prettier@3.8.2)
       tsconfig-paths: 4.2.0
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
     optionalDependencies:
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -31678,7 +31818,7 @@ snapshots:
       react-docgen-typescript: 2.2.2(typescript@6.0.3)
       tslib: 2.8.1
       typescript: 6.0.3
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
     transitivePeerDependencies:
       - supports-color
 
@@ -31716,10 +31856,10 @@ snapshots:
       - supports-color
       - typescript
 
-  '@storybook/react-webpack5@8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
+  '@storybook/react-webpack5@8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)':
     dependencies:
-      '@storybook/builder-webpack5': 8.6.18(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
-      '@storybook/preset-react-webpack': 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
+      '@storybook/builder-webpack5': 8.6.18(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
+      '@storybook/preset-react-webpack': 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)(webpack-cli@5.1.4)
       '@storybook/react': 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
@@ -31813,7 +31953,7 @@ snapshots:
       '@swc/core': 1.15.18
       '@swc/jest': 0.2.37(@swc/core@1.15.18)
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -33819,6 +33959,18 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@vitejs/plugin-react@5.2.0(vite@6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))':
+    dependencies:
+      '@babel/core': 7.29.0
+      '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.29.0)
+      '@babel/plugin-transform-react-jsx-source': 7.27.1(@babel/core@7.29.0)
+      '@rolldown/pluginutils': 1.0.0-rc.3
+      '@types/babel__core': 7.20.5
+      react-refresh: 0.18.0
+      vite: 6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
+    transitivePeerDependencies:
+      - supports-color
+
   '@vitejs/plugin-react@5.2.0(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))':
     dependencies:
       '@babel/core': 7.29.0
@@ -34125,17 +34277,17 @@ snapshots:
 
   '@webpack-cli/configtest@2.1.1(webpack-cli@5.1.4)(webpack@5.105.4)':
     dependencies:
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-cli: 5.1.4(webpack@5.105.4)
 
   '@webpack-cli/info@2.0.2(webpack-cli@5.1.4)(webpack@5.105.4)':
     dependencies:
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-cli: 5.1.4(webpack@5.105.4)
 
   '@webpack-cli/serve@2.0.5(webpack-cli@5.1.4)(webpack@5.105.4)':
     dependencies:
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-cli: 5.1.4(webpack@5.105.4)
 
   '@xmldom/xmldom@0.8.13': {}
@@ -34657,7 +34809,7 @@ snapshots:
       loader-utils: 2.0.4
       make-dir: 3.1.0
       schema-utils: 2.7.1
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   babel-plugin-istanbul@6.1.1:
     dependencies:
@@ -35563,6 +35715,21 @@ snapshots:
       safe-buffer: 5.2.1
       sha.js: 2.4.12
 
+  create-jest@29.7.0:
+    dependencies:
+      '@jest/types': 29.6.3
+      chalk: 4.1.2
+      exit: 0.1.2
+      graceful-fs: 4.2.11
+      jest-config: 29.7.0
+      jest-util: 29.7.0
+      prompts: 2.4.2
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
+
   create-jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@6.0.3)):
     dependencies:
       '@jest/types': 29.6.3
@@ -35696,7 +35863,7 @@ snapshots:
       postcss-value-parser: 4.2.0
       schema-utils: 2.7.1
       semver: 6.3.1
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   css-loader@6.8.1(webpack@5.105.4):
     dependencies:
@@ -35708,7 +35875,7 @@ snapshots:
       postcss-modules-values: 4.0.0(postcss@8.5.15)
       postcss-value-parser: 4.2.0
       semver: 7.8.0
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   css-prefers-color-scheme@10.0.0(postcss@8.5.15):
     dependencies:
@@ -37289,7 +37456,7 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   file-uri-to-path@1.0.0: {}
 
@@ -37408,7 +37575,7 @@ snapshots:
       semver: 7.8.0
       tapable: 2.3.3
       typescript: 6.0.3
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   form-data@4.0.5:
     dependencies:
@@ -38070,7 +38237,7 @@ snapshots:
   html-webpack-harddisk-plugin@2.0.0(html-webpack-plugin@5.5.3(webpack@5.105.4))(webpack@5.105.4):
     dependencies:
       html-webpack-plugin: 5.5.3(webpack@5.105.4)
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   html-webpack-plugin@5.5.3(webpack@5.105.4):
     dependencies:
@@ -38079,7 +38246,7 @@ snapshots:
       lodash: 4.18.1
       pretty-error: 4.0.0
       tapable: 2.2.1
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   htmlparser2@3.10.1:
     dependencies:
@@ -38802,6 +38969,25 @@ snapshots:
       - ts-node
       - utf-8-validate
 
+  jest-cli@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0
+      '@jest/test-result': 29.7.0
+      '@jest/types': 29.6.3
+      chalk: 4.1.2
+      create-jest: 29.7.0
+      exit: 0.1.2
+      import-local: 3.2.0
+      jest-config: 29.7.0
+      jest-util: 29.7.0
+      jest-validate: 29.7.0
+      yargs: 17.7.2
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
+
   jest-cli@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@6.0.3)):
     dependencies:
       '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@6.0.3))
@@ -38878,6 +39064,25 @@ snapshots:
       - supports-color
       - ts-node
 
+  jest-cli@30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
+    dependencies:
+      '@jest/core': 30.0.5(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      '@jest/test-result': 30.0.5
+      '@jest/types': 30.0.5
+      chalk: 4.1.2
+      exit-x: 0.2.2
+      import-local: 3.2.0
+      jest-config: 30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      jest-util: 30.0.5
+      jest-validate: 30.0.5
+      yargs: 17.7.2
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - esbuild-register
+      - supports-color
+      - ts-node
+
   jest-config@27.5.1(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
     dependencies:
       '@babel/core': 7.29.0
@@ -38911,6 +39116,64 @@ snapshots:
       - canvas
       - supports-color
       - utf-8-validate
+
+  jest-config@29.7.0:
+    dependencies:
+      '@babel/core': 7.29.0
+      '@jest/test-sequencer': 29.7.0
+      '@jest/types': 29.6.3
+      babel-jest: 29.7.0(@babel/core@7.29.0)
+      chalk: 4.1.2
+      ci-info: 3.8.0
+      deepmerge: 4.3.1
+      glob: 7.2.3
+      graceful-fs: 4.2.11
+      jest-circus: 29.7.0
+      jest-environment-node: 29.7.0
+      jest-get-type: 29.6.3
+      jest-regex-util: 29.6.3
+      jest-resolve: 29.7.0
+      jest-runner: 29.7.0
+      jest-util: 29.7.0
+      jest-validate: 29.7.0
+      micromatch: 4.0.8
+      parse-json: 5.2.0
+      pretty-format: 29.7.0
+      slash: 3.0.0
+      strip-json-comments: 3.1.1
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - supports-color
+
+  jest-config@29.7.0(@types/node@22.18.8):
+    dependencies:
+      '@babel/core': 7.29.0
+      '@jest/test-sequencer': 29.7.0
+      '@jest/types': 29.6.3
+      babel-jest: 29.7.0(@babel/core@7.29.0)
+      chalk: 4.1.2
+      ci-info: 3.8.0
+      deepmerge: 4.3.1
+      glob: 7.2.3
+      graceful-fs: 4.2.11
+      jest-circus: 29.7.0
+      jest-environment-node: 29.7.0
+      jest-get-type: 29.6.3
+      jest-regex-util: 29.6.3
+      jest-resolve: 29.7.0
+      jest-runner: 29.7.0
+      jest-util: 29.7.0
+      jest-validate: 29.7.0
+      micromatch: 4.0.8
+      parse-json: 5.2.0
+      pretty-format: 29.7.0
+      slash: 3.0.0
+      strip-json-comments: 3.1.1
+    optionalDependencies:
+      '@types/node': 22.18.8
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - supports-color
 
   jest-config@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@6.0.3)):
     dependencies:
@@ -39066,6 +39329,74 @@ snapshots:
       '@types/node': 22.18.8
       esbuild-register: 3.6.0(esbuild@0.28.0)
       ts-node: 10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3)
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - supports-color
+
+  jest-config@30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
+    dependencies:
+      '@babel/core': 7.29.0
+      '@jest/get-type': 30.0.1
+      '@jest/pattern': 30.0.1
+      '@jest/test-sequencer': 30.0.5
+      '@jest/types': 30.0.5
+      babel-jest: 30.0.5(@babel/core@7.29.0)
+      chalk: 4.1.2
+      ci-info: 4.3.0
+      deepmerge: 4.3.1
+      glob: 10.5.0
+      graceful-fs: 4.2.11
+      jest-circus: 30.0.5
+      jest-docblock: 30.0.1
+      jest-environment-node: 30.0.5
+      jest-regex-util: 30.0.1
+      jest-resolve: 30.0.5
+      jest-runner: 30.0.5
+      jest-util: 30.0.5
+      jest-validate: 30.0.5
+      micromatch: 4.0.8
+      parse-json: 5.2.0
+      pretty-format: 30.0.5
+      slash: 3.0.0
+      strip-json-comments: 3.1.1
+    optionalDependencies:
+      '@types/node': 22.18.8
+      esbuild-register: 3.6.0(esbuild@0.28.0)
+      ts-node: 10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - supports-color
+
+  jest-config@30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
+    dependencies:
+      '@babel/core': 7.29.0
+      '@jest/get-type': 30.0.1
+      '@jest/pattern': 30.0.1
+      '@jest/test-sequencer': 30.0.5
+      '@jest/types': 30.0.5
+      babel-jest: 30.0.5(@babel/core@7.29.0)
+      chalk: 4.1.2
+      ci-info: 4.3.0
+      deepmerge: 4.3.1
+      glob: 10.5.0
+      graceful-fs: 4.2.11
+      jest-circus: 30.0.5
+      jest-docblock: 30.0.1
+      jest-environment-node: 30.0.5
+      jest-regex-util: 30.0.1
+      jest-resolve: 30.0.5
+      jest-runner: 30.0.5
+      jest-util: 30.0.5
+      jest-validate: 30.0.5
+      micromatch: 4.0.8
+      parse-json: 5.2.0
+      pretty-format: 30.0.5
+      slash: 3.0.0
+      strip-json-comments: 3.1.1
+    optionalDependencies:
+      '@types/node': 25.8.0
+      esbuild-register: 3.6.0(esbuild@0.28.0)
+      ts-node: 10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)
     transitivePeerDependencies:
       - babel-plugin-macros
       - supports-color
@@ -39444,7 +39775,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -39879,7 +40210,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.6.2
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+      jest: 29.7.0
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -39951,6 +40282,18 @@ snapshots:
       - ts-node
       - utf-8-validate
 
+  jest@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0
+      '@jest/types': 29.6.3
+      import-local: 3.2.0
+      jest-cli: 29.7.0
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
+
   jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@6.0.3)):
     dependencies:
       '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@6.0.3))
@@ -39993,6 +40336,19 @@ snapshots:
       '@jest/types': 30.0.5
       import-local: 3.2.0
       jest-cli: 30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - esbuild-register
+      - supports-color
+      - ts-node
+
+  jest@30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
+    dependencies:
+      '@jest/core': 30.0.5(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      '@jest/types': 30.0.5
+      import-local: 3.2.0
+      jest-cli: 30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
     transitivePeerDependencies:
       - '@types/node'
       - babel-plugin-macros
@@ -40306,7 +40662,7 @@ snapshots:
       less: 4.2.2
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   less@3.13.1:
     dependencies:
@@ -41527,7 +41883,6 @@ snapshots:
       typescript: 6.0.3
     transitivePeerDependencies:
       - '@types/node'
-    optional: true
 
   muggle-string@0.4.1: {}
 
@@ -42562,7 +42917,7 @@ snapshots:
       postcss: 8.5.15
       schema-utils: 3.3.0
       semver: 7.7.0
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   postcss-logical@8.0.0(postcss@8.5.15):
     dependencies:
@@ -42887,10 +43242,10 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.393.0:
+  posthog-js@1.393.4:
     dependencies:
-      '@posthog/core': 1.36.0
-      '@posthog/types': 1.391.0
+      '@posthog/core': 1.37.2
+      '@posthog/types': 1.391.1
       core-js: 3.40.0
       dompurify: 3.4.0
       fflate: 0.4.8
@@ -43331,7 +43686,7 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   rc-cascader@3.34.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -43726,7 +44081,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.433.0
+      unlayer-types: 1.434.0
 
   react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -44367,7 +44722,7 @@ snapshots:
       neo-async: 2.6.2
       schema-utils: 3.3.0
       semver: 7.7.0
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
     optionalDependencies:
       sass: 1.56.0
 
@@ -45031,11 +45386,11 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   style-loader@3.3.3(webpack@5.105.4):
     dependencies:
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   style-search@0.1.0: {}
 
@@ -45402,19 +45757,6 @@ snapshots:
       ansi-escapes: 4.3.2
       supports-hyperlinks: 2.3.0
 
-  terser-webpack-plugin@5.6.0(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack@5.105.4):
-    dependencies:
-      '@jridgewell/trace-mapping': 0.3.29
-      jest-worker: 27.5.1
-      schema-utils: 4.3.3
-      terser: 5.46.0
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
-    optionalDependencies:
-      '@swc/core': 1.15.18
-      cssnano: 7.0.6(postcss@8.5.15)
-      esbuild: 0.25.12
-      postcss: 8.5.15
-
   terser-webpack-plugin@5.6.0(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.28.0)(postcss@8.5.15)(webpack@5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.28.0)(postcss@8.5.15)):
     dependencies:
       '@jridgewell/trace-mapping': 0.3.29
@@ -45426,6 +45768,17 @@ snapshots:
       '@swc/core': 1.15.18
       cssnano: 7.0.6(postcss@8.5.15)
       esbuild: 0.28.0
+      postcss: 8.5.15
+
+  terser-webpack-plugin@5.6.0(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack@5.105.4):
+    dependencies:
+      '@jridgewell/trace-mapping': 0.3.29
+      jest-worker: 27.5.1
+      schema-utils: 4.3.3
+      terser: 5.46.0
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
+    optionalDependencies:
+      cssnano: 7.0.6(postcss@8.5.15)
       postcss: 8.5.15
 
   terser@5.46.0:
@@ -46044,7 +46397,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.433.0: {}
+  unlayer-types@1.434.0: {}
 
   unpipe@1.0.0: {}
 
@@ -46268,6 +46621,25 @@ snapshots:
       - tsx
       - yaml
 
+  vite-plugin-dts@4.5.4(@types/node@22.18.8)(rollup@4.60.4)(typescript@6.0.3)(vite@6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)):
+    dependencies:
+      '@microsoft/api-extractor': 7.58.1(@types/node@22.18.8)
+      '@rollup/pluginutils': 5.3.0(rollup@4.60.4)
+      '@volar/typescript': 2.4.28
+      '@vue/language-core': 2.2.0(typescript@6.0.3)
+      compare-versions: 6.1.1
+      debug: 4.4.3
+      kolorist: 1.8.0
+      local-pkg: 1.1.2
+      magic-string: 0.30.21
+      typescript: 6.0.3
+    optionalDependencies:
+      vite: 6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
+    transitivePeerDependencies:
+      - '@types/node'
+      - rollup
+      - supports-color
+
   vite-plugin-dts@4.5.4(@types/node@25.8.0)(rollup@4.60.4)(typescript@6.0.3)(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)):
     dependencies:
       '@microsoft/api-extractor': 7.58.1(@types/node@25.8.0)
@@ -46342,6 +46714,26 @@ snapshots:
       sass: 1.56.0
       sass-embedded: 1.70.0
       terser: 5.46.0
+
+  vite@6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0):
+    dependencies:
+      esbuild: 0.25.12
+      fdir: 6.5.0(picomatch@4.0.4)
+      picomatch: 4.0.4
+      postcss: 8.5.15
+      rollup: 4.60.4
+      tinyglobby: 0.2.16
+    optionalDependencies:
+      '@types/node': 22.18.8
+      fsevents: 2.3.3
+      jiti: 2.6.1
+      less: 4.2.2
+      lightningcss: 1.32.0
+      sass: 1.56.0
+      sass-embedded: 1.70.0
+      terser: 5.46.0
+      tsx: 4.20.5
+      yaml: 2.9.0
 
   vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0):
     dependencies:
@@ -46645,7 +47037,7 @@ snapshots:
       import-local: 3.1.0
       interpret: 3.1.1
       rechoir: 0.8.0
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
       webpack-merge: 5.8.0
 
   webpack-dev-middleware@6.1.3(webpack@5.105.4):
@@ -46656,7 +47048,7 @@ snapshots:
       range-parser: 1.2.1
       schema-utils: 4.3.3
     optionalDependencies:
-      webpack: 5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4)
+      webpack: 5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4)
 
   webpack-hot-middleware@2.25.4:
     dependencies:
@@ -46674,49 +47066,6 @@ snapshots:
   webpack-virtual-modules@0.5.0: {}
 
   webpack-virtual-modules@0.6.2: {}
-
-  webpack@5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack-cli@5.1.4):
-    dependencies:
-      '@types/eslint-scope': 3.7.7
-      '@types/estree': 1.0.8
-      '@types/json-schema': 7.0.15
-      '@webassemblyjs/ast': 1.14.1
-      '@webassemblyjs/wasm-edit': 1.14.1
-      '@webassemblyjs/wasm-parser': 1.14.1
-      acorn: 8.16.0
-      acorn-import-phases: 1.0.4(acorn@8.16.0)
-      browserslist: 4.28.1
-      chrome-trace-event: 1.0.3
-      enhanced-resolve: 5.22.1
-      es-module-lexer: 2.0.0
-      eslint-scope: 5.1.1
-      events: 3.3.0
-      glob-to-regexp: 0.4.1
-      graceful-fs: 4.2.11
-      json-parse-even-better-errors: 2.3.1
-      loader-runner: 4.3.1
-      mime-types: 2.1.35
-      neo-async: 2.6.2
-      schema-utils: 4.3.3
-      tapable: 2.3.0
-      terser-webpack-plugin: 5.6.0(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.25.12)(postcss@8.5.15)(webpack@5.105.4)
-      watchpack: 2.5.1
-      webpack-sources: 3.3.4
-    optionalDependencies:
-      webpack-cli: 5.1.4(webpack@5.105.4)
-    transitivePeerDependencies:
-      - '@minify-html/node'
-      - '@swc/core'
-      - '@swc/css'
-      - '@swc/html'
-      - clean-css
-      - cssnano
-      - csso
-      - esbuild
-      - html-minifier-terser
-      - lightningcss
-      - postcss
-      - uglify-js
 
   webpack@5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.28.0)(postcss@8.5.15):
     dependencies:
@@ -46745,6 +47094,49 @@ snapshots:
       terser-webpack-plugin: 5.6.0(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.28.0)(postcss@8.5.15)(webpack@5.105.4(@swc/core@1.15.18)(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.28.0)(postcss@8.5.15))
       watchpack: 2.5.1
       webpack-sources: 3.3.4
+    transitivePeerDependencies:
+      - '@minify-html/node'
+      - '@swc/core'
+      - '@swc/css'
+      - '@swc/html'
+      - clean-css
+      - cssnano
+      - csso
+      - esbuild
+      - html-minifier-terser
+      - lightningcss
+      - postcss
+      - uglify-js
+
+  webpack@5.105.4(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack-cli@5.1.4):
+    dependencies:
+      '@types/eslint-scope': 3.7.7
+      '@types/estree': 1.0.8
+      '@types/json-schema': 7.0.15
+      '@webassemblyjs/ast': 1.14.1
+      '@webassemblyjs/wasm-edit': 1.14.1
+      '@webassemblyjs/wasm-parser': 1.14.1
+      acorn: 8.16.0
+      acorn-import-phases: 1.0.4(acorn@8.16.0)
+      browserslist: 4.28.1
+      chrome-trace-event: 1.0.3
+      enhanced-resolve: 5.22.1
+      es-module-lexer: 2.0.0
+      eslint-scope: 5.1.1
+      events: 3.3.0
+      glob-to-regexp: 0.4.1
+      graceful-fs: 4.2.11
+      json-parse-even-better-errors: 2.3.1
+      loader-runner: 4.3.1
+      mime-types: 2.1.35
+      neo-async: 2.6.2
+      schema-utils: 4.3.3
+      tapable: 2.3.0
+      terser-webpack-plugin: 5.6.0(cssnano@7.0.6(postcss@8.5.15))(postcss@8.5.15)(webpack@5.105.4)
+      watchpack: 2.5.1
+      webpack-sources: 3.3.4
+    optionalDependencies:
+      webpack-cli: 5.1.4(webpack@5.105.4)
     transitivePeerDependencies:
       - '@minify-html/node'
       - '@swc/core'

@@ -2,6 +2,8 @@ import datetime as dt
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
+from django.db import transaction
+
 import structlog
 import temporalio
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -17,14 +19,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
-from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter, source_type_supports_cdc
-from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.base import WebhookSource
-from posthog.temporal.data_imports.sources.common.sql import (
-    RowFilterValidationError,
-    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
-    validate_and_coerce_row_filters,
-)
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.data_load.service import (
@@ -51,14 +45,26 @@ from products.data_warehouse.backend.postgres_helpers import (
     get_postgres_source_location,
     reproject_direct_postgres_table,
 )
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
+    get_cdc_adapter,
+    source_type_supports_cdc,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    RowFilterValidationError,
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    validate_and_coerce_row_filters,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
 
@@ -108,13 +114,18 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
                 exc_info=e,
             )
 
-    instance.sync_type_config["reset_pipeline"] = True
-    instance.sync_type_config["cdc_mode"] = "snapshot"
-    instance.sync_type_config.pop("cdc_last_log_position", None)
-    instance.sync_type_config.pop("cdc_deferred_runs", None)
+    # Merge under a row lock so the reset can't clobber a concurrent CDC extract activity's
+    # sync_type_config writes (and the status/initial_sync_complete save below skips the JSON
+    # column, leaving no second window for the merged config to be overwritten).
+    instance.sync_type_config = update_sync_type_config_keys(
+        instance.id,
+        instance.team_id,
+        updates={"reset_pipeline": True, "cdc_mode": "snapshot"},
+        removes=["cdc_last_log_position", "cdc_deferred_runs"],
+    )
     instance.initial_sync_complete = False
     instance.status = ExternalDataSchema.Status.RUNNING
-    instance.save()
+    instance.save(update_fields=["initial_sync_complete", "status", "updated_at"])
 
     try:
         trigger_external_data_workflow(instance)
@@ -470,12 +481,49 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         callback()
 
+    def _save_merging_sync_type_config(
+        self,
+        instance: ExternalDataSchema,
+        validated_data: dict[str, Any],
+        original_sync_type_config: dict[str, Any],
+    ) -> ExternalDataSchema:
+        """Persist the update, replaying only the sync_type_config keys this request changed onto a
+        freshly-locked copy of the row.
+
+        super().update() does a full-instance save that rewrites sync_type_config wholesale from the
+        copy loaded at the start of the request, so without this it would revert any key a concurrent
+        CDC extract activity (cdc_last_log_position, cdc_deferred_runs, cdc_mode) committed in between.
+        The lock is held across the save so nothing interleaves.
+        """
+        intended = instance.sync_type_config or {}
+        changed = {
+            key: value
+            for key, value in intended.items()
+            if key not in original_sync_type_config or original_sync_type_config[key] != value
+        }
+        removed = [key for key in original_sync_type_config if key not in intended]
+        with transaction.atomic():
+            locked = ExternalDataSchema.objects.select_for_update().get(pk=instance.pk)
+            merged = locked.sync_type_config or {}
+            merged.update(changed)
+            for key in removed:
+                merged.pop(key, None)
+            instance.sync_type_config = merged
+            validated_data["sync_type_config"] = merged
+            return super().update(instance, validated_data)
+
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
 
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
+
+        # Snapshot sync_type_config before the branches below mutate it in place. The terminal save
+        # diffs against this to persist only the keys this request changed. Shallow is enough: the
+        # branches replace top-level keys (they never mutate a nested value in place), so a key is
+        # "changed" iff its top-level value differs.
+        original_sync_type_config = dict(instance.sync_type_config or {})
 
         # Refuse cdc_table_mode transitions that would kick a re-snapshot when the team is over its
         # monthly sync billing limit. Checked here (pre-save) so we don't end up with the new mode
@@ -848,7 +896,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             instance.sync_type_config.update({"reset_pipeline": True})
             validated_data["sync_type_config"].update({"reset_pipeline": True})
 
-        updated_instance = super().update(instance, validated_data)
+        # Persist under a row lock, replaying only the sync_type_config keys this request changed
+        # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
+        updated_instance = self._save_merging_sync_type_config(instance, validated_data, original_sync_type_config)
 
         if source.supports_scheduled_sync and (
             should_sync is not None or was_sync_frequency_updated or was_sync_time_of_day_updated
@@ -1074,10 +1124,15 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             # Always force a full re-snapshot on re-enable: while removed from the
             # publication the replication slot kept advancing, so any changes made
             # during that window are permanently lost regardless of how short it was.
+            # reset_pipeline wipes the warehouse table first — otherwise the snapshot
+            # merges current rows over the stale pre-disable ones and never drops deletes.
             if should_sync is True and not newly_set_to_cdc:
+                # Mutate in memory only — the locked terminal save in `update()` (which calls this)
+                # persists both fields, merging cdc_mode onto the freshly-read config so a concurrent
+                # CDC extract activity's writes survive. A separate save here would clobber them.
                 instance.sync_type_config["cdc_mode"] = "snapshot"
+                instance.sync_type_config["reset_pipeline"] = True
                 instance.initial_sync_complete = False
-                instance.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
 
         # Remove table from capture set when toggling sync off
         elif should_sync is False and instance.should_sync:
@@ -1205,21 +1260,29 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        instance.sync_type_config.update({"reset_pipeline": True})
-
-        if instance.is_cdc:
+        cdc_resync = instance.is_cdc
+        updates: dict[str, Any] = {"reset_pipeline": True}
+        removes: list[str] = []
+        if cdc_resync:
             # Reset CDC state so the next run does a full re-snapshot
-            instance.sync_type_config["cdc_mode"] = "snapshot"
-            instance.sync_type_config.pop("cdc_last_log_position", None)
-            instance.sync_type_config.pop("cdc_deferred_runs", None)
-            instance.initial_sync_complete = False
+            updates["cdc_mode"] = "snapshot"
+            removes = ["cdc_last_log_position", "cdc_deferred_runs"]
 
-        # Save BEFORE triggering the workflow so the Postgres source sees
-        # cdc_mode="snapshot" when it reloads the schema from DB.
-        # Otherwise a race: the workflow starts, loads stale "streaming" mode,
-        # raises CDCHandledExternally, and the full-refresh never runs.
+        # Merge under a row lock so this reset can't clobber a concurrent CDC extract activity's
+        # sync_type_config writes. Persist BEFORE triggering the workflow so the Postgres source
+        # sees cdc_mode="snapshot" when it reloads the schema from DB — otherwise a race: the
+        # workflow starts, loads stale "streaming" mode, raises CDCHandledExternally, and the
+        # full-refresh never runs.
+        # initial_sync_complete is saved in the same transaction as cdc_mode via extra_model_fields
+        # so no reader can observe cdc_mode="snapshot" with initial_sync_complete=True.
+        extra: dict[str, Any] = {"initial_sync_complete": False} if cdc_resync else {}
+        instance.sync_type_config = update_sync_type_config_keys(
+            instance.id, instance.team_id, updates=updates, removes=removes, extra_model_fields=extra
+        )
+        if cdc_resync:
+            instance.initial_sync_complete = False
         instance.status = ExternalDataSchema.Status.RUNNING
-        instance.save()
+        instance.save(update_fields=["status", "updated_at"])
 
         try:
             trigger_external_data_workflow(instance)

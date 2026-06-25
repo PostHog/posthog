@@ -44,6 +44,52 @@ The migration analyzer (`HotTableAlterPolicy`) blocks any DDL on these tables in
 2. Add `<app_label>.<migration_name>` to `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt` — this is the explicit "I accept the risk" act, and it's visible in review.
 3. Coordinate the deploy with #team-infrastructure for a low-traffic window.
 
+### Foreign Keys to Hot Tables
+
+**Problem:** The hazard above also fires from the _referencing_ side, and from **any** app — a plain `CreateModel` or `AddField` in a product app with a `ForeignKey(to="posthog.team", ...)` (or `to=settings.AUTH_USER_MODEL`, which resolves to `posthog_user`). Creating the FK constraint takes a `SHARE ROW EXCLUSIVE` lock on the _referenced parent_ table, even though the child table is brand new. That lock conflicts with the `ROW EXCLUSIVE` lock every `INSERT`/`UPDATE`/`DELETE` on the parent holds, so under write traffic the lock request queues behind in-flight writes, `lock_timeout` cancels it, and each `bin/migrate` retry repeats the stall. A `CreateModel` with an FK to `posthog_team` has blocked a deploy this way.
+
+`HotTableAlterPolicy` flags `CreateModel` / `AddField` whose FK target resolves to a hot table (it skips FKs declared `db_constraint=False`). Two options:
+
+**Option A — `db_constraint=False` (the only truly lock-free path):**
+
+```python
+# CreateModel / AddField then emit no FK constraint and take NO lock on the parent.
+# Referential integrity is enforced in application code only.
+team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+```
+
+This is the option that avoids the parent lock entirely — reach for it when you can live without database-level enforcement.
+
+**Option B — a real DB constraint, two-phase via the helper:**
+
+Declare the FK `db_constraint=False` (so `CreateModel` / `AddField` take no lock), then add the constraint back in a later migration with `AddForeignKeyNotValid`, and `ValidateForeignKey` after that:
+
+```python
+# 00xx_add_fk_not_valid.py  (brief SHARE ROW EXCLUSIVE on the parent — see caveat below)
+from posthog.migration_helpers import AddForeignKeyNotValid
+
+operations = [
+    AddForeignKeyNotValid(
+        model_name="mymodel",
+        name="mymodel_team_id_fk",
+        column="team_id",
+        to_table="posthog_team",
+        to_column="id",
+    ),
+]
+
+# 00yy_validate_fk.py  (SHARE UPDATE EXCLUSIVE on the child, no parent lock)
+from posthog.migration_helpers import ValidateForeignKey
+
+operations = [
+    ValidateForeignKey(model_name="mymodel", name="mymodel_team_id_fk"),
+]
+```
+
+Be honest about the lock: `ADD CONSTRAINT ... NOT VALID` still takes a **brief** `SHARE ROW EXCLUSIVE` lock on the parent for the catalog metadata add. It skips the row-validation scan, so it shrinks the lock window to metadata-only — but it does **not** eliminate the parent lock. Only `db_constraint=False` (Option A) is truly lock-free. The follow-up `VALIDATE CONSTRAINT` scans child rows under `SHARE UPDATE EXCLUSIVE` and takes no lock on the parent.
+
+If the FK genuinely must lock the hot table on add, acknowledge it the same way as any other hot-table DDL (add the migration to `hot_table_acknowledged_migrations.txt` and coordinate the deploy).
+
 ## Dropping Tables
 
 **Problem:** `DeleteModel` operations drop tables immediately. This breaks backwards compatibility during deployment and **cannot be rolled back** - once data is deleted, any rollback deployment will fail because the table no longer exists.
@@ -487,7 +533,7 @@ class Migration(migrations.Migration):
 Keep the two phases in **separate migrations** (so the add's brief `ACCESS EXCLUSIVE` lock isn't held through the validate scan), or in the same migration with `atomic = False`.
 If validation fails, Django marks the migration unapplied — clean the offending rows and re-run.
 
-**Note:** The same NOT VALID / VALIDATE pattern applies to `FOREIGN KEY` constraints on existing columns; there's no helper for that yet, so hand-write the `RunSQL` (`ADD CONSTRAINT ... FOREIGN KEY ... NOT VALID` then `VALIDATE CONSTRAINT`). New nullable FK columns don't need it — the column starts empty, so there's nothing to validate.
+**Note:** The same NOT VALID / VALIDATE pattern applies to `FOREIGN KEY` constraints via `AddForeignKeyNotValid` / `ValidateForeignKey` — don't hand-write the `RunSQL`. This matters most when the FK points at a hot table; see [Foreign Keys to Hot Tables](#foreign-keys-to-hot-tables). New nullable FK columns to non-hot tables don't need it — the column starts empty, so there's nothing to validate.
 
 ### Key Points
 
@@ -496,6 +542,8 @@ If validation fails, Django marks the migration unapplied — clean the offendin
 - `VALIDATE CONSTRAINT` takes a `SHARE UPDATE EXCLUSIVE` lock that allows normal reads/writes but blocks DDL operations
 - If validation fails, Django marks the migration as unapplied - clean the offending rows and re-run the validation migration
 - Can fix data issues and retry validation without blocking production
+
+The same two-phase pattern exists for **foreign keys** via `AddForeignKeyNotValid` / `ValidateForeignKey` — but note that an FK to a hot table needs extra care, since `ADD CONSTRAINT ... NOT VALID` still briefly locks the _referenced parent_. See [Foreign Keys to Hot Tables](#foreign-keys-to-hot-tables).
 
 ## Running Data Migrations
 

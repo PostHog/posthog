@@ -41,7 +41,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { Node, ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -55,7 +55,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { DashboardInsightActions } from './DashboardInsightActions'
+import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { InsightCardProps } from './InsightCard'
@@ -91,6 +91,7 @@ interface InsightMetaProps extends Pick<
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
+    persistDisplayOptions?: (node: Node) => void
 }
 
 export function InsightMeta({
@@ -120,6 +121,7 @@ export function InsightMeta({
     placement,
     surveyOpportunity,
     onDragHandleMouseDown,
+    persistDisplayOptions,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
@@ -130,13 +132,9 @@ export function InsightMeta({
         filtersOverride: filtersOverride ?? null,
         variablesOverride: variablesOverride ?? null,
         tileFiltersOverride: tileFiltersOverride ?? null,
+        setQuery: persistDisplayOptions,
     }
-    const {
-        insightFeedback,
-        canToggleDisplayLabelsForInsight,
-        canToggleLegendForInsight,
-        canToggleAnnotationsForInsight,
-    } = useValues(insightLogic(insightLogicProps))
+    const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
     const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
@@ -201,9 +199,7 @@ export function InsightMeta({
         funnelAlertsEnabled: !!featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS],
     })
 
-    const canToggleDisplayLabels = isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight
-    const canToggleLegend = isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight
-    const canToggleAnnotations = isUsedAsDashboardTile && canEditInsight && canToggleAnnotationsForInsight
+    const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -465,20 +461,11 @@ export function InsightMeta({
                                 Alerts
                             </LemonButton>
                         ) : null}
-                        <DashboardInsightActions
-                            insight={insight}
-                            insightLogicProps={insightLogicProps}
-                            dashboardId={dashboardId}
-                            canToggleDisplayLabels={canToggleDisplayLabels}
-                            canToggleLegend={canToggleLegend}
-                            canToggleAnnotations={canToggleAnnotations}
-                        />
+                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions />}
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
-                                    <LemonDivider />
-                                )}
+                                <LemonDivider />
                                 <h5 className="mx-2 my-1">Dashboard</h5>
                                 <DashboardWidgetPlacementMenus
                                     placementDestinations={copyToDestinations}
@@ -490,9 +477,7 @@ export function InsightMeta({
                         {/* Dashboard related */}
                         {canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
-                                    <LemonDivider />
-                                )}
+                                <LemonDivider />
                                 {showCompactTile && toggleShowDescription && !!insight.description && (
                                     <LemonButton onClick={toggleShowDescription} fullWidth>
                                         {tile?.show_description === false ? 'Show description' : 'Hide description'}
