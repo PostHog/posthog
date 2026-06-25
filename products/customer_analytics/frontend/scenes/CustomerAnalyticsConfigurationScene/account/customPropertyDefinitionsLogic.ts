@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
+import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
 import {
     customPropertyDefinitionsCreate,
     customPropertyDefinitionsDestroy,
@@ -17,7 +18,6 @@ import type {
     CustomPropertyDisplayTypeEnumApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { CustomPropertyEvents } from './constants'
 import type { customPropertyDefinitionsLogicType } from './customPropertyDefinitionsLogicType'
 import { isNumericDisplayType } from './customPropertyTypes'
 
@@ -116,7 +116,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
     listeners(({ actions, values }) => ({
         openCreateModal: () => {
             // Funnel entry for adoption: pairs with the `created` event to measure creation drop-off.
-            posthog.capture(CustomPropertyEvents.CreationStarted)
+            posthog.capture(AccountsEvents.CustomPropertyCreationStarted)
             actions.resetCustomPropertyForm()
         },
         openEditModal: ({ definition }) => {
@@ -130,7 +130,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         submitCustomPropertyFormSuccess: () => {
             const editing = values.editingDefinition
             const { displayType, isBigNumber, description } = values.customPropertyForm
-            posthog.capture(editing ? CustomPropertyEvents.Updated : CustomPropertyEvents.Created, {
+            posthog.capture(editing ? AccountsEvents.CustomPropertyUpdated : AccountsEvents.CustomPropertyCreated, {
                 display_type: displayType,
                 is_big_number: isNumericDisplayType(displayType) ? isBigNumber : false,
                 has_description: !!description?.trim(),
@@ -153,7 +153,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             // kea types the loader-success payload as optional; at runtime it always carries the deleted definition.
             const definition = payload?.definition
             if (definition) {
-                posthog.capture(CustomPropertyEvents.Deleted, {
+                posthog.capture(AccountsEvents.CustomPropertyDeleted, {
                     display_type: definition.display_type,
                     is_big_number: isNumericDisplayType(definition.display_type)
                         ? (definition.is_big_number ?? false)

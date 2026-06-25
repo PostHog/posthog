@@ -19,10 +19,10 @@ export const DEFAULT_TILES: AccountsOverviewTile[] = [
 const overviewTilesTeamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 export const ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX = `${overviewTilesTeamId}_customer_analytics_accounts_overview__`
 
-// Canonical analytics event names for the accounts list. Every `posthog.capture`
-// in this directory must reference these — a mistyped string silently forks a new
-// event in PostHog and breaks reporting without any error. Keep in sync with the
-// analytics table in AGENTS.md.
+// Canonical analytics event names for customer analytics (the accounts list and the
+// account configuration surface). Every `posthog.capture` in the product must reference
+// these — a mistyped string silently forks a new event in PostHog and breaks reporting
+// without any error. Keep in sync with the analytics table in AGENTS.md.
 export const AccountsEvents = {
     ListViewed: 'customer analytics accounts list viewed',
     FilterChanged: 'customer analytics accounts filter changed',
@@ -44,4 +44,10 @@ export const AccountsEvents = {
     NotesSorted: 'customer analytics accounts notes sorted',
     TabViewed: 'customer analytics account tab viewed',
     RelatedUserClicked: 'customer analytics account related user clicked',
+    // Account custom-property configuration surface (settings panel, not the list) —
+    // fired from `customPropertyDefinitionsLogic`.
+    CustomPropertyCreationStarted: 'customer analytics custom property creation started',
+    CustomPropertyCreated: 'customer analytics custom property created',
+    CustomPropertyUpdated: 'customer analytics custom property updated',
+    CustomPropertyDeleted: 'customer analytics custom property deleted',
 } as const

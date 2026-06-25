@@ -8,9 +8,9 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { CustomPropertyEvents } from './constants'
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 
 const DEFINITIONS_URL = '/api/projects/:team_id/custom_property_definitions/'
@@ -100,7 +100,7 @@ describe('customPropertyDefinitionsLogic', () => {
             'closeModal',
         ])
         expect(logic.values.modalVisible).toBe(false)
-        expect(posthog.capture).toHaveBeenCalledWith(CustomPropertyEvents.Created, {
+        expect(posthog.capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyCreated, {
             display_type: 'text',
             is_big_number: false,
             has_description: false,
@@ -129,7 +129,7 @@ describe('customPropertyDefinitionsLogic', () => {
         ])
         expect(patchedBody).toMatchObject({ display_type: 'text', is_big_number: false })
         // The captured flag mirrors the persisted payload — dropped for the now-non-numeric type.
-        expect(posthog.capture).toHaveBeenCalledWith(CustomPropertyEvents.Updated, {
+        expect(posthog.capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
             display_type: 'text',
             is_big_number: false,
             has_description: false,
@@ -163,7 +163,7 @@ describe('customPropertyDefinitionsLogic', () => {
             .toDispatchActions(['deleteDefinitionSuccess'])
             .toMatchValues({ definitions: [] })
         // Delete carries the same dimensions as create/update so churn is analyzable by type.
-        expect(posthog.capture).toHaveBeenCalledWith(CustomPropertyEvents.Deleted, {
+        expect(posthog.capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyDeleted, {
             display_type: 'currency',
             is_big_number: true,
             has_description: false,
@@ -174,6 +174,6 @@ describe('customPropertyDefinitionsLogic', () => {
         useMocks(defaultMocks())
         mountLogic()
         await expectLogic(logic, () => logic.actions.openCreateModal()).toFinishAllListeners()
-        expect(posthog.capture).toHaveBeenCalledWith(CustomPropertyEvents.CreationStarted)
+        expect(posthog.capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyCreationStarted)
     })
 })
