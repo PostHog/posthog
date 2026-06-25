@@ -443,7 +443,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
         if pr_base_branch is not None:
             extra_state["pr_base_branch"] = pr_base_branch
-        elif branch and infer_pr_base_from_branch:
+        elif branch and infer_pr_base_from_branch and origin_product != Task.OriginProduct.SIGNAL_REPORT:
             extra_state["pr_base_branch"] = branch
 
         if model:

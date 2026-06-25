@@ -302,7 +302,7 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
     lines.append(f"- **Timestamp:** {signal.timestamp}")
     lines.append(f"- **Description:** {signal.content}")
     if signal.remediation:
-        lines.append("- **Remediation (authoritative guidance — follow it, then confirm in code):**")
+        lines.append("- **Remediation (authoritative guidance — follow it, then verify):**")
         if agent := signal.remediation.get("agent"):
             lines.append(f"    - **Guidance:** {agent}")
         if priority := signal.remediation.get("priority"):
@@ -313,9 +313,8 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
     return "\n".join(lines)
 
 
-_RESEARCH_PREAMBLE = f"""You are a research agent investigating a signal report for the PostHog codebase.
-When the root cause is clear, implement the fix and push it to a `{SIGNALS_BRANCH_PREFIX}` branch.
-Thorough, evidence-based research here directly improves the quality of your output.
+_RESEARCH_PREAMBLE = """You are a research agent investigating a signal report for the PostHog codebase.
+Your findings inform the assessments and coding step that follow in this session — thorough, evidence-based research here directly improves the fix you will implement.
 
 <writing_guide>
 We use American English.
@@ -329,16 +328,11 @@ You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
 2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
 
-The report's history lives in its artefacts (prior findings, judgments, notes, task runs, pushed commits). List them with `inbox-report-artefacts-list` when prior context would help.
-
-MCP write: only to record commits — after each `git_signed_commit`, call `inbox-report-artefacts-create` with `commit` and `{{repository, branch, commit_sha, message}}`. No other artefact writes; findings and assessments come from structured responses at end of session.
+The report's history lives in its artefacts (prior findings, judgments, notes, task runs, pushed commits). You can list them with the `inbox-report-artefacts-list` MCP tool when prior context would help. Do not create or modify artefacts yourself — at the end of the session you will be asked for your findings and assessments as structured responses, and the pipeline persists them. Where an existing artefact of a given type is still correct, you will be able to confirm it instead of producing a new one.
 
 When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence.
 
-When a signal includes a **`remediation`** field, treat its guidance as authoritative — it tells you exactly how to fix the issue (which MCP tools to call and, where the fix lives in the user's codebase, how to apply it).
-Do not re-derive the fix from scratch: follow the guidance, then still do the work a good report needs — locate the relevant code, identify the causative commits, confirm the problem via the PostHog MCP and other tools (production data as it exists today), implement the fix, push it to a remote branch, record the commit artefact, and verify pre-merge only (e.g. run relevant tests, trace the corrected code path, confirm capture/instrumentation sites in code).
-
-Push with `git_signed_commit` (not `git commit`/`git push`) to a `{SIGNALS_BRANCH_PREFIX}` branch (create one if the report has none). No PR — downstream handles that."""
+When a signal includes a **`remediation`** field, treat its guidance as authoritative — it tells you exactly how to fix the issue (which MCP tools to call and, where the fix lives in the user's codebase, how to apply it). Do not re-derive the fix from scratch: follow the guidance, then still do the work a good report needs — locate the relevant code, identify the causative commits, confirm the problem via the PostHog MCP (production data as it exists today). Do not write code during signal investigation; a dedicated coding step comes after assessments."""
 
 _RESEARCH_PROTOCOL = """## Research protocol
 
@@ -373,6 +367,14 @@ _ACTIONABILITY_CRITERIA = """## Actionability criteria
 
 When in doubt between "immediately_actionable" and "requires_human_input", choose "immediately_actionable".
 When in doubt between "requires_human_input" and "not_actionable", choose "not_actionable"."""
+
+_CODING_PROMPT = f"""## Coding
+
+Implement the fix from your findings.
+
+Push with `git_signed_commit` (not `git commit`/`git push`) to a `{SIGNALS_BRANCH_PREFIX}` branch (create one if none). Commits are recorded on the report automatically. No PR — downstream opens it.
+
+Run relevant pre-merge checks. Reply briefly when done."""
 
 
 def build_initial_research_prompt(
@@ -539,6 +541,13 @@ Respond with a JSON object matching this schema:
 <jsonschema>
 {schema}
 </jsonschema>"""
+
+
+def _should_run_coding_turn(actionability: ActionabilityAssessment) -> bool:
+    return (
+        actionability.actionability == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
+        and not actionability.already_addressed
+    )
 
 
 def build_report_presentation_prompt(
@@ -785,6 +794,13 @@ async def run_multi_turn_research(
             (new_artefacts if priority_is_new else old_artefacts).append(priority_result)
             if output_fn:
                 output_fn(f"Priority: {priority_result.priority.value}" + ("" if priority_is_new else " (unchanged)"))
+
+        if _should_run_coding_turn(actionability_result):
+            if output_fn:
+                output_fn("Coding fix...")
+            await session.send_followup_raw(_CODING_PROMPT, label="coding")
+            if output_fn:
+                output_fn("Coding complete")
 
         if output_fn:
             output_fn("Generating title and summary...")

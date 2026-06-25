@@ -328,10 +328,10 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 user_id=user_id,
                 repository=repository,
                 sandbox_environment_id=sandbox_env_id,
-                # Full scopes so pushed commits can be recorded on the report via
-                # inbox-report-artefacts-create. Prompting restricts MCP writes to commit artefacts
-                # only; findings and assessments are still persisted by the pipeline after the session.
-                posthog_mcp_scopes="full",
+                # Reads only: the research agent queries data/insights and can list the report's
+                # artefacts, but never writes artefacts itself — the pipeline persists its
+                # structured outputs after the session.
+                posthog_mcp_scopes="read_only",
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             # 2. Load previous research if this is a re-promoted report

@@ -85,12 +85,3 @@ class TestBuildInitialResearchPrompt:
         assert ("## Business knowledge" in prompt) == expected_present
         for snippet in extra_checks:
             assert snippet in prompt
-
-    def test_includes_commit_artefact_recording_and_write_restrictions(self):
-        signal = _make_signal({})
-        prompt = build_initial_research_prompt(signal, 1)
-
-        assert "inbox-report-artefacts-create" in prompt
-        assert "`commit`" in prompt
-        assert "MCP write: only to record commits" in prompt
-        assert "No other artefact writes" in prompt

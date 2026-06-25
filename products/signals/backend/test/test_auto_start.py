@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.apps import apps
 
@@ -15,7 +15,8 @@ from products.signals.backend.auto_start import (
     ReviewerContent,
     _build_autostart_task_description,
     _create_implementation_task_if_absent,
-    _latest_commit_for_repository,
+    _latest_artefact_as,
+    _repository_default_branch,
     _resolve_autostart_assignee,
 )
 from products.signals.backend.models import (
@@ -157,7 +158,7 @@ def test_build_autostart_task_description_uses_research_branch_when_present():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_latest_commit_for_repository_returns_newest_matching_repo(team):
+async def test_latest_artefact_as_returns_newest_commit(team):
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
@@ -176,7 +177,7 @@ async def test_latest_commit_for_repository_returns_newest_matching_repo(team):
         content=newer.model_dump_json(),
     )
 
-    result = await _latest_commit_for_repository(str(report.id), "Owner/Repo")
+    result = await _latest_artefact_as(str(report.id), SignalReportArtefact.ArtefactType.COMMIT, Commit)
 
     assert result is not None
     assert result.branch == "posthog-self-driving/new"
@@ -219,8 +220,22 @@ def test_create_implementation_task_passes_research_branch_and_pr_base(team, org
     assert call_kwargs["pr_base_branch"] == "main"
 
 
+@pytest.mark.parametrize(
+    ("github", "expected"),
+    [
+        (Mock(get_default_branch=Mock(return_value="main")), "main"),
+        (None, None),
+        (Mock(get_default_branch=Mock(side_effect=RuntimeError("github down"))), None),
+    ],
+)
+def test_repository_default_branch(github, expected):
+    with patch("products.signals.backend.auto_start.GitHubIntegration") as mock_github_cls:
+        mock_github_cls.first_for_team_repository.return_value = github
+        assert _repository_default_branch(1, "owner/repo") == expected
+
+
 @pytest.mark.django_db
-def test_create_implementation_task_skips_pr_base_inference_on_research_handoff(team, organization):
+def test_create_implementation_task_handoff_without_config_does_not_infer_feature_branch(team, organization):
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
     user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
@@ -249,7 +264,8 @@ def test_create_implementation_task_skips_pr_base_inference_on_research_handoff(
             repository="owner/repo",
             branch="posthog-self-driving/fix-foo",
             pr_base_branch=None,
-            infer_pr_base_from_branch=False,
         )
 
-    assert mock_create.call_args.kwargs["infer_pr_base_from_branch"] is False
+    assert mock_create.call_args.kwargs["branch"] == "posthog-self-driving/fix-foo"
+    assert mock_create.call_args.kwargs["pr_base_branch"] is None
+    assert "infer_pr_base_from_branch" not in mock_create.call_args.kwargs

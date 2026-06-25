@@ -21,6 +21,7 @@ from products.signals.backend.report_generation.research import (
     Priority,
     PriorityAssessment,
     PriorityUpdate,
+    ReportPresentationOutput,
     ReportResearchOutput,
     SignalFinding,
     _resolve_actionability_response,
@@ -365,6 +366,73 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
             lambda: SignalReportArtefact.objects.filter(report=report).count()
         )()
         assert artefact_count == 0
+
+
+@pytest.mark.asyncio
+async def _research_turn_labels(actionability: ActionabilityAssessment) -> list[str]:
+    first_finding = SignalFinding(
+        signal_id=_build_signals()[0].signal_id,
+        relevant_code_paths=[],
+        data_queried="",
+        verified=True,
+    )
+    priority = PriorityAssessment(explanation="high impact", priority=Priority.P1)
+    presentation = ReportPresentationOutput(title="fix: thing", summary="**What's happening:** x")
+    turn_labels: list[str] = []
+
+    session = Mock()
+    session.task = Mock(id="task-1")
+
+    async def track_structured(_msg, _model, *, label=""):
+        turn_labels.append(label)
+        if label == "actionability":
+            return actionability
+        if label == "priority":
+            return priority
+        if label == "presentation":
+            return presentation
+        raise AssertionError(f"unexpected structured label: {label}")
+
+    session.send_followup = AsyncMock(side_effect=track_structured)
+
+    async def track_raw(_msg, *, label=""):
+        turn_labels.append(label)
+        return "done"
+
+    session.send_followup_raw = AsyncMock(side_effect=track_raw)
+    session.end = AsyncMock()
+
+    with patch(
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
+        AsyncMock(return_value=(session, first_finding)),
+    ):
+        await run_multi_turn_research(_build_signals()[:1], Mock())
+
+    return turn_labels
+
+
+@pytest.mark.asyncio
+async def test_run_multi_turn_research_runs_coding_before_presentation():
+    turn_labels = await _research_turn_labels(
+        ActionabilityAssessment(
+            explanation="fixable",
+            actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+            already_addressed=False,
+        )
+    )
+    assert turn_labels.index("coding") < turn_labels.index("presentation")
+
+
+@pytest.mark.asyncio
+async def test_run_multi_turn_research_skips_coding_when_already_addressed():
+    turn_labels = await _research_turn_labels(
+        ActionabilityAssessment(
+            explanation="fixed",
+            actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+            already_addressed=True,
+        )
+    )
+    assert "coding" not in turn_labels
 
 
 @pytest.mark.asyncio

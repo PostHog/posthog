@@ -9,9 +9,10 @@ import structlog
 from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
+from posthog.models.integration import GitHubIntegration
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.artefact_schemas import ArtefactContentValidationError, Commit, parse_artefact_content
+from products.signals.backend.artefact_schemas import Commit
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -107,6 +108,22 @@ def _build_autostart_task_description(
     )
 
 
+def _repository_default_branch(team_id: int, repository: str) -> str | None:
+    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    if github is None:
+        return None
+    try:
+        return github.get_default_branch(repository)
+    except Exception:
+        logger.warning(
+            "signals auto-start: failed to resolve default branch",
+            team_id=team_id,
+            repository=repository,
+            exc_info=True,
+        )
+        return None
+
+
 def _create_implementation_task_if_absent(
     *,
     team_id: int,
@@ -117,7 +134,6 @@ def _create_implementation_task_if_absent(
     repository: str,
     branch: str | None,
     pr_base_branch: str | None,
-    infer_pr_base_from_branch: bool = True,
 ) -> bool:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -153,7 +169,6 @@ def _create_implementation_task_if_absent(
             repository=repository,
             branch=branch,
             pr_base_branch=pr_base_branch,
-            infer_pr_base_from_branch=infer_pr_base_from_branch,
             signal_report_id=report_id,
             # Full scopes so the implementation agent can log its work on the report (notes,
             # code references) via the task:write artefact tools.
@@ -304,7 +319,14 @@ async def maybe_autostart_implementation_task(
     if repository and team_config:
         pr_base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
 
-    research_commit = await _latest_commit_for_repository(report_id, repository)
+    research_commit = await _latest_artefact_as(report_id, SignalReportArtefact.ArtefactType.COMMIT, Commit)
+    # Commit artefacts accumulate, so defensively ignore a stale one if repo selection ever changed (unusual)
+    if research_commit and research_commit.repository.lower() != repository.lower():
+        research_commit = None
+    if research_commit and pr_base_branch is None:
+        pr_base_branch = await database_sync_to_async(_repository_default_branch, thread_sensitive=False)(
+            team_id, repository
+        )
     checkout_branch = research_commit.branch if research_commit else pr_base_branch
 
     created = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
@@ -322,31 +344,11 @@ async def maybe_autostart_implementation_task(
         repository=repository,
         branch=checkout_branch,
         pr_base_branch=pr_base_branch,
-        infer_pr_base_from_branch=research_commit is None,
     )
     if not created:
         # Another evaluation won the race and already created the implementation task.
         logger.info("signals auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
         return
-
-
-async def _latest_commit_for_repository(report_id: str, repository: str) -> Commit | None:
-    """Latest pushed commit artefact for ``repository`` on this report (newest first)."""
-    repo_key = repository.lower()
-    commit_type = SignalReportArtefact.ArtefactType.COMMIT
-    async for content in (
-        SignalReportArtefact.objects.filter(report_id=report_id, type=commit_type)
-        .order_by("-created_at")
-        .values_list("content", flat=True)
-        .aiterator()
-    ):
-        try:
-            parsed = parse_artefact_content(commit_type, content)
-        except ArtefactContentValidationError:
-            continue
-        if isinstance(parsed, Commit) and parsed.repository.lower() == repo_key:
-            return parsed
-    return None
 
 
 async def _latest_artefact_as(report_id: str, artefact_type: str, model_cls: type[_M]) -> _M | None:
