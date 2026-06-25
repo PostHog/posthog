@@ -48,7 +48,7 @@ def build_chunk_prompt_context(
     pr_chunk_files = [file for file in pr_files if file.filename in chunk_files]
     return {
         "CLAUDE_CODE_CONTEXT": prepare_code_context(chunk_files, pr_chunk_files),
-        "CURRENT_CHUNK": json.dumps(chunk.model_dump(by_alias=True), indent=2),
+        "CURRENT_CHUNK": json.dumps(chunk.model_dump(), indent=2),
         "PR_INTENT": format_pr_intent(pr_metadata),
         "PR_COMMENTS": json.dumps(
             [c.model_dump(mode="json", exclude={"id", "created_at"}) for c in pr_chunk_comments], indent=2

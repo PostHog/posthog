@@ -895,6 +895,12 @@ version=N)` block — the agent pulls the bar over MCP). Cold-start sync (`run.p
       the three fan-out stages **analyze chunks**, **perspective review** (3 perspectives × N chunks), and **validate**
       = **child workflows** (`AnalyzeChunksWorkflow` / `ReviewPerspectivesWorkflow` / `ValidateIssuesWorkflow`), each
       dispatching its per-unit sandbox-turn **activities** in bounded batches and persisting per-unit artefacts.
+  - **Per-unit activity inputs carry only that unit's slice (flow-analysis 2026-06-25):** when the fan-out stages
+    become activities, dispatch each unit its own data, not the whole list. Most concretely, the **validate** activity
+    needs only the issue's own file context, never the full `pr_files` — today `_validate_one` threads all of `pr_files`
+    but only reads `prepare_code_context([issue.file], pr_files)`, so pre-narrow to the single file (preserving
+    first-match semantics) before dispatch. In-process today this is a no-op (the list is shared by reference); it only
+    matters once it crosses the activity boundary, so it lands **with** the rewrite, not before.
   - **Identity (delete the contextvar):** remove `executor.py`'s `_sandbox_identity` ContextVar + `bind_sandbox_identity`
     - `_sandbox_context_for`; thread `(team_id, user_id, repository, branch)` **explicitly** into every sandbox-turn
       activity input and build `CustomPromptSandboxContext` inline — a ContextVar doesn't cross worker boundaries and
@@ -1207,8 +1213,7 @@ the model and regenerate, never hand-edit.**
 | `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PerspectiveType` | `models/issues_review.py`               | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of stages 7–12; `Issue.source_perspective` records which perspective found it |
 | `IssueDeduplication` / `DuplicateIssue`                                      | `models/issue_deduplicator.py`          | ✅ issue_deduplicator             | ids of issues to drop                                                                                            |
 | `IssueValidation`                                                            | `models/issue_validation.py`            | ✅ issue_validation               | `is_valid` + `category` per issue                                                                                |
-| `IssueCombination`                                                           | `models/issue_combination.py`           | — internal                        | flat merged issue list                                                                                           |
-| `ValidationMarkdownReport*`                                                  | `models/prepare_validation_markdown.py` | — internal                        | report tree (Chunk × Analysis × Issue × Validation)                                                              |
+| `ValidationMarkdownReport*`                                                  | `models/prepare_validation_markdown.py` | — internal                        | report tree (Chunk × Analysis × Issue)                                                                           |
 | `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                       | `models/github_meta.py`                 | — internal                        | raw GitHub ingestion                                                                                             |
 
 `Issue.id` encodes provenance as `"{pass_number}-{chunk_id}-{issue_number}"` and is parsed back throughout

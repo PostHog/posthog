@@ -6,14 +6,12 @@ from github.PullRequest import ReviewComment
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import LineRange
 from products.review_hog.backend.reviewer.persistence import load_valid_findings
 
 logger = logging.getLogger(__name__)
-
-# Only these priorities are published as inline comments (CONSIDER is body-only context).
-_PUBLISHED_PRIORITIES = {IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX}
 
 
 def publish_review(
@@ -174,7 +172,7 @@ def _build_inline_comments(
     comments: list[ReviewComment] = []
 
     for finding, verdict in valid_findings:
-        if finding.priority not in _PUBLISHED_PRIORITIES:
+        if finding.priority not in PUBLISHED_PRIORITIES:
             continue
 
         position = _find_valid_comment_position(finding.file, finding.lines, diff_lines)

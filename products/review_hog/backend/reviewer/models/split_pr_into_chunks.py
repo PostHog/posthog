@@ -34,7 +34,6 @@ class Chunk(BaseModel):
         default_factory=lambda: [],
         description="Bullet points highlighting the most important changes",
     )
-    model_config = {"populate_by_name": True}
 
 
 class ChunksList(BaseModel):

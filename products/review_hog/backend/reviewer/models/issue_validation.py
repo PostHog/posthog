@@ -26,5 +26,3 @@ class IssueValidation(BaseModel):
         ]
         | None
     ) = Field(None, description="Category of the issue")
-
-    model_config = {"populate_by_name": True}

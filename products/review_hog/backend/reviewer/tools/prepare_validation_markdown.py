@@ -8,9 +8,10 @@ high-level summary body. The detailed per-issue findings are published as inline
 
 import logging
 
+from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority
+from products.review_hog.backend.reviewer.models.issues_review import Issue
 from products.review_hog.backend.reviewer.models.prepare_validation_markdown import (
     ValidationMarkdownReport,
     ValidationMarkdownReportChunk,
@@ -19,9 +20,6 @@ from products.review_hog.backend.reviewer.models.prepare_validation_markdown imp
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList
 
 logger = logging.getLogger(__name__)
-
-# Priorities surfaced in the body's per-chunk issue count (and published as inline comments).
-_PUBLISHED_PRIORITIES = {IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX}
 
 
 def build_review_body(
@@ -63,7 +61,7 @@ def _assemble_report(
     report_chunks: list[ValidationMarkdownReportChunk] = []
     for chunk in chunks_data.chunks:
         validated_issues = [
-            ValidationMarkdownReportIssue(issue=issue, validation=validations[issue.id])
+            ValidationMarkdownReportIssue(issue=issue)
             for issue in issues_by_chunk.get(chunk.chunk_id, [])
             if (v := validations.get(issue.id)) is not None and v.is_valid
         ]
@@ -99,7 +97,7 @@ def _render_review_body(report: ValidationMarkdownReport) -> str:
     for chunk_report in report.chunks:
         chunk = chunk_report.chunk
         analysis = chunk_report.chunk_analysis
-        issue_count = sum(1 for vi in chunk_report.validated_issues if vi.issue.priority in _PUBLISHED_PRIORITIES)
+        issue_count = sum(1 for vi in chunk_report.validated_issues if vi.issue.priority in PUBLISHED_PRIORITIES)
 
         chunk_type = chunk.chunk_type.replace("_", " ").capitalize() if chunk.chunk_type else "Changes"
         lines.extend([f"## {chunk_type}", ""])
