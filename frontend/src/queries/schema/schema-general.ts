@@ -6977,6 +6977,7 @@ export const externalDataSources = [
     'Liana',
     'TawkTo',
     'Hightouch',
+    'LemonSqueezy',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

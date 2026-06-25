@@ -346,6 +346,7 @@
           ExternalDataSourceType.LEADFEEDER: LeadfeederSourceConfig,
           ExternalDataSourceType.LEEXI: LeexiSourceConfig,
           ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
+          ExternalDataSourceType.LEMONSQUEEZY: LemonSqueezySourceConfig,
           ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
           ExternalDataSourceType.LEVER: LeverSourceConfig,
           ExternalDataSourceType.LIANA: LianaSourceConfig,
