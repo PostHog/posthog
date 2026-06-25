@@ -448,7 +448,12 @@ class GitHubIntegrationBase:
     # --- Authenticated API helpers ---
 
     def _installation_authenticated_get(
-        self, url: str, *, endpoint: str, timeout: int = 10
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        params: dict[str, str | int] | None = None,
+        timeout: int = 10,
     ) -> requests.Response | None:
         """GET with installation token; refreshes on expiry or 401."""
         try:
@@ -467,6 +472,7 @@ class GitHubIntegrationBase:
                     "Authorization": f"Bearer {access_token}",
                     "X-GitHub-Api-Version": "2022-11-28",
                 },
+                params=params,
                 timeout=timeout,
             )
 
@@ -698,6 +704,33 @@ class GitHubIntegrationBase:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
         owner, repo, pr_number = parsed
         return self.get_pull_request(f"{owner}/{repo}", pr_number)
+
+    def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
+        """Return the HTML URLs of open or closed PRs whose head is ``branch`` in ``repository``.
+
+        ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Results come
+        from the installation token's own API call, so they are inherently trusted — not
+        user-supplied like ``output.pr_url``. Best-effort: returns [] on a bad repo, non-200, or error.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        owner = repo_path.split("/", 1)[0]
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/pulls",
+            endpoint="/repos/{owner}/{repo}/pulls",
+            params={"head": f"{owner}:{branch}", "state": "all", "per_page": 10},
+        )
+        if response is None or response.status_code != 200:
+            return []
+        try:
+            pulls = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: find_pull_request_urls_for_branch non-JSON response", repository=repo_path
+            )
+            return []
+        if not isinstance(pulls, list):
+            return []
+        return [pr["html_url"] for pr in pulls if isinstance(pr, dict) and isinstance(pr.get("html_url"), str)]
 
     _PR_SNAPSHOT_QUERY = """
     query($owner: String!, $repo: String!, $number: Int!) {

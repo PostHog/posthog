@@ -28,7 +28,7 @@ import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { useTrendsLegendConfig } from '../shared/useTrendsLegendConfig'
+import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
@@ -45,7 +45,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { insightProps, insight } = useValues(insightLogic)
 
-    const legendConfig = useTrendsLegendConfig({ insightProps, inSharedMode })
+    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
     const quillLegendEnabled = !!legendConfig
 
     const {

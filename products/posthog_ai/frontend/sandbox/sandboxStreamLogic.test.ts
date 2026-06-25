@@ -2,12 +2,14 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
+import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
 
 import {
     extractRunArtifacts,
@@ -18,6 +20,7 @@ import {
     mergeRunArtifacts,
     parsePermissionRequestFrame,
     reconnectDelayMs,
+    resolveSandboxStreamTarget,
     sandboxStreamLogic,
     SSE_HEALTHY_CONNECTION_MS,
     SSE_RECONNECT_BASE_DELAY_MS,
@@ -27,6 +30,7 @@ import type { PermissionRequestFrame, StoredLogEntry } from './types/sandboxWire
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsCommandCreate: jest.fn(),
+    tasksRunsStreamTokenRetrieve: jest.fn(),
 }))
 
 function notification(method: string, params: Record<string, unknown>): StoredLogEntry {
@@ -56,13 +60,20 @@ type ReaderResult = { done: false; value: Uint8Array } | { done: true; value: un
  * SSE-encoded frames; each `emit*` resolves the logic's pending `reader.read()` and drains the
  * microtask queue so the dispatched actions have settled before the test asserts.
  */
+interface MockStreamOptions {
+    signal: AbortSignal
+    lastEventId?: string
+    startLatest?: boolean
+    proxyTarget?: { baseUrl: string; token: string }
+}
+
 class MockStreamConnection {
-    readonly options: { signal: AbortSignal; lastEventId?: string; startLatest?: boolean }
+    readonly options: MockStreamOptions
     private pendingRead: ((r: ReaderResult) => void) | null = null
     private queued: ReaderResult[] = []
     private encoder = new TextEncoder()
 
-    constructor(options: { signal: AbortSignal; lastEventId?: string; startLatest?: boolean }) {
+    constructor(options: MockStreamOptions) {
         this.options = options
         // Teardown (dispose 'event-source') aborts the signal — unblock any pending read so the
         // logic's loop sees `done`/`aborted` and exits without scheduling a reconnect.
@@ -131,6 +142,17 @@ class MockStreamConnection {
         await flushPromises()
     }
 
+    /** Emit the durable `event: stream-end` end-of-run sentinel, then close the body. */
+    async emitStreamEnd(): Promise<void> {
+        this.deliver({
+            done: false,
+            value: this.encodeFrame({ data: JSON.stringify({ status: 'complete' }), event: 'stream-end' }),
+        })
+        await flushPromises()
+        this.deliver({ done: true, value: undefined })
+        await flushPromises()
+    }
+
     /** Server cleanly closes the stream body → the logic treats it as a drop. */
     async emitClose(): Promise<void> {
         this.deliver({ done: true, value: undefined })
@@ -164,6 +186,9 @@ describe('sandboxStreamLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        // The logic mirrors the live resume cursor to sessionStorage — clear it so a cursor written
+        // by one test can't seed another test's reconnect.
+        window.sessionStorage.clear()
         MockStream.reset()
         MockStream.install()
         projectLogic.mount()
@@ -2662,6 +2687,9 @@ describe('sandboxStreamLogic', () => {
         it('auto-approves a non-destructive PostHog exec without showing a card', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            // Resolving the proxy stream target mints a token before `openStream`, so the connection
+            // registers a microtask later — flush before grabbing it.
+            await flushPromises()
             const source = MockStream.latest()
 
             await source.emitMessage({
@@ -2687,6 +2715,7 @@ describe('sandboxStreamLogic', () => {
 
         it('auto-approves a built-in tool without showing a card', async () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
             const source = MockStream.latest()
 
             await source.emitMessage({
@@ -2884,6 +2913,102 @@ describe('sandboxStreamLogic', () => {
 
             logic.actions.handleTerminalStatus({ status: 'completed' })
             expect(logic.values.pendingPermissionRequest).toBeNull()
+        })
+    })
+
+    describe('agent-proxy stream routing', () => {
+        const enableProxy = (): void =>
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY], {
+                [FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY]: true,
+            })
+
+        beforeEach(() => {
+            ;(tasksRunsStreamTokenRetrieve as jest.Mock).mockReset()
+        })
+
+        describe('resolveSandboxStreamTarget', () => {
+            it('skips the token mint and streams from Django when the rollout is off', async () => {
+                expect(await resolveSandboxStreamTarget('997', 'task-1', 'run-1', false)).toBeNull()
+                expect(tasksRunsStreamTokenRetrieve).not.toHaveBeenCalled()
+            })
+
+            it('routes to the proxy when the server resolves a base URL', async () => {
+                ;(tasksRunsStreamTokenRetrieve as jest.Mock).mockResolvedValue({
+                    token: 'tok-1',
+                    stream_base_url: 'https://proxy.example/',
+                })
+                expect(await resolveSandboxStreamTarget('997', 'task-1', 'run-1', true)).toEqual({
+                    baseUrl: 'https://proxy.example/',
+                    token: 'tok-1',
+                })
+            })
+
+            it('falls back to Django when the server resolves no base URL', async () => {
+                ;(tasksRunsStreamTokenRetrieve as jest.Mock).mockResolvedValue({
+                    token: 'tok-1',
+                    stream_base_url: null,
+                })
+                expect(await resolveSandboxStreamTarget('997', 'task-1', 'run-1', true)).toBeNull()
+            })
+
+            it('falls back to Django when minting the token throws', async () => {
+                ;(tasksRunsStreamTokenRetrieve as jest.Mock).mockRejectedValue(new Error('forbidden'))
+                expect(await resolveSandboxStreamTarget('997', 'task-1', 'run-1', true)).toBeNull()
+            })
+        })
+
+        it('passes the resolved proxy target to openStream when the rollout is on', async () => {
+            enableProxy()
+            ;(tasksRunsStreamTokenRetrieve as jest.Mock).mockResolvedValue({
+                token: 'tok-1',
+                stream_base_url: 'https://proxy.example',
+            })
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith('997', 'task-1', 'run-1')
+            expect(MockStream.latest().options.proxyTarget).toEqual({
+                baseUrl: 'https://proxy.example',
+                token: 'tok-1',
+            })
+        })
+
+        it('re-mints the read token and retries once on a 401 from the proxy leg', async () => {
+            enableProxy()
+            ;(tasksRunsStreamTokenRetrieve as jest.Mock).mockResolvedValue({
+                token: 'tok-1',
+                stream_base_url: 'https://proxy.example',
+            })
+            // The first open fails with an expired-token 401; the retry must mint a fresh token
+            // rather than surface an auth error.
+            ;(api.tasks.runs.openStream as jest.Mock).mockRejectedValueOnce({ status: 401 })
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            expect((tasksRunsStreamTokenRetrieve as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(2)
+            expect(logic.values.sseStatus).toEqual('open')
+        })
+
+        it('finalizes on the stream-end sentinel without reconnecting, and clears the resume cursor', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            const source = MockStream.latest()
+            // A live frame seeds the persisted resume cursor.
+            await source.emitMessage(notification('_posthog/run_started', {}), '1700-5')
+            expect(window.sessionStorage.getItem('posthog-ai:stream-resume:run-1')).toEqual('1700-5')
+
+            const connectionsBefore = MockStream.connections.length
+            await source.emitStreamEnd()
+
+            // The sentinel finalizes via a status refetch — no reconnect, and the cursor is dropped so
+            // a reload can't try to resume a finished run.
+            expect(logic.values.currentRunStatus).toEqual('completed')
+            expect(MockStream.connections.length).toEqual(connectionsBefore)
+            expect(window.sessionStorage.getItem('posthog-ai:stream-resume:run-1')).toBeNull()
         })
     })
 })
