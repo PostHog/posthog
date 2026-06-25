@@ -141,14 +141,6 @@ export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-ac
  */
 export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable', 'runs']
 
-/**
- * Tabs deprecated from the tab bar entirely (route preserved for back-compat / deep links). The
- * per-report run logs now expand inline within the report detail's Runs section, so the standalone
- * project-wide Runs view no longer earns a tab. `urls.inboxReport('runs', …)` and `urls.inbox('runs')`
- * still resolve to `AgentRunDetail` / `RunsTab` for anything that deep-links to them.
- */
-export const INBOX_TAB_BAR_HIDDEN_KEYS: InboxTabKey[] = ['runs']
-
 /** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
 export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const
 export type InboxFlatListTabKey = (typeof INBOX_FLAT_LIST_TAB_KEYS)[number]
@@ -213,11 +205,13 @@ export interface SignalScoutConfig {
     id: string
     /** The `signals-scout-*` skill this config controls. Fixed at creation. */
     skill_name: string
+    /** What this scout investigates, sourced from the skill's `description` metadata. Empty if absent. */
+    description: string
     /** Whether this scout runs on its schedule. */
     enabled: boolean
     /** Whether the scout writes findings to the inbox. false = dry-run. */
     emit: boolean
-    /** Minutes between runs (10–43200). */
+    /** Minutes between runs (30–43200). */
     run_interval_minutes: number
     /** When the coordinator last dispatched this scout; null if never. */
     last_run_at: string | null

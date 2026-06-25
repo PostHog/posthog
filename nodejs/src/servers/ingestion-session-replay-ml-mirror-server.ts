@@ -1,6 +1,10 @@
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
+import { initializePrometheusLabels } from '~/common/api/router'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { getDefaultKafkaDownstreamProducerEnvConfig } from '~/ingestion/common/producers'
 import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { AllowListFetcher, loadAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/allow-list-loader'
@@ -28,12 +32,8 @@ import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/
 import { CleartextKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cleartext-keystore'
 import { getDefaultKafkaSessionreplayProducerEnvConfig } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
-import { parseJSON } from '~/utils/json-parse'
 
-import { initializePrometheusLabels } from '../api/router'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { RedisPool } from '../types'
-import { PostgresRouter } from '../utils/db/postgres'
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 import { IngestionSessionReplayServerConfig, buildSessionReplayRedisPools } from './ingestion-session-replay-server'
 

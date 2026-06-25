@@ -7,7 +7,6 @@ from typing import Any, Optional, TypeVar, cast
 from django.conf import settings
 
 import structlog
-import posthoganalytics
 
 from posthog.schema import (
     CachedFunnelsQueryResponse,
@@ -52,6 +51,7 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 
 logger = structlog.get_logger(__name__)
 
@@ -494,7 +494,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         return self._team_flag_funnels_compare()
 
     def _team_flag_funnels_compare(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "product-analytics-funnels-compare",
             str(self.team.uuid),
             groups={

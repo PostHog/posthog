@@ -29,25 +29,6 @@ import {
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DataWarehouseDataHealthIssuesRetrieveSchema = z.object({})
-
-const dataWarehouseDataHealthIssuesRetrieve = (): ToolBase<
-    typeof DataWarehouseDataHealthIssuesRetrieveSchema,
-    unknown
-> => ({
-    name: 'data-warehouse-data-health-issues-retrieve',
-    schema: DataWarehouseDataHealthIssuesRetrieveSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof DataWarehouseDataHealthIssuesRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/data_health_issues/`,
-        })
-        return result
-    },
-})
-
 const SqlVariablesCreateSchema = InsightVariablesCreateBody
 
 const sqlVariablesCreate = (): ToolBase<typeof SqlVariablesCreateSchema, Schemas.InsightVariable> => ({
@@ -533,7 +514,6 @@ const warehouseTablesRefreshSchemaCreate = (): ToolBase<typeof WarehouseTablesRe
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'data-warehouse-data-health-issues-retrieve': dataWarehouseDataHealthIssuesRetrieve,
     'sql-variables-create': sqlVariablesCreate,
     'sql-variables-delete': sqlVariablesDelete,
     'sql-variables-update': sqlVariablesUpdate,

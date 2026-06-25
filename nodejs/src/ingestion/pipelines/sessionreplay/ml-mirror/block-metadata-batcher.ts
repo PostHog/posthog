@@ -1,7 +1,7 @@
 /** Accumulates block-metadata across Kafka batches and flushes one Parquet object per time/row threshold. */
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 
-import { findOffsetsToCommit } from '~/kafka/consumer/consumer-v1'
+import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
 
 import { parseBlockMetadataMessages } from './block-metadata-message'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'

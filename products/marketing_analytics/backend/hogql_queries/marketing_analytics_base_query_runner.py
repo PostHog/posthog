@@ -37,7 +37,7 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
     DRILL_DOWN_LEVEL_CONFIG,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
 )
-from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory

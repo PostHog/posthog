@@ -1,12 +1,12 @@
 import { DateTime } from 'luxon'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
 import {
     SessionBlockMetadata,
     createNoopBlockMetadata,
 } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { ML_BLOCK_METADATA_OUTPUT, MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
-import { parseJSON } from '~/utils/json-parse'
 
 import { MlBlockMetadataSink } from './ml-block-metadata-sink'
 import { PSEUDONYM_SESSION, pseudonymize } from './pseudonymize'

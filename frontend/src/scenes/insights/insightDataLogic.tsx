@@ -423,14 +423,20 @@ export const insightDataLogic = kea<insightDataLogicType>([
         if (!cachedQueryChanged) {
             return
         }
+        // On dashboard tiles props.setQuery persists edits, and `setQuery` is shared with
+        // insightVizDataLogic whose listener calls props.setQuery — so re-syncing a stale incoming
+        // cached query (e.g. from a tile results refresh) via setQuery loops back and PATCHes it,
+        // reverting a just-saved display option. syncQueryFromProps updates local state without the
+        // loop. The insight scene keeps setQuery for its URL/draft sync.
+        const syncCachedQuery = props.dashboardId != null ? actions.syncQueryFromProps : actions.setQuery
         try {
             if (!objectsEqual(props.cachedInsight.query, values.query)) {
-                actions.setQuery(props.cachedInsight.query)
+                syncCachedQuery(props.cachedInsight.query)
             }
         } catch {
             // values.query can throw if the logic's state isn't in the store yet
             // (e.g. when InsightCard rebuilds the logic during navigation)
-            actions.setQuery(props.cachedInsight.query)
+            syncCachedQuery(props.cachedInsight.query)
         }
     }),
     afterMount(({ actions, props }) => {

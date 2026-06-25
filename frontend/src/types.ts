@@ -753,6 +753,8 @@ export interface ConversationsSettings {
     github_repos?: string[] | null
     ai_suggestions_enabled?: boolean
     ai_diagnostics_enabled?: boolean
+    ai_resolution_channels?: string[] | null
+    ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
 }
 
 export interface LogsSettings {
@@ -4931,7 +4933,6 @@ export interface AppContext {
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     custom_products: UserProductListItem[]
-    promoted_product_intent?: string | null
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -5618,7 +5619,6 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
-    | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'

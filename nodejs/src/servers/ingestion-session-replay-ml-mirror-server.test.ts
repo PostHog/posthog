@@ -1,4 +1,4 @@
-import { KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA } from '~/config/kafka-topics'
+import { KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA } from '~/common/config/kafka-topics'
 import { getDefaultSessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 
 import { buildMlMirrorServerConfig, requirePseudonymSecret } from './ingestion-session-replay-ml-mirror-server'

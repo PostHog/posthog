@@ -261,6 +261,7 @@ from .hellobaton.source import HellobatonSource
 from .helpscout.source import HelpScoutSource
 from .hibob.source import HiBobSource
 from .high_level.source import HighLevelSource
+from .hightouch.source import HightouchSource
 from .hoorayhr.source import HoorayHRSource
 from .hubplanner.source import HubplannerSource
 from .hubspot.source import HubspotSource
@@ -311,6 +312,7 @@ from .leexi.source import LeexiSource
 from .lemlist.source import LemlistSource
 from .less_annoying_crm.source import LessAnnoyingCRMSource
 from .lever.source import LeverSource
+from .liana.source import LianaSource
 from .lightfield.source import LightfieldSource
 from .lightspeed_retail.source import LightspeedRetailSource
 from .linear.source import LinearSource
@@ -560,6 +562,7 @@ from .svix.source import SvixSource
 from .systeme.source import SystemeSource
 from .taboola.source import TaboolaSource
 from .tavus.source import TavusSource
+from .tawk_to.source import TawkToSource
 from .teamtailor.source import TeamtailorSource
 from .teamwork.source import TeamworkSource
 from .tempo.source import TempoSource

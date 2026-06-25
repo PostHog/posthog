@@ -1,5 +1,5 @@
 /** Loads the anonymizer allow lists, failing safe to the in-binary defaults (never to "no scrubbing"). */
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { AllowLists } from './allow-lists'
 import { defaultAllowLists } from './default-dict'

@@ -3,6 +3,7 @@ from typing import Any, Protocol
 
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 
+from posthog.api.services.query import ExecutionMode
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -88,6 +89,13 @@ def lookback_intervals_for(condition: AlertCondition) -> int:
             raise AlertExtractionError(f"Unsupported alert condition type: {condition.type}")
 
 
+def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: bool) -> ExecutionMode:
+    """Pick the query execution mode for an alert check, shared by every extractor."""
+    if interval == IntervalType.HOUR or high_frequency:
+        return ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+    return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+
+
 @dataclass
 class SimulationContext:
     """Alert-less inputs for a read-only detector simulation. Each extractor reads only the fields its
@@ -103,7 +111,11 @@ class SimulationContext:
 
 
 class Extractor(Protocol):
-    def extract(self, alert: AlertConfiguration, insight: Insight, query: object) -> ExtractionResult: ...
+    # The dispatcher resolves execution_mode once (via execution_mode_for_alert) and passes it in, so
+    # the cache/recompute decision lives at one site instead of being re-derived in each extractor.
+    def extract(
+        self, alert: AlertConfiguration, insight: Insight, query: object, execution_mode: ExecutionMode
+    ) -> ExtractionResult: ...
 
 
 class DetectorExtractor(Extractor, Protocol):

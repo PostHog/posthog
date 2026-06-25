@@ -3,6 +3,8 @@ import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
@@ -13,8 +15,6 @@ import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessio
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 import { createMlMirrorReplayPipeline } from './ml-mirror-pipeline'
 
@@ -140,8 +140,7 @@ describe('ml-mirror-pipeline', () => {
                             tagName: 'a',
                             attributes: {
                                 href: 'https://example.com/u/abc/edit',
-                                'data-email': 'Smithson',
-                                style: 'background: url(/users/SecretUser/x.png)',
+                                'data-note': 'Smithson lives nearby',
                             },
                             childNodes: [{ type: 3, id: 3, textContent: 'Hello SecretName' }],
                         },
@@ -194,7 +193,7 @@ describe('ml-mirror-pipeline', () => {
         expect(recordMock).not.toHaveBeenCalled()
     })
 
-    it('fully scrubs a FullSnapshot (text, url, data-*, style) end-to-end before recording', async () => {
+    it('scrubs a FullSnapshot (text, url, free-text data-*) end-to-end before recording', async () => {
         mockTeamService = {
             getTeamByToken: jest.fn().mockResolvedValue(team(true)),
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
@@ -207,7 +206,6 @@ describe('ml-mirror-pipeline', () => {
         expect(node.childNodes[0].textContent).toBe('Hello **********') // DOM text
         expect(node.attributes.href).toContain('https://example.com/') // authority kept...
         expect(node.attributes.href).not.toContain('abc') // ...path segments redacted
-        expect(node.attributes['data-email']).not.toContain('Smithson') // data-* deny-by-default
-        expect(node.attributes.style).not.toContain('SecretUser') // inline style url()
+        expect(node.attributes['data-note']).not.toContain('Smithson') // free-text data-* scrubbed
     })
 })

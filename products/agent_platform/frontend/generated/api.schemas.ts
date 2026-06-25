@@ -221,6 +221,29 @@ export const AgentRevisionApiSpecFrameworkPromptOmitItem = {
     ReasoningHint: 'reasoning_hint',
 } as const
 
+/**
+ * One reference to a versioned skill in the llma-skill store, pinned into
+ * this agent's bundle at freeze.
+ */
+export interface SkillRefApi {
+    /**
+     * Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.
+     * @maxLength 64
+     */
+    from_template: string
+    /**
+     * Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.
+     * @maxLength 64
+     * @pattern ^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
+     */
+    alias: string
+    /**
+     * Specific published version to pin. Omit to pin the store's latest version at freeze time.
+     * @minimum 1
+     */
+    version?: number
+}
+
 export type AgentRevisionApiSpecTriggersItem =
     | {
           type: 'slack'
@@ -394,7 +417,7 @@ export type AgentRevisionApiSpecToolsItem =
           kind: 'custom_template'
           from_template: string
           alias: string
-          /** @minimum 0 */
+          /** @minimum 1 */
           version?: number
       }
     | {
@@ -452,8 +475,9 @@ export type AgentRevisionApiSpecSkillsItem = {
     description?: string
     from_template?: string
     alias?: string
-    /** @minimum 0 */
+    /** @minimum 1 */
     version?: number
+    source_version_id?: string
 }
 
 export type AgentRevisionApiSpecIdentityProvidersItem =
@@ -582,6 +606,8 @@ export interface AgentRevisionApi {
     /** @nullable */
     readonly bundle_sha256: string | null
     spec?: AgentRevisionApiSpec
+    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
+    readonly skill_refs: readonly SkillRefApi[]
     /** @nullable */
     readonly created_by_id: number | null
     /**
@@ -775,7 +801,7 @@ export type PatchedAgentRevisionApiSpecToolsItem =
           kind: 'custom_template'
           from_template: string
           alias: string
-          /** @minimum 0 */
+          /** @minimum 1 */
           version?: number
       }
     | {
@@ -833,8 +859,9 @@ export type PatchedAgentRevisionApiSpecSkillsItem = {
     description?: string
     from_template?: string
     alias?: string
-    /** @minimum 0 */
+    /** @minimum 1 */
     version?: number
+    source_version_id?: string
 }
 
 export type PatchedAgentRevisionApiSpecIdentityProvidersItem =
@@ -985,6 +1012,8 @@ export interface PatchedAgentRevisionApi {
     /** @nullable */
     readonly bundle_sha256?: string | null
     spec?: PatchedAgentRevisionApiSpec
+    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
+    readonly skill_refs?: readonly SkillRefApi[]
     /** @nullable */
     readonly created_by_id?: number | null
     /**
@@ -1005,17 +1034,6 @@ export interface WriteAgentMdRequestApi {
 
 export type WriteTypedBundleRequestApiSpec = { [key: string]: unknown }
 
-/**
- * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
- * at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
- */
-export interface WriteSkillRequestApi {
-    /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
-    description: string
-    /** The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`. */
-    body: string
-}
-
 export type WriteToolRequestApiArgsSchema = { [key: string]: unknown }
 
 /**
@@ -1029,11 +1047,11 @@ export interface WriteToolRequestApi {
 
 /**
  * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
- * payload.
+ * payload. Skills are not authored here: they come from the llma-skill store
+ * via `skill_refs` and are materialized into the bundle at freeze.
  */
 export interface WriteTypedBundleRequestApi {
     agent_md: string
-    skills?: WriteSkillRequestApi[]
     tools?: WriteToolRequestApi[]
     spec: WriteTypedBundleRequestApiSpec
 }
@@ -1100,6 +1118,14 @@ export type SetEnvRequestApiEnv = { [key: string]: string }
  */
 export interface SetEnvRequestApi {
     env: SetEnvRequestApiEnv
+}
+
+/**
+ * Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references.
+ */
+export interface SetSkillRefsRequestApi {
+    /** The complete set of store-skill references for this draft; replaces any existing references. */
+    skill_refs: SkillRefApi[]
 }
 
 export interface AgentRevisionSlackManifestResponseApi {
