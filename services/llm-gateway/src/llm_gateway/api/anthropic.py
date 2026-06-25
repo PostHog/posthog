@@ -321,7 +321,7 @@ async def _handle_anthropic_messages(
     provider = _get_provider_from_headers(request)
     # Alpha cost control: extend cache TTL on the stable prefix so idle gaps don't
     # force a full cache rewrite. Bedrock strips cache_control, so skip it there.
-    if cost_controls_enabled(get_posthog_flags()) and provider != "bedrock":
+    if cost_controls_enabled(get_posthog_flags(), debug=get_settings().debug) and provider != "bedrock":
         upgrade_cache_ttl(data, product=product)
         # Budget guard: deny if the user's self-set monthly cap is exceeded.
         # monthly_budget_usd / scoped_spend_usd come from user settings once the

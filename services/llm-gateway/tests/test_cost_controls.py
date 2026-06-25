@@ -19,11 +19,15 @@ def test_other_flag_values_stay_off() -> None:
 
 def test_cost_controls_enabled_via_env_var(monkeypatch: object) -> None:
     monkeypatch.setenv("COST_CONTROLS_ENABLED", "true")
-    assert cost_controls_enabled() is True
-    assert cost_controls_enabled(flags={}) is True
-    assert cost_controls_enabled(flags={COST_CONTROLS_FLAG: "false"}) is True
+    # Only fires when debug=True — the production path (debug=False) must stay off.
+    assert cost_controls_enabled(debug=True) is True
+    assert cost_controls_enabled(flags={}, debug=True) is True
+    assert cost_controls_enabled(flags={COST_CONTROLS_FLAG: "false"}, debug=True) is True
+    assert cost_controls_enabled() is False
+    assert cost_controls_enabled(flags={}) is False
 
 
 def test_cost_controls_env_var_case_insensitive(monkeypatch: object) -> None:
     monkeypatch.setenv("COST_CONTROLS_ENABLED", "True")
-    assert cost_controls_enabled() is True
+    assert cost_controls_enabled(debug=True) is True
+    assert cost_controls_enabled() is False

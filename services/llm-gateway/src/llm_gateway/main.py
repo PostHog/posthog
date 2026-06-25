@@ -214,7 +214,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         user_cost_limits_disabled=settings.user_cost_limits_disabled,
     )
 
-    if cost_controls_enabled():
+    if cost_controls_enabled(debug=settings.debug):
         logger.warning("cost_controls_dev_override_active", env="COST_CONTROLS_ENABLED=true")
 
     init_callbacks()

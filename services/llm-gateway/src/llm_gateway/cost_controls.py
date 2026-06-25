@@ -16,14 +16,16 @@ import os
 COST_CONTROLS_FLAG = "llm-gateway-cost-controls"
 
 
-def cost_controls_enabled(flags: dict[str, str] | None = None) -> bool:
-    """True when the alpha flag is on for this request, or COST_CONTROLS_ENABLED=true locally.
+def cost_controls_enabled(flags: dict[str, str] | None = None, *, debug: bool = False) -> bool:
+    """True when the alpha flag is on for this request.
 
-    WARNING: COST_CONTROLS_ENABLED is for local development only. Never set it in
-    a production deployment — all users of that instance will receive alpha behaviour
-    regardless of their PostHog flag enrollment.
+    In debug/local mode only, COST_CONTROLS_ENABLED=true acts as a convenience
+    override so developers can test without enrolling in the PostHog flag.  The
+    env-var path requires ``debug=True`` so it cannot fire in a production process
+    (which never sets LLM_GATEWAY_DEBUG=true), preventing a misconfigured
+    deployment from globally enabling alpha behaviour for every tenant.
     """
-    if os.getenv("COST_CONTROLS_ENABLED", "").strip().lower() == "true":
+    if debug and os.getenv("COST_CONTROLS_ENABLED", "").strip().lower() == "true":
         return True
     if not flags:
         return False
