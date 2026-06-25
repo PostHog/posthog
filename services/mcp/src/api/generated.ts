@@ -8396,7 +8396,10 @@ export namespace Schemas {
     };
 
     export type AgentRevisionSpec = {
-      /** @minLength 1 */
+      /**
+         * @minLength 1
+         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+         */
       model: string;
       triggers: AgentRevisionSpecTriggersItem[];
       tools: AgentRevisionSpecToolsItem[];
@@ -13176,6 +13179,16 @@ export namespace Schemas {
       Inconclusive: 'inconclusive',
       StoppedEarly: 'stopped_early',
       Invalid: 'invalid',
+    } as const;
+
+    /**
+     * * `posthog_code` - posthog_code
+     */
+    export type ConnectFromEnum = typeof ConnectFromEnum[keyof typeof ConnectFromEnum];
+
+
+    export const ConnectFromEnum = {
+      PosthogCode: 'posthog_code',
     } as const;
 
     /**
@@ -23712,6 +23725,39 @@ export namespace Schemas {
       default_branch?: string | null;
       /** Whether more branches exist beyond the returned page */
       has_more: boolean;
+    }
+
+    export interface GitHubLinkExistingRequest {
+      /**
+         * Sibling team in the same organization whose GitHub installation should be reused.
+         * @nullable
+         */
+      source_team_id?: number | null;
+      /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
+      installation_id?: string;
+    }
+
+    export interface GitHubOAuthAuthorizeRequest {
+      /** GitHub installation ID to carry through the User OAuth flow. */
+      installation_id?: string;
+      /** Relative URL to redirect to after the OAuth flow completes. */
+      next?: string;
+      /** Originating surface for the connect flow; only 'posthog_code' is recognized.
+       *
+       * * `posthog_code` - posthog_code */
+      connect_from?: ConnectFromEnum;
+    }
+
+    export interface GitHubOAuthAuthorizeResponse {
+      /** GitHub User OAuth URL the client should redirect to. */
+      oauth_url: string;
+    }
+
+    export interface GitHubPrepareCallbackRequest {
+      /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+      next?: string;
+      /** GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation. */
+      installation_id?: string;
     }
 
     export interface GitHubRepo {
@@ -34890,7 +34936,10 @@ export namespace Schemas {
     };
 
     export type PatchedAgentRevisionSpec = {
-      /** @minLength 1 */
+      /**
+         * @minLength 1
+         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+         */
       model: string;
       triggers: PatchedAgentRevisionSpecTriggersItem[];
       tools: PatchedAgentRevisionSpecToolsItem[];
@@ -50688,6 +50737,11 @@ export namespace Schemas {
       install_url: string;
       /** OAuth or install flow used for this GitHub connection. */
       connect_flow: string;
+    }
+
+    export interface UserGitHubPrepareCallbackRequest {
+      /** GitHub App installation id being managed on github.com. */
+      installation_id: string;
     }
 
     /**

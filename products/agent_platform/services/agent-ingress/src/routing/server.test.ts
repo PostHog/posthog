@@ -82,7 +82,7 @@ async function seedApp(store: PgRevisionStore, slug: string): Promise<{ app: Age
         created_by_id: null,
         bundle_uri: 's3://x/',
         spec: AgentSpecSchema.parse({
-            model: 'x',
+            model: 'test/x',
             // These tests exercise the routing surface, not auth — keep the
             // "open agent" behaviour so request flows succeed without a verifier.
             // Public exposure is opt-in (see AuthModeSchema) so each declarative
@@ -121,7 +121,7 @@ async function seedPosthogApp(
         created_by_id: null,
         bundle_uri: 's3://x/',
         spec: AgentSpecSchema.parse({
-            model: 'x',
+            model: 'test/x',
             triggers: [
                 {
                     type: 'chat',
@@ -602,7 +602,7 @@ describe('ingress HTTP server (path mode)', () => {
             created_by_id: null,
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [{ type: 'mcp', config: {}, auth: { modes: [{ type: 'posthog' }] } }],
             }),
         })
@@ -691,7 +691,7 @@ describe('ingress HTTP server (path mode)', () => {
             created_by_id: null,
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [{ type: 'mcp', config: {}, auth: { modes: [{ type: 'posthog' }] } }],
             }),
         })
@@ -722,7 +722,7 @@ describe('ingress HTTP server (path mode)', () => {
             created_by_id: null,
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [
                     {
                         type: 'chat',
