@@ -2,22 +2,34 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
+    """Remove the folded-in models from Django state only.
+
+    The data has already moved onto DuckgresServer / DuckgresServerTeam (1240). Here we drop
+    DuckLakeCatalog, DuckLakeBackfill, and the deprecated DuckgresServer.team from Django's
+    *state* but emit no SQL, so the tables/column physically remain. This keeps old code
+    (still reading those tables during a rolling deploy) working; a follow-up migration drops
+    the physical objects once every worker is on the new code. See
+    docs/.../safe-django-migrations.md#dropping-tables.
+    """
+
     dependencies = [
         ("posthog", "1240_consolidate_duckgres_models_data"),
     ]
 
     operations = [
-        # Deprecated: membership now lives in DuckgresServerTeam, so the server is purely
-        # org-scoped and no longer carries a team.
-        migrations.RemoveField(
-            model_name="duckgresserver",
-            name="team",
-        ),
-        # Folded into DuckgresServer (DuckLakeCatalog) and DuckgresServerTeam (DuckLakeBackfill).
-        migrations.DeleteModel(
-            name="DuckLakeCatalog",
-        ),
-        migrations.DeleteModel(
-            name="DuckLakeBackfill",
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="duckgresserver",
+                    name="team",
+                ),
+                migrations.DeleteModel(
+                    name="DuckLakeCatalog",
+                ),
+                migrations.DeleteModel(
+                    name="DuckLakeBackfill",
+                ),
+            ],
+            database_operations=[],
         ),
     ]
