@@ -34,7 +34,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import AIObservabilitySentimentBurstThrottle, AIObservabilitySentimentSustainedThrottle
 from posthog.temporal.ai_observability.sentiment.constants import (
@@ -384,11 +384,12 @@ class AIObservabilitySentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
                 "ts_end": ast.Constant(value=ts_end),
             }
             try:
-                heavy_result = execute_with_ai_events_fallback(
+                heavy_result = query_ai_events(
                     query=heavy_query,
                     placeholders=heavy_placeholders,
                     team=self.team,
                     query_type="LLMSentimentGenerations",
+                    fall_back_to_events=True,
                     limit_context=LimitContext.QUERY,
                 )
             except Exception as e:

@@ -26,12 +26,12 @@ class TestJSONPropertyPushdown(BaseTest):
 
     def test_whole_properties_access_still_aggregates_blob(self):
         printed = self._print("SELECT key, properties FROM groups")
-        self.assertIn("argMax(tuple(groups.group_properties)", printed)
+        self.assertIn("argMax(groups.group_properties,", printed)
         self.assertNotIn("properties___name", printed)
 
     def test_non_constant_key_is_not_rewritten(self):
         printed = self._print("SELECT key, JSONExtractString(properties, key) AS name FROM groups")
-        self.assertIn("argMax(tuple(groups.group_properties)", printed)
+        self.assertIn("argMax(groups.group_properties,", printed)
 
     def test_does_not_rewrite_on_hogql_dialect(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)

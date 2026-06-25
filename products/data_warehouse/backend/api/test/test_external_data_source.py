@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
+from django.db import connection
 from django.test import override_settings
 from django.utils import timezone
 
@@ -31,15 +32,39 @@ from posthog.schema import (
 
 from posthog.models import Team
 from posthog.models.project import Project
-from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
-from posthog.temporal.data_imports.sources.common.base import FieldType, WebhookCreationResult
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM
-from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
-from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema, SSLRequiredError
-from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
-from posthog.temporal.data_imports.sources.stripe.constants import (
+
+from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
+from products.data_warehouse.backend.api.external_data_source import (
+    get_nonsensitive_and_sensitive_field_names,
+    strip_sensitive_from_dict,
+)
+from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
+from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    sync_frequency_interval_to_sync_frequency,
+)
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    WebhookCreationResult,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    PostgresDiscoveredSchema,
+    SSLRequiredError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     COUPON_RESOURCE_NAME as STRIPE_COUPON_RESOURCE_NAME,
@@ -57,25 +82,10 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
-
-from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.api.external_data_source import (
-    get_nonsensitive_and_sensitive_field_names,
-    strip_sensitive_from_dict,
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
+    ENDPOINTS as STRIPE_ENDPOINTS,
 )
-from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.types import IncrementalFieldType
-from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import (
-    ExternalDataSchema,
-    sync_frequency_interval_to_sync_frequency,
-)
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -100,7 +110,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source(self, _mock_validate):
@@ -155,7 +165,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.sync_discover_schemas_schedule")
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_creates_discovery_schedule(self, _mock_validate, mock_sync_discover):
@@ -238,7 +248,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_sync_discover.assert_not_called()
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_delete_on_missing_schemas(self, _mock_validate):
@@ -258,7 +268,7 @@ class TestExternalDataSource(APIBaseTest):
         assert ExternalDataSource.objects.count() == 0
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_delete_on_bad_schema(self, _mock_validate):
@@ -287,7 +297,7 @@ class TestExternalDataSource(APIBaseTest):
         ]
     )
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_persists_created_via(self, created_via, _mock_validate):
@@ -310,7 +320,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.created_via == created_via
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_defaults_created_via_to_api_when_missing(self, _mock_validate):
@@ -388,7 +398,7 @@ class TestExternalDataSource(APIBaseTest):
         ]
     )
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_direct_query_enabled(self, _name, body, expected, _mock_validate):
@@ -423,6 +433,70 @@ class TestExternalDataSource(APIBaseTest):
         assert response.json()["direct_query_enabled"] is False
         source.refresh_from_db()
         assert source.direct_query_enabled is False
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials_for_access_method",
+        return_value=(True, None),
+    )
+    def test_patch_external_data_source_preserves_cdc_config_when_schema_cleared(self, _mock_validate):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "testdb",
+                "user": "test",
+                "password": "test",
+                "schema": "public",
+                "cdc_enabled": True,
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "posthog_slot",
+                "cdc_publication_name": "posthog_pub",
+                "cdc_auto_drop_slot": False,
+                "cdc_lag_warning_threshold_mb": 512,
+                "cdc_lag_critical_threshold_mb": 1024,
+                "cdc_consistent_point": "0/AA",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "testdb",
+                    "user": "test",
+                    "schema": "",
+                    "cdc_enabled": False,
+                    "cdc_management_mode": "self_managed",
+                    "cdc_slot_name": "attacker_slot",
+                    "cdc_publication_name": "attacker_pub",
+                    "cdc_auto_drop_slot": True,
+                    "cdc_lag_warning_threshold_mb": 1,
+                    "cdc_lag_critical_threshold_mb": 2,
+                    "cdc_consistent_point": "0/BAD",
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["schema"] == ""
+        assert str(source.job_inputs["cdc_enabled"]) == "True"
+        assert source.job_inputs["cdc_management_mode"] == "posthog"
+        assert source.job_inputs["cdc_slot_name"] == "posthog_slot"
+        assert source.job_inputs["cdc_publication_name"] == "posthog_pub"
+        assert str(source.job_inputs["cdc_auto_drop_slot"]) == "False"
+        assert str(source.job_inputs["cdc_lag_warning_threshold_mb"]) == "512"
+        assert str(source.job_inputs["cdc_lag_critical_threshold_mb"]) == "1024"
+        assert source.job_inputs["cdc_consistent_point"] == "0/AA"
 
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
@@ -498,6 +572,47 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_sync_external_data_job_workflow.call_count == 1
         assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": False, "should_sync": True}
         assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
+
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_runs_source_discovery_outside_transaction(self, _mock_workflow_exists):
+        # `_is_webhook_only_schema` reaches the external source (e.g. Google Ads token refresh + field
+        # query). It must run before the per-schema transaction opens — running it inside update()'s
+        # transaction held the DB connection idle-in-transaction long enough for the server to close it.
+
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        # The bulk loop opens a per-schema transaction (a nested savepoint) around update(). Compare the
+        # savepoint depth at call time against the baseline before the request: equal ⇒ called from the
+        # pre-transaction warm step (the fix); baseline + 1 ⇒ called inside update()'s transaction.
+        baseline_savepoint_depth = len(connection.savepoint_ids)
+        savepoint_depth_at_call: list[int] = []
+
+        def record_savepoint_depth(_schema):
+            savepoint_depth_at_call.append(len(connection.savepoint_ids))
+            return False
+
+        with patch.object(ExternalDataSchemaSerializer, "_is_webhook_only_schema", side_effect=record_savepoint_depth):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "should_sync": True, "sync_type": "full_refresh"}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Called exactly once (memoized across warm + update), outside the per-schema transaction.
+        assert savepoint_depth_at_call == [baseline_savepoint_depth]
+        schema.refresh_from_db()
+        assert schema.should_sync is True
 
     @parameterized.expand(
         [
@@ -669,10 +784,11 @@ class TestExternalDataSource(APIBaseTest):
         # Webhook reconcile runs as a deferred post-commit hook in the bulk path, AFTER the
         # atomic block. If it raised there it would 500 the request with the rows already
         # committed. Guard that a raising reconcile is swallowed and the response stays 200.
-        from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
-        from posthog.temporal.data_imports.sources.common.schema import SourceSchema as _SourceSchema
-
         from products.data_warehouse.backend.external_data_source.webhooks import WebhookHogFunctionCreateResult
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+            SourceSchema as _SourceSchema,
+        )
 
         source = self._create_external_data_source()
         schema = ExternalDataSchema.objects.create(
@@ -701,15 +817,15 @@ class TestExternalDataSource(APIBaseTest):
                 return_value=mock_hog_fn_result,
             ),
             patch(
-                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.sync_webhook_events",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.sync_webhook_events",
                 side_effect=ValueError("Missing Stripe API key"),
             ),
             patch(
-                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
                 return_value=mock_webhook_schemas,
             ),
             patch(
-                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
                 return_value=WebhookCreationResult(success=True),
             ),
         ):
@@ -733,7 +849,7 @@ class TestExternalDataSource(APIBaseTest):
         assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_prefix_external_data_source(self, _mock_validate):
@@ -970,7 +1086,7 @@ class TestExternalDataSource(APIBaseTest):
             self.assertEqual(response.json(), {"message": expected_message})
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_can_recreate_no_prefix_source_after_deletion(self, _mock_validate):
@@ -1014,7 +1130,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(recreate_response.status_code, 201, recreate_response.json())
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_incremental(self, _mock_validate):
@@ -1082,7 +1198,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 201)
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_incremental_missing_field(self, _mock_validate):
@@ -1144,7 +1260,7 @@ class TestExternalDataSource(APIBaseTest):
         assert len(ExternalDataSource.objects.all()) == 0
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_incremental_missing_type(self, _mock_validate):
@@ -1215,7 +1331,7 @@ class TestExternalDataSource(APIBaseTest):
         ]
     )
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_incremental_invalid_lookback(
@@ -1253,7 +1369,7 @@ class TestExternalDataSource(APIBaseTest):
         ]
     )
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_incremental_valid_lookback(
@@ -1285,7 +1401,7 @@ class TestExternalDataSource(APIBaseTest):
         """Test we remove the `project_id` prefix of a `dataset_id`."""
         with (
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
                 return_value=[
                     SourceSchema(
                         name="my_table",
@@ -1296,7 +1412,7 @@ class TestExternalDataSource(APIBaseTest):
                 ],
             ),
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
                 return_value=(True, None),
             ),
         ):
@@ -1365,12 +1481,54 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
 
         # A cached instance setting lookup can shave off one query depending on test order.
-        with self.assertNumQueries(FuzzyInt(23, 25)):
+        # The list no longer builds the full HogQL Database (only needed to serialize table columns,
+        # which the list omits), so it's much cheaper than the single-source read path.
+        with self.assertNumQueries(FuzzyInt(13, 15)):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(payload["results"]), 2)
+
+    def test_list_omits_table_columns_but_retrieve_includes_them(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="Accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="Accounts",
+            should_sync=True,
+            table=table,
+        )
+
+        # The list view never reads schemas[].table.columns, so it skips the expensive
+        # HogQL field serialization and returns an empty column list.
+        list_payload = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()
+        list_table = list_payload["results"][0]["schemas"][0]["table"]
+        self.assertEqual(list_table["name"], "Accounts")
+        self.assertEqual(list_table["columns"], [])
+
+        # The single-source read still populates columns for the schema detail page.
+        retrieve_payload = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}").json()
+        retrieve_columns = retrieve_payload["schemas"][0]["table"]["columns"]
+        self.assertTrue(any(column["key"] == "id" for column in retrieve_columns))
 
     def _create_searchable_source(self, source_type: str, prefix: str) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
@@ -1471,7 +1629,7 @@ class TestExternalDataSource(APIBaseTest):
         assert result.get("job_inputs") == {"auth_method": {"selection": "api_key"}}
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_after_get_preserves_stripe_secret_key(self, _mock_validate):
@@ -1495,7 +1653,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["auth_method"]["stripe_secret_key"] == "sk_test_123"
 
     @patch(
-        "posthog.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_after_get_preserves_snowflake_keypair_private_key(self, _mock_validate):
@@ -1547,7 +1705,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["auth_type"]["passphrase"] == "secret-passphrase"
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_switching_auth_method_drops_old_secret_key(self, _mock_validate):
@@ -1627,7 +1785,7 @@ class TestExternalDataSource(APIBaseTest):
         assert auth_method == {"selection": "oauth", "stripe_integration_id": "42"}
 
     @patch(
-        "posthog.temporal.data_imports.sources.github.source.GithubSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GithubSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_after_get_preserves_github_pat(self, _mock_validate):
@@ -2843,7 +3001,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(analytics_schema.sync_type_config["schema_metadata"]["source_schema"], "analytics")
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
+    )
     @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
     @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
     @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
@@ -2935,7 +3095,9 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_add_table.call_args.args[1:] == ("analytics", "events")
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
+    )
     @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
     @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
     @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
@@ -3048,7 +3210,9 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_add_table.call_args.args[1:] == ("analytics", "events")
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
+    )
     @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
     @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
     @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
@@ -3587,7 +3751,7 @@ class TestExternalDataSource(APIBaseTest):
     ):
         # xmin is Postgres-only: the discovery response reports `xmin_available=None` for any other
         # source, regardless of the (erroneous) per-schema `supports_xmin` flag.
-        from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 
         source = PostgresSource() if source_type == "Postgres" else MySQLSource()
         mock_get_source.return_value = source
@@ -3677,10 +3841,10 @@ class TestExternalDataSource(APIBaseTest):
     def test_database_schema_stripe_credentials(self):
         with (
             patch(
-                "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
             ) as validate_credentials_mock,
             patch(
-                "posthog.temporal.data_imports.sources.stripe.source.check_stripe_endpoint_permissions"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.check_stripe_endpoint_permissions"
             ) as check_perms_mock,
         ):
             validate_credentials_mock.return_value = True
@@ -3703,7 +3867,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_stripe_credentials_sad_path(self):
         with patch(
-            "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.side_effect = Exception("Invalid API key")
 
@@ -3720,9 +3884,11 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_stripe_permissions_error(self):
         with patch(
-            "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
         ) as validate_credentials_mock:
-            from posthog.temporal.data_imports.sources.stripe.stripe import StripePermissionError
+            from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
+                StripePermissionError,
+            )
 
             missing_permissions = {"Account": "Error message for Account", "Invoice": "Error message for Invoice"}
             validate_credentials_mock.side_effect = StripePermissionError(missing_permissions)
@@ -3743,10 +3909,10 @@ class TestExternalDataSource(APIBaseTest):
         result into each schema row so the UI can disable tables the credentials can't reach."""
         with (
             patch(
-                "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
             ) as validate_credentials_mock,
             patch(
-                "posthog.temporal.data_imports.sources.stripe.source.check_stripe_endpoint_permissions"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.check_stripe_endpoint_permissions"
             ) as check_perms_mock,
         ):
             validate_credentials_mock.return_value = True
@@ -3769,7 +3935,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
-            "posthog.temporal.data_imports.sources.zendesk.source.validate_credentials"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.validate_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = True
 
@@ -3787,7 +3953,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_zendesk_credentials_sad_path(self):
         with patch(
-            "posthog.temporal.data_imports.sources.zendesk.source.validate_credentials"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.validate_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = False
 
@@ -3805,7 +3971,7 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_database_schema_non_postgres_source(self):
         with patch(
-            "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
         ) as validate_credentials_mock:
             validate_credentials_mock.return_value = True
             response = self.client.post(
@@ -3848,7 +4014,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_source.get_schemas.assert_called_once_with(parsed_config, self.team.pk)
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
         return_value={
             "table_1": PostgresDiscoveredSchema(
                 source_catalog=None,
@@ -3859,12 +4025,15 @@ class TestExternalDataSource(APIBaseTest):
         },
     )
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
         return_value={},
     )
-    @patch("posthog.temporal.data_imports.sources.postgres.source.get_primary_key_columns", return_value={})
-    @patch("posthog.temporal.data_imports.sources.postgres.source.pg_connection")
-    @patch("posthog.temporal.data_imports.sources.postgres.source.get_postgres_row_count")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_primary_key_columns",
+        return_value={},
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.pg_connection")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_row_count")
     def test_internal_postgres(
         self,
         patch_get_postgres_row_count,
@@ -4033,7 +4202,7 @@ class TestExternalDataSource(APIBaseTest):
         ]
     )
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
         return_value={
             "table_1": PostgresDiscoveredSchema(
                 source_catalog=None,
@@ -4235,7 +4404,7 @@ class TestExternalDataSource(APIBaseTest):
         assert len(response.json()) == expected_count
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_trimming_payload(self, _mock_validate):
@@ -4289,7 +4458,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Update with SSH tunnel config
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
             return_value=(True, None),
         ) as mock_validate_credentials:
             response = self.client.patch(
@@ -4401,7 +4570,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Step 2: PATCH with the exact data from GET (simulating user saving without changes)
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
             return_value=(True, None),
         ) as mock_validate_credentials:
             patch_response = self.client.patch(
@@ -4421,7 +4590,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_with_null_password_preserves_existing(self, mock_validate_credentials):
@@ -4465,7 +4634,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_with_empty_string_password_preserves_existing(self, mock_validate_credentials):
@@ -4513,7 +4682,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_with_new_password_updates_password(self, mock_validate_credentials):
@@ -4555,7 +4724,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_with_host_change_without_credentials_is_rejected(self, mock_validate_credentials):
@@ -4594,7 +4763,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_not_called()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_with_host_change_and_credentials_succeeds(self, mock_validate_credentials):
@@ -4635,7 +4804,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand([("with_password", {"password": "new_password"}, 200), ("without_password", {}, 400)])
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_host_change_with_stored_connection_string(
@@ -4685,7 +4854,7 @@ class TestExternalDataSource(APIBaseTest):
             mock_validate_credentials.assert_not_called()
 
     @patch(
-        "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_freshdesk_subdomain_change_without_api_key_is_rejected(self, mock_validate_credentials):
@@ -4715,7 +4884,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_not_called()
 
     @patch(
-        "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_freshdesk_subdomain_change_with_api_key_succeeds(self, mock_validate_credentials):
@@ -4759,7 +4928,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
     @patch(
-        "posthog.temporal.data_imports.sources.servicenow.source.ServiceNowSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.ServiceNowSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_servicenow_instance_url_change_without_credentials_is_rejected(self, mock_validate_credentials):
@@ -4778,7 +4947,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_not_called()
 
     @patch(
-        "posthog.temporal.data_imports.sources.servicenow.source.ServiceNowSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.ServiceNowSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_servicenow_instance_url_change_with_credentials_succeeds(self, mock_validate_credentials):
@@ -4819,7 +4988,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand([("without_credentials", {}, 400), ("with_credentials", {"auth_api_key": "sk_new"}, 200)])
     @patch(
-        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_custom_source_manifest_host_change(
@@ -4851,7 +5020,7 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_validate_credentials.called == (expected_status == 200)
 
     @patch(
-        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_custom_source_ambiguous_authority_host_change_is_rejected(self, mock_validate_credentials):
@@ -4876,7 +5045,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_not_called()
 
     @patch(
-        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_custom_source_same_host_manifest_edit_keeps_credentials(self, mock_validate_credentials):
@@ -4902,7 +5071,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     @patch(
-        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_custom_source_path_param_host_injection_is_rejected(self, mock_validate_credentials):
@@ -4932,7 +5101,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_not_called()
 
     @patch(
-        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_custom_source_adding_cross_host_resource_is_rejected(self, mock_validate_credentials):
@@ -4960,7 +5129,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_not_called()
 
     @patch(
-        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_custom_source_removing_host_does_not_require_credentials(self, mock_validate_credentials):
@@ -4999,7 +5168,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand([("without_token", {}, 400), ("with_token", {"api_key": "new_token"}, 200)])
     @patch(
-        "posthog.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_okta_source_domain_change_requires_token(
@@ -5024,7 +5193,7 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_validate_credentials.called == (expected_status == 200)
 
     @patch(
-        "posthog.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_okta_source_same_domain_keeps_token(self, mock_validate_credentials):
@@ -5042,7 +5211,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_with_non_host_job_input_change_revalidates_credentials(self, mock_validate_credentials):
@@ -5080,7 +5249,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_without_job_inputs_does_not_revalidate_credentials(self, mock_validate_credentials):
@@ -5117,7 +5286,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_not_called()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_source_without_ssh_tunnel_does_not_crash(self, mock_validate_credentials):
@@ -5538,7 +5707,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
             return_value=(True, None),
         ):
             response = self.client.patch(
@@ -5593,7 +5762,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
             return_value=(False, "Mocked credentials failure"),
         ):
             response = self.client.patch(
@@ -5674,7 +5843,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["ssh_tunnel"]["host"] == "ssh.example.com"
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_source_with_ssh_tunnel_host_change_and_auth_succeeds(self, mock_validate_credentials):
@@ -5734,7 +5903,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_source_with_ssh_tunnel_same_host_preserves_auth(self, mock_validate_credentials):
@@ -5839,7 +6008,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Step 2: PATCH with the exact data from GET
         with patch(
-            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
             return_value=(True, None),
         ):
             patch_response = self.client.patch(
@@ -5917,7 +6086,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["password"] == "db_password"
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_source_ssh_tunnel_disabled_string_vs_bool_no_false_positive(self, mock_validate_credentials):
@@ -5976,7 +6145,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
     def test_update_source_ssh_tunnel_no_change_does_not_require_db_password(self, mock_validate_credentials):
@@ -6031,22 +6200,22 @@ class TestExternalDataSource(APIBaseTest):
         """Test that we can create and update the auth type for a Snowflake source"""
         with (
             patch(
-                "posthog.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
                 return_value=(True, None),
             ),
             patch(
-                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.connect"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.connect"
             ) as mocked_connect,
             patch(
-                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_columns",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_columns",
                 return_value={"my_table": [("something", "DATE", False)]},
             ),
             patch(
-                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_primary_keys",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_primary_keys",
                 return_value={"my_table": None},
             ),
             patch(
-                "posthog.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_leading_index_columns",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake.SnowflakeImplementation.get_leading_index_columns",
                 return_value={"my_table": set()},
             ),
         ):
@@ -6105,7 +6274,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Update the source with a new auth type
         with patch(
-            "posthog.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
             return_value=(True, None),
         ) as mock_validate_credentials:
             response = self.client.patch(
@@ -6149,11 +6318,11 @@ class TestExternalDataSource(APIBaseTest):
         """Test that we can create and update the config for a BigQuery source"""
         with (
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
                 return_value=(True, None),
             ),
             patch(
-                "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
                 return_value=[
                     SourceSchema(
                         name="my_table",
@@ -6228,7 +6397,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # # Update the source by adding a temporary dataset
         with patch(
-            "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
             return_value=(True, None),
         ):
             response = self.client.patch(
@@ -6280,7 +6449,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # # Update the source by adding dataset project id
         with patch(
-            "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
             return_value=(True, None),
         ):
             response = self.client.patch(
@@ -6558,7 +6727,7 @@ class TestExternalDataSource(APIBaseTest):
                 )
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_create_external_data_source_accepts_valid_prefix(self, _mock_validate):
@@ -6601,7 +6770,7 @@ class TestExternalDataSource(APIBaseTest):
 
 class TestCreateWebhook(APIBaseTest):
     def _webhook_result(self, success=True, error=None, extra_inputs=None):
-        from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
 
         return WebhookCreationResult(success=success, error=error, extra_inputs=extra_inputs or {})
 
@@ -6683,12 +6852,13 @@ class TestCreateWebhook(APIBaseTest):
             category=[],
         )
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_success(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
-        from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
-
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+            RESOURCE_TO_STRIPE_OBJECT_TYPE,
+        )
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -6732,7 +6902,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["message"] == "Source has no configuration"
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_external_creation_fails(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result(success=False, error="Permission denied")
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -6753,7 +6923,7 @@ class TestCreateWebhook(APIBaseTest):
 
         assert HogFunction.objects.filter(team=self.team, type="warehouse_source_webhook").exists()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_create_webhook_url_uses_cloud_deployment(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
@@ -6768,7 +6938,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["webhook_url"].startswith("https://webhooks.us.posthog.com")
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     @override_settings(CLOUD_DEPLOYMENT=None, SITE_URL="https://my.posthog.instance")
     def test_create_webhook_url_uses_site_url_for_self_hosted(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
@@ -6783,12 +6953,13 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["webhook_url"].startswith("https://my.posthog.instance")
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_merges_schemas_on_update(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
-        from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
-
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+            RESOURCE_TO_STRIPE_OBJECT_TYPE,
+        )
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -6831,7 +7002,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "sync_hog_function_templates" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_saves_extra_inputs(self, mock_create_webhook):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -6853,8 +7024,10 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.encrypted_inputs is not None
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_test123"
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs(self, mock_create_webhook, mock_inputs_updated):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -6890,8 +7063,10 @@ class TestCreateWebhook(APIBaseTest):
         assert call_args.args[2] == self.team.pk
         assert call_args.args[3] == {"signing_secret": "whsec_manual123"}
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs_propagates_failure_from_source(self, mock_create_webhook, mock_inputs_updated):
         # If the source's webhook_inputs_updated reports failure (e.g. Customer.io
         # rejects the request to enable the webhook), surface that to the caller as
@@ -6916,7 +7091,9 @@ class TestCreateWebhook(APIBaseTest):
         assert body["success"] is False
         assert "Customer.io rejected" in body["error"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated"
+    )
     def test_update_webhook_inputs_requires_job_inputs(self, mock_inputs_updated):
         # Sources persisted without job_inputs can't be parsed into a config, so
         # we should bail out with a 400 before saving anything to the HogFunction.
@@ -6933,7 +7110,9 @@ class TestCreateWebhook(APIBaseTest):
         assert response.json()["message"] == "Source has no configuration"
         mock_inputs_updated.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated"
+    )
     def test_update_webhook_inputs_rejects_invalid_keys(self, mock_inputs_updated):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
@@ -6948,7 +7127,9 @@ class TestCreateWebhook(APIBaseTest):
         assert "Invalid input keys" in response.json()["message"]
         mock_inputs_updated.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated"
+    )
     def test_update_webhook_inputs_no_hog_function(self, mock_inputs_updated):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
@@ -6963,7 +7144,7 @@ class TestCreateWebhook(APIBaseTest):
         assert "No webhook function found" in response.json()["message"]
         mock_inputs_updated.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs_rejects_blanked_required_field(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
@@ -6980,7 +7161,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "signing_secret" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs_partial_update_preserves_other_required_fields(self, mock_create_webhook):
         from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
@@ -6995,9 +7176,8 @@ class TestCreateWebhook(APIBaseTest):
         # Inject a second required webhook field into the source config so we can test
         # that a partial update which omits one required field is accepted while still
         # preserving the existing value on the HogFunction.
-        from posthog.temporal.data_imports.sources import SourceRegistry
-
-        from products.data_warehouse.backend.types import ExternalDataSourceType
+        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+        from products.warehouse_sources.backend.types import ExternalDataSourceType
 
         original_source = SourceRegistry.get_source(ExternalDataSourceType("Stripe"))
         original_config = original_source.get_source_config
@@ -7014,7 +7194,7 @@ class TestCreateWebhook(APIBaseTest):
         )
 
         with patch(
-            "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_source_config",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_source_config",
             new_callable=PropertyMock,
             return_value=patched_config,
         ):
@@ -7063,8 +7243,10 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "No inputs provided" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs_rotates_secret_without_webhook_schemas(
         self, mock_create_webhook, mock_inputs_updated
     ):
@@ -7100,15 +7282,16 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_rotated"
         mock_inputs_updated.assert_called_once()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_maps_all_webhook_schemas(self, mock_create_webhook):
         """Regression: creating a source with multiple webhook tables then hitting the
         create_webhook endpoint must populate schema_mapping for every webhook schema.
         Webhook schemas have sync_type='webhook' (not 'incremental')."""
         mock_create_webhook.return_value = self._webhook_result()
-        from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
-
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+            RESOURCE_TO_STRIPE_OBJECT_TYPE,
+        )
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -7506,9 +7689,11 @@ class TestWebhookInfo(APIBaseTest):
         assert data["supports_webhooks"] is True
         assert data["exists"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info"
+    )
     def test_webhook_info_with_hog_function(self, mock_get_info):
-        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(
             exists=True,
@@ -7535,10 +7720,14 @@ class TestWebhookInfo(APIBaseTest):
         assert data["external_status"]["status"] == "enabled"
         assert data["external_status"]["enabled_events"] == ["charge.created", "charge.updated"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events")
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info"
+    )
     def test_webhook_info_reports_missing_events(self, mock_get_info, mock_desired):
-        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(
             exists=True,
@@ -7556,10 +7745,14 @@ class TestWebhookInfo(APIBaseTest):
         data = response.json()
         assert data["missing_events"] == ["customer.created", "customer.updated"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events")
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info"
+    )
     def test_webhook_info_no_missing_events_when_in_sync(self, mock_get_info, mock_desired):
-        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(
             exists=True,
@@ -7576,10 +7769,14 @@ class TestWebhookInfo(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["missing_events"] == []
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events")
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info"
+    )
     def test_webhook_info_wildcard_endpoint_has_no_missing_events(self, mock_get_info, mock_desired):
-        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(exists=True, status="enabled", enabled_events=["*"])
         mock_desired.return_value = ["charge.created", "customer.created"]
@@ -7592,9 +7789,11 @@ class TestWebhookInfo(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["missing_events"] == []
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info"
+    )
     def test_webhook_info_external_not_found(self, mock_get_info):
-        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(exists=False)
 
@@ -7608,9 +7807,11 @@ class TestWebhookInfo(APIBaseTest):
         assert data["exists"] is True
         assert data["external_status"]["exists"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info"
+    )
     def test_webhook_info_external_error(self, mock_get_info):
-        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(
             exists=False,
@@ -7633,7 +7834,7 @@ class TestWebhookInfo(APIBaseTest):
         self._create_hog_function(source)
 
         with patch(
-            "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info",
             return_value=None,
         ):
             response = self.client.get(
@@ -7646,7 +7847,8 @@ class TestWebhookInfo(APIBaseTest):
         assert data["external_status"] is None
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info",
+        return_value=None,
     )
     def test_webhook_info_masks_set_secret_input(self, _mock_info):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -7672,7 +7874,8 @@ class TestWebhookInfo(APIBaseTest):
         assert data["inputs"] == {"signing_secret": {"secret": True}}
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info",
+        return_value=None,
     )
     def test_webhook_info_omits_unset_inputs(self, _mock_info):
         source = self._create_stripe_source()
@@ -7745,9 +7948,9 @@ class TestDeleteWebhook(APIBaseTest):
             should_sync=True,
         )
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
     def test_delete_webhook_success(self, mock_delete_webhook):
-        from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookDeletionResult
 
         mock_delete_webhook.return_value = WebhookDeletionResult(success=True)
 
@@ -7782,9 +7985,9 @@ class TestDeleteWebhook(APIBaseTest):
         assert "webhook sync" in response.json()["message"]
         assert "Customers" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
     def test_delete_webhook_external_fails_still_deletes_hog_function(self, mock_delete_webhook):
-        from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookDeletionResult
 
         mock_delete_webhook.return_value = WebhookDeletionResult(success=False, error="Permission denied")
 
@@ -7855,11 +8058,10 @@ class TestDeleteWebhook(APIBaseTest):
 
 
 class TestDestroySourceCleansUpWebhook(APIBaseTest):
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
     def test_destroy_source_deletes_webhook_and_hog_function(self, mock_delete_webhook):
-        from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
-
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookDeletionResult
 
         mock_delete_webhook.return_value = WebhookDeletionResult(success=True)
 
@@ -7896,7 +8098,7 @@ class TestDestroySourceCleansUpWebhook(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook",
         side_effect=Exception("Stripe API error"),
     )
     def test_destroy_source_continues_if_webhook_cleanup_fails(self, _mock_delete_webhook, mock_capture_exception):
@@ -8097,7 +8299,7 @@ class TestCheckCDCPrerequisitesForSource(APIBaseTest):
         assert "cdc_management_mode" in response.json()["message"]
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
     def test_uses_stored_credentials_not_client_payload(self, mock_validate) -> None:
@@ -8116,7 +8318,7 @@ class TestCheckCDCPrerequisitesForSource(APIBaseTest):
         assert called_source.pk == source.pk
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=["wal_level must be 'logical'"],
     )
     def test_returns_errors_when_prereqs_fail(self, _mock_validate) -> None:
@@ -8132,7 +8334,7 @@ class TestCheckCDCPrerequisitesForSource(APIBaseTest):
         assert body["errors"] == ["wal_level must be 'logical'"]
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
     def test_forwards_self_managed_publication_name(self, mock_validate) -> None:
@@ -8324,7 +8526,7 @@ class TestEnableCDC(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=["wal_level must be 'logical'", "Missing REPLICATION privilege"],
     )
     def test_enable_cdc_returns_400_when_prereqs_fail(self, _check, _flag) -> None:
@@ -8387,7 +8589,7 @@ class TestEnableCDC(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
     @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
@@ -8454,7 +8656,7 @@ class TestEnableCDC(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
     @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
@@ -8482,7 +8684,7 @@ class TestEnableCDC(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
     @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
@@ -8535,7 +8737,7 @@ class TestEnableCDC(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
     @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
@@ -8558,18 +8760,32 @@ class TestEnableCDC(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.publication_exists", return_value=False)
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.slot_exists", return_value=False)
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot_and_publication")
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_slot_and_publication")
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.publication_exists",
+        return_value=False,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.slot_exists",
+        return_value=False,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot_and_publication"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.drop_publication")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.create_slot")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.create_publication")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
     def test_enable_cdc_posthog_rolls_back_partial_slot_on_failure(
         self,
         mock_cdc_pg_connection,
-        mock_create_slot_and_publication,
+        mock_create_publication,
+        mock_create_slot,
+        mock_drop_publication,
+        mock_drop_slot,
         mock_drop_slot_and_publication,
         _mock_slot_exists,
         _mock_publication_exists,
@@ -8582,7 +8798,8 @@ class TestEnableCDC(APIBaseTest):
         mock_cdc_pg_connection.return_value.__enter__.return_value = object()
         mock_cdc_pg_connection.return_value.__exit__.return_value = None
 
-        mock_create_slot_and_publication.side_effect = RuntimeError("max_replication_slots reached")
+        # Publication is created first; the slot creation then fails (e.g. max_replication_slots reached).
+        mock_create_slot.side_effect = RuntimeError("max_replication_slots reached")
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
@@ -8597,11 +8814,12 @@ class TestEnableCDC(APIBaseTest):
         assert response.status_code == 400
         assert "max_replication_slots reached" in response.json()["message"]
 
-        # Best-effort cleanup must run with the exact slot + publication we tried to create.
-        mock_drop_slot_and_publication.assert_called_once()
-        call = mock_drop_slot_and_publication.call_args
-        assert call.args[1] == "leaky_slot"
-        assert call.args[2] == "leaky_pub"
+        # Only the publication was created before the slot failed, so rollback drops just the publication.
+        mock_create_publication.assert_called_once()
+        mock_drop_publication.assert_called_once()
+        assert mock_drop_publication.call_args.args[1] == "leaky_pub"
+        mock_drop_slot.assert_not_called()
+        mock_drop_slot_and_publication.assert_not_called()
 
         # Source's job_inputs must NOT have been persisted with cdc_enabled — we never reached save().
         source.refresh_from_db()
@@ -8610,15 +8828,23 @@ class TestEnableCDC(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
         return_value=[],
     )
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot_and_publication")
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot")
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_slot")
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.slot_exists", return_value=False)
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.publication_exists", return_value=True)
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot_and_publication"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.create_slot")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.slot_exists",
+        return_value=False,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.publication_exists",
+        return_value=True,
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
     def test_enable_cdc_self_managed_rolls_back_slot_only_on_failure(
         self,
         mock_cdc_pg_connection,
@@ -8689,7 +8915,7 @@ class TestDisableCDC(APIBaseTest):
         assert body.get("already_disabled") is True
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
     )
     def test_disable_cdc_clears_cdc_keys_and_pauses_schemas(self, _cleanup) -> None:
@@ -8734,7 +8960,7 @@ class TestDisableCDC(APIBaseTest):
         assert non_cdc_schema.should_sync is True
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
     )
     def test_disable_cdc_soft_deletes_companion_cdc_tables(self, _cleanup) -> None:
@@ -8769,7 +8995,7 @@ class TestDisableCDC(APIBaseTest):
         assert main_table.deleted is False
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
     )
     @patch("products.data_warehouse.backend.api.external_data_source.cancel_external_data_workflow")
@@ -8798,7 +9024,7 @@ class TestDisableCDC(APIBaseTest):
         mock_cancel.assert_called_once_with(running_job.workflow_id)
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
     )
     @patch("products.data_warehouse.backend.api.external_data_source.cancel_external_data_workflow")
@@ -8828,7 +9054,7 @@ class TestDisableCDC(APIBaseTest):
         mock_cancel.assert_not_called()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
     )
     @patch("products.data_warehouse.backend.api.external_data_source.cancel_external_data_workflow")
@@ -8849,7 +9075,7 @@ class TestDisableCDC(APIBaseTest):
         mock_cancel.assert_not_called()
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         side_effect=RuntimeError("slot drop network blip"),
     )
     def test_disable_cdc_succeeds_even_if_external_cleanup_fails(self, _cleanup) -> None:
@@ -8878,7 +9104,7 @@ class TestDisableCDC(APIBaseTest):
         assert cdc_schema.should_sync is False
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
     )
     def test_disable_cdc_calls_source_cleanup_helper(self, mock_cleanup) -> None:
@@ -9084,7 +9310,7 @@ class TestCDCStatus(APIBaseTest):
         assert response.json() == {"enabled": False}
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
         return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
     )
     def test_returns_live_status_when_enabled(self, mock_get_status) -> None:
@@ -9103,7 +9329,7 @@ class TestCDCStatus(APIBaseTest):
         assert mock_get_status.call_args.args[0].pk == source.pk
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
         return_value={"slot_exists": False, "publication_exists": True, "lag_bytes": None},
     )
     def test_surfaces_missing_slot(self, _mock_get_status) -> None:
@@ -9115,7 +9341,7 @@ class TestCDCStatus(APIBaseTest):
         assert body["lag_bytes"] is None
 
     @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
         side_effect=psycopg.OperationalError("connection refused"),
     )
     def test_returns_400_when_source_unreachable(self, _mock_get_status) -> None:
@@ -9166,7 +9392,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_setup_creates_source_with_all_tables_and_mcp_created_via(
@@ -9197,7 +9423,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_setup_persists_direct_query_enabled_false(self, _mock_validate, _mock_sync_views, _mock_person_join):
@@ -9264,11 +9490,11 @@ class TestExternalDataSourceSetup(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
         return_value=WebhookCreationResult(success=True, extra_inputs={"signing_secret": "whsec_123"}),
     )
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_setup_auto_registers_webhook_and_switches_capable_tables(
@@ -9304,11 +9530,11 @@ class TestExternalDataSourceSetup(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
         return_value=WebhookCreationResult(success=False, error="This API key lacks webhook permissions"),
     )
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_setup_falls_back_to_polling_when_webhook_registration_fails(
@@ -9337,9 +9563,9 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
-    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_setup_keeps_polling_defaults_when_webhook_template_missing(
@@ -9359,7 +9585,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert customer.sync_type in ("incremental", "append", "full_refresh")
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(False, "Missing Stripe API key"),
     )
     def test_setup_returns_credential_error(self, _mock_validate):
@@ -9383,7 +9609,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_setup_with_credential_id_merges_stored_payload(self, mock_validate, _mock_sync_views, _mock_person_join):
@@ -9403,7 +9629,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(False, "Invalid Stripe API key"),
     )
     def test_setup_failure_keeps_stored_credential(self, _mock_validate):
@@ -9474,7 +9700,7 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         )
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_store_credentials_creates_pending_credential_without_source(self, _mock_validate):
@@ -9493,7 +9719,7 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         assert not ExternalDataSource.objects.exists()
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_store_credentials_purges_expired_credentials(self, _mock_validate):
@@ -9508,7 +9734,7 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         assert not PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=expired.pk).exists()
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(False, "Invalid Stripe API key"),
     )
     def test_store_credentials_rejects_invalid_credentials(self, _mock_validate):
@@ -9524,7 +9750,7 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
 
     @patch(
-        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
     def test_stored_credentials_list_returns_metadata_only(self, _mock_validate):

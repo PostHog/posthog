@@ -1,8 +1,18 @@
 import os
 
+from posthog.settings.base_variables import CLOUD_DEPLOYMENT
+
 DAGSTER_S3_BUCKET: str = os.getenv("DAGSTER_S3_BUCKET", "posthog-dags")
 DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL: str = os.getenv("DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL", "#alerts-clickhouse")
 DAGSTER_DATA_EXPORT_S3_BUCKET: str = os.getenv("DAGSTER_DATA_EXPORT_S3_BUCKET", "dagster-data-export")
+
+_QUERY_LOG_ARCHIVE_EXPORT_BUCKETS = {
+    "US": "posthog-query-log-archive-export-us-east-1",
+    "EU": "posthog-query-log-archive-export-eu-central-1",
+}
+QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET: str = os.getenv(
+    "QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET", _QUERY_LOG_ARCHIVE_EXPORT_BUCKETS.get(CLOUD_DEPLOYMENT or "", "")
+)
 CLICKHOUSE_BACKUPS_BUCKET: str | None = os.getenv("CLICKHOUSE_BACKUPS_BUCKET")
 CLICKHOUSE_BACKUPS_MAX_BANDWIDTH: int = int(os.getenv("CLICKHOUSE_BACKUPS_MAX_BANDWIDTH", "100000000"))
 

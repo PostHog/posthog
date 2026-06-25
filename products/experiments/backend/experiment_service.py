@@ -10,7 +10,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Count, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Coalesce, Now, NullIf
 from django.utils import timezone
 
@@ -2759,6 +2759,9 @@ class ExperimentService:
                     created_by_display=Coalesce(
                         NullIf(F("created_by__first_name"), Value("")),
                         F("created_by__email"),
+                        # first_name is a CharField and email an EmailField; Django refuses to
+                        # infer a type across the two, so set it explicitly.
+                        output_field=CharField(),
                     )
                 ).order_by(f"{prefix}created_by_display")
             else:

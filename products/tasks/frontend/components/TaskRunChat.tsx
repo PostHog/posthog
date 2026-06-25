@@ -1,7 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
+
+import { NotFound } from 'lib/components/NotFound'
 
 import {
     isTerminalRunStatus,
@@ -35,7 +37,10 @@ export function TaskRunChat({ taskId, runId }: TaskRunChatProps): JSX.Element {
 }
 
 function TaskRunChatContent({ taskId, runId }: TaskRunChatProps): JSX.Element {
-    const { pendingPermissionRequest, currentRunStatus } = useValues(sandboxStreamLogic({ streamKey: runId }))
+    const streamLogic = sandboxStreamLogic({ streamKey: runId })
+    const { pendingPermissionRequest, currentRunStatus, threadItems, logBootstrapLoading, bootstrapError } =
+        useValues(streamLogic)
+    const { reset, bootstrapRun } = useActions(streamLogic)
     const { sendMessage } = useActions(taskRunChatLogic({ taskId, runId }))
     const { sendingMessage } = useValues(taskRunChatLogic({ taskId, runId }))
 
@@ -43,25 +48,52 @@ function TaskRunChatContent({ taskId, runId }: TaskRunChatProps): JSX.Element {
     const [composerText, setComposerText] = useState('')
 
     const isQuestion = !!pendingPermissionRequest?.questions && pendingPermissionRequest.questions.length > 0
+    const isLogPending = logBootstrapLoading
+    const showBootstrapError =
+        !!bootstrapError && threadItems.length === 1 && threadItems[0]?.type === 'error' && !isLogPending
+    const isBlockingBootstrapState = isLogPending || showBootstrapError
 
     const handleSend = (): void => {
         const trimmed = composerText.trim()
-        if (!trimmed || sendingMessage || isTerminal) {
+        if (!trimmed || sendingMessage || isTerminal || isBlockingBootstrapState) {
             return
         }
         sendMessage(trimmed)
         setComposerText('')
     }
 
+    const handleRetryBootstrap = (): void => {
+        reset()
+        bootstrapRun({ taskId, runId })
+    }
+
     return (
         <div className="flex flex-col h-full overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-4 py-2">
-                <SandboxThreadView />
+            <div className="flex-1 overflow-y-auto flex flex-col gap-3">
+                {isLogPending ? (
+                    <TaskRunLogSkeleton />
+                ) : showBootstrapError && bootstrapError?.status === 404 ? (
+                    <NotFound object="task run" className="m-0 py-8" />
+                ) : showBootstrapError && bootstrapError ? (
+                    <LemonBanner
+                        type="error"
+                        data-attr="task-run-log-error"
+                        action={{
+                            children: 'Retry',
+                            onClick: handleRetryBootstrap,
+                        }}
+                    >
+                        <p>We couldn't load this task run.</p>
+                        <p className="text-muted mb-0">{bootstrapError.errorMessage || bootstrapError.errorTitle}</p>
+                    </LemonBanner>
+                ) : (
+                    <SandboxThreadView />
+                )}
             </div>
 
-            <SandboxResourcesBar />
+            {!isBlockingBootstrapState && <SandboxResourcesBar />}
 
-            {pendingPermissionRequest && !isTerminal && (
+            {pendingPermissionRequest && !isTerminal && !isBlockingBootstrapState && (
                 <div className="border-t px-4 py-3">
                     {isQuestion ? (
                         <SandboxQuestionInput streamKey={runId} request={pendingPermissionRequest} />
@@ -71,7 +103,7 @@ function TaskRunChatContent({ taskId, runId }: TaskRunChatProps): JSX.Element {
                 </div>
             )}
 
-            {!isTerminal && !pendingPermissionRequest && (
+            {!isTerminal && !pendingPermissionRequest && !isBlockingBootstrapState && (
                 <div className="border-t px-4 py-3 flex gap-2 items-end">
                     <LemonTextArea
                         className="flex-1"
@@ -93,7 +125,19 @@ function TaskRunChatContent({ taskId, runId }: TaskRunChatProps): JSX.Element {
                 </div>
             )}
 
-            <SandboxContextUsage />
+            {!isBlockingBootstrapState && <SandboxContextUsage />}
+        </div>
+    )
+}
+
+function TaskRunLogSkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-3 p-4" data-attr="task-run-log-skeleton">
+            <LemonSkeleton className="h-4 w-1/3" />
+            <LemonSkeleton className="h-16 w-11/12" />
+            <LemonSkeleton className="h-4 w-1/4 ml-auto" />
+            <LemonSkeleton className="h-24 w-4/5 ml-auto opacity-60" />
+            <LemonSkeleton className="h-20 w-10/12 opacity-40" />
         </div>
     )
 }

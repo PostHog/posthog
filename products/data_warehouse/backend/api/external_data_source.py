@@ -42,32 +42,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter, source_type_supports_cdc
-from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
-from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
-from posthog.temporal.data_imports.sources.common.config import Config
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
-from posthog.temporal.data_imports.sources.common.sql import (
-    RowFilterValidationError,
-    filter_dwh_columns_by_enabled_columns,
-    sql_schema_metadata,
-    validate_and_coerce_row_filters,
-)
-from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
-from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
-from posthog.temporal.data_imports.sources.postgres.cdc.config import (
-    DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
-    DEFAULT_LAG_WARNING_THRESHOLD_MB,
-)
-from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
-from posthog.temporal.data_imports.sources.postgres.postgres import (
-    SSLRequiredError,
-    get_primary_key_columns,
-    source_requires_ssl,
-)
-from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -79,6 +53,7 @@ from products.data_warehouse.backend.api.external_data_schema import (
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
+from products.data_warehouse.backend.api.public_source_configs import build_source_configs
 from products.data_warehouse.backend.data_load.service import (
     bulk_create_external_data_job_schedules,
     bulk_delete_external_data_schedules,
@@ -116,7 +91,6 @@ from products.data_warehouse.backend.sql_warehouse_migration import (
     is_multi_schema_capable_sql_source,
     source_namespace_is_blank,
 )
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -131,6 +105,48 @@ from products.warehouse_sources.backend.models.util import (
     postgres_columns_to_dwh_columns,
     validate_source_prefix,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
+    CDCSourceAdapter,
+    get_cdc_adapter,
+    source_type_supports_cdc,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    AnySource,
+    ExternalWebhookInfo,
+    FieldType,
+    WebhookSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_default_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    RowFilterValidationError,
+    filter_dwh_columns_by_enabled_columns,
+    sql_schema_metadata,
+    validate_and_coerce_row_filters,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
+    MAX_CUSTOM_SOURCES_PER_TEAM,
+    manifest_request_hosts,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
+    DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
+    DEFAULT_LAG_WARNING_THRESHOLD_MB,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    SSLRequiredError,
+    get_primary_key_columns,
+    source_requires_ssl,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -854,6 +870,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
+        # CDC resource ownership changes must go through the CDC-specific endpoints.
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                new_job_inputs[key] = existing_job_inputs[key]
+            else:
+                new_job_inputs.pop(key, None)
+
         # If the connection target changed, require credentials to be re-entered. Covers
         # both the generic `host` field and source-specific URL fields like ServiceNow's
         # `instance_url`, so a stored credential can't be redirected to a new host.
@@ -973,7 +996,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
-        validated_data["job_inputs"] = source_config.to_dict()
+        validated_job_inputs = source_config.to_dict()
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                validated_job_inputs[key] = existing_job_inputs[key]
+        validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted:
             if isinstance(source, (PostgresSource, MySQLSource)):
@@ -1310,7 +1337,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+        # Building the full HogQL Database and serializing per-schema table columns is expensive
+        # and only needed when a caller reads `schemas[].table.columns` — which the source list view
+        # never does (it only reads name/row_count). Gate both to single-source reads.
+        include_columns = self.action != "list"
+        context["include_columns"] = include_columns
+        if include_columns:
+            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
 
         return context
 
@@ -3167,14 +3200,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
-        sources = SourceRegistry.get_all_sources()
-        results = {}
-        for source_type, source in sources.items():
-            config = source.get_source_config.model_dump()
-            config["supportsColumnSelection"] = bool(source.supports_column_selection)
-            results[str(source_type)] = config
-
-        return Response(status=status.HTTP_200_OK, data=results)
+        return Response(status=status.HTTP_200_OK, data=build_source_configs())
 
     @extend_schema(
         parameters=[
@@ -3598,6 +3624,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 context={**serializer_context, "post_commit_actions": schema_post_commit_actions},
             )
             schema_serializer.is_valid(raise_exception=True)
+            # Do the webhook-only source-discovery call (e.g. Google Ads token refresh + field query)
+            # here, before the per-schema transaction below. Running it inside update()'s transaction
+            # held the DB connection idle-in-transaction long enough for the server to close it.
+            # update() reads the cached result, so it still validates and fails per-schema.
+            schema_serializer.warm_webhook_only_check(schema)
             prepared.append((schema, schema_serializer, schema_post_commit_actions))
 
         # Commit each schema in its own transaction. A single atomic block around the whole batch

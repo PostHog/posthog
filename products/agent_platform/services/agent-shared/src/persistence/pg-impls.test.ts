@@ -60,7 +60,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
         const app = await store.createApplication({ team_id: 1, slug: 'echo', name: 'Echo', description: '' })
         expect(await store.getApplicationBySlug('echo')).toMatchObject({ slug: 'echo' })
 
-        const spec = AgentSpecSchema.parse({ model: 'mock-echo' })
+        const spec = AgentSpecSchema.parse({ model: 'test/mock-echo' })
         const rev = await store.createRevision({
             application_id: app.id,
             parent_revision_id: null,
@@ -70,10 +70,10 @@ maybeDescribe('Postgres impls (real PG)', () => {
         })
         expect(rev.state).toBe('draft')
 
-        const newSpec = AgentSpecSchema.parse({ model: 'mock-static:hello' })
+        const newSpec = AgentSpecSchema.parse({ model: 'test/mock-static:hello' })
         await store.updateSpec(rev.id, newSpec)
         const after = await store.getRevision(rev.id)
-        expect(after!.spec.model).toBe('mock-static:hello')
+        expect(after!.spec.model).toBe('test/mock-static:hello')
 
         await store.setRevisionState(rev.id, 'live')
         await store.setLiveRevision(app.id, rev.id)
@@ -107,7 +107,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
                 parent_revision_id: null,
                 created_by_id: null,
                 bundle_uri: 's3://x/',
-                spec: AgentSpecSchema.parse({ model: 'mock-echo' }),
+                spec: AgentSpecSchema.parse({ model: 'test/mock-echo' }),
             })
             const result = await store.getRevisionForApplication(rev.id, pickAppId(ownerApp.id, otherApp.id))
             if (expected === 'resolves') {
@@ -129,10 +129,12 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         await store.setRevisionState(rev.id, 'ready', 'deadbeef')
-        await expect(store.updateSpec(rev.id, AgentSpecSchema.parse({ model: 'y' }))).rejects.toThrow(/not a draft/)
+        await expect(store.updateSpec(rev.id, AgentSpecSchema.parse({ model: 'test/y' }))).rejects.toThrow(
+            /not a draft/
+        )
     })
 
     it('listLiveCronRevisions skips a live spec that no longer parses (schema drift) instead of throwing', async () => {
@@ -149,7 +151,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             created_by_id: null,
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [{ type: 'cron', config: { name: 'sweep', schedule: '0 * * * *', prompt: 'go' } }],
             }),
         })
@@ -165,7 +167,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         await pool.query(`UPDATE agent_revision SET spec = $2::jsonb WHERE id = $1`, [
             badRev.id,
@@ -192,7 +194,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
 
         const queue = new PgSessionQueue(pool)
@@ -213,6 +215,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
                 usage_total: { ...EMPTY_USAGE_TOTAL },
                 acl: [],
                 pending_elevation_requests: [],
+                is_preview: false,
                 created_at: new Date(Date.now() + i).toISOString(),
                 updated_at: new Date(Date.now() + i).toISOString(),
             })
@@ -239,7 +242,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         // Sibling app on a different team — must not leak into either roll-up.
         const otherApp = await revisions.createApplication({
@@ -253,7 +256,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         const now = Date.now()
         const inWindow = new Date(now - 60_000).toISOString()
@@ -282,6 +285,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: cost },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             created_at: created,
             updated_at: created,
         })
@@ -321,7 +325,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         await queue.enqueue({
             id: '11111111-1111-1111-1111-111111111111',
@@ -339,6 +343,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -352,7 +357,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
         expect(after!.pending_inputs).toHaveLength(1)
     })
 
-    it('findByExternalKey resolves on (application_id, external_key)', async () => {
+    it('findByExternalKey resolves on (application_id, external_key, scope)', async () => {
         if (!reachable) {
             return
         }
@@ -364,7 +369,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         await queue.enqueue({
             id: '22222222-2222-2222-2222-222222222222',
@@ -382,13 +387,22 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
-        const found = await queue.findByExternalKey(app.id, 'slack:C01:T1')
+        const liveScope = { isPreview: false, revisionId: rev.id }
+        const found = await queue.findByExternalKey(app.id, 'slack:C01:T1', liveScope)
         expect(found!.id).toBe('22222222-2222-2222-2222-222222222222')
-        const missing = await queue.findByExternalKey(app.id, 'nope')
+        const missing = await queue.findByExternalKey(app.id, 'nope', liveScope)
         expect(missing).toBeNull()
+        // A preview-scoped lookup on the same key + revision does not see the
+        // live row — preview/live sessions are isolated at the SQL filter.
+        const crossScope = await queue.findByExternalKey(app.id, 'slack:C01:T1', {
+            isPreview: true,
+            revisionId: rev.id,
+        })
+        expect(crossScope).toBeNull()
     })
 
     it('getForApplication scopes by (id, application_id) — null for another application', async () => {
@@ -404,7 +418,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         const sessionId = '33333333-3333-3333-3333-333333333333'
         await queue.enqueue({
@@ -423,6 +437,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -504,7 +519,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         const id = '33333333-3333-3333-3333-333333333333'
         await queue.enqueue({
@@ -523,6 +538,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -602,7 +618,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         const sessionId = randomUUID()
         await queue.enqueue({
@@ -621,6 +637,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -642,6 +659,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             proposed_args: { team_id: 42, dry_run: false },
             assistant_message: asstMsg,
             approver_scope: { type: 'agent' as const, allow_edit: false },
+            is_preview: false,
             expires_at: new Date(Date.now() + 60_000).toISOString(),
         }
 
@@ -688,7 +706,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         const sessionId = randomUUID()
         await queue.enqueue({
@@ -707,6 +725,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -727,6 +746,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             tool_name: 'tool.dispatch',
             assistant_message: asstMsg,
             approver_scope: { type: 'agent' as const, allow_edit: false },
+            is_preview: false,
             expires_at: new Date(Date.now() + 60_000).toISOString(),
         }
 
@@ -799,6 +819,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             usage_total: { ...EMPTY_USAGE_TOTAL },
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             created_at: ts,
             updated_at: ts,
         })
@@ -816,7 +837,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         const queue = new PgSessionQueue(pool)
 
@@ -853,7 +874,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         const queue = new PgSessionQueue(pool)
         const id1 = await seedSession(queue, app.id, rev.id, { idempotencyKey: null })
@@ -875,14 +896,14 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         const revB = await revisions.createRevision({
             application_id: b.id,
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         const queue = new PgSessionQueue(pool)
         const idA = await seedSession(queue, a.id, revA.id, { idempotencyKey: 'cron:foo:hourly:2026-06-02T12:00' })
@@ -905,7 +926,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
         })
         const queue = new PgSessionQueue(pool)
         const now = Date.now()
