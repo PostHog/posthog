@@ -1,4 +1,4 @@
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { Team } from '~/types'
 import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
 import { LazyLoader } from '~/utils/lazy-loader'

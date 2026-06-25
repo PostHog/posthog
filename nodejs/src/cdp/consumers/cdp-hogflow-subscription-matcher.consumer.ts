@@ -2,11 +2,11 @@ import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '../../kafka/consumer'
-import { HogFlow, HogFlowAction } from '../../schema/hogflow'
 import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'

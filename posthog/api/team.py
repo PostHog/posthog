@@ -1286,6 +1286,57 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["slack_alert_channel_id"] = alert_channel.strip() or None
             else:
                 raise serializers.ValidationError({"slack_alert_channel_id": "Must be a string."})
+        # AI resolution channels: list of valid channel strings or null
+        VALID_CHANNELS = {"widget", "email", "slack", "teams", "github"}
+        if "ai_resolution_channels" in value:
+            channels = value.get("ai_resolution_channels")
+            if channels is None:
+                pass
+            elif isinstance(channels, list):
+                invalid = [c for c in channels if not isinstance(c, str) or c not in VALID_CHANNELS]
+                if invalid:
+                    raise serializers.ValidationError(
+                        {
+                            "ai_resolution_channels": f"Invalid channel(s): {', '.join(str(c) for c in invalid)}. "
+                            f"Valid options: {', '.join(sorted(VALID_CHANNELS))}."
+                        }
+                    )
+                value["ai_resolution_channels"] = channels
+            else:
+                raise serializers.ValidationError(
+                    {"ai_resolution_channels": "Must be a list of channel names or null."}
+                )
+        # AI reply modes: { channel: { ticket_type: mode } } or null
+        VALID_REPLY_MODES = {"private_note", "bot_reply"}
+        VALID_TICKET_TYPES = {"how_to", "diagnostic", "account_billing"}
+        # Only how_to replies may be published to the ticket author. diagnostic/account_billing
+        # draw on project data (events, persons, recordings, logs) and must stay private notes —
+        # there's no per-author authorization that the customer is entitled to that data.
+        BOT_REPLY_TICKET_TYPES = {"how_to"}
+        if "ai_reply_modes" in value:
+            modes = value.get("ai_reply_modes")
+            if modes is None:
+                pass
+            elif isinstance(modes, dict):
+                cleaned_modes: dict[str, dict[str, str]] = {}
+                for ch, type_map in modes.items():
+                    if ch not in VALID_CHANNELS or not isinstance(type_map, dict):
+                        continue
+                    cleaned_map: dict[str, str] = {}
+                    for tt, mode in type_map.items():
+                        if tt not in VALID_TICKET_TYPES or mode not in VALID_REPLY_MODES:
+                            continue
+                        # Demote bot_reply to private_note for ticket types that may never be
+                        # published (diagnostic/account_billing). Coerce rather than reject so a
+                        # stale value doesn't block unrelated settings saves.
+                        if mode == "bot_reply" and tt not in BOT_REPLY_TICKET_TYPES:
+                            mode = "private_note"
+                        cleaned_map[tt] = mode
+                    if cleaned_map:
+                        cleaned_modes[ch] = cleaned_map
+                value["ai_reply_modes"] = cleaned_modes
+            else:
+                raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:

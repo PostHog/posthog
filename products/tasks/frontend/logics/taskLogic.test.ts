@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api'
+
 import { initKeaTests } from '~/test/init'
 
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../types'
@@ -50,6 +52,28 @@ describe('taskLogic', () => {
 
             expect(tasksLogicInstance.values.tasks.find((t) => t.id === 'task-123')?.title).toBe('Updated Title')
             tasksLogicInstance.unmount()
+        })
+    })
+
+    describe('loadTaskFailure', () => {
+        it('stores not-found failures separately from retryable load errors', () => {
+            logic = taskLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.loadTaskFailure('Not found', new ApiError('Not found', 404))
+
+            expect(logic.values.taskNotFound).toBe(true)
+            expect(logic.values.taskError).toBe(null)
+        })
+
+        it('stores non-404 load failures for inline retry UI', () => {
+            logic = taskLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.loadTaskFailure('Could not load task', new ApiError('Could not load task', 500))
+
+            expect(logic.values.taskNotFound).toBe(false)
+            expect(logic.values.taskError).toBe('Could not load task')
         })
     })
 
