@@ -1343,6 +1343,14 @@ class FeatureFlagSerializer(
                         )
                         dependency_cohorts = get_all_cohort_dependencies(initial_cohort)
                         for cohort in [initial_cohort, *dependency_cohorts]:
+                            if cohort.is_static:
+                                # Static cohorts (including one-time snapshots) hold a
+                                # materialised person list.  The populating criteria may
+                                # still be stored on the record, but they are inert – the
+                                # cohort no longer re-evaluates them.  Skip the behavioural
+                                # property check so snapshot cohorts can be used in flags
+                                # without an extra export step.  See #65270.
+                                continue
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
                                 _validate_behavioral_cohort_for_feature_flag(
                                     cohort, allow_realtime_backfilled=self._allow_realtime_backfilled
