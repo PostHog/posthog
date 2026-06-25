@@ -427,8 +427,9 @@ class TestRunEvaluationWorkflow:
         @activity.defn(name="disable_evaluation_activity")
         async def mock_disable_evaluation(
             evaluation_id: str, team_id: int, reason: str, reason_detail: str | None = None
-        ) -> None:
+        ) -> bool:
             calls.append(f"disable:{evaluation_id}:{team_id}:{reason}:{reason_detail}")
+            return True
 
         @activity.defn(name="send_evaluation_disabled_email_activity")
         async def mock_send_evaluation_disabled_email(inputs: SendEvaluationDisabledEmailInputs) -> None:
@@ -479,6 +480,85 @@ class TestRunEvaluationWorkflow:
         assert result["skipped"] is True
         assert result["skip_reason"] == "hog_error"
         assert result["message"] == "Must return boolean, got int: 42"
+
+    @pytest.mark.asyncio
+    async def test_terminal_user_error_does_not_email_when_evaluation_was_already_disabled(self):
+        calls: list[str] = []
+
+        @activity.defn(name="fetch_evaluation_activity")
+        async def mock_fetch_evaluation(inputs: RunEvaluationInputs) -> dict[str, Any]:
+            calls.append("fetch")
+            return {
+                "id": inputs.evaluation_id,
+                "name": "Hog eval",
+                "evaluation_type": "hog",
+                "evaluation_config": {},
+                "output_type": "boolean",
+                "output_config": {},
+                "team_id": 1,
+            }
+
+        @activity.defn(name="execute_hog_eval_activity")
+        async def mock_execute_hog_eval(
+            evaluation: dict[str, Any], event_data: dict[str, Any]
+        ) -> EvaluationActivityResult:
+            calls.append("execute_hog")
+            return {
+                "result_type": "boolean",
+                "verdict": False,
+                "reasoning": "Must return boolean, got int: 42",
+                "allows_na": False,
+                "skipped": True,
+                "skip_reason": "hog_error",
+                "terminal_user_error": True,
+                "status_reason": "hog_error",
+            }
+
+        @activity.defn(name="disable_evaluation_activity")
+        async def mock_disable_evaluation(
+            evaluation_id: str, team_id: int, reason: str, reason_detail: str | None = None
+        ) -> bool:
+            calls.append(f"disable:{evaluation_id}:{team_id}:{reason}:{reason_detail}")
+            return False
+
+        @activity.defn(name="send_evaluation_disabled_email_activity")
+        async def mock_send_evaluation_disabled_email(inputs: SendEvaluationDisabledEmailInputs) -> None:
+            calls.append("email")
+            raise AssertionError("already-disabled terminal errors must not send another email")
+
+        task_queue = str(uuid.uuid4())
+        evaluation_id = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[
+                    mock_fetch_evaluation,
+                    mock_execute_hog_eval,
+                    mock_disable_evaluation,
+                    mock_send_evaluation_disabled_email,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result: dict[str, Any] = await env.client.execute_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id=evaluation_id,
+                        event_data=create_mock_event_data(team_id=1),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        assert calls == [
+            "fetch",
+            "execute_hog",
+            f"disable:{evaluation_id}:1:hog_error:Must return boolean, got int: 42",
+        ]
+        assert result["evaluation_id"] == evaluation_id
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data):
@@ -806,9 +886,12 @@ class TestRunEvaluationWorkflow:
 
         assert evaluation.enabled
 
-        await disable_evaluation_activity(str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42")
+        disabled = await disable_evaluation_activity(
+            str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
+        )
 
         await sync_to_async(evaluation.refresh_from_db)()
+        assert disabled is True
         assert not evaluation.enabled
         assert evaluation.status == "error"
         assert evaluation.status_reason == "hog_error"
@@ -826,6 +909,18 @@ class TestRunEvaluationWorkflow:
         assert fields["status_reason"]["after"] == "hog_error"
         assert fields["status_reason_detail"]["after"] == "Must return boolean, got int: 42"
         assert logs[0].is_system is True
+
+        disabled_again = await disable_evaluation_activity(
+            str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
+        )
+
+        logs_after_retry = await sync_to_async(
+            lambda: ActivityLog.objects.filter(
+                scope="Evaluation", item_id=str(evaluation.id), activity="updated"
+            ).count()
+        )()
+        assert disabled_again is False
+        assert logs_after_retry == 1
 
     @pytest.mark.django_db(transaction=True)
     def test_successful_execution_does_not_disable_evaluation(self, setup_data):

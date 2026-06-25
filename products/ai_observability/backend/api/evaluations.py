@@ -319,7 +319,9 @@ class EvaluationSerializer(serializers.ModelSerializer):
         )
 
     def _validate_re_enable(self, data: dict) -> None:
-        has_byok = self._has_byok_key(data)
+        provider_key = self._effective_provider_key(data)
+        has_byok = provider_key is not None
+        has_usable_byok = provider_key is not None and provider_key.state == LLMProviderKey.State.OK
         status_reason = getattr(self.instance, "status_reason", None)
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         # Non-model evals never call an LLM provider, consume trial quota, or need a BYOK key.
@@ -328,18 +330,23 @@ class EvaluationSerializer(serializers.ModelSerializer):
         if not evaluation_uses_model_configuration(evaluation_type):
             return
 
+        if has_byok and not has_usable_byok:
+            raise serializers.ValidationError(
+                {"enabled": "Attach a working provider API key before re-enabling this evaluation."}
+            )
+
         # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
         if status_reason == "trial_limit_reached" or not status_reason:
             team = self.context["get_team"]()
             config = EvaluationConfig.objects.filter(team=team).first()
-            if config and config.trial_limit_reached and not has_byok:
+            if config and config.trial_limit_reached and not has_usable_byok:
                 raise serializers.ValidationError(
                     {"enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."}
                 )
 
         # Model-not-allowed: the eval's current model must now be on the trial allowlist, or they
         # must have attached a BYOK key (BYOK bypasses the allowlist entirely).
-        if status_reason == "model_not_allowed" and not has_byok:
+        if status_reason == "model_not_allowed" and not has_usable_byok:
             from products.ai_observability.backend.llm import TRIAL_MODEL_IDS
 
             model_config_data = data.get("model_configuration")
@@ -361,8 +368,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
         # Provider key failures: the eval must now point at a usable provider key.
         if status_reason in PROVIDER_KEY_ERROR_STATUS_REASONS:
-            provider_key = self._effective_provider_key(data)
-            if provider_key is None or provider_key.state != LLMProviderKey.State.OK:
+            if not has_usable_byok:
                 raise serializers.ValidationError(
                     {"enabled": "Attach a working provider API key before re-enabling this evaluation."}
                 )
@@ -384,10 +390,6 @@ class EvaluationSerializer(serializers.ModelSerializer):
                         "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before re-enabling."
                     }
                 )
-
-    def _has_byok_key(self, data: dict) -> bool:
-        """Check if the evaluation will have a BYOK key after this update."""
-        return self._effective_provider_key(data) is not None
 
     def _effective_provider_key(self, data: dict) -> LLMProviderKey | None:
         """Return the provider key the evaluation will use after this update."""

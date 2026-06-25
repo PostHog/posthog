@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 
 import structlog
 import temporalio
@@ -18,7 +18,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
-from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 logger = structlog.get_logger(__name__)
@@ -128,16 +128,28 @@ async def increment_trial_eval_count_activity(team_id: int) -> int | None:
 @temporalio.activity.defn
 async def disable_evaluation_activity(
     evaluation_id: str, team_id: int, status_reason: str = "", status_reason_detail: str | None = None
-) -> None:
-    """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error."""
+) -> bool:
+    """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error.
 
-    def _disable() -> None:
+    Returns True only for the first workflow that disables the evaluation. Later in-flight
+    workflows can hit the same terminal error after the first transition, but shouldn't send
+    duplicate disabled notifications or write duplicate activity log rows.
+    """
+
+    def _disable() -> bool:
         reason = status_reason or "trial_limit_reached"
-        evaluation = Evaluation.objects.filter(id=evaluation_id, team_id=team_id).first()
-        if evaluation is not None:
-            evaluation.set_status("error", reason, status_reason_detail)
+        with transaction.atomic():
+            evaluation = Evaluation.objects.select_for_update().filter(id=evaluation_id, team_id=team_id).first()
+            if evaluation is None:
+                return False
 
-    await database_sync_to_async(_disable)()
+            if evaluation.status == EvaluationStatus.ERROR and not evaluation.enabled:
+                return False
+
+            evaluation.set_status("error", reason, status_reason_detail)
+            return True
+
+    return await database_sync_to_async(_disable)()
 
 
 @dataclass

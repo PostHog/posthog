@@ -324,6 +324,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             is_byok=bool(result.get("is_byok", False)),
         )
         status_reason = result.get("status_reason")
+        disabled_evaluation = False
         if status_reason:
             reasoning = result.get("reasoning")
             status_reason_detail = (
@@ -334,7 +335,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 if spec
                 else None
             )
-            await temporalio.workflow.execute_activity(
+            disabled_evaluation = await temporalio.workflow.execute_activity(
                 disable_evaluation_activity,
                 args=[evaluation["id"], evaluation["team_id"], status_reason, status_reason_detail],
                 schedule_to_close_timeout=timedelta(seconds=30),
@@ -366,10 +367,12 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     team_id=evaluation["team_id"],
                 )
 
+        dedupe_disabled_email = temporalio.workflow.patched("eval-disabled-email-on-disable-transition")
         should_send_disabled_email = (
             spec is not None
             and spec.disables_evaluation
             and bool(status_reason)
+            and (disabled_evaluation or not dedupe_disabled_email)
             and not spec.send_trial_usage_email
             and temporalio.workflow.patched("eval-disabled-email")
         )

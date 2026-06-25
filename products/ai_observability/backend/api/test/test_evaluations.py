@@ -856,6 +856,43 @@ class TestEnableBlockingWhenTrialExhausted(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
 
+    def test_rejects_enabling_trial_eval_with_unusable_byok_key_when_limit_reached(self):
+        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.INVALID,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        mc = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=key,
+        )
+        eval_obj = Evaluation.objects.create(
+            team=self.team,
+            name="Invalid BYOK Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            model_configuration=mc,
+            enabled=False,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("working provider API key", str(response.data))
+        eval_obj.refresh_from_db()
+        self.assertFalse(eval_obj.enabled)
+
 
 class TestReEnableValidatesRootCauseResolved(APIBaseTest):
     """When an eval is in the error state, flipping enabled=True must fail unless the condition
@@ -910,6 +947,28 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertTrue(eval_obj.enabled)
         self.assertEqual(eval_obj.status, "active")
         self.assertIsNone(eval_obj.status_reason)
+
+    def test_rejects_re_enable_when_model_not_allowed_with_unusable_byok_key(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.INVALID,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9", provider_key=key)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("working provider API key", str(response.data))
+        eval_obj.refresh_from_db()
+        self.assertFalse(eval_obj.enabled)
 
     @parameterized.expand(
         [
