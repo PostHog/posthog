@@ -28,6 +28,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 
 BACKFILL_JOB_ID = "duckgres-backfill"
 
+# Session advisory-lock namespace that serializes enqueue_chunks per run_uuid.
+# Distinct from the batch-claim lock namespace (0x44475300) so the two never
+# conflict: (run_uuid, batch_index) has no DB uniqueness guard, so without this
+# two pods replaying _reconcile_one for the same run could both pass the
+# existing-index check and insert duplicate chunk rows.
+BACKFILL_ENQUEUE_LOCK_NAMESPACE = 0x44475301  # "DGS\x01"
+
 # Structured kinds stamped into duckgres status error_response by this module's
 # writers (the reconciler dispatches on these, never on message prose).
 KIND_COVERED_BY_SNAPSHOT = "covered_by_backfill_snapshot"
@@ -132,54 +139,70 @@ def enqueue_chunks(
     Each batch row and its pre-succeeded Delta status row commit in ONE
     transaction: a synthetic row visible without 'succeeded' status would be
     claimed by the Delta consumer and loaded into the Delta table.
+
+    (run_uuid, batch_index) has no DB uniqueness guard, so a bare
+    read-existing-then-insert races: two pods replaying _reconcile_one for the
+    same run could both miss a chunk in ``existing`` and insert it twice. A
+    session advisory lock keyed on run_uuid serializes enqueue across pods, so
+    the later pod reads a complete ``existing`` set and inserts nothing.
     """
     inserted = 0
-    existing = {
-        row[0]
-        for row in conn.execute(f"SELECT batch_index FROM {BATCH_TABLE} WHERE run_uuid = %s", [run_uuid]).fetchall()
-    }
-    for chunk in chunks:
-        if chunk.index in existing:
-            continue
-        batch_id = str(uuid.uuid4())
-        with conn.transaction():
-            conn.execute(
-                f"""
-                INSERT INTO {BATCH_TABLE} (
-                    id, team_id, schema_id, source_id, job_id, run_uuid,
-                    batch_index, s3_path, row_count, byte_size, is_final_batch,
-                    total_batches, total_rows, sync_type, cumulative_row_count,
-                    resource_name, is_resume, is_first_ever_sync, metadata
-                ) VALUES (
-                    %(id)s, %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s,
-                    %(batch_index)s, %(s3_path)s, %(row_count)s, %(byte_size)s, false,
-                    %(total_batches)s, NULL, 'full_refresh', 0,
-                    %(resource_name)s, true, false, %(metadata)s
+    conn.execute(
+        "SELECT pg_advisory_lock(%s, hashtext(%s))",
+        [BACKFILL_ENQUEUE_LOCK_NAMESPACE, run_uuid],
+    )
+    try:
+        existing = {
+            row[0]
+            for row in conn.execute(f"SELECT batch_index FROM {BATCH_TABLE} WHERE run_uuid = %s", [run_uuid]).fetchall()
+        }
+        for chunk in chunks:
+            if chunk.index in existing:
+                continue
+            batch_id = str(uuid.uuid4())
+            with conn.transaction():
+                conn.execute(
+                    f"""
+                    INSERT INTO {BATCH_TABLE} (
+                        id, team_id, schema_id, source_id, job_id, run_uuid,
+                        batch_index, s3_path, row_count, byte_size, is_final_batch,
+                        total_batches, total_rows, sync_type, cumulative_row_count,
+                        resource_name, is_resume, is_first_ever_sync, metadata
+                    ) VALUES (
+                        %(id)s, %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s,
+                        %(batch_index)s, %(s3_path)s, %(row_count)s, %(byte_size)s, false,
+                        %(total_batches)s, NULL, 'full_refresh', 0,
+                        %(resource_name)s, true, false, %(metadata)s
+                    )
+                    """,
+                    {
+                        "id": batch_id,
+                        "team_id": schema.team_id,
+                        "schema_id": str(schema.id),
+                        "source_id": str(schema.source_id),
+                        "job_id": BACKFILL_JOB_ID,
+                        "run_uuid": run_uuid,
+                        "batch_index": chunk.index,
+                        "s3_path": chunk.paths[0],
+                        "row_count": chunk.row_count,
+                        "byte_size": chunk.byte_size,
+                        "total_batches": len(chunks),
+                        "resource_name": schema.name,
+                        "metadata": psycopg.types.json.Jsonb(
+                            build_backfill_metadata(chunk_paths=chunk.paths, chunk_count=len(chunks))
+                        ),
+                    },
                 )
-                """,
-                {
-                    "id": batch_id,
-                    "team_id": schema.team_id,
-                    "schema_id": str(schema.id),
-                    "source_id": str(schema.source_id),
-                    "job_id": BACKFILL_JOB_ID,
-                    "run_uuid": run_uuid,
-                    "batch_index": chunk.index,
-                    "s3_path": chunk.paths[0],
-                    "row_count": chunk.row_count,
-                    "byte_size": chunk.byte_size,
-                    "total_batches": len(chunks),
-                    "resource_name": schema.name,
-                    "metadata": psycopg.types.json.Jsonb(
-                        build_backfill_metadata(chunk_paths=chunk.paths, chunk_count=len(chunks))
-                    ),
-                },
-            )
-            conn.execute(
-                f"INSERT INTO {DELTA_STATUS_TABLE} (batch_id, job_state, attempt) VALUES (%s, 'succeeded', 1)",
-                [batch_id],
-            )
-        inserted += 1
+                conn.execute(
+                    f"INSERT INTO {DELTA_STATUS_TABLE} (batch_id, job_state, attempt) VALUES (%s, 'succeeded', 1)",
+                    [batch_id],
+                )
+            inserted += 1
+    finally:
+        conn.execute(
+            "SELECT pg_advisory_unlock(%s, hashtext(%s))",
+            [BACKFILL_ENQUEUE_LOCK_NAMESPACE, run_uuid],
+        )
     return inserted
 
 

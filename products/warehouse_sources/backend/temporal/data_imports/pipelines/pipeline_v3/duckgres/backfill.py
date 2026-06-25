@@ -19,12 +19,16 @@ consumer pod's maintenance tick with no leader election):
         BEFORE any queue rows; reconcile replays pre-apply/enqueue from it]
   BACKFILLING(run) --> PRIMED   when chunks_applied == chunk_count (the last
         chunk's apply marker shares the swap's transaction, so full
-        application proves the swap), or when superseded by a LIVE replace
-        run (structured kind), or fast-path via mark_primed after the swap.
-  *_ --> NEEDS_RESYNC  for unbackfillable tables (deletion vectors); heals to
-        PRIMED only when a live replace-head run has FULLY applied (its final
-        marker reached duckgres-succeeded) — replace-head runs bypass the
-        blocked gate precisely so that healing path can run.
+        application proves the swap), or fast-path via mark_primed after the swap.
+  BACKFILLING(run) --> NEEDS_RESYNC  when superseded by a LIVE replace run
+        (structured kind): the replace has only reached Delta and may still
+        fail in duckgres, so it heals to PRIMED through the resync path below
+        rather than flipping PRIMED on a not-yet-complete table.
+  *_ --> NEEDS_RESYNC  for unbackfillable tables (deletion vectors) or a
+        superseding replace; heals to PRIMED only when a live replace-head run
+        has FULLY applied (its final marker reached duckgres-succeeded) —
+        replace-head runs bypass the blocked gate precisely so that healing
+        path can run.
 
 PRIMED always means "the duckgres table is complete"; nothing else ever sets
 it. Containment of pre-applied work is proven per batch from Delta commit
@@ -398,7 +402,7 @@ def _reconcile(team_ids: list[int] | None) -> None:
 def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState) -> None:
     run_uuid = state.backfill_run_uuid
     applied_row = conn.execute(
-        "SELECT count(*) FROM sourcebatchduckgresapply WHERE run_uuid = %s", [run_uuid]
+        "SELECT count(DISTINCT batch_index) FROM sourcebatchduckgresapply WHERE run_uuid = %s", [run_uuid]
     ).fetchone()
     applied = int(applied_row[0]) if applied_row else 0
 
@@ -428,10 +432,15 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
         reason = failed[0] or ""
         kind = failed[1]
         if kind == RETIRE_KIND_SUPERSEDED_BY_REPLACE:
-            # A LIVE replace run retired the backfill; the replace rebuilds
-            # the table completely and is unblocked the moment PRIMED lands.
+            # A LIVE replace run retired the backfill. The replace rebuilds the
+            # table completely, but at this point it has only reached Delta — it
+            # may still fail in duckgres. Flipping straight to PRIMED here would
+            # unblock live batches over a stale/incomplete table if the replace
+            # later exhausts retries. Park in NEEDS_RESYNC so the resync path
+            # promotes to PRIMED only once the replace run's final marker reaches
+            # duckgres-succeeded (the same completion proof every PRIMED requires).
             DuckgresSinkSchemaState.objects.filter(id=state.id, state=DuckgresSinkSchemaState.State.BACKFILLING).update(
-                state=DuckgresSinkSchemaState.State.PRIMED, updated_at=timezone.now()
+                state=DuckgresSinkSchemaState.State.NEEDS_RESYNC, last_error=None, updated_at=timezone.now()
             )
             logger.info(
                 "duckgres_backfill_superseded_by_live_refresh",
@@ -447,7 +456,12 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
     # Healthy in-flight run: track progress and replay plan side effects lost
     # to a crash or to 7-day queue retention (apply markers persist 30d, so
     # resume is exact; all replayed writes are idempotent).
-    present_row = conn.execute(f"SELECT count(*) FROM {BATCH_TABLE} WHERE run_uuid = %s", [run_uuid]).fetchone()
+    # count DISTINCT batch_index, not count(*): a duplicate chunk row must never
+    # inflate the count and mask a genuinely missing index, which would stop the
+    # replay from re-enqueueing it.
+    present_row = conn.execute(
+        f"SELECT count(DISTINCT batch_index) FROM {BATCH_TABLE} WHERE run_uuid = %s", [run_uuid]
+    ).fetchone()
     present = int(present_row[0]) if present_row else 0
     if state.chunk_count and present < state.chunk_count and state.snapshot_version is not None:
         schema = ExternalDataSchema.objects.select_related("source").get(id=state.schema_id)
