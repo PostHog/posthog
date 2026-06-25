@@ -91,6 +91,7 @@ class FakePersonHogClient:
         is_user_id: bool | None = None,
         distinct_ids: list[str] | None = None,
         distinct_id_versions: dict[str, int] | None = None,
+        last_seen_at: int = 0,
     ) -> person_pb2.Person:
         person = person_pb2.Person(
             id=person_id,
@@ -100,6 +101,7 @@ class FakePersonHogClient:
             created_at=created_at,
             version=version,
             is_identified=is_identified,
+            last_seen_at=last_seen_at,
         )
         if is_user_id is not None:
             person.is_user_id = is_user_id

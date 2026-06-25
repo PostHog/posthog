@@ -118,6 +118,7 @@ def _seed_person_into_fake(
         is_identified=person.is_identified,
         distinct_ids=new_dids,
         distinct_id_versions=distinct_id_versions or {},
+        last_seen_at=_datetime_to_ms(person.last_seen_at),
     )
 
     for did_with_ver in fake._distinct_ids.get((person.team_id, person.pk), []):
@@ -138,6 +139,7 @@ def _reseed_person_into_fake(person: Person) -> None:
         created_at=_datetime_to_ms(person.created_at),
         version=person.version or 0,
         is_identified=person.is_identified,
+        last_seen_at=_datetime_to_ms(person.last_seen_at),
     )
     for did_with_ver in fake._distinct_ids.get((person.team_id, person.pk), []):
         fake._persons_by_distinct_id[(person.team_id, did_with_ver.distinct_id)] = person_proto
