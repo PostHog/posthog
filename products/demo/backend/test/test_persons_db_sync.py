@@ -6,7 +6,7 @@ from django.conf import settings
 
 import psycopg
 
-from posthog.demo.matrix.persons_db_sync import (
+from products.demo.backend.matrix.persons_db_sync import (
     _insert_groups,
     _insert_person_distinct_ids,
     _insert_persons,

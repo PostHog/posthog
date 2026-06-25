@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
-    from posthog.demo.matrix.matrix import Cluster, Matrix
+    from products.demo.backend.matrix.matrix import Cluster, Matrix
 
 # Refer to https://github.com/PostHog/posthog-ai-costs-app/tree/main/src/ai-cost-data for missing models
 LLM_COSTS_BY_MODEL = {

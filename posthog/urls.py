@@ -40,7 +40,7 @@ from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
 from posthog.constants import PERMITTED_FORUM_DOMAINS
-from posthog.demo.legacy import demo_route
+from products.demo.backend.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
