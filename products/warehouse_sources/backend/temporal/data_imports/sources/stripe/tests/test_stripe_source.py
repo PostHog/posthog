@@ -224,3 +224,29 @@ class TestWebhookEventMapping:
         # CustomerPaymentMethod keeps its mapping, so payment_method.* events stay subscribed.
         assert RESOURCE_TO_STRIPE_WEBHOOK_EVENT[CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME] == "payment_method"
         assert any(e.startswith("payment_method.") for e in _all_known_webhook_events())
+
+
+class TestSchemaWebhookCapability:
+    def setup_method(self):
+        self.source = StripeSource()
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test_123")
+        )
+        self.by_name = {s.name: s for s in self.source.get_schemas(config, team_id=1)}
+
+    def test_payment_method_is_webhook_capable(self):
+        # CustomerPaymentMethod has a Stripe webhook event (payment_method.*), so it can move to
+        # webhook sync after the initial per-customer backfill instead of re-sweeping every customer.
+        assert self.by_name[CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME].supports_webhooks is True
+
+    def test_balance_transaction_is_not_webhook_capable(self):
+        # No Stripe event emits a customer_balance_transaction object, so this table stays
+        # API-sweep-only and must not be offered webhook sync.
+        assert self.by_name[CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME].supports_webhooks is False
+
+    def test_webhook_capability_matches_event_map(self):
+        # supports_webhooks must track the webhook-event map exactly (plus webhook-only tables),
+        # so the capability and the actual event subscription never drift apart.
+        for name, schema in self.by_name.items():
+            expected = name in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or schema.webhook_only
+            assert schema.supports_webhooks is expected, name
