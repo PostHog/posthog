@@ -68,6 +68,7 @@ describe('accountLinksLogic', () => {
             billing_id: 'cus_1',
             slack_channel_id: 'C1',
             usage_dashboard_link: '',
+            sfdc_id: '',
         })
     })
 
@@ -87,6 +88,7 @@ describe('accountLinksLogic', () => {
             billing_id: 'new',
             slack_channel_id: 'C9',
             usage_dashboard_link: '',
+            sfdc_id: '001abc',
         })
         logic.actions.saveLinks()
         await expectLogic(logic).toFinishAllListeners()
@@ -98,6 +100,7 @@ describe('accountLinksLogic', () => {
                 billing_id: 'new',
                 slack_channel_id: 'C9',
                 usage_dashboard_link: null,
+                sfdc_id: '001abc',
             },
         })
         expect(logic.values.account).toEqual(updated)
@@ -113,13 +116,14 @@ describe('accountLinksLogic', () => {
             billing_id: '',
             slack_channel_id: '   ',
             usage_dashboard_link: '',
+            sfdc_id: '',
         })
         logic.actions.saveLinks()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', {
             external_id: null,
-            properties: { billing_id: null, slack_channel_id: null, usage_dashboard_link: null },
+            properties: { billing_id: null, slack_channel_id: null, usage_dashboard_link: null, sfdc_id: null },
         })
     })
 

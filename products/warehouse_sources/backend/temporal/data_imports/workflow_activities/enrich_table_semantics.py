@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.models.column_annotation import Warehous
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import clean_type
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     get_canonical_descriptions_for_source,
 )
@@ -339,15 +340,22 @@ def _get_business_context(team: Team) -> str:
     return (core_memory.text or "").strip() if core_memory else ""
 
 
+# Internal plumbing columns the HogQL catalog hides from users (see DataWarehouseTable.hogql_definition).
+# Never worth enriching: they carry no user-facing meaning and each one would burn an LLM column slot.
+_INTERNAL_COLUMNS = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
+
+
 def _columns_from_table(table: DataWarehouseTable) -> list[dict[str, Any]]:
     """Source-agnostic `[{name, data_type, is_nullable}]` from `DataWarehouseTable.columns`.
 
     `columns` is populated after every sync for every source type (unlike SQL-only `schema_metadata`),
     keyed by column name with a ClickHouse type. Handles both the dict shape (`{"clickhouse": ...}`)
-    and the legacy plain-string shape.
+    and the legacy plain-string shape. Internal plumbing columns are skipped.
     """
     result: list[dict[str, Any]] = []
     for name, definition in (table.columns or {}).items():
+        if name in _INTERNAL_COLUMNS:
+            continue
         if isinstance(definition, dict):
             clickhouse_type = definition.get("clickhouse") or definition.get("hogql") or ""
         else:

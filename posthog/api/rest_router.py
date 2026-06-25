@@ -74,7 +74,7 @@ from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
 from .event_filter_config import EventFilterConfigViewSet
-from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
+from .file_system import file_system, file_system_shortcut, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
@@ -253,19 +253,6 @@ projects_router.register(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"persisted_folder",
-    persisted_folder.PersistedFolderViewSet,
-    "environment_persisted_folder",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"desktop_persisted_folder",
-    persisted_folder.DesktopPersistedFolderViewSet,
-    "project_desktop_persisted_folder",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"user_product_list",

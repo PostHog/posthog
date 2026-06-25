@@ -1,14 +1,15 @@
 import copy
 import json
 import graphlib
+from collections.abc import Callable
 from datetime import date
 from typing import Any, Literal, NamedTuple, Optional, cast
-from urllib.parse import urlparse
+from urllib.parse import quote, quote_plus, urlparse
 
 import structlog
 from jsonpath_ng.exceptions import JSONPathError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from requests import Response
+from requests import PreparedRequest, Response
 from urllib3.util.retry import Retry
 
 from posthog.schema import (
@@ -28,7 +29,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_adapter,
+    make_tracked_session,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import _NoRedirectSession
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -84,6 +89,22 @@ MAX_MANIFEST_RESOURCES = 50
 # Upper bound on the number of custom sources a single team/project may create.
 # Enforced in the external_data_source create endpoint.
 MAX_CUSTOM_SOURCES_PER_TEAM = 5
+
+# Bounds on the create-time preview / test-read. Like the probe, preview runs
+# inline on the API request thread, so the row count is hard-capped: the default
+# is enough to eyeball data_selector / primary_key / cursor_path, and the max
+# stops a preview from buffering a large page into worker memory.
+PREVIEW_DEFAULT_ROWS = 10
+PREVIEW_MAX_ROWS = 50
+# Cap the parent rows a fan-out preview walks: the engine fires one child request
+# per parent, and empty child pages slip past the row cap (see `preview_resource`).
+PREVIEW_MAX_FANOUT_PARENTS = 10
+# Total decoded response bytes one preview may parse, across all its requests — a
+# per-response cap wouldn't bound a fan-out's many pages (see `_PreviewSession`).
+PREVIEW_MAX_TOTAL_BODY_BYTES = 20 * 1024 * 1024
+# Compressed bytes pulled per streamed read while enforcing that budget; small so a
+# bomb can inflate at most one chunk's worth past the budget before we abort.
+PREVIEW_READ_CHUNK_BYTES = 64 * 1024
 
 
 class ManifestValidationError(ValueError):
@@ -817,6 +838,259 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             partition_mode="md5",
             sort_mode=sort_mode,
         )
+
+    def preview_resource(
+        self,
+        config: CustomSourceConfig,
+        team_id: int,
+        resource_name: str,
+        max_rows: int = PREVIEW_DEFAULT_ROWS,
+    ) -> "PreviewResult":
+        """Fetch a bounded first page of rows for one manifest resource.
+
+        Lets a manifest author verify ``data_selector`` / ``primary_key`` /
+        ``cursor_path`` against live rows before creating a source. Reuses the
+        sync path's manifest assembly, SSRF host validation, fan-out chain, and
+        REST engine, but: pins every resource to a single page, strips all
+        incremental config (preview is an unconditional first read, so the
+        returned rows still carry the cursor field for inspection), and injects
+        a no-redirect, timeout-bounded session so the inline read can't hang.
+        Iterating the lazy engine resource and stopping at ``max_rows`` bounds a
+        fan-out child's per-parent request volume.
+
+        Structural / graph / URL problems raise ``ManifestValidationError`` or
+        ``ValueError`` (the API turns these into 400s); a live fetch failure is
+        returned in ``error`` so the caller can iterate. The assembled manifest
+        carries the injected credential and is never returned — only rows.
+        """
+        max_rows = max(1, min(max_rows, PREVIEW_MAX_ROWS))
+
+        manifest = self._assemble_manifest(config)
+        _validate_resource_graph(manifest)
+        _validate_incremental_configs(manifest)
+
+        ok, err = validate_manifest_urls(manifest, team_id)
+        if not ok:
+            raise ManifestValidationError(err or "Manifest URL validation failed")
+
+        chain = _fanout_chain(manifest, resource_name)
+
+        client = manifest["client"]
+        try:
+            preview_auth = create_auth(client.get("auth"))
+        except (ValueError, TypeError) as exc:
+            raise ManifestValidationError(f"Invalid auth configuration: {exc}") from exc
+        secret_values = auth_secret_values(preview_auth)
+
+        engine_resources = [
+            _with_single_page_paginator(_without_incremental_config(resource))
+            for resource in (*chain.ancestors, chain.child)
+        ]
+        engine_manifest = cast(
+            RESTAPIConfig,
+            {
+                **manifest,
+                "resources": engine_resources,
+                "client": {
+                    **client,
+                    "session": _build_preview_session(secret_values),
+                    # One attempt only — a rate-limited endpoint must surface an error
+                    # inline, not sleep on `Retry-After` and tie up the request thread.
+                    "max_retries": 1,
+                },
+            },
+        )
+
+        try:
+            resources = rest_api_resources(
+                engine_manifest,
+                team_id=team_id,
+                job_id="custom-source-preview",
+                db_incremental_field_last_value=None,
+            )
+        except ValueError as exc:
+            # Deterministic build-time config errors the create-time checks can't
+            # see (e.g. include_from_parent on a resource with no resolve param).
+            raise ManifestValidationError(str(exc)) from exc
+
+        # Cap how many parent rows each fan-out ancestor emits. The engine issues one
+        # child request per parent row, and empty child pages are dropped before the
+        # row reader sees them — so the request bound has to live on the parent, not on
+        # pages collected downstream.
+        ancestor_names = {ancestor["name"] for ancestor in chain.ancestors}
+        for engine_resource in resources:
+            if getattr(engine_resource, "name", None) in ancestor_names:
+                engine_resource.add_filter(_keep_first_n(PREVIEW_MAX_FANOUT_PARENTS))
+
+        resource = next((r for r in resources if getattr(r, "name", None) == resource_name), None)
+        if resource is None:
+            raise ManifestValidationError(f"Resource {resource_name!r} was not produced by the REST engine")
+
+        try:
+            rows = _collect_preview_rows(resource, max_rows)
+        except Exception as exc:
+            return PreviewResult(rows=[], row_count=0, columns=[], error=_redact_secrets(str(exc), secret_values))
+
+        return PreviewResult(rows=rows, row_count=len(rows), columns=_infer_columns(rows), error=None)
+
+
+class PreviewResult(NamedTuple):
+    """Outcome of a single-resource preview read. ``error`` is set only for a
+    live fetch failure — structural problems raise instead."""
+
+    rows: list[dict[str, Any]]
+    row_count: int
+    columns: list[dict[str, str]]
+    error: str | None
+
+
+class PreviewResponseTooLargeError(Exception):
+    """A preview's cumulative response bytes exceeded ``PREVIEW_MAX_TOTAL_BODY_BYTES``."""
+
+
+class _PreviewSession(_NoRedirectSession):
+    """No-redirect session for the inline preview read, bounded on time and size.
+
+    Pins a session-level timeout (``RESTClient.send()`` passes none, so a stalled
+    upstream can't hang the request thread) and caps the response bytes parsed via a
+    budget shared across the preview — one session serves one preview. See
+    ``_read_within_budget`` for the size enforcement.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._body_budget = PREVIEW_MAX_TOTAL_BODY_BYTES
+
+    def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
+        kwargs.setdefault("timeout", (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
+        kwargs["stream"] = True
+        response = super().send(request, **kwargs)
+        try:
+            body = self._read_within_budget(response)
+        finally:
+            response.close()
+        response._content = body
+        response._content_consumed = True  # type: ignore[attr-defined]
+        return response
+
+    def _read_within_budget(self, response: Response) -> bytes:
+        # Stream *decoded* chunks and stop the instant the running total crosses the
+        # budget. A single read(decode_content=True) would inflate the whole compressed
+        # body at once — a gzipped page decompresses fully before any size check — so a
+        # bomb is bounded only by decoding incrementally and aborting early.
+        chunks: list[bytes] = []
+        decoded = 0
+        for chunk in response.raw.stream(PREVIEW_READ_CHUNK_BYTES, decode_content=True):
+            decoded += len(chunk)
+            if decoded > self._body_budget:
+                raise PreviewResponseTooLargeError(
+                    f"Preview response bodies exceeded the {PREVIEW_MAX_TOTAL_BODY_BYTES}-byte budget"
+                )
+            chunks.append(chunk)
+        self._body_budget -= decoded
+        return b"".join(chunks)
+
+
+def _build_preview_session(redact_values: tuple[str, ...]) -> _PreviewSession:
+    """A tracked preview session: no transport retries, credentials registered
+    for value-based redaction (auth may be injected under a manifest-chosen
+    param/header the denylist can't anticipate)."""
+    session = _PreviewSession()
+    adapter = make_tracked_adapter(retry=Retry(total=0), redact_values=redact_values)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+def _with_single_page_paginator(resource: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of ``resource`` pinned to a single page, so a preview reads
+    exactly one page per resource regardless of the manifest's paginator."""
+    endpoint = resource.get("endpoint")
+    if isinstance(endpoint, str):
+        endpoint = {"path": endpoint}
+    elif not isinstance(endpoint, dict):
+        endpoint = {}
+    return {**resource, "endpoint": {**endpoint, "paginator": {"type": "single_page"}}}
+
+
+def _keep_first_n(n: int) -> Callable[[dict[str, Any]], bool]:
+    """A stateful filter that keeps the first ``n`` rows and drops the rest.
+
+    Applied to a fan-out ancestor so the child fans out over at most ``n`` parent
+    rows — the request bound the row reader can't enforce, since empty child pages
+    never reach it.
+    """
+    seen = 0
+
+    def keep(_row: dict[str, Any]) -> bool:
+        nonlocal seen
+        if seen >= n:
+            return False
+        seen += 1
+        return True
+
+    return keep
+
+
+def _collect_preview_rows(resource: Any, max_rows: int) -> list[dict[str, Any]]:
+    """Flatten the engine resource's pages into at most ``max_rows`` records.
+
+    Iterating a :class:`Resource` yields pages (``list[dict]``) lazily, so
+    returning early abandons the generator and stops it issuing further requests.
+    A fan-out child's request volume is bounded upstream by capping its parent
+    rows (see ``preview_resource``); a single-page top-level resource issues one
+    request regardless.
+    """
+    rows: list[dict[str, Any]] = []
+    for page in resource:
+        for item in page:
+            if isinstance(item, dict):
+                rows.append(item)
+                if len(rows) >= max_rows:
+                    return rows
+    return rows
+
+
+def _json_type_label(value: Any) -> str:
+    # bool is a subclass of int, so it must be checked first.
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return "string"
+
+
+def _infer_columns(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Advisory column list for the previewed rows — each key seen (first-seen
+    order), typed from the first non-null value. Helps the caller sanity-check
+    data_selector / primary_key / cursor_path against real data."""
+    columns: dict[str, str] = {}
+    for row in rows:
+        for key, value in row.items():
+            if key not in columns or columns[key] == "null":
+                columns[key] = _json_type_label(value)
+    return [{"name": name, "type": type_label} for name, type_label in columns.items()]
+
+
+def _redact_secrets(text: str, secrets: tuple[str, ...]) -> str:
+    # Redact the raw secret and its URL-encoded forms: a key in a query param is
+    # percent-encoded in `response.url`, which an HTTPError carries verbatim.
+    for secret in secrets:
+        if not secret:
+            continue
+        for variant in dict.fromkeys((secret, quote(secret, safe=""), quote_plus(secret))):
+            text = text.replace(variant, "***")
+    return text
 
 
 def _read_capped_text(response: Response) -> str:
