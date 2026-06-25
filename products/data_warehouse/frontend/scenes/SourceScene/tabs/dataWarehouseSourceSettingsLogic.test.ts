@@ -159,6 +159,29 @@ describe('sourceSettingsLogic', () => {
         expect(logic.values.source?.schemas[0].enabled_columns).toEqual(['id', 'name'])
     })
 
+    it('sends a changed writable field discovered by diff, not a fixed allowlist', async () => {
+        // The diff is dynamic: any writable field that changed is sent, even one no hardcoded list
+        // enumerates (here row_filters). Guards against regressing to an allowlist that silently drops it.
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(
+            makeSource([makeSchema({ sync_type: 'incremental', incremental_field: 'updated_at' })])
+        )
+        const bulkUpdateSchemasSpy = jest
+            .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
+            .mockImplementation(async (_id, schemas) => schemas.map((partial) => ({ ...makeSchema(), ...partial })))
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        const schema = logic.values.source!.schemas[0]
+        const row_filters = [{ column: 'amount', operator: '>' as const, value: 100 }]
+        logic.actions.updateSchema({ ...schema, row_filters })
+        await jest.advanceTimersByTimeAsync(500)
+
+        expect(bulkUpdateSchemasSpy).toHaveBeenLastCalledWith('source-1', [{ id: 'schema-1', row_filters }])
+    })
+
     it('re-sends a failed in-flight edit fields when a newer edit for the same schema is queued', async () => {
         // Minimal-diff payloads must not lose data: if a flush fails while a newer edit for the same
         // schema is queued, the retry has to re-send the failed edit's fields too — not just the new one.

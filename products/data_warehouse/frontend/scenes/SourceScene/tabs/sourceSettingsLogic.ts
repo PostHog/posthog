@@ -67,23 +67,33 @@ function nextJobsPollDelay(softFailureCount: number): number {
     return exponential * (0.5 + Math.random() * 0.5)
 }
 
-// The schema fields the bulk-update endpoint accepts. The backend treats any field present in the
-// request as an intentional write, so we only send the ones the user actually changed — sending an
-// unchanged field (e.g. enabled_columns: null) clobbers the persisted value. This allowlist is the
-// single source of truth for which fields are sendable; everything else on the schema is read-only.
-const SCHEMA_PAYLOAD_FIELDS = [
-    'should_sync',
-    'sync_type',
-    'incremental_field',
-    'incremental_field_type',
-    'incremental_field_lookback_seconds',
-    'sync_frequency',
-    'sync_time_of_day',
-    'cdc_table_mode',
-    'enabled_columns',
-] as const
+// The backend treats any field present in a bulk-update request as an intentional write, so we send
+// only the fields the user actually changed — re-sending an unchanged field (e.g. enabled_columns:
+// null) clobbers the persisted value. Which fields changed is discovered dynamically by diffing the
+// edit against the current schema (see diffSchemaPayloadFields), so new editable fields need no
+// wiring here.
+//
+// This set is the inverse: the schema fields that must never be written by that diff. It mirrors the
+// serializer's read-only/derived fields — the backend ignores them on write anyway, but listing them
+// keeps a server-mutated value (e.g. a status change landing mid-edit) out of the payload. Using a
+// denylist rather than an allowlist of writable fields is deliberate: a newly added editable field is
+// then sent automatically, and the worst case of forgetting to list a new read-only field here is a
+// harmless ignored field on the wire — never the silent data loss a stale allowlist would cause.
+const NON_WRITABLE_SCHEMA_FIELDS = new Set<keyof ExternalDataSourceSchema>([
+    'id',
+    'name',
+    'label',
+    'table',
+    'last_synced_at',
+    'latest_error',
+    'status',
+    'description',
+    'available_columns',
+    'incremental',
+    'should_sync_default',
+])
 
-type SchemaPayloadField = (typeof SCHEMA_PAYLOAD_FIELDS)[number]
+type SchemaPayloadField = keyof ExternalDataSourceSchema
 
 interface PendingSchemaUpdate {
     revision: number
@@ -144,40 +154,47 @@ function applySchemasToSource(
     )
 }
 
-// Build the PATCH body from only the fields that changed, always including `id`. Nullable fields
-// are normalized to `null` so an explicit clear is sent, but a field the user never touched is
-// omitted entirely — the backend leaves it untouched.
+// Build the PATCH body from only the fields that changed, always including `id`. A changed value is
+// normalized to `null` when nullish so an explicit clear is sent (JSON drops `undefined`), while a
+// field the user never touched is omitted entirely — the backend leaves it untouched.
 function buildSchemaUpdatePayload(
     schema: ExternalDataSourceSchema,
     changedFields: Set<SchemaPayloadField>
 ): Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> {
     const payload: Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> = { id: schema.id }
     // Indexing payload by a union-typed key isn't expressible to TS; assign through an indexable view.
-    const assign = payload as Record<SchemaPayloadField, unknown>
+    const assign = payload as Record<string, unknown>
 
     for (const field of changedFields) {
-        assign[field] =
-            field === 'enabled_columns' || field === 'incremental_field_lookback_seconds'
-                ? (schema[field] ?? null)
-                : schema[field]
+        assign[field] = schema[field] ?? null
     }
 
     return payload
 }
 
-// Fields that differ between the new schema and the last server-confirmed schema. With no known
-// baseline (source not loaded yet) every field counts as changed, matching the old full-payload
-// behavior so the edit still persists.
+// The writable fields that differ between the new schema and the last server-confirmed schema,
+// discovered by diffing every key rather than a fixed list so new editable fields are picked up for
+// free. Read-only/derived fields are skipped (see NON_WRITABLE_SCHEMA_FIELDS). With no known baseline
+// (source not loaded yet) every writable field counts as changed, so the edit still fully persists.
 function diffSchemaPayloadFields(
     nextSchema: ExternalDataSourceSchema,
     baselineSchema: ExternalDataSourceSchema | undefined
 ): Set<SchemaPayloadField> {
     const changed = new Set<SchemaPayloadField>()
-    for (const field of SCHEMA_PAYLOAD_FIELDS) {
+    const fields = new Set<SchemaPayloadField>([
+        ...(Object.keys(nextSchema) as SchemaPayloadField[]),
+        ...((baselineSchema ? Object.keys(baselineSchema) : []) as SchemaPayloadField[]),
+    ])
+
+    for (const field of fields) {
+        if (NON_WRITABLE_SCHEMA_FIELDS.has(field)) {
+            continue
+        }
         if (!baselineSchema || !objectsEqual(nextSchema[field], baselineSchema[field])) {
             changed.add(field)
         }
     }
+
     return changed
 }
 
@@ -187,7 +204,7 @@ function diffSchemaPayloadFields(
 // the retry re-sends everything the user intended; the pending (newer) edit wins on field overlap.
 function foldFailedUpdateIntoPending(failed: PendingSchemaUpdate, pending: PendingSchemaUpdate): PendingSchemaUpdate {
     const mergedSchema = { ...failed.schema }
-    const assign = mergedSchema as Record<SchemaPayloadField, unknown>
+    const assign = mergedSchema as Record<string, unknown>
     for (const field of pending.changedFields) {
         assign[field] = pending.schema[field]
     }
