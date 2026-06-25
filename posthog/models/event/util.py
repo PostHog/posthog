@@ -110,9 +110,14 @@ def _resolve_person_for_bulk_event(team_id: int, distinct_id: str) -> Optional[P
     When the personhog fake is active (ORM access to the persons DB is blocked),
     read through personhog; otherwise use the persons-DB ORM for the
     persons-DB-layer tests that exercise it directly.
+
+    Coerce the key types: the personhog proto request is stricter than the ORM
+    it replaced (which silently coerced), and test events may carry a non-str
+    distinct_id or non-int team_id.
     """
+    distinct_id = str(distinct_id)
     if persons_orm_blocked():
-        return get_person_by_distinct_id(team_id, distinct_id)
+        return get_person_by_distinct_id(int(team_id), distinct_id)
     try:
         return Person.objects.get(  # nosemgrep: no-direct-persons-db-orm
             persondistinctid__distinct_id=distinct_id,
