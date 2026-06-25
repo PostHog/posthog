@@ -1946,6 +1946,46 @@ Tail paragraph`
         expect(unmountComponent).not.toHaveBeenCalled()
     })
 
+    it('does not re-render unchanged components when local edits receive a fresh empty AI writing index list', () => {
+        const renderComponent = jest.fn()
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                ViewComponent: ({ node }) => {
+                    renderComponent(node.props.src)
+                    return createElement('div', { 'data-testid': 'stable-embed' })
+                },
+            },
+        ])
+        const initialMarkdown = `${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+Intro paragraph
+
+<Embed src="https://posthog.com" />
+
+<Embed src="https://example.com" />`
+
+        function NotebookWrapper(): JSX.Element {
+            const [value, setValue] = useState(initialMarkdown)
+            return createElement(MarkdownNotebook, {
+                value,
+                onChange: setValue,
+                registry,
+                aiWritingNodeIndexes: [],
+            })
+        }
+
+        const { container } = render(createElement(NotebookWrapper))
+        const renderCountBeforeEdit = renderComponent.mock.calls.length
+        expect(renderCountBeforeEdit).toBeGreaterThan(0)
+
+        updateContentEditableText(getBodyTextBlock(container), 'Updated paragraph')
+
+        expect(renderComponent).toHaveBeenCalledTimes(renderCountBeforeEdit)
+    })
+
     it('keeps rendering other components when one component panel crashes', () => {
         expect.hasAssertions()
 
