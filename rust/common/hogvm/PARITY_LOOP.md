@@ -88,23 +88,23 @@ In an unrestricted environment, simply:
 HOGVM_CORPUS_DIR=$PWD/common/hogvm/__tests__ cargo test -p hogvm --test parity -- --nocapture
 ```
 
-Current status: **32 PASS / 2 MISMATCH / 1 ERROR** of 35 programs. The loop drives ERROR→PASS.
+Current status: **35 PASS / 0 MISMATCH / 0 ERROR** of 35 programs — **full behavioral parity**
+with the Node reference VM.
 
-Remaining backlog (corpus) — the 3 hard residual programs, each needing a substantial,
-well-scoped piece of work rather than an incremental fix:
-- **`sql`** (mismatch) — needs a full HogQL **AST→SQL printer**. `sql(...)` builds an
-  `{__hx_ast: …}` AST object; the Node VM renders it back to `sql(SELECT …)` via a
-  `HogQLPrinter` class (the Python VM doesn't — it prints the raw dict). This is a large,
-  isolated component for a debug-only feature.
-- **`scope`** + **`recursion`** (mismatch + error) — need a proper **open/close upvalue**
-  model. This VM hoists a captured local to the heap and immediately "closes" it, so a closure
-  can't observe a later mutation (`scope`: `var := 10`) or a self-reference assigned after
-  capture (`recursion`: `let f := () -> { … f … }`). The reference keeps upvalues *open*
-  (pointing at the live stack slot) until scope exit. A narrow "SetLocal writes through to the
-  hoisted cell" fix was tried and reverted: it breaks per-iteration loop closures (`lambdas`)
-  and the hog-bytecode STL (`arrayMap`/`bytecodeStl`), which rely on the replace-slot semantics.
-  Doing this correctly requires implementing real open-upvalue capture + `CLOSE_UPVALUE`
-  snapshotting — an architectural change to closure semantics shared with cymbal/cohort.
+The three formerly-hard residual programs are all resolved (step 2):
+- **`scope`** + **`recursion`** — fixed by implementing proper **open/close upvalues**
+  (Lua-style): a captured local stays on the stack, the closure holds a shared `Upvalue` cell
+  that views the live slot while *open* (`GetUpvalue`/`SetUpvalue` read/write `stack[location]`)
+  and is *closed* — snapshotted — only on stack truncation (Return/throw/`CloseUpvalue`). This is
+  why the earlier narrow "SetLocal writes through the hoisted cell" patch failed: closing on scope
+  exit is the missing piece that gives each loop iteration its own snapshot.
+- **`sql`** — fixed by porting the **HogQL AST→SQL printer** (`HogQLPrinter`): a `{__hx_ast: …}`
+  AST renders back to SQL wrapped as `sql(…)`, covering the common node types.
+
+Remaining (deferred / not behavioral-parity): the cohort opcodes `InCohort`/`NotInCohort` (need a
+cohort data source), `DeclareFn` (legacy, the compiler never emits it), closure serialisation in
+`jsonStringify` (reference emits `"<lambda:0>"`), and cross-module hog `imports` in
+`get_fn_reference` (only native-STL references are resolved today).
 
 ### 2a-bis. Per-STL parity (`tests/stl_parity.rs`) — built, working
 Whole-program tests cover the STL only incidentally. To give **each STL function its own
