@@ -7,11 +7,8 @@ export const NUMBER_CHAR = '#'
 /** Strings with more than this many words are fully redacted (free-text guard). */
 export const DEFAULT_MAX_WORDS_LEN = 8
 
-/** A pending image blur: `dataUri` is Gaussian-blurred async, then `apply` writes the result back in place. */
-export interface BlurJob {
-    dataUri: string
-    apply: (blurred: string) => void
-}
+/** A deferred image-blur job: an async closure that blurs its image and writes the result back in place. */
+export type BlurJob = () => Promise<void>
 
 /** Per-scrub context: the active allow lists plus tunables read by the scrubbers. */
 export interface ScrubContext {

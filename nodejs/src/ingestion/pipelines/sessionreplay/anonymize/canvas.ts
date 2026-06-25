@@ -9,10 +9,11 @@
  *   { rr_type: 'Blob', data: CanvasArg[], type? }   // encoded image snapshot
  *   { rr_type, src }                                // HTMLImageElement etc.
  *   { rr_type, args: CanvasArg[] }                  // ImageBitmap etc.
- * Images are neutralized to a blank pixel synchronously (fail-safe) and the real
- * blurred result is swapped in by the deferred blur job on success.
+ *   { rr_type: 'ImageData', args: [pixels, w, h] }  // putImageData raw RGBA
+ * Images are neutralized synchronously (fail-safe) and the real downsampled/blurred
+ * result is swapped in by the deferred blur job on success.
  */
-import { BLANK_IMAGE_DATA_URI, BLANK_PNG_BASE64, isImageDataUri } from './blur'
+import { BLANK_IMAGE_DATA_URI, BLANK_PNG_BASE64, blurImageDataUri, isImageDataUri, pixelateRawRgba } from './blur'
 import { ScrubContext, isObject } from './config'
 import { scrubText } from './text'
 import { scrubUrl } from './url'
@@ -110,6 +111,11 @@ function blurCanvasArg(ctx: ScrubContext, container: any, key: string | number):
         return blurBlobImage(ctx, value)
     }
 
+    // Raw pixels: { rr_type: 'ImageData', args: [pixels, width, height] } (putImageData).
+    if (value.rr_type === 'ImageData') {
+        return blurImageData(ctx, value)
+    }
+
     // Otherwise recurse into nested arg/data arrays (ImageBitmap → Blob, etc.).
     let changed = false
     if (Array.isArray(value.args)) {
@@ -153,7 +159,101 @@ function blurBlobImage(ctx: ScrubContext, blob: Record<string, unknown>): boolea
 }
 
 function queueImageBlur(ctx: ScrubContext, dataUri: string, apply: (blurred: string) => void): void {
-    ctx.blurJobs?.push({ dataUri, apply })
+    ctx.blurJobs?.push(async () => {
+        const blurred = await blurImageDataUri(dataUri)
+        if (blurred !== null) {
+            apply(blurred)
+        }
+    })
+}
+
+interface RawLoc {
+    ab: Record<string, unknown>
+    start: number
+    length: number
+}
+
+/** Locate the RGBA ArrayBuffer behind an ImageData's pixel descriptor (direct or typed-array-wrapped). */
+function findRawBuffer(desc: unknown): RawLoc | null {
+    if (!isObject(desc)) {
+        return null
+    }
+    if (desc.rr_type === 'ArrayBuffer' && typeof desc.base64 === 'string') {
+        return { ab: desc, start: 0, length: Buffer.from(desc.base64, 'base64').length }
+    }
+    // Typed-array wrapper: { rr_type: 'Uint8ClampedArray', args: [ {ArrayBuffer}, byteOffset?, length? ] }.
+    if (Array.isArray(desc.args) && isObject(desc.args[0]) && desc.args[0].rr_type === 'ArrayBuffer') {
+        const ab = desc.args[0] as Record<string, unknown>
+        if (typeof ab.base64 !== 'string') {
+            return null
+        }
+        const full = Buffer.from(ab.base64, 'base64').length
+        const start = typeof desc.args[1] === 'number' ? desc.args[1] : 0
+        const length = typeof desc.args[2] === 'number' ? desc.args[2] : full - start
+        return { ab, start, length }
+    }
+    return null
+}
+
+/** Pixelate raw ImageData pixels in place (fail-safe blanked now, downsampled-and-restored by the job). */
+function blurImageData(ctx: ScrubContext, imageData: Record<string, unknown>): boolean {
+    const args = imageData.args
+    if (Array.isArray(args)) {
+        const width = args[1]
+        const height = args[2]
+        const loc =
+            typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0
+                ? findRawBuffer(args[0])
+                : null
+        if (loc && loc.length === width * height * 4) {
+            const full = Buffer.from(loc.ab.base64 as string, 'base64')
+            if (loc.start >= 0 && loc.start + loc.length <= full.length) {
+                const rgba = full.subarray(loc.start, loc.start + loc.length).toString('base64')
+                const blanked = Buffer.from(full)
+                blanked.fill(0, loc.start, loc.start + loc.length)
+                loc.ab.base64 = blanked.toString('base64')
+                ctx.blurJobs?.push(async () => {
+                    const out = await pixelateRawRgba(rgba, width, height)
+                    if (out === null) {
+                        return
+                    }
+                    const outBuf = Buffer.from(out, 'base64')
+                    if (outBuf.length !== loc.length) {
+                        return
+                    }
+                    const merged = Buffer.from(blanked)
+                    outBuf.copy(merged, loc.start)
+                    loc.ab.base64 = merged.toString('base64')
+                })
+                return true
+            }
+        }
+    }
+    // Unexpected shape — guarantee no raw-pixel leak by blanking every nested ArrayBuffer.
+    return blankArrayBuffers(imageData)
+}
+
+/** Zero out every nested `{rr_type:'ArrayBuffer', base64}` (same byte length). Last-resort fail-safe. */
+function blankArrayBuffers(node: unknown): boolean {
+    if (Array.isArray(node)) {
+        let changed = false
+        for (const item of node) {
+            changed = blankArrayBuffers(item) || changed
+        }
+        return changed
+    }
+    if (!isObject(node)) {
+        return false
+    }
+    if (node.rr_type === 'ArrayBuffer' && typeof node.base64 === 'string') {
+        node.base64 = Buffer.alloc(Buffer.from(node.base64, 'base64').length).toString('base64')
+        return true
+    }
+    let changed = false
+    for (const key of Object.keys(node)) {
+        changed = blankArrayBuffers((node as Record<string, unknown>)[key]) || changed
+    }
+    return changed
 }
 
 function splitDataUri(uri: string): { mime: string; base64: string } | null {

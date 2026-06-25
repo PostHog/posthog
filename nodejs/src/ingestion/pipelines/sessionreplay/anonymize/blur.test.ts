@@ -50,16 +50,27 @@ describe('anonymize/blur', () => {
         await expect(runBlurJobs(undefined)).resolves.toBeUndefined()
     })
 
-    it('runBlurJobs applies the blurred result in place', async () => {
-        const attrs: Record<string, unknown> = { src: 'placeholder' }
-        await runBlurJobs([{ dataUri: ONE_PX_PNG, apply: (blurred) => (attrs.src = blurred) }])
-        expect(typeof attrs.src).toBe('string')
-        expect((attrs.src as string).startsWith('data:image/png;base64,')).toBe(true)
+    it('runBlurJobs runs every job', async () => {
+        let ran = 0
+        const bump = () => {
+            ran++
+            return Promise.resolve()
+        }
+        await runBlurJobs([bump, bump])
+        expect(ran).toBe(2)
     })
 
-    it('runBlurJobs leaves the target untouched when blur fails', async () => {
-        const attrs: Record<string, unknown> = { src: 'placeholder' }
-        await runBlurJobs([{ dataUri: 'https://example.com/x.png', apply: (blurred) => (attrs.src = blurred) }])
-        expect(attrs.src).toBe('placeholder')
+    it('runBlurJobs swallows a job that throws (already-blanked image is left as-is)', async () => {
+        let ran = 0
+        await expect(
+            runBlurJobs([
+                () => Promise.reject(new Error('boom')),
+                () => {
+                    ran++
+                    return Promise.resolve()
+                },
+            ])
+        ).resolves.toBeUndefined()
+        expect(ran).toBe(1)
     })
 })

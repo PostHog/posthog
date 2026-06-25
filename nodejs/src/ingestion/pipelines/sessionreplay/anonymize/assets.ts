@@ -1,5 +1,5 @@
 /** Media detection + placeholder/blur dispatch. */
-import { BLANK_IMAGE_DATA_URI, isImageDataUri } from './blur'
+import { BLANK_IMAGE_DATA_URI, blurImageDataUri, isImageDataUri } from './blur'
 import { ScrubContext } from './config'
 import { scrubUrl } from './url'
 
@@ -45,8 +45,14 @@ export function blurInlineImageAttr(ctx: ScrubContext, attrs: Record<string, unk
     if (typeof value !== 'string' || !isImageDataUri(value)) {
         return false
     }
+    const original = value
     attrs[name] = BLANK_IMAGE_DATA_URI
-    ctx.blurJobs?.push({ dataUri: value, apply: (blurred) => (attrs[name] = blurred) })
+    ctx.blurJobs?.push(async () => {
+        const blurred = await blurImageDataUri(original)
+        if (blurred !== null) {
+            attrs[name] = blurred
+        }
+    })
     return true
 }
 
@@ -59,7 +65,12 @@ export function applyBlur(ctx: ScrubContext, attrs: Record<string, unknown>): vo
         }
         if (isImageDataUri(existing)) {
             attrs[key] = PLACEHOLDER_SRC
-            ctx.blurJobs?.push({ dataUri: existing, apply: (blurred) => (attrs[key] = blurred) })
+            ctx.blurJobs?.push(async () => {
+                const blurred = await blurImageDataUri(existing)
+                if (blurred !== null) {
+                    attrs[key] = blurred
+                }
+            })
         } else {
             const scrubbed = scrubUrl(ctx, existing)
             attrs[key] = PLACEHOLDER_SRC

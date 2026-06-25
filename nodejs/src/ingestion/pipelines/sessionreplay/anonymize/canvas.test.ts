@@ -137,4 +137,54 @@ describe('anonymize/canvas', () => {
         expect(ab.base64).not.toBe(BLANK_PNG_BASE64)
         expect(ab.base64).not.toBe(ONE_PX_PNG_BASE64)
     })
+
+    // Build a putImageData command holding a W×H RGBA buffer with a non-uniform pattern.
+    const W = 32
+    const H = 32
+    function rawImageDataCommand(): { ab: { rr_type: string; base64: string }; data: Record<string, unknown> } {
+        const rgba = Buffer.alloc(W * H * 4)
+        for (let i = 0; i < W * H; i++) {
+            rgba[i * 4] = (i * 7) & 255
+            rgba[i * 4 + 1] = (i * 3) & 255
+            rgba[i * 4 + 2] = 200
+            rgba[i * 4 + 3] = 255
+        }
+        const ab = { rr_type: 'ArrayBuffer', base64: rgba.toString('base64') }
+        const data = {
+            source: 9,
+            id: 1,
+            type: 0,
+            property: 'putImageData',
+            args: [
+                { rr_type: 'ImageData', args: [{ rr_type: 'Uint8ClampedArray', args: [ab, 0, W * H * 4] }, W, H] },
+                0,
+                0,
+            ],
+        }
+        return { ab, data }
+    }
+
+    it('blanks raw ImageData pixels synchronously and queues a pixelate job', () => {
+        const ctx = makeCtx()
+        const { ab, data } = rawImageDataCommand()
+        const original = ab.base64
+        expect(scrubCanvasMutation(ctx, data)).toBe(true)
+        const blanked = Buffer.from(ab.base64, 'base64')
+        expect(blanked.length).toBe(W * H * 4)
+        expect(blanked.every((b) => b === 0)).toBe(true) // raw pixels gone immediately
+        expect(ab.base64).not.toBe(original)
+        expect(ctx.blurJobs).toHaveLength(1)
+    })
+
+    it('runs the ImageData pixelate job: same byte length, restored content, not the original', async () => {
+        const ctx = makeCtx()
+        const { ab, data } = rawImageDataCommand()
+        const original = ab.base64
+        scrubCanvasMutation(ctx, data)
+        await runBlurJobs(ctx.blurJobs)
+        const out = Buffer.from(ab.base64, 'base64')
+        expect(out.length).toBe(W * H * 4) // dimensions preserved for putImageData
+        expect(out.every((b) => b === 0)).toBe(false) // pixelated content restored
+        expect(ab.base64).not.toBe(original) // but not the original detail
+    })
 })

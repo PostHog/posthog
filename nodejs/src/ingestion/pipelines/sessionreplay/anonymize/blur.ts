@@ -1,16 +1,12 @@
-/** Gaussian-blur media/canvas `data:image/*` URIs (with a size cap), run as deferred jobs. */
+/** Downsample + mildly blur media/canvas images — scene stays legible, faces/text don't. Run deferred. */
 import sharp from 'sharp'
 
 import { BlurJob } from './config'
 
-// Cap the longest side to bound output bytes, then Gaussian-blur to destroy readable
-// detail (drawn text, faces). The blur — not the resize — is what removes PII, so the
-// cap stays generous; a tiny downscale alone left blurry-but-still-legible thumbnails.
-const MAX_DIMENSION = 100
-const BLUR_SIGMA = 8
-// Fallback when the Gaussian blur fails on an odd input: an aggressive downsample still
-// destroys most detail (and beats dropping the image to a blank placeholder).
-const DOWNSAMPLE_TARGET = 16
+// De-identify by shrinking to a fraction of the original (destroys readable text/faces) plus a mild
+// Gaussian blur (smooths what's left). Tuned so the scene is still recognizable but not identifiable.
+const DOWNSAMPLE_RATIO = 0.15
+const BLUR_SIGMA = 2
 
 /** A 1×1 transparent PNG: the fail-safe stand-in dropped in before (and if) the real blur lands. */
 export const BLANK_PNG_BASE64 =
@@ -21,7 +17,14 @@ export function isImageDataUri(s: string): boolean {
     return s.startsWith('data:image/')
 }
 
-/** Gaussian-blur a base64 image data URI to a size-capped PNG, or null if it can't. */
+/** Each dimension scaled to DOWNSAMPLE_RATIO of the original, floored at 1px. */
+function targetDims(width: unknown, height: unknown): [number, number] {
+    const w = typeof width === 'number' && width > 0 ? width : 1
+    const h = typeof height === 'number' && height > 0 ? height : 1
+    return [Math.max(1, Math.round(w * DOWNSAMPLE_RATIO)), Math.max(1, Math.round(h * DOWNSAMPLE_RATIO))]
+}
+
+/** Downsample a base64 image data URI to 15% + a mild blur, as a PNG; null if it can't be processed. */
 export async function blurImageDataUri(s: string): Promise<string | null> {
     if (!s.startsWith('data:')) {
         return null
@@ -35,38 +38,68 @@ export async function blurImageDataUri(s: string): Promise<string | null> {
         return null
     }
     const bytes = Buffer.from(s.slice(comma + 1), 'base64')
-    // Prefer a size-capped Gaussian blur; if it fails on an odd input, fall back to an
-    // aggressive downsample (still destroys most detail). Give up only if both fail.
+
+    let tw: number, th: number
     try {
-        const out = await sharp(bytes)
-            // Cap the longest side (never enlarge), preserving aspect ratio.
-            .resize(MAX_DIMENSION, MAX_DIMENSION, { fit: 'inside', withoutEnlargement: true })
-            // True Gaussian blur — this is what makes drawn text/faces unreadable.
-            .blur(BLUR_SIGMA)
-            .png()
-            .toBuffer()
+        const info = await sharp(bytes).metadata()
+        ;[tw, th] = targetDims(info.width, info.height)
+    } catch {
+        return null // can't even read the header
+    }
+    // Primary: downsample to 15% + mild Gaussian blur.
+    try {
+        const out = await sharp(bytes).resize(tw, th, { fit: 'fill' }).blur(BLUR_SIGMA).png().toBuffer()
         return `data:image/png;base64,${out.toString('base64')}`
     } catch {
-        // Gaussian path failed — fall through to the downsample fallback below.
+        // Blur failed on an odd input — fall through to a plain downsample (still de-identifies).
     }
     try {
-        const out = await sharp(bytes).resize(DOWNSAMPLE_TARGET, DOWNSAMPLE_TARGET, { fit: 'inside' }).png().toBuffer()
+        const out = await sharp(bytes).resize(tw, th, { fit: 'fill' }).png().toBuffer()
         return `data:image/png;base64,${out.toString('base64')}`
     } catch {
         return null
     }
 }
 
-/** Run deferred blur jobs, applying each blurred result in place on success. */
+/**
+ * Pixelate raw RGBA pixels: downsample to 15% then scale back up to the original W×H (nearest),
+ * preserving byte length (`4·W·H`) so it slots back into a `putImageData` ImageData. base64 in/out.
+ */
+export async function pixelateRawRgba(base64: string, width: number, height: number): Promise<string | null> {
+    try {
+        const buf = Buffer.from(base64, 'base64')
+        if (buf.length !== width * height * 4) {
+            return null
+        }
+        const [sw, sh] = targetDims(width, height)
+        const small = await sharp(buf, { raw: { width, height, channels: 4 } })
+            .resize(sw, sh, { fit: 'fill' })
+            .ensureAlpha()
+            .raw()
+            .toBuffer()
+        const out = await sharp(small, { raw: { width: sw, height: sh, channels: 4 } })
+            .resize(width, height, { fit: 'fill', kernel: 'nearest' })
+            .ensureAlpha()
+            .raw()
+            .toBuffer()
+        return out.length === width * height * 4 ? out.toString('base64') : null
+    } catch {
+        return null
+    }
+}
+
+/** Run deferred blur jobs concurrently. A job that throws is swallowed — the image was already
+ *  blanked synchronously, so a failed enhancement degrades to the blank rather than leaking. */
 export async function runBlurJobs(jobs: BlurJob[] | undefined): Promise<void> {
     if (!jobs || jobs.length === 0) {
         return
     }
     await Promise.all(
         jobs.map(async (job) => {
-            const blurred = await blurImageDataUri(job.dataUri)
-            if (blurred !== null) {
-                job.apply(blurred)
+            try {
+                await job()
+            } catch {
+                // image already neutralized synchronously; skip the enhancement
             }
         })
     )
