@@ -65,7 +65,8 @@ def _protected_resource_metadata_url(resource_url: str) -> str:
 
 
 def _scopes_cache_key(resource_url: str) -> str:
-    url_hash = hashlib.sha256(resource_url.encode()).hexdigest()
+    normalized = _protected_resource_metadata_url(resource_url)
+    url_hash = hashlib.sha256(normalized.encode()).hexdigest()
     return f"mcp_resource_scopes:{url_hash}"
 
 

@@ -119,6 +119,27 @@ class TestMcpResourceScopes(SimpleTestCase):
         mock_get.assert_called_once()
         self._clear_mcp_scopes_cache(resource_url)
 
+    @patch(
+        "posthog.api.oauth.mcp_resource_scopes.get_oauth_scopes_supported",
+        return_value=["notebook:read", "notebook:write"],
+    )
+    @patch("posthog.api.oauth.mcp_resource_scopes.requests.get")
+    def test_cache_key_ignores_query_and_fragment(self, mock_get: MagicMock, _mock_scopes: MagicMock):
+        base_url = "https://mcp.posthog.com/mcp"
+        self._clear_mcp_scopes_cache(base_url)
+        mock_get.return_value.ok = True
+        mock_get.return_value.json.return_value = {
+            "scopes_supported": ["notebook:read", "notebook:write"],
+        }
+
+        first = fetch_mcp_protected_resource_scopes(base_url)
+        second = fetch_mcp_protected_resource_scopes(f"{base_url}?cache_buster=1#frag")
+
+        self.assertEqual(first, ["notebook:read", "notebook:write"])
+        self.assertEqual(second, ["notebook:read", "notebook:write"])
+        mock_get.assert_called_once()
+        self._clear_mcp_scopes_cache(base_url)
+
     @patch("posthog.api.oauth.mcp_resource_scopes.requests.get")
     def test_fetch_caches_failures_briefly(self, mock_get: MagicMock):
         resource_url = self._MCP_RESOURCE_URL
