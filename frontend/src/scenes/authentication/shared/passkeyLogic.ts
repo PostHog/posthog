@@ -135,8 +135,8 @@ export const passkeyLogic = kea<passkeyLogicType>([
     })),
     listeners(({ actions, values, cache }) => ({
         beginPasskeyLogin: () => {
-            // Don't start a second ceremony while one is already in flight (e.g. a double-clicked
-            // passkey button) — concurrent WebAuthn ceremonies hang WebKit.
+            // Don't start a second passkey sign-in while one is already in flight (e.g. a
+            // double-clicked passkey button) — concurrent WebAuthn requests hang WebKit.
             if (values.loginWithPasskeyLoading) {
                 return
             }
@@ -150,10 +150,10 @@ export const passkeyLogic = kea<passkeyLogicType>([
                 return
             }
             // Latch synchronously before the first await so a repeat trigger can't race past the guard.
-            if (cache.conditionalCeremonyStarted) {
+            if (cache.passkeyAutofillStarted) {
                 return
             }
-            cache.conditionalCeremonyStarted = true
+            cache.passkeyAutofillStarted = true
             if (!(await browserSupportsWebAuthnAutofill())) {
                 return
             }
@@ -175,8 +175,8 @@ export const passkeyLogic = kea<passkeyLogicType>([
                 handleLoginRedirect()
                 window.location.reload()
             } catch (e: unknown) {
-                // Autofill ceremonies are routinely aborted — the user types a password instead, or
-                // navigates away. Swallow those; surface anything genuinely wrong.
+                // The autofill passkey prompt is routinely dismissed — the user types a password
+                // instead, or navigates away. Swallow those; surface anything genuinely wrong.
                 if (!isWebAuthnCancellation(e)) {
                     actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
                 }

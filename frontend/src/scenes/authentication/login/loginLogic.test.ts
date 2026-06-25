@@ -83,7 +83,7 @@ describe('loginLogic', () => {
 
         beforeEach(() => {
             setVendor(CHROMIUM_VENDOR)
-            // Treat the ceremony as a user cancellation so it resolves without a page reload.
+            // Treat the passkey prompt as a user cancellation so it resolves without a page reload.
             ;(startAuthentication as jest.Mock).mockRejectedValue(
                 Object.assign(new Error('cancelled'), { name: 'AbortError' })
             )
@@ -121,9 +121,9 @@ describe('loginLogic', () => {
             jest.clearAllMocks()
         })
 
-        it('auto-triggers the passkey ceremony on non-WebKit browsers', async () => {
+        it('auto-triggers the passkey prompt on non-WebKit browsers', async () => {
             logic.actions.precheck({ email: 'user@example.com' })
-            // Drain the whole ceremony (begin request included) so nothing leaks into the next test.
+            // Drain the whole passkey flow (begin request included) so nothing leaks into the next test.
             await expectLogic(passkeyLogic)
                 .toDispatchActions(['beginPasskeyLogin', 'startPasskeyAuthenticationSuccess'])
                 .toFinishAllListeners()
@@ -144,7 +144,7 @@ describe('loginLogic', () => {
         const originalVendor = window.navigator.vendor
 
         beforeEach(() => {
-            setVendor(WEBKIT_VENDOR) // skip passkey ceremony, isolate precheck
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger, isolate precheck
             precheckHandler = jest.fn(() => [200, { saml_available: false }])
             useMocks({ post: { '/api/login/precheck': precheckHandler } })
             initKeaTests()

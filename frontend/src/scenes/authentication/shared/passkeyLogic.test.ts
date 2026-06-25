@@ -28,7 +28,7 @@ describe('passkeyLogic', () => {
         beforeEach(() => {
             setVendor(WEBKIT_VENDOR)
             ;(browserSupportsWebAuthnAutofill as jest.Mock).mockResolvedValue(true)
-            // Settle the ceremony as a cancellation so it resolves without a page reload.
+            // Resolve the passkey prompt as a cancellation so it settles without a page reload.
             ;(startAuthentication as jest.Mock).mockRejectedValue(
                 Object.assign(new Error('cancelled'), { name: 'AbortError' })
             )
@@ -57,7 +57,7 @@ describe('passkeyLogic', () => {
             jest.clearAllMocks()
         })
 
-        it('on WebKit, runs a conditional ceremony with browser autofill and no credential constraint', async () => {
+        it('on WebKit, requests a passkey via browser autofill with no credential constraint', async () => {
             logic.actions.startConditionalPasskeyLogin()
             await expectLogic(logic).toFinishAllListeners()
 
@@ -88,7 +88,7 @@ describe('passkeyLogic', () => {
             expect(startAuthentication).not.toHaveBeenCalled()
         })
 
-        it('starts only one ceremony when triggered repeatedly', async () => {
+        it('starts only one passkey request when triggered repeatedly', async () => {
             logic.actions.startConditionalPasskeyLogin()
             logic.actions.startConditionalPasskeyLogin()
             await expectLogic(logic).toFinishAllListeners()
