@@ -10,7 +10,7 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
   a data-warehouse `timestamp_field` bugfix, 6 files / +180-1). It is **non-fork** (sandbox checkout works)
   and **stale** — its head `243ddf40295c` has been frozen since 2026-06-15 — so every run reviews
   **identical code** and a change in findings reflects a change in _the reviewer_, not the PR. Keep using a
-  frozen PR until the **step-14 head_sha pin** lands (review a fixed commit instead of "current head").
+  frozen PR until the **step-16 head_sha pin** lands (review a fixed commit instead of "current head").
 - The **codebase-state label** = what changed in the reviewer (prompt/code) + the `signals/reviewhog`
   working state ("uncommitted" while iterating). Quality is only comparable across runs at the **same**
   reviewed `head_sha`.
