@@ -228,6 +228,8 @@ dashboard_tiles: PostgresTable = PostgresTable(
     name="dashboard_tiles",
     postgres_table_name="posthog_dashboardtile",
     access_scope="dashboard",
+    # Child of dashboard: object-level access control applies to the parent dashboard, not the tile's own id.
+    access_control_id_field="dashboard_id",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -362,6 +364,8 @@ source_schemas: PostgresTable = PostgresTable(
     name="source_schemas",
     postgres_table_name="posthog_externaldataschema",
     access_scope="external_data_source",
+    # Child of external_data_source: object-level access control applies to the parent source, not the schema's own id.
+    access_control_id_field="source_id",
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -385,6 +389,8 @@ source_sync_jobs: PostgresTable = PostgresTable(
     name="source_sync_jobs",
     postgres_table_name="posthog_externaldatajob",
     access_scope="external_data_source",
+    # Child of external_data_source: object-level access control applies to the parent source, not the job's own id.
+    access_control_id_field="pipeline_id",
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -404,6 +410,8 @@ endpoint_versions: PostgresTable = PostgresTable(
     name="data_modeling_endpoint_versions",
     postgres_table_name="endpoints_endpointversion",
     access_scope="endpoint",
+    # Child of endpoint: object-level access control applies to the parent endpoint, not the version's own id.
+    access_control_id_field="endpoint_id",
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -1037,6 +1045,8 @@ trace_review_scores: PostgresTable = PostgresTable(
     name="trace_review_scores",
     postgres_table_name="llm_analytics_tracereviewscore",
     access_scope="llm_analytics",
+    # Child of trace_review: object-level access control applies to the parent review, not the score's own id.
+    access_control_id_field="review_id",
     fields={
         "id": UUIDDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),

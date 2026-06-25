@@ -37,13 +37,13 @@ import {
     getSecretAllowedHosts,
     HttpFetcher,
     IdentityAuthRequiredError,
-    isPreviewSideEffect,
     MemoryStore,
     TabularStore,
     Sandbox,
     ToolContext,
+    WebSearchProvider,
 } from '@posthog/agent-shared'
-import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
+import { getNativeTool, hasNativeTool, WEB_SEARCH_TOOL_ID } from '@posthog/agent-tools'
 
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 import { buildToolNameMap } from './provider-safe-names'
@@ -123,6 +123,12 @@ export interface AgentToolDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /**
+     * Web-search provider chain for `@posthog/web-search`. Forwarded onto the
+     * `ToolContext`; an empty/absent chain also gates the tool out of the
+     * session surface below (so the model never sees a tool that throws).
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
     /**
      * Dispatcher for `kind: "client"` tools. The driver wires this up
      * over the session event bus: `execute` publishes a
@@ -215,6 +221,12 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             if (!hasNativeTool(t.id)) {
                 continue
             }
+            // `@posthog/web-search` is config-gated: with no provider keyed at
+            // boot the chain is empty, so drop it rather than surface a tool
+            // that only ever throws `web_search_not_configured`.
+            if (t.id === WEB_SEARCH_TOOL_ID && !deps.webSearchProviders?.length) {
+                continue
+            }
             tools.push(makeNativeTool(t.id, deps))
             continue
         }
@@ -286,7 +298,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                     continue
                 }
                 seen.add(exposedName)
-                tools.push(makeMcpTool(exposedName, client, remote, deps))
+                tools.push(makeMcpTool(exposedName, client, remote))
             }
         }
     }
@@ -488,8 +500,7 @@ function makeClientTool(
 function makeMcpTool(
     exposedName: string,
     client: OpenedMcp,
-    remote: RemoteMcpTool,
-    deps: AgentToolDeps
+    remote: RemoteMcpTool
 ): AgentTool<TSchema, ToolResultDetails> {
     return {
         name: exposedName,
@@ -561,6 +572,7 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         },
         memoryStore: deps.memoryStore,
         tabularStore: deps.tabularStore,
+        webSearchProviders: deps.webSearchProviders,
         credentials: credentialBroker
             ? {
                   resolve: (target) => credentialBroker.resolve(sessionId, target),
@@ -570,7 +582,6 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         resolvedIdentities,
         http: deps.http,
         posthogApiBaseUrl: deps.posthogApiBaseUrl,
-        isPreview: deps.session.is_preview,
     }
 }
 

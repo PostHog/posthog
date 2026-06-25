@@ -12,6 +12,7 @@ from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.persons import create_person
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
@@ -445,7 +446,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     def test_team_deletion_does_not_cascade_to_persons(self):
         """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
         # Create a Person
-        person = Person.objects.create(team=self.team)
+        person = create_person(team=self.team)
         person_id = person.id
 
         # Delete the team directly (not via API, bypassing manual delete)
