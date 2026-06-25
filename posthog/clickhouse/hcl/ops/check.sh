@@ -1,71 +1,61 @@
 #!/usr/bin/env bash
 # Fidelity + reference guard for the declarative OPS ClickHouse schema.
 #
-# For each environment it:
-#   1. `hclexp validate`s the resolved layer stack (cross-object references resolve),
-#      skipping references that intentionally point outside the OPS schema
-#      (the `system` database and the main events cluster).
-#   2. `hclexp diff`s the resolved layer stack against the vendored golden dump,
-#      asserting zero drift — i.e. the layered source still reproduces the
-#      last captured cluster state exactly.
+# Reads the node composition manifest (./nodes) and, for each (env, role):
+#   1. `hclexp validate`s the composed layer stack (cross-object refs resolve),
+#      skipping refs that intentionally point outside the composed set (the
+#      `system` database, the main events cluster, and the OPS-only data table
+#      that the shared distributed tables read from).
+#   2. `hclexp diff`s the stack against the vendored golden golden/<env>-<role>.hcl,
+#      asserting zero drift. Compositions with no golden (e.g. `local`, `endpoints`
+#      — no captured host) are validated only.
 #
-# Run from the repo root. Uses ./posthog/clickhouse/hcl/bin/hclexp (container or
-# local binary). Exits non-zero on any drift or unexpected validation error.
+# Run from the repo root. Uses ./posthog/clickhouse/hcl/bin/hclexp. Exits non-zero
+# on any drift or unexpected validation error.
 set -euo pipefail
 
 HCL=posthog/clickhouse/hcl
 HCLEXP="$HCL/bin/hclexp"
-BASE="$HCL/ops/base"
-PROD="$HCL/ops/prod"
-GOLDEN="$HCL/ops/golden"
+OPS_DIR="$HCL/ops"
+GOLDEN="$OPS_DIR/golden"
+MANIFEST="$OPS_DIR/nodes"
 
-# Objects whose source/target tables live outside the OPS schema by design:
-#   - custom_metrics* views read from the `system` database
-#   - ops_query_log_archive_mv reads from system.query_log
+# Objects whose source/target lives outside a composed set by design:
+#   - custom_metrics* read the `system` database
+#   - ops_query_log_archive_mv reads system.query_log
 #   - events_main / events_recent are Distributed proxies to the main events cluster
-SKIP='custom_metrics,custom_metrics_backups,custom_metrics_dictionaries,custom_metrics_part_counts,custom_metrics_replication_queue,custom_metrics_server_crash,custom_metrics_table_sizes,ops_query_log_archive_mv,events_main,events_recent'
-
-# env -> layer stack (kept portable for bash 3.2; no associative arrays)
-# Every environment composes the shared base layer (query_log_archive data path
-# + custom_metrics views). `local` adds nothing on top; cloud envs add the
-# metrics suite (prod) and per-env objects.
-stack_for() {
-  case "$1" in
-    local)   echo "$BASE,$HCL/ops/env/local" ;;
-    dev)     echo "$BASE,$HCL/ops/env/dev" ;;
-    prod-us) echo "$BASE,$PROD,$HCL/ops/env/prod-us" ;;
-    prod-eu) echo "$BASE,$PROD,$HCL/ops/env/prod-eu" ;;
-  esac
-}
-
-# Cloud envs are diffed against a vendored golden dump captured from the live
-# cluster. `local` has no external cluster dump (it is created from this HCL),
-# so it is validated only — the live round-trip is exercised by the local-apply
-# tooling, not this offline guard.
-has_golden() { [[ "$1" != "local" ]]; }
+#   - query_log_archive / writable_query_log_archive are Distributed over the OPS-only
+#     sharded_query_log_archive, which is absent from non-OPS (shared-only) compositions
+SKIP='custom_metrics,custom_metrics_backups,custom_metrics_dictionaries,custom_metrics_part_counts,custom_metrics_replication_queue,custom_metrics_server_crash,custom_metrics_table_sizes,custom_metrics_test,ops_query_log_archive_mv,events_main,events_recent,query_log_archive,writable_query_log_archive'
 
 rc=0
-for env in local dev prod-us prod-eu; do
-  layers="$(stack_for "$env")"
+while read -r env role layers; do
+  [ -z "${env:-}" ] && continue
+  case "$env" in \#*) continue ;; esac
 
-  echo "== $env: validate =="
-  if ! "$HCLEXP" validate -layer "$layers" -skip-validation "$SKIP" >/dev/null; then
-    echo "FAIL: validate $env"; rc=1
+  # Build comma-separated layer dirs rooted at the ops dir.
+  stack=""
+  for l in $layers; do stack="${stack:+$stack,}$OPS_DIR/$l"; done
+
+  echo "== $env/$role: validate =="
+  if ! "$HCLEXP" validate -layer "$stack" -skip-validation "$SKIP" >/dev/null; then
+    echo "FAIL: validate $env/$role"; rc=1
   fi
 
-  if has_golden "$env"; then
-    echo "== $env: diff vs golden =="
+  golden="$GOLDEN/$env-$role.hcl"
+  if [ -f "$golden" ]; then
+    echo "== $env/$role: diff vs golden =="
     err="$(mktemp)"
-    out="$("$HCLEXP" diff -left "$layers" -right "$GOLDEN/$env-ops.hcl" 2>"$err")"
-    if [[ "$out" != "no differences" ]]; then
-      # On a tool failure (image not pulled, missing golden, bad arg) $out is
-      # empty — surface stderr so "FAIL: drift" is never an empty mystery.
-      echo "FAIL: drift in $env"; echo "$out"; cat "$err"; rc=1
+    out="$("$HCLEXP" diff -left "$stack" -right "$golden" 2>"$err")"
+    if [ "$out" != "no differences" ]; then
+      echo "FAIL: drift in $env/$role"; echo "$out"; cat "$err"; rc=1
     else
       echo "no differences"
     fi
     rm -f "$err"
+  else
+    echo "== $env/$role: no golden (validate only) =="
   fi
-done
+done < "$MANIFEST"
 
 exit $rc

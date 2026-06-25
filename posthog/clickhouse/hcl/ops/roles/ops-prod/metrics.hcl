@@ -1,13 +1,6 @@
-# OPS prod layer — metrics suite, identical across prod-us and prod-eu
-#
-# Generated/maintained as the declarative source of truth for the OPS ClickHouse cluster.
-# Resolve with: hclexp load -layer <base>,<...>
+# OPS role, prod only — metrics suite + sharded_tophog abstract.
 
 database "posthog" {
-  # Shared shape for the per-env sharded_tophog tables. prod-us and prod-eu
-  # differ only in the engine zoo_path (tophog_new vs tophog), so the columns
-  # and table settings live here and each env layer instantiates a concrete
-  # sharded_tophog via `extend`, supplying just its engine block.
   table "sharded_tophog_base" {
     abstract     = true
     order_by     = ["pipeline", "lane", "metric", "timestamp", "key"]

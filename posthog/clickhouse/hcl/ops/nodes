@@ -1,0 +1,29 @@
+# Node composition manifest — the source of truth for object placement (replaces codegen/topology.py).
+#
+# A node's schema = compose(its layers, in order). Each line is:
+#     <env>  <role>  <layer> [<layer> ...]
+# layers are directories relative to this file (posthog/clickhouse/hcl/ops/).
+#
+# node_roles for an object is DERIVED, not declared: it is the set of roles whose
+# composition includes the layer that defines the object. check.sh, diff.sh, and the
+# migration generator all read this file. Shared objects (in shared/) appear in every
+# role's composition -> node_roles = every role here; OPS-only objects (roles/ops*,
+# env/*) appear only in the ops compositions -> node_roles = [OPS].
+#
+# The OPS node is modeled per env (it carries the env differences). The other roles
+# carry only the shared managed subset today, so one representative env (prod-us) is
+# enough to put them in the role set — shared objects are env-identical. Fully modeling
+# the DATA node (events_recent + the DATA-specific custom_metrics aggregator +
+# custom_metrics_events_recent_lag) is a follow-up; until then events_recent is treated
+# as OPS-only.
+
+local    ops        shared roles/ops env/local
+dev      ops        shared roles/ops env/dev
+prod-us  ops        shared roles/ops roles/ops-prod env/prod-us
+prod-eu  ops        shared roles/ops roles/ops-prod env/prod-eu
+
+prod-us  data       shared
+prod-us  endpoints  shared
+prod-us  aux        shared
+prod-us  ai_events  shared
+prod-us  sessions   shared
