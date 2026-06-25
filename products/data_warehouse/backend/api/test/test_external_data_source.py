@@ -464,6 +464,9 @@ class TestExternalDataSource(APIBaseTest):
         _user, event, properties = mock_report.call_args.args
         assert event == "data warehouse source updated"
         assert properties["source_id"] == str(source.pk)
+        assert properties["source_type"] == "Stripe"
+        # created_via reflects the original creation origin, not the edit's — it must survive the update event
+        assert properties["created_via"] == ExternalDataSource.CreatedVia.WEB
         assert mock_report.call_args.kwargs["request"] is not None
 
     def test_patch_external_data_source_toggles_direct_query_enabled(self):
