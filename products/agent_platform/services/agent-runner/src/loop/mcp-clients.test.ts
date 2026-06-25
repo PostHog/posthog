@@ -595,4 +595,76 @@ describe('openMcpClients', () => {
             await closePairs(pairs)
         })
     })
+
+    describe('connection (agent-level shared credential)', () => {
+        it('uses the URL + bearer from the connection resolver, ignoring ref.url/auth/secrets', async () => {
+            const { factory, pairs, targets } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                { id: 'incident', url: 'https://placeholder.invalid/', connection: 'conn-1', secrets: [] },
+            ]
+            const { clients, close } = await openMcpClients(refs, {
+                secrets: {},
+                transportFactory: factory,
+                connections: {
+                    resolve: async () => ({
+                        kind: 'resolved',
+                        url: 'https://mcp.incident.io/mcp',
+                        bearer: 'shared-tok',
+                    }),
+                },
+            })
+            expect(clients).toHaveLength(1)
+            expect(targets[0].url).toBe('https://mcp.incident.io/mcp')
+            expect(targets[0].headers.Authorization).toBe('Bearer shared-tok')
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('needs_reauth → fails in the auth category (owner must reconnect)', async () => {
+            const { factory, pairs } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                { id: 'incident', url: 'https://placeholder.invalid/', connection: 'conn-1', secrets: [] },
+            ]
+            const { clients, failures, close } = await openMcpClients(refs, {
+                secrets: {},
+                transportFactory: factory,
+                connections: { resolve: async () => ({ kind: 'needs_reauth' }) },
+            })
+            expect(clients).toEqual([])
+            expect(failures[0].category).toBe('auth')
+            expect(failures[0].devReason).toMatch(/mcp_connection_needs_reauth: conn-1/)
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('not_found → fails in the not_found category', async () => {
+            const { factory, pairs } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                { id: 'incident', url: 'https://placeholder.invalid/', connection: 'gone', secrets: [] },
+            ]
+            const { failures, close } = await openMcpClients(refs, {
+                secrets: {},
+                transportFactory: factory,
+                connections: { resolve: async () => ({ kind: 'not_found' }) },
+            })
+            expect(failures[0].category).toBe('not_found')
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('refuses a connection ref when the resolver is not wired', async () => {
+            const { factory, pairs } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                { id: 'incident', url: 'https://placeholder.invalid/', connection: 'conn-1', secrets: [] },
+            ]
+            const { clients, failures, close } = await openMcpClients(refs, {
+                secrets: {},
+                transportFactory: factory,
+            })
+            expect(clients).toEqual([])
+            expect(failures[0].devReason).toMatch(/mcp_connection_not_wired: conn-1/)
+            await close()
+            await closePairs(pairs)
+        })
+    })
 })

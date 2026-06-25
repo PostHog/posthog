@@ -99,4 +99,55 @@ export class EncryptedFields {
         }
         return parsed as Record<string, unknown>
     }
+
+    /**
+     * Decrypt a Django `EncryptedJSONField` (RECURSIVE per-leaf — not the
+     * whole-blob `decryptJson`). Structure stays plaintext JSON; each scalar leaf
+     * was `encrypt(str(value))`, so leaves come back as STRINGS (`3600`→"3600",
+     * `True`→"True"); `null` passes through. Pass the parsed value (node-pg parses
+     * jsonb; JSON.parse a text column first). Mirrors `_decrypt_values`.
+     */
+    decryptJsonFieldValue(value: unknown): unknown {
+        if (value === null || value === undefined) {
+            return value
+        }
+        if (Array.isArray(value)) {
+            return value.map((v) => this.decryptJsonFieldValue(v))
+        }
+        if (typeof value === 'object') {
+            const out: Record<string, unknown> = {}
+            for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+                out[k] = this.decryptJsonFieldValue(v)
+            }
+            return out
+        }
+        if (typeof value === 'string') {
+            return this.decrypt(value)
+        }
+        // Numbers/booleans shouldn't appear at rest (they were str()-ified then
+        // encrypted to a string token), but pass them through if they do.
+        return value
+    }
+
+    /**
+     * Inverse of `decryptJsonFieldValue` for write-back. Mirrors `_encrypt_values`:
+     * each scalar leaf is `str(value)`-ified (bool → "True"/"False") then
+     * encrypted; `null` preserved. `JSON.stringify` the result for the column.
+     */
+    encryptJsonFieldValue(value: unknown): unknown {
+        if (value === null || value === undefined) {
+            return value
+        }
+        if (Array.isArray(value)) {
+            return value.map((v) => this.encryptJsonFieldValue(v))
+        }
+        if (typeof value === 'object') {
+            const out: Record<string, unknown> = {}
+            for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+                out[k] = this.encryptJsonFieldValue(v)
+            }
+            return out
+        }
+        return this.encrypt(typeof value === 'boolean' ? (value ? 'True' : 'False') : String(value))
+    }
 }

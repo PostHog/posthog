@@ -39,6 +39,7 @@ import {
     getSecretAllowedHosts,
     HttpFetcher,
     LogSink,
+    McpConnectionStore,
     MemoryStore,
     TabularStore,
     WebSearchProvider,
@@ -193,6 +194,11 @@ export interface WorkerDeps {
      * instrumentation / retry middleware.
      */
     mcpTransportFactory?: McpTransportFactory
+    /**
+     * Shared-credential MCP resolver (`spec.mcps[].connection`). The worker binds
+     * it to the session's `team_id`. Omit to disable the connection path.
+     */
+    mcpConnections?: McpConnectionStore
     /**
      * Dev-only bearer forwarded to `openMcpClients`. See `OpenMcpClientsDeps`.
      * Sourced from `AGENT_DEV_MCP_BEARER_TOKEN`; the runner's `index.ts`
@@ -486,11 +492,19 @@ export class Worker {
                               log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                           })
                         : undefined
+                // Bind the connection resolver to this session's team.
+                const mcpConnections = this.deps.mcpConnections
+                    ? {
+                          resolve: (connectionId: string) =>
+                              this.deps.mcpConnections!.resolve(connectionId, session.team_id),
+                      }
+                    : undefined
                 const opened = await openMcpClients(rev.spec.mcps, {
                     secrets,
                     secretAllowedHosts: (name) => getSecretAllowedHosts(rev.spec, name),
                     transportFactory: this.deps.mcpTransportFactory,
                     identity: mcpIdentity,
+                    connections: mcpConnections,
                     devMcpBearerToken: this.deps.devMcpBearerToken,
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                     http: this.deps.http,

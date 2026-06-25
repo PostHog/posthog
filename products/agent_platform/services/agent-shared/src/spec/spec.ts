@@ -517,6 +517,14 @@ export const McpRefSchema = z.object({
      */
     id: z.string().min(1),
     url: z.string().url(),
+    /**
+     * Native MCP connection: the id of an `mcp_store` `MCPServerInstallation` an
+     * owner connected once (OAuth incl. DCR, or api-key). When set, the runner
+     * loads the bearer from that row (refreshing on expiry) and ignores
+     * `auth`/`secrets`/`headers` — ONE shared credential for every asker. `url`
+     * stays required (UI-filled); the installation row is the source of truth.
+     */
+    connection: z.string().min(1).optional(),
     auth: z
         .object({
             /** Per-principal identity provider (id from `spec.identity_providers[]`):

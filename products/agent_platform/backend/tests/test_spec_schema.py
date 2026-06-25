@@ -136,6 +136,24 @@ def _with_auth(spec: dict) -> dict:
                 ],
             },
         ),
+        # Connection-backed MCP: references a native `mcp_store` installation
+        # (UUID) instead of auth.provider / secrets+headers. One shared
+        # credential for the whole agent; the runner loads the bearer from the
+        # installation row. `url` stays required (UI-filled from the install).
+        (
+            "external_mcp_connection_backed",
+            {
+                "model": "test/x",
+                "mcps": [
+                    {
+                        "id": "incident",
+                        "url": "https://mcp.incident.io/mcp",
+                        "connection": "019e7fb7-f4c0-75e2-9055-7c29a5cbb999",
+                        "tools": ["list-incidents", {"name": "create-incident", "requires_approval": True}],
+                    }
+                ],
+            },
+        ),
         # Registry-pin shapes the freeze pipeline resolves: a skill carrying
         # `from_template` + `alias` (+ optional `version`) alongside the
         # runtime id/path, and a `custom_template` tool ref. Before these

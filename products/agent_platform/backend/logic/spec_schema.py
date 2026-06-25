@@ -352,6 +352,10 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                 "properties": {
                     "id": {"type": "string", "minLength": 1},
                     "url": {"type": "string", "format": "uri"},
+                    # Native `mcp_store` MCPServerInstallation id — one shared
+                    # credential for the agent; runner loads the bearer from the
+                    # row. Mirrors `connection` in agent-shared spec.ts.
+                    "connection": {"type": "string", "minLength": 1},
                     "auth": {
                         "type": "object",
                         "properties": {
