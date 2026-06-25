@@ -193,6 +193,10 @@
                                 },
                                 "type": "object"
                             },
+                            "connection": {
+                                "minLength": 1,
+                                "type": "string"
+                            },
                             "headers": {
                                 "additionalProperties": {
                                     "type": "string"
