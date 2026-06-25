@@ -1,9 +1,30 @@
+import datetime as dt
+from uuid import UUID, uuid4
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
+
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery, HogQLRealtimeCohortQuery
+from posthog.models.property import Property, PropertyGroup
 
 from products.cohorts.backend.models.cohort import Cohort
+
+# Local single-node mirror of the production precalculated_person_properties table (which is
+# sharded/distributed and absent from the test ClickHouse schema). Created per execution test.
+_PRECALCULATED_PERSON_PROPERTIES_TEST_DDL = """
+CREATE TABLE IF NOT EXISTS precalculated_person_properties (
+    team_id Int64, distinct_id String, person_id UUID, condition String,
+    matches Bool, source String, _timestamp DateTime64(6), _offset UInt64
+) ENGINE = ReplacingMergeTree(_timestamp) ORDER BY (team_id, condition, distinct_id)
+"""
 
 
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
@@ -960,25 +981,14 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
         query_str = hogql_query.query_str("clickhouse")
 
-        # The 3 mergeable email icontains should be in a single merged query with IN clause
-        # Looking at the IN clause specifically
-        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-
-        # Should have exactly 1 IN clause for the merged conditions
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for merged conditions")
-
-        # Should have exactly 3 single condition checks (one for each non-mergeable property)
-        single_condition_count = query_str.lower().count("equals(precalculated_person_properties.condition,")
-        self.assertEqual(single_condition_count, 3, "Should have exactly 3 single condition checks")
-
-        # Should use IN clause for merged conditions
+        # All 6 conditions (3 mergeable + 3 non-mergeable) collapse into one scan with a
+        # single IN clause and HAVING countIf >= 1 (OR semantics).
         self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
-
-        # The merged query should check for at least 1 match using countIf
-        self.assertIn("countif", query_str.lower())
-
-        # Should have UNION DISTINCT since we have non-mergeable properties too
-        self.assertIn("UNION DISTINCT", query_str)
+        self.assertNotIn("UNION DISTINCT", query_str)
+        self.assertNotIn("INTERSECT DISTINCT", query_str)
+        # OR threshold: at least one condition must match
+        self.assertIn("countif(", query_str.lower())
+        self.assertIn("greaterOrEquals", query_str)
 
     def test_or_group_with_nested_single_property_groups_merges(self) -> None:
         """
@@ -1216,12 +1226,12 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Should use IN clause to fetch all conditions at once
         self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
-        # Should use countIf for counting matches
-        self.assertIn("countif", query_str.lower())
-        # For AND semantics, should check that ALL 3 conditions matched
-        self.assertIn(", 3)", query_str)  # equals(countIf(...), 3)
-        # Should NOT use UNION DISTINCT since properties are merged
+        # AND semantics: all 3 conditions must match. Pin the full predicate so the threshold
+        # (3, not 1) is verified rather than a substring that any threshold would satisfy.
+        self.assertIn("greaterorequals(countif(equals(latest_matches, 1)), 3)", query_str.lower())
+        # Should NOT use UNION/INTERSECT DISTINCT since properties collapse into one scan
         self.assertNotIn("UNION DISTINCT", query_str)
+        self.assertNotIn("INTERSECT DISTINCT", query_str)
 
     def test_sibling_single_property_groups_under_or_merge(self) -> None:
         """
@@ -1629,13 +1639,567 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
         query_str = hogql_query.query_str("clickhouse")
 
-        # Should have been deduplicated to a single condition
-        # The IN clause should contain only one hash, not three
-        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause after deduplication")
-
-        # Should have HAVING countIf(...) = 1 (not 3) because duplicates were removed
-        self.assertIn(", 1)", query_str)  # countIf(...), 1) in equals function
+        # Deduplicated to a single condition → cheaper one-pass query: `condition = hash`
+        # equality, no IN clause and no cross-condition counting.
+        self.assertIn("equals(precalculated_person_properties.condition,", query_str.lower())
+        self.assertNotIn("in(precalculated_person_properties.condition,", query_str.lower())
+        self.assertNotIn("countif", query_str.lower())
 
         # Should NOT use INTERSECT since all properties merged into one
         self.assertNotIn("INTERSECT DISTINCT", query_str)
+
+    @parameterized.expand(
+        [
+            (
+                # AND of 3 person properties with different keys → single scan, threshold = N (3)
+                "cross_condition_and",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                    "conditionHash": "hash_email_001",
+                                },
+                                {
+                                    "key": "plan",
+                                    "type": "person",
+                                    "value": "enterprise",
+                                    "negation": False,
+                                    "operator": "exact",
+                                    "conditionHash": "hash_plan_002",
+                                },
+                                {
+                                    "key": "country",
+                                    "type": "person",
+                                    "value": "US",
+                                    "negation": False,
+                                    "operator": "exact",
+                                    "conditionHash": "hash_country_003",
+                                },
+                            ],
+                        }
+                    ],
+                },
+                [
+                    "in(precalculated_person_properties.condition,",
+                    "greaterorequals(countif(equals(latest_matches, 1)), 3)",
+                ],
+                ["intersect distinct", "union distinct"],
+            ),
+            (
+                # OR of 2 person properties with different keys → single scan, threshold = 1
+                "cross_condition_or",
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                    "conditionHash": "hash_email_or_001",
+                                },
+                                {
+                                    "key": "plan",
+                                    "type": "person",
+                                    "value": "enterprise",
+                                    "negation": False,
+                                    "operator": "exact",
+                                    "conditionHash": "hash_plan_or_002",
+                                },
+                            ],
+                        }
+                    ],
+                },
+                [
+                    "in(precalculated_person_properties.condition,",
+                    "greaterorequals(countif(equals(latest_matches, 1)), 1)",
+                ],
+                ["intersect distinct", "union distinct"],
+            ),
+            (
+                # Mixed behavioral + person property → falls through to multi-subquery path
+                "mixed_behavioral_and_person_falls_through",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "negation": False,
+                                    "event_type": "events",
+                                    "time_value": 7,
+                                    "time_interval": "day",
+                                    "conditionHash": "behavioral_hash_001",
+                                },
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                    "conditionHash": "person_hash_001",
+                                },
+                            ],
+                        }
+                    ],
+                },
+                ["intersect distinct", "precalculated_events", "precalculated_person_properties"],
+                [],
+            ),
+            (
+                # Single person property → cheaper one-pass query (no cross-condition counting)
+                "single_property",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                    "conditionHash": "hash_single_001",
+                                },
+                            ],
+                        }
+                    ],
+                },
+                ["equals(argmax(precalculated_person_properties.matches"],
+                ["intersect distinct", "union distinct", "countif"],
+            ),
+            (
+                # Negated person property → falls through (single-scan must NOT fire)
+                "negated_person_falls_through",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                    "conditionHash": "neg_keep_001",
+                                },
+                                {
+                                    "key": "name",
+                                    "type": "person",
+                                    "value": "spam",
+                                    "negation": True,
+                                    "operator": "icontains",
+                                    "conditionHash": "neg_drop_002",
+                                },
+                            ],
+                        }
+                    ],
+                },
+                ["precalculated_person_properties"],
+                ["greaterorequals(countif(equals(latest_matches, 1))"],
+            ),
+            (
+                # (X OR Y) AND (A OR B): nested OR groups under a top-level AND must NOT collapse
+                # into a flat `>= 4` threshold (that would require all four). Falls through so the
+                # parent path expresses `(X OR Y) INTERSECT (A OR B)` correctly.
+                "nested_or_under_and_falls_through",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "OR",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": "@x.com",
+                                            "negation": False,
+                                            "operator": "icontains",
+                                            "conditionHash": "nest_hx_001",
+                                        },
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": "@y.com",
+                                            "negation": False,
+                                            "operator": "icontains",
+                                            "conditionHash": "nest_hy_002",
+                                        },
+                                    ],
+                                },
+                                {
+                                    "type": "OR",
+                                    "values": [
+                                        {
+                                            "key": "plan",
+                                            "type": "person",
+                                            "value": "A",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "nest_ha_003",
+                                        },
+                                        {
+                                            "key": "plan",
+                                            "type": "person",
+                                            "value": "B",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "nest_hb_004",
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                ["intersect distinct"],
+                ["greaterorequals(countif(equals(latest_matches, 1)), 4)"],
+            ),
+            (
+                # Deeply nested AND-of-AND with different-key (non-mergeable) props → falls through
+                "deeply_nested_falls_through",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": "@x.com",
+                                            "negation": False,
+                                            "operator": "icontains",
+                                            "conditionHash": "deep_001",
+                                        },
+                                        {
+                                            "key": "plan",
+                                            "type": "person",
+                                            "value": "A",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "deep_002",
+                                        },
+                                    ],
+                                },
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "country",
+                                            "type": "person",
+                                            "value": "US",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "deep_003",
+                                        },
+                                        {
+                                            "key": "role",
+                                            "type": "person",
+                                            "value": "admin",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "deep_004",
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                ["intersect distinct"],
+                ["greaterorequals(countif(equals(latest_matches, 1))"],
+            ),
+        ]
+    )
+    def test_single_scan_optimization(
+        self,
+        name: str,
+        cohort_filters: dict,
+        expected_present: list[str],
+        expected_absent: list[str],
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name=f"Test {name}", filters={"properties": cohort_filters})
+        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse").lower()
+
+        for substring in expected_present:
+            self.assertIn(substring, query_str)
+        for substring in expected_absent:
+            self.assertNotIn(substring, query_str)
+
+    def _seed_precalculated_person_properties(self, rows: list[tuple[UUID, str, bool]]) -> None:
+        """Seed (person_id, condition, matches) rows for the current team."""
+        timestamp = dt.datetime(2026, 1, 1)
+        payload = [
+            (self.team.pk, str(person_id), str(person_id), condition, 1 if matches else 0, "test", timestamp, offset)
+            for offset, (person_id, condition, matches) in enumerate(rows)
+        ]
+        sync_execute(
+            "INSERT INTO precalculated_person_properties "
+            "(team_id, distinct_id, person_id, condition, matches, source, _timestamp, _offset) VALUES",
+            payload,
+        )
+
+    def _realtime_cohort_members(self, cohort: Cohort) -> set[str]:
+        """Execute a realtime cohort's current-members query and return the matched person_ids."""
+        query = HogQLRealtimeCohortQuery(cohort=cohort).get_query()
+        context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, limit_context=LimitContext.COHORT_CALCULATION
+        )
+        sql, _ = prepare_and_print_ast(query, context, "clickhouse")
+        return {str(row[0]) for row in sync_execute(sql, context.values)}
+
+    def test_single_scan_membership_matches_boolean_semantics(self) -> None:
+        """Execute the single-scan query against seeded data and assert who actually matches.
+
+        String assertions can't catch a wrong argMax pick, a broken countIf, or an AND/OR
+        threshold flip — all would produce valid SQL and the wrong cohort. This seeds rows and
+        checks membership directly.
+        """
+        sync_execute(_PRECALCULATED_PERSON_PROPERTIES_TEST_DDL)
+        sync_execute("TRUNCATE TABLE precalculated_person_properties")
+        try:
+            and_all, and_two = uuid4(), uuid4()
+            or_one, or_none = uuid4(), uuid4()
+            self._seed_precalculated_person_properties(
+                [
+                    # AND cohort (hashes A, B, C): all three vs only two
+                    (and_all, "exec_A", True),
+                    (and_all, "exec_B", True),
+                    (and_all, "exec_C", True),
+                    (and_two, "exec_A", True),
+                    (and_two, "exec_B", True),
+                    (and_two, "exec_C", False),
+                    # OR cohort (hashes D, E): one of two vs none
+                    (or_one, "exec_D", True),
+                    (or_one, "exec_E", False),
+                    (or_none, "exec_D", False),
+                    (or_none, "exec_E", False),
+                ]
+            )
+
+            and_cohort = Cohort.objects.create(
+                team=self.team,
+                name="exec AND",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "a",
+                                        "type": "person",
+                                        "value": "x",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_A",
+                                    },
+                                    {
+                                        "key": "b",
+                                        "type": "person",
+                                        "value": "y",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_B",
+                                    },
+                                    {
+                                        "key": "c",
+                                        "type": "person",
+                                        "value": "z",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_C",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            and_members = self._realtime_cohort_members(and_cohort)
+            self.assertIn(str(and_all), and_members)  # matched all 3
+            self.assertNotIn(str(and_two), and_members)  # matched only 2 of 3
+
+            or_cohort = Cohort.objects.create(
+                team=self.team,
+                name="exec OR",
+                filters={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "key": "d",
+                                        "type": "person",
+                                        "value": "x",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_D",
+                                    },
+                                    {
+                                        "key": "e",
+                                        "type": "person",
+                                        "value": "y",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_E",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            or_members = self._realtime_cohort_members(or_cohort)
+            self.assertIn(str(or_one), or_members)  # matched 1 of 2
+            self.assertNotIn(str(or_none), or_members)  # matched neither
+        finally:
+            sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
+
+    def test_single_scan_argmax_latest_write_wins(self) -> None:
+        """argMax picks the row with the highest (_timestamp, _offset), so the latest write wins.
+
+        Seeds two rows per (person, condition): an earlier row with one matches value and a later row
+        with the opposite. Asserts membership reflects the latest row, not the earlier one.
+        The helper assigns _offset via enumerate, so a later list entry beats an earlier one.
+        """
+        sync_execute(_PRECALCULATED_PERSON_PROPERTIES_TEST_DDL)
+        sync_execute("TRUNCATE TABLE precalculated_person_properties")
+        try:
+            flipped_out, flipped_in = uuid4(), uuid4()
+            self._seed_precalculated_person_properties(
+                [
+                    # flipped_out: early True then late False → excluded
+                    (flipped_out, "exec_F", True),
+                    (flipped_out, "exec_F", False),
+                    # flipped_in: early False then late True → included
+                    (flipped_in, "exec_F", False),
+                    (flipped_in, "exec_F", True),
+                ]
+            )
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="argmax flip",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "f",
+                                        "type": "person",
+                                        "value": "x",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_F",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            members = self._realtime_cohort_members(cohort)
+            self.assertNotIn(str(flipped_out), members)  # latest write was False
+            self.assertIn(str(flipped_in), members)  # latest write was True
+        finally:
+            sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
+
+    @parameterized.expand(
+        [
+            # A merged child's internal boolean type must match the top-level operator to flatten.
+            # (child_is_or, top_operator, should_flatten)
+            ("or_child_under_or", True, PropertyOperatorType.OR, True),
+            ("and_child_under_and", False, PropertyOperatorType.AND, True),
+            ("or_child_under_and", True, PropertyOperatorType.AND, False),
+            ("and_child_under_or", False, PropertyOperatorType.OR, False),
+        ]
+    )
+    def test_collect_person_property_hashes_operator_mismatch_guard(
+        self, _name: str, child_is_or: bool, top_operator: PropertyOperatorType, should_flatten: bool
+    ) -> None:
+        """A merged child encodes its own AND/OR across multiple hashes. The collector must only
+        flatten it when the child's boolean type matches the top-level operator; a mismatch falls
+        through (returns None) so the parent path expresses the nested boolean correctly.
+
+        Cohort preprocessing currently sets `_is_or_group=True` on same-key merges, so the
+        `and_child_under_or` direction isn't reachable end-to-end — this exercises the guard
+        directly to keep both directions covered.
+        """
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="guard",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "x",
+                                    "negation": False,
+                                    "operator": "exact",
+                                    "conditionHash": "h0",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        query = HogQLRealtimeCohortQuery(cohort=cohort)
+
+        def merged_prop(key: str, hashes: list[str]) -> Property:
+            prop = Property(key=key, type="person", value="x", operator="exact", conditionHash=hashes[0])
+            prop._merged_condition_hashes = hashes  # type: ignore[attr-defined]
+            prop._is_or_group = child_is_or  # type: ignore[attr-defined]
+            return prop
+
+        group = PropertyGroup(
+            type=top_operator,
+            values=[merged_prop("email", ["h1", "h2"]), merged_prop("plan", ["h3", "h4"])],
+        )
+        result = query._collect_person_property_hashes(group)
+
+        if should_flatten:
+            self.assertIsNotNone(result)
+            assert result is not None
+            self.assertEqual(set(result[0]), {"h1", "h2", "h3", "h4"})
+        else:
+            self.assertIsNone(result)

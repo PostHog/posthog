@@ -9,13 +9,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-from posthog.temporal.data_imports.sources.common.sql.location import fill_missing_from_dotted_name, normalize_namespace
-
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
+    fill_missing_from_dotted_name,
+    normalize_namespace,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_has_optional_schema_field(source: Any) -> bool:

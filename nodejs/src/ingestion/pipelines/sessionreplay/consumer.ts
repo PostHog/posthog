@@ -207,6 +207,7 @@ export class SessionRecordingIngester {
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.config.SESSION_RECORDING_MAX_BATCH_AGE_MS,
             maxEventsPerSessionPerBatch: this.config.SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH,
+            featuresRolloutPercentage: this.config.SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE,
             offsetManager,
             fileStorage: this.fileStorage,
             metadataStore,

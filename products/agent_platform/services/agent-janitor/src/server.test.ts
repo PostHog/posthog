@@ -79,7 +79,6 @@ function session(label: string): AgentSession {
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: [],
-        is_preview: false,
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
@@ -259,7 +258,7 @@ describe('janitor HTTP', () => {
                     content: [{ type: 'text', text: 'hello back!' }],
                     api: 'anthropic-messages',
                     provider: 'anthropic',
-                    model: 'claude-haiku-4-5',
+                    model: 'anthropic/claude-haiku-4-5',
                     usage: { input: 50, output: 10, cost: { input: 0.0005, output: 0.0002, total: 0.0007 } },
                     timestamp: 2,
                 },
@@ -640,7 +639,7 @@ describe('janitor HTTP', () => {
             created_by_id: null,
             bundle_uri: 'mem://b',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [
                     {
                         type: 'chat',
@@ -692,7 +691,7 @@ describe('janitor HTTP', () => {
             created_by_id: null,
             bundle_uri: 'mem://b',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [
                     {
                         type: 'cron',
@@ -729,7 +728,7 @@ describe('janitor HTTP', () => {
             created_by_id: null,
             bundle_uri: 'mem://b',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [
                     {
                         type: 'cron',
@@ -818,7 +817,7 @@ describe('janitor HTTP', () => {
             parent_revision_id: revisionId,
             created_by_id: null,
             bundle_uri: 'mem://b2',
-            spec: { model: 'x' } as never,
+            spec: { model: 'test/x' } as never,
         })
         const res = await request(app)
             .post(`/revisions/${draft.id}/clone_from`)
@@ -855,7 +854,7 @@ describe('janitor HTTP', () => {
                 apps[0].id,
                 revisionId,
                 JSON.stringify({
-                    model: 'x',
+                    model: 'test/x',
                     triggers: [{ type: 'chat', config: {} }], // missing `auth`
                 }),
             ]
@@ -884,7 +883,7 @@ describe('janitor HTTP', () => {
                 apps[0].id,
                 revisionId,
                 JSON.stringify({
-                    model: 'x',
+                    model: 'test/x',
                     triggers: [{ type: 'chat', config: {} }], // missing `auth`
                 }),
             ]
@@ -896,7 +895,7 @@ describe('janitor HTTP', () => {
                 skills: [],
                 tools: [],
                 spec: {
-                    model: 'y',
+                    model: 'test/y',
                     triggers: [
                         {
                             type: 'chat',
@@ -911,7 +910,7 @@ describe('janitor HTTP', () => {
         // parse it strictly, so a successful read proves the merge wrote a
         // valid spec.
         const after = await revisions.getRevision(draftId)
-        expect(after?.spec.model).toBe('y')
+        expect(after?.spec.model).toBe('test/y')
     })
 
     it('returns 503 when the revision/bundle stores are not configured', async () => {
@@ -996,7 +995,7 @@ describe('janitor HTTP', () => {
                 created_by_id: null,
                 bundle_uri: 'mem://b',
                 spec: AgentSpecSchema.parse({
-                    model: 'x',
+                    model: 'test/x',
                     triggers: [
                         {
                             type: 'chat',
@@ -1037,7 +1036,7 @@ describe('janitor HTTP', () => {
                 parent_revision_id: revisionId,
                 created_by_id: null,
                 bundle_uri: 'mem://b2',
-                spec: { model: 'x' } as never,
+                spec: { model: 'test/x' } as never,
             })
             // Reset the peak after the freeze step's own copies — clone_from
             // is the only call we want to measure here.

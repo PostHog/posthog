@@ -1,6 +1,6 @@
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { logger } from '~/utils/logger'
 
-import { HogFlowAction } from '../../../schema/hogflow'
 import { CyclotronJobInvocationHogFunction } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 

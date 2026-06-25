@@ -136,7 +136,8 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={sandboxStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <SandboxThreadView />
+                    {/* The live Max column owns scroll via ThreadAutoScroller — render rows in flow, not virtualized. */}
+                    <SandboxThreadView virtualized={false} />
                 </BindLogic>
             </div>
         )
@@ -156,7 +157,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={sandboxStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <SandboxThreadView />
+                    <SandboxThreadView virtualized={false} />
                 </BindLogic>
             </div>
         )

@@ -46,15 +46,6 @@ export interface ApprovalRequest {
     decided_args: Record<string, unknown> | null
     /** Set on terminal decision. `{result?, error?}`. */
     dispatch_outcome: { result?: unknown; error?: string } | null
-    /**
-     * Mirrors `agent_session.is_preview` for the owning session, copied from
-     * the session row at insert time so the listing serializer can render a
-     * preview badge without a join. Drives dispatch routing too: a preview
-     * approval that resolves into a real tool call routes through the
-     * runner's preview-aware adapter set (Slack/webhook noop), never the
-     * live publish surface.
-     */
-    is_preview: boolean
     created_at: string
     expires_at: string
 }
@@ -149,12 +140,6 @@ export interface UpsertApprovalRequestInput {
     proposed_args: Record<string, unknown>
     assistant_message: AssistantMessageRecord
     approver_scope: ApprovalRequest['approver_scope']
-    /**
-     * Copied verbatim from the owning `agent_session.is_preview` at the call
-     * site (the runner's approval emit path). Stamped onto the row so the
-     * dispatcher and listing surfaces don't need to re-join `agent_session`.
-     */
-    is_preview: boolean
     expires_at: string
 }
 

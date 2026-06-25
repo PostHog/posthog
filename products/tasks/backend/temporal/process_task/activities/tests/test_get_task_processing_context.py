@@ -13,7 +13,7 @@ from products.tasks.backend.constants import (
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
-from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
+from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
@@ -58,12 +58,16 @@ class TestGetTaskProcessingContextActivity:
         assert result.create_pr is True
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_task_not_found(self, activity_environment):
+    def test_get_task_processing_context_task_not_found_is_retryable(self, activity_environment):
+        # A missing TaskRun is treated as a transient (retryable) condition, not a fatal error,
+        # so the activity's retry policy can recover once a just-created row becomes visible.
         non_existent_run_id = "550e8400-e29b-41d4-a716-446655440000"
         input_data = GetTaskProcessingContextInput(run_id=non_existent_run_id)
 
-        with pytest.raises(TaskNotFoundError):
+        with pytest.raises(TaskRunNotReadyError) as exc_info:
             async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert exc_info.value.non_retryable is False
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_invalid_uuid(self, activity_environment):

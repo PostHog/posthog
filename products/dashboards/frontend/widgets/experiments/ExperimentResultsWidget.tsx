@@ -15,6 +15,8 @@ import type { ExperimentStatus } from '~/types'
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
+import { ExperimentPickerSelect } from './ExperimentPickerSelect'
+import { patchExperimentResultsWidgetConfig } from './experimentsWidgetConfigValidation'
 import { NotebookCompactTable } from './LazyNotebookCompactTable'
 
 export type ExperimentResultsWidgetMetricEntry = {
@@ -163,6 +165,7 @@ function ExperimentResultsLoadingSkeleton(): JSX.Element {
 
 export function ExperimentResultsWidget({
     tileId,
+    config,
     result,
     loading,
     onUpdateConfig,
@@ -199,14 +202,29 @@ export function ExperimentResultsWidget({
                 />
             )
         }
+        // Editable tile, no experiment chosen yet — let the user pick one inline (shares the tile picker's key).
+        const inlinePicker = onUpdateConfig ? (
+            <div className="w-64 max-w-full">
+                <ExperimentPickerSelect
+                    pickerKey={`results-tile-${tileId}`}
+                    value={null}
+                    fullWidth
+                    onChange={(value) => {
+                        void onUpdateConfig(patchExperimentResultsWidgetConfig(config, value))
+                    }}
+                    dataAttr="experiment-results-widget-empty-state-select"
+                />
+            </div>
+        ) : undefined
         return (
             <ExperimentResultsWidgetMessage
                 title="No experiment selected"
                 message={
                     onUpdateConfig
-                        ? 'Pick an experiment from the selector above to see its results here.'
+                        ? 'Pick an experiment to see its results here.'
                         : 'No experiment has been selected for this tile yet.'
                 }
+                cta={inlinePicker}
             />
         )
     }
