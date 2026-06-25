@@ -109,6 +109,9 @@ tools:
     integrations-github-oauth-authorize-create:
         operation: integrations_github_oauth_authorize_create
         enabled: false
+    integrations-github-prepare-callback-create:
+        operation: integrations_github_prepare_callback_create
+        enabled: false
     integrations-github-repos-refresh-create:
         operation: integrations_github_repos_refresh_create
         enabled: false
@@ -136,6 +139,9 @@ tools:
         enabled: false
     integrations-google-conversion-actions-retrieve:
         operation: integrations_google_conversion_actions_retrieve
+        enabled: false
+    integrations-google-search-console-sites-retrieve:
+        operation: integrations_google_search_console_sites_retrieve
         enabled: false
     integrations-jira-projects-retrieve:
         operation: integrations_jira_projects_retrieve

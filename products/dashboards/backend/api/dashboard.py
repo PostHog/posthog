@@ -89,6 +89,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     AddDashboardWidgetRequestOpenApi,
     DashboardWidgetConfigField,
     PatchedDashboardOpenApiSerializer,
+    UpdateDashboardWidgetRequestOpenApi,
     WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
@@ -593,6 +594,63 @@ class AddDashboardWidgetsBatchRequestOpenApiSerializer(serializers.Serializer):
     )
 
 
+class UpdateWidgetRequestSerializer(serializers.Serializer):
+    tile_id = serializers.IntegerField(
+        required=True,
+        help_text="ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.",
+    )
+    widget_type = serializers.ChoiceField(
+        choices=sorted(EXPECTED_WIDGET_TYPES),
+        required=False,
+        help_text=f"{WIDGET_TYPE_API_HELP} Immutable; provide only to pick the config shape.",
+    )
+    config = DashboardWidgetConfigField(
+        required=False,
+        help_text=(
+            "New widget configuration. Shape depends on the tile's widget_type; see "
+            "dashboard-widget-catalog-list for per-type config_schema. Omit to leave unchanged."
+        ),
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="New display name for the widget tile. Empty string or null clears it; omit to leave unchanged.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="New markdown description for the widget. Omit to leave unchanged.",
+    )
+
+
+class UpdateDashboardWidgetsBatchRequestSerializer(serializers.Serializer):
+    widgets = serializers.ListField(
+        child=UpdateWidgetRequestSerializer(),
+        min_length=1,
+        max_length=MAX_WIDGETS_BATCH_SIZE,
+        help_text=(
+            f"Widget tiles to update atomically (1–{MAX_WIDGETS_BATCH_SIZE}), each identified by its tile_id. "
+            "Use a single-element list to update one widget."
+        ),
+    )
+
+
+class UpdateDashboardWidgetsBatchRequestOpenApiSerializer(serializers.Serializer):
+    """OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents."""
+
+    widgets = serializers.ListField(
+        child=UpdateDashboardWidgetRequestOpenApi,
+        min_length=1,
+        max_length=MAX_WIDGETS_BATCH_SIZE,
+        help_text=(
+            "Widget tiles to update atomically, each identified by its tile_id. config shape is per widget_type; "
+            f"see dashboard-widget-catalog-list for per-type config_schema (1–{MAX_WIDGETS_BATCH_SIZE} per request)."
+        ),
+    )
+
+
 class CanEditDashboard(BasePermission):
     message = "You don't have edit permissions for this dashboard."
 
@@ -824,6 +882,13 @@ class AddDashboardWidgetsBatchResponseSerializer(serializers.Serializer):
     tiles = DashboardTileSerializer(
         many=True,
         help_text="Created dashboard widget tiles in request order.",
+    )
+
+
+class UpdateDashboardWidgetsBatchResponseSerializer(serializers.Serializer):
+    tiles = DashboardTileSerializer(
+        many=True,
+        help_text="Updated dashboard widget tiles in request order.",
     )
 
 
@@ -1100,6 +1165,36 @@ def _report_dashboard_tile_removed(
         user,
         "dashboard widget removed",
         widget_properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+
+def _report_dashboard_widget_updated(
+    *,
+    user: User,
+    dashboard: Dashboard,
+    tile: DashboardTile,
+    fields_changed: builtins.list[str],
+    request: Request | None = None,
+) -> None:
+    # Fired only by the dedicated widgets/batch_update endpoint, so it doubles as the signal for
+    # whether agents reach for this path rather than the generic dashboard PATCH.
+    if tile.widget is None:
+        return
+    properties: dict[str, Any] = {
+        "widget_type": tile.widget.widget_type,
+        "dashboard_id": dashboard.id,
+        "tile_id": tile.id,
+        "fields_changed": fields_changed,
+    }
+    if tile.widget_id is not None:
+        properties["widget_id"] = str(tile.widget_id)
+
+    report_user_action(
+        user,
+        "dashboard widget updated",
+        properties,
         team=dashboard.team,
         request=request,
     )
@@ -2927,6 +3022,98 @@ class DashboardsViewSet(
             widget=widget,
             **tile_defaults,
         )
+
+    @extend_schema(
+        operation_id="dashboards_update_widgets_batch",
+        request=UpdateDashboardWidgetsBatchRequestOpenApiSerializer,
+        responses={200: UpdateDashboardWidgetsBatchResponseSerializer},
+    )
+    @action(methods=["PATCH"], detail=True, url_path="widgets/batch_update", required_scopes=["dashboard:write"])
+    def update_widgets_batch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Update the settings of existing widgets in place, atomically — config, name, and description.
+
+        Each entry targets a widget by its tile_id and reuses the same write path as the dashboard PATCH endpoint.
+        The widget_type is immutable. This edits widget settings only (config, name, description); tile placement
+        (layouts, show_description) is a dashboard concern — use the dashboard PATCH endpoint or reorder_tiles for
+        that. All updates succeed or fail together. To add new widgets, use the widgets/batch POST endpoint; to
+        remove one, use delete_tile.
+        """
+        if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
+            raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
+
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+        if not self.user_permissions.dashboard(dashboard).can_edit:
+            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
+
+        serializer = UpdateDashboardWidgetsBatchRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        widget_payloads = cast(builtins.list[dict[str, Any]], serializer.validated_data["widgets"])
+
+        user = cast(User, request.user)
+        user_access_control = UserAccessControl(user=user, team=self.team)
+
+        with transaction.atomic():
+            tiles = [
+                self._apply_widget_tile_update(
+                    dashboard=dashboard,
+                    user=user,
+                    user_access_control=user_access_control,
+                    payload=payload,
+                    request=request,
+                )
+                for payload in widget_payloads
+            ]
+
+        for tile in tiles:
+            tile.refresh_from_db()
+
+        # Report after the transaction commits so a rolled-back batch never emits events.
+        for tile, payload in zip(tiles, widget_payloads):
+            _report_dashboard_widget_updated(
+                user=user,
+                dashboard=dashboard,
+                tile=tile,
+                fields_changed=[field for field in ("config", "name", "description") if field in payload],
+                request=request,
+            )
+
+        tile_context = {**self.get_serializer_context(), "dashboard": dashboard}
+        return Response({"tiles": DashboardTileSerializer(tiles, context=tile_context, many=True).data})
+
+    def _apply_widget_tile_update(
+        self,
+        *,
+        dashboard: Dashboard,
+        user: User,
+        user_access_control: UserAccessControl,
+        payload: dict[str, Any],
+        request: Request,
+    ) -> DashboardTile:
+        tile = get_object_or_404(
+            DashboardTile,
+            id=payload["tile_id"],
+            dashboard=dashboard,
+            dashboard__team__project_id=self.team.project_id,
+        )
+        if tile.widget is None:
+            raise exceptions.ValidationError(f"Tile {payload['tile_id']} is not a widget tile.")
+
+        widget_data: dict[str, Any] = {
+            field: payload[field] for field in ("widget_type", "config", "name", "description") if field in payload
+        }
+        if widget_data:
+            DashboardSerializer._apply_patch_widget_update(
+                widget=tile.widget,
+                widget_data=widget_data,
+                user=user,
+                user_access_control=user_access_control,
+                dashboard=dashboard,
+                request=request,
+            )
+
+        return tile
 
     def _format_insight_for_llm(self, insight: Insight, insight_data: dict) -> str | None:
         if not settings.EE_AVAILABLE:

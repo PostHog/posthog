@@ -495,7 +495,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         """Create the Task row without an initial run or workflow.
 
         For callers that own run creation themselves — e.g. the sandbox warm path
-        (`products/tasks/backend/services/warm.py`), which creates the first run with its
+        (`products/tasks/backend/logic/services/warm.py`), which creates the first run with its
         own state. The run `extra_state` assembled by `_build_task` is discarded here.
         """
         task, _ = Task._build_task(
@@ -574,14 +574,24 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
         if start_workflow:
-            execute_task_processing_workflow(
-                task_id=str(task.id),
-                run_id=str(task_run.id),
-                team_id=task.team.id,
-                user_id=user_id,
-                create_pr=create_pr,
-                slack_thread_context=slack_thread_context,
-                posthog_mcp_scopes=posthog_mcp_scopes,
+            # Defer the fire-and-forget workflow start until the creating transaction commits.
+            # Otherwise, when create_and_run runs inside a transaction.atomic() block, the
+            # workflow's first activity can read the TaskRun before its row is visible and fail.
+            # on_commit runs the callback immediately in autocommit mode, so non-atomic callers
+            # are unaffected.
+            run_id = str(task_run.id)
+            team_id = task.team.id
+            task_id = str(task.id)
+            transaction.on_commit(
+                lambda: execute_task_processing_workflow(
+                    task_id=task_id,
+                    run_id=run_id,
+                    team_id=team_id,
+                    user_id=user_id,
+                    create_pr=create_pr,
+                    slack_thread_context=slack_thread_context,
+                    posthog_mcp_scopes=posthog_mcp_scopes,
+                )
             )
 
         return task
@@ -777,6 +787,9 @@ class TaskRun(models.Model):
                 name="task_run_output_pr_url_idx",
                 condition=models.Q(output__pr_url__isnull=False),
             ),
+            # Time-range scans over runs (default ordering, recent-runs lookups, and the
+            # signals outcome-billing query that buckets PR runs into a period).
+            models.Index(fields=["created_at"], name="task_run_created_at_idx"),
         ]
 
     def __str__(self):

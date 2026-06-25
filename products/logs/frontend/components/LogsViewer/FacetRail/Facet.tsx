@@ -33,9 +33,11 @@ interface FacetProps {
     onToggleCollapsed?: () => void
     /** When set, values render in a fixed-height virtualized list capped at this many pixels. */
     maxHeight?: number
+    /** For fixed facets: render zero-count values dimmed, and disabled unless already selected. */
+    dimZeroCounts?: boolean
 }
 
-/** A single rail facet: a collapsible field title and its selectable values (multi-select = OR). No counts yet. */
+/** A single rail facet: a collapsible field title and its selectable values (multi-select = OR), each with a count. */
 export function Facet({
     title,
     options,
@@ -49,12 +51,13 @@ export function Facet({
     collapsed = false,
     onToggleCollapsed,
     maxHeight,
+    dimZeroCounts = false,
 }: FacetProps): JSX.Element {
     const slug = title.toLowerCase().replace(/\s+/g, '-')
 
     const rowProps = useMemo<FacetValueRowProps>(
-        () => ({ options, selected, slug, onToggle }),
-        [options, selected, slug, onToggle]
+        () => ({ options, selected, slug, onToggle, dimZeroCounts }),
+        [options, selected, slug, onToggle, dimZeroCounts]
     )
 
     return (
@@ -109,6 +112,7 @@ export function Facet({
                                         selected={selected.includes(option.value)}
                                         slug={slug}
                                         onToggle={onToggle}
+                                        dimZeroCounts={dimZeroCounts}
                                     />
                                 ))}
                             </div>
@@ -124,6 +128,7 @@ interface FacetValueRowProps {
     selected: string[]
     slug: string
     onToggle: (value: string) => void
+    dimZeroCounts: boolean
 }
 
 function FacetValueRow({
@@ -133,6 +138,7 @@ function FacetValueRow({
     selected,
     slug,
     onToggle,
+    dimZeroCounts,
 }: {
     ariaAttributes: Record<string, unknown>
     index: number
@@ -147,6 +153,7 @@ function FacetValueRow({
                 selected={selected.includes(option.value)}
                 slug={slug}
                 onToggle={onToggle}
+                dimZeroCounts={dimZeroCounts}
             />
         </div>
     )
@@ -157,17 +164,24 @@ function FacetValueButton({
     selected,
     slug,
     onToggle,
+    dimZeroCounts,
 }: {
     option: FacetOption
     selected: boolean
     slug: string
     onToggle: (value: string) => void
+    dimZeroCounts: boolean
 }): JSX.Element {
+    // A fixed facet value with no matches in the current scope: dim it, and disable it unless it's
+    // already selected (so a selected-but-now-empty value can still be toggled off).
+    const isZero = dimZeroCounts && option.count === 0
     return (
         <LemonButton
             type="tertiary"
             size="small"
             fullWidth
+            className={cn(isZero && 'opacity-50')}
+            disabledReason={isZero && !selected ? 'No matching logs for the current filters' : undefined}
             icon={<LemonCheckbox checked={selected} className="pointer-events-none" />}
             onClick={() => onToggle(option.value)}
             data-attr={`logs-facet-${slug}-${option.value}`}

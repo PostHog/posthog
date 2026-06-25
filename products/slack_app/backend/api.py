@@ -22,6 +22,7 @@ from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
+from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
@@ -50,7 +51,10 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
+from products.slack_app.backend import inbox_channel, onboarding
+from products.slack_app.backend.feature_flags import slack_oauth_link_enabled
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.slack_app.backend.services import inbox_interactivity
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
     format_project_candidate_list,
@@ -63,6 +67,11 @@ from products.slack_app.backend.services.slack_user_info import (
     get_slack_user_info,
     normalize_slack_response,
     persist_slack_user_info,
+)
+from products.slack_app.backend.services.slack_user_oauth import (
+    build_invite_url,
+    find_linked_posthog_user,
+    post_link_invite_message,
 )
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
 
@@ -155,7 +164,10 @@ def _clear_pending_repo_picker(*, integration_id: int, channel: str, thread_ts: 
 @dataclass
 class SlackUserContext:
     user: User
-    slack_email: str
+    # `None` on the linked-user path: the OAuth link binds slack_user_id to a
+    # PostHog user without ever consulting Slack's email, so no value is
+    # available. The email-matching path still always populates this.
+    slack_email: str | None
 
 
 @dataclass
@@ -261,13 +273,56 @@ def resolve_slack_user(
 ) -> SlackUserContext | None:
     """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure (unless post_feedback is False)."""
     try:
-        slack_user_info = get_slack_user_info(slack, integration, slack_user_id)
-        slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")
-        if not slack_email:
-            fresh_user_info = normalize_slack_response(slack.client.users_info(user=slack_user_id))
-            if fresh_user_info:
-                persist_slack_user_info(integration, slack_user_id, fresh_user_info)
-                slack_email = fresh_user_info.get("user", {}).get("profile", {}).get("email")
+        slack_team_id = integration.integration_id
+
+        # Linked-user path: when the user has bound their Slack identity to a
+        # PostHog account via the OAuth link flow, we resolve directly without
+        # paying for users.info / email matching. Falls through to the email
+        # path on miss so this stays additive — a workspace with no links
+        # behaves exactly like before.
+        #
+        # The link lookup runs FIRST (two cheap indexed queries) and the flag
+        # check only fires when a row is found, and on the email-mismatch
+        # failure branch below to decide whether to offer the invite button.
+        # Both checks are local-evaluation only (`only_evaluate_locally=True`),
+        # so calling twice on the rare both-branches path is essentially free.
+        linked_user = find_linked_posthog_user(
+            slack_user_id=slack_user_id,
+            slack_team_id=slack_team_id,
+            candidate_org_ids={integration.team.organization_id},
+        )
+
+        if linked_user is not None and slack_oauth_link_enabled(integration, slack_team_id):
+            user_permissions = UserPermissions(user=linked_user, team=integration.team)
+            if user_permissions.current_team.effective_membership_level is None:
+                logger.warning(
+                    "slack_app_linked_user_no_team_access",
+                    user_id=linked_user.id,
+                    team_id=integration.team_id,
+                    slack_user_id=slack_user_id,
+                )
+                if post_feedback:
+                    _post_slack_user_feedback(
+                        slack,
+                        channel,
+                        slack_user_id,
+                        thread_ts,
+                        (
+                            "Sorry, you don't have access to the PostHog project connected to this Slack workspace. "
+                            "Please ask an admin of your PostHog organization to grant you access."
+                        ),
+                    )
+                return None
+            return SlackUserContext(user=linked_user, slack_email=None)
+
+        slack_email = get_slack_email_for_user(integration, slack_user_id)
+        if settings.DEBUG:
+            # Local dev: match the seeded test fixture user regardless of what
+            # Slack returns. Applied here rather than in the shared helper so
+            # other callers (e.g. `resolve_posthog_user_from_event` from the
+            # channel-approval path) can still drive the helper with stubbed
+            # Slack responses in tests.
+            slack_email = "test@posthog.com"
 
         if not slack_email:
             logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
@@ -286,10 +341,6 @@ def resolve_slack_user(
                 )
             return None
 
-        if settings.DEBUG:
-            # When running locally - match the local user
-            slack_email = "test@posthog.com"
-
         # Trust model: Slack signature validation proves the payload is authentic.
         # The email comes from Slack's `users.info` API via `users:read.email` scope, not from
         # user-supplied input. Slack verifies emails at workspace sign-up, and admins control
@@ -304,6 +355,15 @@ def resolve_slack_user(
         if not membership or not membership.user:
             organization_name = integration.team.organization.name
             if post_feedback:
+                # Two messages by design, with distinct audiences:
+                #
+                #   * The text reply goes into the thread (`prefer_thread_message=True`)
+                #     so other channel members can see why the bot stayed silent on
+                #     this mention. Without it, the channel reads as if the mention
+                #     was simply ignored.
+                #   * The invite-button message is ephemeral — only the affected
+                #     user sees the recovery affordance. Posting the button into
+                #     the public thread would be noise for everyone else.
                 _post_slack_user_feedback(
                     slack,
                     channel,
@@ -315,6 +375,22 @@ def resolve_slack_user(
                     ),
                     prefer_thread_message=True,
                 )
+                if slack_oauth_link_enabled(integration, slack_team_id):
+                    invite_url = build_invite_url(
+                        slack_user_id=slack_user_id,
+                        slack_team_id=slack_team_id,
+                        posthog_team_id=integration.team_id,
+                        channel=channel,
+                        thread_ts=thread_ts,
+                    )
+                    post_link_invite_message(
+                        slack_client=slack.client,
+                        channel=channel,
+                        slack_user_id=slack_user_id,
+                        thread_ts=thread_ts,
+                        slack_email=slack_email,
+                        invite_url=invite_url,
+                    )
             return None
 
         posthog_user = membership.user
@@ -743,30 +819,8 @@ def _post_repo_picker_message(
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
-    """Extract an explicit org/repo token from message text, if it matches connected repos."""
-    if not text or not all_repos:
-        return None
-
-    normalized_repos = {repo.lower(): repo for repo in all_repos}
-    cleaned_text = _strip_bot_mentions(text)
-
-    for token in cleaned_text.split():
-        candidate = token.strip("`'\"()[]{}<>,.;:!?")
-
-        # Slack can format links as <url|label>; for repo tokens we want the label.
-        if "|" in candidate:
-            candidate = candidate.split("|", 1)[1].strip("`'\"()[]{}<>,.;:!?")
-
-        if not candidate or "://" in candidate or candidate.startswith("http"):
-            continue
-        if not re.fullmatch(r"[\w.-]+/[\w.-]+", candidate):
-            continue
-
-        match = normalized_repos.get(candidate.lower())
-        if match:
-            return match
-
-    return None
+    """Extract an explicit org/repo token from Slack message text, if it matches connected repos."""
+    return extract_explicit_repo(_strip_bot_mentions(text), all_repos)
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
@@ -1231,12 +1285,26 @@ def resolve_posthog_user_from_event(
     ``slack_email`` may be passed by callers that already have it (e.g.
     ``resolve_user_and_integrations``) so we don't repeat the cache lookup.
     """
+    org_ids = {c.team.organization_id for c in candidate_integrations}
+    if not org_ids:
+        return None
+
+    # Linked-user path: short-circuit the email match when the user has bound
+    # their Slack identity to a PostHog account. The cheap indexed lookup
+    # runs first; the feature-flag gate only fires when a row is found so
+    # workspaces with no linked users don't pay for the flag evaluation.
+    slack_team_id = probe_integration.integration_id
+    linked_user = find_linked_posthog_user(
+        slack_user_id=slack_user_id,
+        slack_team_id=slack_team_id,
+        candidate_org_ids=org_ids,
+    )
+    if linked_user is not None and slack_oauth_link_enabled(probe_integration, slack_team_id):
+        return linked_user
+
     if slack_email is None:
         slack_email = get_slack_email_for_user(probe_integration, slack_user_id)
     if not slack_email:
-        return None
-    org_ids = {c.team.organization_id for c in candidate_integrations}
-    if not org_ids:
         return None
     try:
         membership = (
@@ -1306,9 +1374,29 @@ def _post_user_resolution_failure_reply(
     text = user_resolution_failure_reply(failure_reason, slack_email=slack_email)
     if text is None:
         return
-    _post_slack_user_feedback(
-        SlackIntegration(probe), channel, slack_user_id, thread_ts, text, prefer_thread_message=True
-    )
+    slack_client = SlackIntegration(probe)
+    # The text reply lands in the thread so the rest of the channel knows why
+    # the bot stayed silent. The invite button is a separate ephemeral, visible
+    # only to the affected user — both messages have distinct audiences and
+    # neither is redundant. Only `user_not_found` is link-recoverable;
+    # `no_team_access` means the user *is* known but lacks project access.
+    _post_slack_user_feedback(slack_client, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
+    if failure_reason == "user_not_found" and slack_oauth_link_enabled(probe, probe.integration_id):
+        invite_url = build_invite_url(
+            slack_user_id=slack_user_id,
+            slack_team_id=probe.integration_id,
+            posthog_team_id=probe.team_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        post_link_invite_message(
+            slack_client=slack_client.client,
+            channel=channel,
+            slack_user_id=slack_user_id,
+            thread_ts=thread_ts,
+            slack_email=slack_email,
+            invite_url=invite_url,
+        )
 
 
 def _start_posthog_code_workflow(
@@ -1987,6 +2075,10 @@ def _route_member_joined_channel(
         # We only care about our own bot joining a channel. Every other join
         # (humans, third-party bots) is ignored silently — Slack fires this
         # event for every channel-membership change, so the volume is high.
+        return ROUTE_HANDLED_LOCALLY
+
+    # The onboarding flow has its own messaging for the inbox channel — skip the generic welcome here.
+    if inbox_channel.is_inbox_channel(integration, channel_id):
         return ROUTE_HANDLED_LOCALLY
 
     if not _claim_channel_onboarding(slack_team_id, channel_id):
@@ -2751,19 +2843,9 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
 
 
 def _delete_ephemeral_via_response_url(response_url: str) -> None:
-    """Remove the original ephemeral prompt via the interactivity ``response_url``.
-
-    Every click outcome is recorded as a public threaded message — the
-    ephemeral prompt has done its job by then and only the public message
-    should remain. Failures are logged but never raised: a click handler
-    that can't reach Slack still finished its DB work.
-    """
-    if not response_url:
-        return
-    try:
-        requests.post(response_url, json={"delete_original": True}, timeout=3)
-    except Exception:
-        logger.warning("slack_app_channel_approval_response_url_failed", exc_info=True)
+    """Remove the original ephemeral prompt via the interactivity ``response_url`` once its public
+    threaded outcome has been posted."""
+    inbox_interactivity.post_response_url(response_url, {"delete_original": True})
 
 
 def _post_channel_approval_outcome(
@@ -3015,7 +3097,8 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
 
     slack_user_id = payload.get("user", {}).get("id", "")
     # Only PostHog org members may dismiss — a non-member in a shared channel must not suppress reports.
-    if _is_org_member(integration, slack_user_id) is None:
+    org_member = _is_org_member(integration, slack_user_id)
+    if org_member is None:
         logger.warning(
             "signals_dismiss_report_not_org_member",
             integration_id=integration.id,
@@ -3023,7 +3106,9 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
         )
         return HttpResponse(status=200)
 
-    suppressed = dismiss_report_from_slack(report_team_id, str(report_id), slack_user_id=slack_user_id)
+    suppressed = dismiss_report_from_slack(
+        report_team_id, str(report_id), slack_user_id=slack_user_id, user_id=org_member.id
+    )
 
     _post_signals_dismiss_feedback(payload, dismissed=suppressed, slack_user_id=slack_user_id)
     return HttpResponse(status=200)
@@ -3112,6 +3197,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
     dismiss_integration_id = _extract_dismiss_hints(payload)
+    inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
 
@@ -3142,6 +3228,14 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         # Intended trust boundary for dismiss is org membership (any org member can dismiss the org's reports).
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=dismiss_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
+    elif slack_team_id and inbox_integration_id:
+        # Inbox onboarding buttons (create/join) are DMed to a user; any clicker may act, so this
+        # is gated only on owning the integration locally.
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=inbox_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -3232,5 +3326,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_channel_approval_deny(payload)
             if action.get("action_id") == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
+            if action.get("action_id") == onboarding.INBOX_CREATE_ACTION_ID:
+                return inbox_interactivity.handle_inbox_create(payload)
+            if action.get("action_id") == onboarding.INBOX_JOIN_ACTION_ID:
+                return inbox_interactivity.handle_inbox_join(payload)
+            if action.get("action_id") == onboarding.INBOX_SOURCES_CHECKBOXES_ACTION:
+                return inbox_interactivity.handle_inbox_sources(payload)
+            if action.get("action_id") == onboarding.INBOX_AI_APPROVAL_ACTION_ID:
+                return inbox_interactivity.handle_inbox_ai_approval(payload)
 
     return HttpResponse(status=200)

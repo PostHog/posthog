@@ -2,19 +2,19 @@ import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
 import {
     GroupSchema,
     GroupTypeMappingSchema,
     GroupTypeMappingsByKeySchema,
-} from '~/generated/personhog/personhog/types/v1/group_pb'
+} from '~/common/generated/personhog/personhog/types/v1/group_pb'
+import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { Group, GroupTypeIndex, ProjectId, TeamId } from '~/types'
 
 import { PersonHogClient } from './client'
 import { PersonHogGroupRepository } from './personhog-group-repository'
 
-jest.mock('../../utils/logger')
+jest.mock('~/common/utils/logger')
 
 const textEncoder = new TextEncoder()
 

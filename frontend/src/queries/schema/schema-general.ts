@@ -192,6 +192,9 @@ export enum NodeKind {
     EndpointsUsageTableQuery = 'EndpointsUsageTableQuery',
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 
+    // MCP analytics
+    MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
+
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
 }
@@ -255,6 +258,7 @@ export type AnyDataNode =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+    | MCPHarnessBreakdownQuery
 
 /**
  * @discriminator kind
@@ -364,6 +368,9 @@ export type QuerySchema =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+
+    // MCP analytics
+    | MCPHarnessBreakdownQuery
 
     // Property values
     | PropertyValuesQuery
@@ -1725,6 +1732,9 @@ export type FunnelsFilter = {
      * @default false
      */
     showLegend?: boolean
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -1925,6 +1935,9 @@ export interface StickinessCriteria {
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -1944,6 +1957,7 @@ export type StickinessFilter = {
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'display',
     'showLegend',
+    'legendPosition',
     'showValuesOnSeries',
     'hiddenLegendIndexes',
 ])
@@ -1990,6 +2004,9 @@ export type LifecycleFilter = {
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default true */
     stacked?: boolean
 }
@@ -2495,6 +2512,30 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
+
+/** One row of the MCP harness (client) breakdown: a resolved customer label and its activity. */
+export interface MCPHarnessBreakdownItem {
+    /** Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other". */
+    harness: string
+    total_calls: integer
+    errors: integer
+    error_rate_pct: number
+    sessions: integer
+}
+
+export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPHarnessBreakdownItem[]
+}
+
+/** MCP tool-call activity grouped by the resolved client harness, over $mcp_tool_call events. */
+export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQueryResponse> {
+    kind: NodeKind.MCPHarnessBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+}
+
+export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -3295,6 +3336,8 @@ export interface AggregatedSpanRow {
     avg_duration_nano: number
     p50_duration_nano: number
     p95_duration_nano: number
+    p99_duration_nano: number
+    p999_duration_nano: number
     error_count: integer
 }
 
@@ -3330,6 +3373,8 @@ export interface SpanTreeNode {
     avg_duration_nano: number
     p50_duration_nano: number
     p95_duration_nano: number
+    p99_duration_nano: number
+    p999_duration_nano: number
     error_count: integer
     /**
      * Average nanoseconds from the parent span's start to this span's start. Zero for
@@ -3637,7 +3682,7 @@ export type FileSystemIconType =
     | 'insight/hog'
     | 'team_activity'
     | 'home'
-    | 'apps'
+    | 'tools'
     | 'live'
     | 'chat'
     | 'search'
@@ -3959,6 +4004,8 @@ export interface ExperimentParameters {
     rollout_percentage?: number
     /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
     excluded_variants?: string[]
+    /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
+    variant_notes?: Record<string, string>
 }
 
 /** Exposure estimate settings for the experiment running-time calculator. */
@@ -4431,6 +4478,10 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     funnelTrendsDropOff?: boolean
     /** Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal. */
     funnelTrendsEntrancePeriodStart?: string
+    /** When the source funnel has compare-to-previous enabled, scopes the actors to a single
+     * period. The runner resolves `'previous'` to the shifted date range; `'current'` (or unset)
+     * uses the source's own date range. */
+    compare?: 'current' | 'previous'
 }
 
 export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
@@ -4856,6 +4907,18 @@ export interface HogQLAlertConfig {
     label_column?: string | null
 }
 
+/** How a funnel alert measures conversion at its step.
+ * `conversion_from_start` = step count / first-step count; `conversion_from_previous` = step count / previous-step count. */
+export type FunnelConversionMetric = 'conversion_from_start' | 'conversion_from_previous'
+
+/** Alert config for funnel insights. Evaluates the conversion rate (as a percentage) at one step. */
+export interface FunnelsAlertConfig {
+    type: 'FunnelsAlertConfig'
+    /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
+    funnel_step?: integer | null
+    metric: FunnelConversionMetric
+}
+
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
 export interface AlertScheduleRestrictionWindow {
     start: string
@@ -5244,6 +5307,21 @@ export interface LLMTraceEvent {
     event: AIEventType | string // Allow both specific AI events and other event types
     properties: Record<string, any>
     createdAt: string
+    sentiment?: LLMSentimentResult
+}
+
+export interface LLMSentimentMessage {
+    label: string
+    score: number
+    scores?: Record<string, number>
+}
+
+export interface LLMSentimentResult {
+    label: string
+    score: number
+    scores?: Record<string, number>
+    messages?: Record<string, LLMSentimentMessage>
+    message_count?: number
 }
 
 // Snake-case here for the DataTable component.
@@ -5275,6 +5353,7 @@ export interface LLMTrace {
     events: LLMTraceEvent[]
     isSupportTrace?: boolean
     tools?: string[]
+    sentiment?: LLMSentimentResult
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -5299,6 +5378,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
+    /** Include stored sentiment evaluation results for returned traces and direct generation events. */
+    includeSentiment?: boolean
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean
 }
@@ -5315,6 +5396,8 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     kind: NodeKind.TraceQuery
     traceId: string
     dateRange?: DateRange
+    /** Include stored sentiment evaluation results for the trace and its generations. */
+    includeSentiment?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
 }
@@ -6881,6 +6964,15 @@ export const externalDataSources = [
     'Custom',
     'Tile38',
     'Chatwoot',
+    'Sanity',
+    'Metronome',
+    'Jobber',
+    'Knock',
+    'Leexi',
+    'RB2B',
+    'Superwall',
+    'Liana',
+    'TawkTo',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

@@ -1,91 +1,10 @@
-from typing import Any
-
 from posthog.test.base import BaseTest
 
-from parameterized import parameterized
-
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import (
-    columns_in_position_order,
-    get_view_or_table_by_name,
-    stamp_column_positions,
-)
-
-
-class TestColumnPositions(BaseTest):
-    @parameterized.expand(
-        [
-            (
-                "assigns_positions_in_insertion_order",
-                {
-                    "content": {"clickhouse": "String"},
-                    "id": {"clickhouse": "String"},
-                    "source_product": {"clickhouse": "String"},
-                },
-                {"content": 0, "id": 1, "source_product": 2},
-            ),
-            (
-                "preserves_existing_positions_and_appends_new",
-                {
-                    "new_column": {"clickhouse": "String"},
-                    "id": {"clickhouse": "String", "position": 1},
-                    "content": {"clickhouse": "String", "position": 0},
-                },
-                {"new_column": 2, "id": 1, "content": 0},
-            ),
-            (
-                "leaves_old_style_string_columns_untouched",
-                {
-                    "id": "String",
-                    "content": {"clickhouse": "String"},
-                },
-                {"id": None, "content": 0},
-            ),
-        ]
-    )
-    def test_stamp_column_positions(self, _name, columns: dict[str, Any], expected_positions: dict[str, int | None]):
-        stamp_column_positions(columns)
-
-        assert {
-            name: (value.get("position") if isinstance(value, dict) else None) for name, value in columns.items()
-        } == expected_positions
-
-    @parameterized.expand(
-        [
-            (
-                "scrambled_positions",
-                {
-                    "id": {"clickhouse": "String", "position": 1},
-                    "content": {"clickhouse": "String", "position": 0},
-                    "source_product": {"clickhouse": "String", "position": 2},
-                },
-                ["content", "id", "source_product"],
-            ),
-            (
-                "no_positions_keeps_dict_order",
-                {
-                    "id": "String",
-                    "content": {"clickhouse": "String"},
-                    "source_product": "String",
-                },
-                ["id", "content", "source_product"],
-            ),
-            (
-                "partially_stamped_keeps_dict_order",
-                {
-                    "legacy": "String",
-                    "id": {"clickhouse": "String", "position": 1},
-                    "content": {"clickhouse": "String", "position": 0},
-                },
-                ["legacy", "id", "content"],
-            ),
-        ]
-    )
-    def test_columns_in_position_order(self, _name, columns, expected_order):
-        assert [name for name, _ in columns_in_position_order(columns)] == expected_order
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGetViewOrTableByName(BaseTest):

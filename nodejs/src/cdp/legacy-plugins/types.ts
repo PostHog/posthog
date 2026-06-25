@@ -1,6 +1,6 @@
+import { FetchOptions, FetchResponse } from '~/common/utils/request'
 import { PluginEvent, ProcessedPluginEvent, StorageExtension } from '~/plugin-scaffold'
 
-import { FetchOptions, FetchResponse } from '../../utils/request'
 import { HogFunctionTemplate } from '../types'
 
 export type LegacyPluginLogger = {
