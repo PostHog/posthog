@@ -772,7 +772,7 @@
         "feature_flag": "agent-platform"
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nThe config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index, check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate (defaults to the single numeric column), evaluation is required and selects how rows are read: 'last_row' (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value condition only). label_column names the evaluated row(s) in breach messages in every evaluation mode (defaults to the first non-evaluated column). Label values appear in delivered notifications — avoid label columns containing PII. Anomaly detection (detector_config) is only supported for trends insights.\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nThe config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index, check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate (defaults to the single numeric column), evaluation is required and selects how rows are read: 'last_row' (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value condition only). label_column names the evaluated row(s) in breach messages in every evaluation mode (defaults to the first non-evaluated column). Label values appear in delivered notifications — avoid label columns containing PII. Funnel insights: FunnelsAlertConfig — funnel_step picks the step to monitor (null for the overall last step) and metric is 'conversion_from_start' or 'conversion_from_previous'; funnel alerts only support absolute_value conditions. Anomaly detection (detector_config) is supported for trends and SQL insights (not funnels).\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -828,7 +828,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection (trends insights only), or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). For SQL-insight alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection (trends and SQL insights), or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). For SQL-insight alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -4641,20 +4641,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-sentiment-create": {
-        "description": "Classify sentiment of LLM trace or generation user messages as positive, neutral, or negative. Pass a list of trace or generation IDs and an analysis_level (\"trace\" or \"generation\"). Returns per-ID sentiment labels with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute. Rate-limited.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Analyze sentiment",
-        "title": "Analyze sentiment",
-        "required_scopes": ["llm_analytics:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "llma-summarization-create": {
         "description": "Generate an AI-powered summary of an LLM trace or generation. Pass a trace_id or generation_id with a date_from — the backend fetches the data and returns a structured summary with title, flow diagram, summary bullets, and interesting notes. Results are cached. Use mode \"minimal\" (default) for 3-5 points or \"detailed\" for 5-10 points. Rate-limited; requires AI data processing approval for the organization.",
         "category": "AI observability",
@@ -6194,7 +6180,7 @@
         }
     },
     "signals-scout-config-create": {
-        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 10–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
+        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 30–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Create a scout config",
@@ -6236,7 +6222,7 @@
         }
     },
     "signals-scout-config-update": {
-        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
+        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 30–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Update a scout config",
@@ -7054,7 +7040,7 @@
         "feature_flag": "user-interviews"
     },
     "user-interview-topics-create": {
-        "description": "Plan a user interview by recording who you want to target and what product or idea you want to ask them about. `topic` is the free-text description of the question or product area. Targets are specified as a combination of `interviewee_emails` (list of email addresses) and `interviewee_distinct_ids` (list of PostHog distinct IDs) — at least one of the two must be provided. To target a cohort, resolve cohort members to emails/distinct_ids in the calling agent first (see the planning-user-interviews skill) and pass them explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of questions the agent should work through.",
+        "description": "Plan a user interview by recording who you want to target and what product or idea you want to ask them about. `topic` is the free-text description of the question or product area. Targets are specified as a combination of `interviewee_emails` (list of email addresses) and `interviewee_distinct_ids` (list of PostHog distinct IDs) — at least one of the two must be provided. To target a cohort, resolve cohort members to emails/distinct_ids in the calling agent first (see the planning-voice-agent-user-interviews skill) and pass them explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of questions the agent should work through.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "Create user interview topic",

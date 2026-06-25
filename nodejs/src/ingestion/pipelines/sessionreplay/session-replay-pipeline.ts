@@ -2,6 +2,8 @@ import { Message } from 'node-rdkafka'
 
 import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
@@ -13,8 +15,6 @@ import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/session
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'

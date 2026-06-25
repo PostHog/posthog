@@ -394,6 +394,12 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault
                                             )
                                             .describe('Maximum number of events to return.'),
+                                        eventName: zod
+                                            .union([zod.string().min(1), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Limit the feed to a single event name. Omit or null for all events.'
+                                            ),
                                     }),
                                     zod.object({
                                         dateRange: zod
@@ -626,7 +632,13 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                'short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply.'
+                                                'short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection.'
+                                            ),
+                                        collectionId: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply.'
                                             ),
                                     }),
                                     zod.object({
@@ -1033,6 +1045,10 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax)
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault)
                                     .describe('Maximum number of events to return.'),
+                                eventName: zod
+                                    .union([zod.string().min(1), zod.null()])
+                                    .optional()
+                                    .describe('Limit the feed to a single event name. Omit or null for all events.'),
                             })
                             .describe('Configuration for the recent events widget.'),
                     }),
@@ -1368,7 +1384,13 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .union([zod.string(), zod.null()])
                                     .optional()
                                     .describe(
-                                        'short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply.'
+                                        'short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection.'
+                                    ),
+                                collectionId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply.'
                                     ),
                             })
                             .describe('Configuration for the recent recordings widget.'),
@@ -1685,6 +1707,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitMax)
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitDefault)
                                     .describe('Maximum number of events to return.'),
+                                eventName: zod
+                                    .union([zod.string().min(1), zod.null()])
+                                    .optional()
+                                    .describe('Limit the feed to a single event name. Omit or null for all events.'),
                             })
                             .optional()
                             .describe('New configuration for the recent events widget. Omit to leave unchanged.'),
@@ -1938,7 +1964,13 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .union([zod.string(), zod.null()])
                                     .optional()
                                     .describe(
-                                        'short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply.'
+                                        'short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection.'
+                                    ),
+                                collectionId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply.'
                                     ),
                             })
                             .optional()

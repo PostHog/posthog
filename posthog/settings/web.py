@@ -489,7 +489,7 @@ SPECTACULAR_SETTINGS = {
         "MeetingPlatformEnum": "products.desktop_recordings.backend.models.DesktopRecording.Platform",
         "PushTokenPlatformEnum": "posthog.models.user_push_token.UserPushToken.Platform",
         "PropertyDefinitionTypeEnum": "products.event_definitions.backend.models.property_definition.PropertyType",
-        "ExternalDataSourceTypeEnum": "products.data_warehouse.backend.types.ExternalDataSourceType",
+        "ExternalDataSourceTypeEnum": "products.warehouse_sources.backend.types.ExternalDataSourceType",
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
