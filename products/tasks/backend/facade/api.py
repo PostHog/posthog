@@ -18,11 +18,11 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from django.db import transaction
-from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, Subquery
+from django.db.models import CharField, Count, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 
@@ -168,9 +168,9 @@ __all__ = [
     "start_task_run",
     "task_accessible_for_run_view",
     "task_exists",
+    "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
-    "task_run_pr_url_exists_subquery",
     "task_visible",
     "update_sandbox_environment",
     "update_task",
@@ -458,23 +458,22 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
 
 
-def task_run_pr_url_exists_subquery(*conditions: Q, **task_run_filter) -> Exists:
-    """``Exists`` over runs matching the supplied correlation that produced a non-empty output.pr_url.
+def task_ids_with_pr_url_subquery() -> QuerySet[TaskRun, Any]:
+    """A ``values('task_id')`` queryset of the tasks that produced a non-empty ``output.pr_url``.
 
-    The caller supplies the report→run correlation as keyword lookups (e.g.
-    ``task__signal_report_tasks__report_id=OuterRef("id")``) and/or positional ``Q`` objects (e.g.
-    an ``OR`` of two ``task_id__in`` subqueries the caller builds). Returns a query expression to
-    embed in the caller's queryset — no ORM instances cross the boundary, and the tasks facade
-    stays free of the caller's domain.
+    For embedding in a caller's ``task_id__in=...`` lookup so the report→PR correlation can be
+    *decorrelated*: instead of a per-report ``Exists`` over runs, the caller drives off this small,
+    index-backed set (served by the partial ``task_run_output_pr_url_idx``) and joins outward to its
+    own report-association tables. Returns a query expression — no ORM instances cross the boundary.
     """
-    return Exists(
-        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter).exclude(output__pr_url="")
-    )
+    return TaskRun.objects.filter(output__pr_url__isnull=False).exclude(output__pr_url="").values("task_id")
 
 
 def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
     """``Subquery`` of the latest non-empty output.pr_url for runs matching the supplied correlation
-    (keyword lookups and/or positional ``Q`` objects — see ``task_run_pr_url_exists_subquery``)."""
+    (keyword lookups and/or positional ``Q`` objects). Returns a query expression to embed in the
+    caller's queryset — no ORM instances cross the boundary, and the tasks facade stays free of the
+    caller's domain."""
     return Subquery(
         TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
         .exclude(output__pr_url="")
