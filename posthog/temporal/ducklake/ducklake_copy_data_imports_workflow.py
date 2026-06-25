@@ -312,6 +312,9 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
     server = get_duckgres_server_for_organization(org_id)
     if server is None:
         raise ApplicationError(f"No DuckgresServer configured for team {inputs.team_id}", non_retryable=True)
+    bucket = server.bucket
+    if not bucket:
+        raise ApplicationError(f"No S3 bucket configured for team {inputs.team_id}", non_retryable=True)
     if not inputs.model.staging_uri:
         raise ApplicationError(f"No staging_uri for model {inputs.model.model_label}", non_retryable=True)
 
@@ -322,7 +325,7 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
     )
     stage_delta_table(
         source_uri=inputs.model.source_table_uri,
-        catalog_bucket=server.bucket,
+        catalog_bucket=bucket,
         organization_id=org_id,
     )
 
@@ -370,6 +373,8 @@ def _resolve_data_imports_staging_uri(source_uri: str, *, team_id: int) -> str |
     server = get_duckgres_server_by_team_org(team_id)
     if server is None:
         raise ApplicationError(f"No DuckgresServer configured for team {team_id}", non_retryable=True)
+    if not server.bucket:
+        raise ApplicationError(f"No S3 bucket configured for team {team_id}", non_retryable=True)
 
     return compute_staging_uri(source_uri, server.bucket)
 
