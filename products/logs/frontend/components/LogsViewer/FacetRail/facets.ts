@@ -182,6 +182,21 @@ export const FACETS: FacetConfig[] = [
     HOST_FACET,
 ]
 
+/**
+ * Filter facets by a free-text query matching the field name or its group (case-insensitive
+ * substring) — powers the rail's "search facets" box. A blank query returns everything, so
+ * `facetsByGroup` then drops any group left with no matching facets for free.
+ */
+export function filterFacetsByName(facets: FacetConfig[], query: string): FacetConfig[] {
+    const needle = query.trim().toLowerCase()
+    if (!needle) {
+        return facets
+    }
+    return facets.filter(
+        (facet) => facet.title.toLowerCase().includes(needle) || facet.group.toLowerCase().includes(needle)
+    )
+}
+
 /** Group facets by `group`, preserving first-appearance order of both groups and facets. */
 export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] {
     const groups: [string, FacetConfig[]][] = []
