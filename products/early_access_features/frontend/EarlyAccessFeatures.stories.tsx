@@ -113,7 +113,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
         pageUrl: urls.earlyAccessFeatures(),
-        testOptions: { viewport: { height: 2000 } },
+        testOptions: { viewport: { width: 1300, height: 2000 } },
     },
     decorators: [
         mswDecorator({
