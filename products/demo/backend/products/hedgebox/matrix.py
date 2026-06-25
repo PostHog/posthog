@@ -47,9 +47,6 @@ from posthog.schema import (
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import PAGEVIEW_EVENT
-from posthog.demo.matrix.matrix import Cluster, Matrix
-from posthog.demo.matrix.models import SimEvent
-from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
@@ -61,6 +58,9 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.demo.backend.matrix.matrix import Cluster, Matrix
+from products.demo.backend.matrix.models import SimEvent
+from products.demo.backend.matrix.randomization import Industry
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
