@@ -7,12 +7,13 @@ from unittest.mock import patch
 from celery import states
 from celery.result import AsyncResult
 
-from products.async_migrations.backend.examples.test_migration import Migration
-from products.async_migrations.backend.runner import run_async_migration_next_op, run_async_migration_operations
-from products.async_migrations.backend.test.util import create_async_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.async_migrations import check_async_migration_health
+
+from products.async_migrations.backend.examples.test_migration import Migration
+from products.async_migrations.backend.runner import run_async_migration_next_op, run_async_migration_operations
+from products.async_migrations.backend.test.util import create_async_migration
 
 TEST_MIGRATION_DESCRIPTION = Migration("TEST_MIGRATION").description
 MOCK_CELERY_TASK_ID = "some_task_id"

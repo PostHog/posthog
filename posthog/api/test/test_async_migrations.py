@@ -1,8 +1,9 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from products.async_migrations.backend.definition import AsyncMigrationDefinition
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+
+from products.async_migrations.backend.definition import AsyncMigrationDefinition
 
 
 def create_async_migration(

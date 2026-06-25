@@ -2683,6 +2683,8 @@ importers:
 
   products/approvals: {}
 
+  products/async_migrations: {}
+
   products/batch_exports: {}
 
   products/business_knowledge:

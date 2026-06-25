@@ -878,6 +878,9 @@ class OrphanedTestFilesCheck(ProductCheck):
         "tasks": ("backend/temporal/",),
         "warehouse_sources": ("backend/temporal/",),
         "signals": ("backend/emission/",),
+        # backend/examples/* are example AsyncMigrationDefinition fixtures (no test
+        # functions) imported by backend/test/test_runner.py — not standalone tests.
+        "async_migrations": ("backend/examples/",),
     }
 
     def run(self, ctx: CheckContext) -> CheckResult:
