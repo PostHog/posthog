@@ -37,7 +37,6 @@ import {
     getSecretAllowedHosts,
     HttpFetcher,
     IdentityAuthRequiredError,
-    isPreviewSideEffect,
     MemoryStore,
     TabularStore,
     Sandbox,
@@ -176,21 +175,6 @@ export interface AgentToolDeps {
      * against. Forwarded straight onto `ToolContext.posthogApiBaseUrl`.
      */
     posthogApiBaseUrl: string
-    /**
-     * The `kind:'client'` tool ids the connecting client can execute this
-     * session (`readSessionSupportedClientTools` ← the /run `supported_client_tools`).
-     * The runner uses it to decide whether an interactive client tool can punch
-     * out a form to this client, or must fall back to a relayed URL (a client
-     * that doesn't list the tool — Slack / MCP — can't render one). Absent /
-     * missing the id → treated as "can't punch out".
-     */
-    supportedClientTools?: readonly string[]
-    /**
-     * Builds the connect URL relayed for `connect_mcp` when the client can't
-     * punch out the form (the same deep-link scheme as `buildApprovalUrl`).
-     * Reads the tool args (`agent_slug`/`name`/`url`). Absent → no relay.
-     */
-    buildMcpConnectUrl?: (args: Record<string, unknown>) => string
 }
 
 export interface BuiltAgentTools {
@@ -247,11 +231,20 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             continue
         }
         if (t.kind === 'client') {
-            // Always exposed when dispatcher is wired. No upfront capability
-            // handshake: if the connecting client doesn't handle the id, the
-            // dispatcher's await times out and the model gets an error
-            // tool_result it can adapt to. Keeps the protocol simple +
-            // matches the agent.md degradation rules.
+            // Exposed to the model only if the connecting client declared this
+            // id in /run `supported_client_tools`. A `required` tool the client
+            // can't fulfil fails session open; otherwise it's hidden and the
+            // agent.md degrades.
+            const supported =
+                deps.session.trigger_metadata?.kind === 'chat'
+                    ? (deps.session.trigger_metadata.supported_client_tools ?? [])
+                    : []
+            if (!supported.includes(t.id)) {
+                if (t.required) {
+                    throw new Error(`client_tool_unsupported:${t.id}`)
+                }
+                continue
+            }
             if (!deps.dispatchClientTool) {
                 continue
             }
@@ -314,7 +307,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                     continue
                 }
                 seen.add(exposedName)
-                tools.push(makeMcpTool(exposedName, client, remote, deps))
+                tools.push(makeMcpTool(exposedName, client, remote))
             }
         }
     }
@@ -424,16 +417,6 @@ function makeCustomTool(
         description,
         parameters,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
-            // Preview-mode stopgap: custom tools run author-supplied code in the
-            // sandbox and can perform arbitrary external writes, with no
-            // read-vs-write signal to gate on. Suppress every custom-tool call in
-            // preview (fail-closed) before resolving identity or touching the
-            // sandbox. Same accepted trade as MCP — blinds read-only custom tools
-            // too until the dispatch boundary gains a real classification.
-            if (isPreviewSideEffect(buildToolContext(deps), id, args as Record<string, unknown>)) {
-                const skipped = { preview_skipped: true, tool: id }
-                return { content: [{ type: 'text', text: JSON.stringify(skipped) }], details: { output: skipped } }
-            }
             const gate = await gateIdentity(requiresIdentity ? { id: requiresIdentity, scopes: [] } : undefined, deps)
             if (!gate.proceed) {
                 return gate.result
@@ -480,29 +463,6 @@ function makeClientTool(
                 throw new Error(`client tool ${spec.id} dispatcher not wired on this driver`)
             }
             if (spec.interactive) {
-                // Interactive punch-outs need a client that can render the form.
-                // If the client didn't declare it handles this tool (Slack/MCP,
-                // or any client without the punch-out UI), nothing would receive
-                // the client_tool_call and the session would park forever. For
-                // connect_mcp, hand back a connect URL the user can open instead
-                // (the same relay shape as the approval link). Returns
-                // immediately (not parked).
-                if (
-                    spec.id === 'connect_mcp' &&
-                    !(deps.supportedClientTools ?? []).includes(spec.id) &&
-                    deps.buildMcpConnectUrl
-                ) {
-                    const connectUrl = deps.buildMcpConnectUrl(args as Record<string, unknown>)
-                    const relay = {
-                        unsupported_client: true,
-                        connect_url: connectUrl,
-                        message: `This client can't render the connect form. Ask the user to open ${connectUrl} to connect the MCP server, then continue.`,
-                    }
-                    return {
-                        content: [{ type: 'text', text: JSON.stringify(relay) }],
-                        details: { output: relay },
-                    }
-                }
                 if (!deps.emitClientToolCall) {
                     throw new Error(`client tool ${spec.id} interactive emit not wired on this driver`)
                 }
@@ -537,8 +497,7 @@ function makeClientTool(
 function makeMcpTool(
     exposedName: string,
     client: OpenedMcp,
-    remote: RemoteMcpTool,
-    deps: AgentToolDeps
+    remote: RemoteMcpTool
 ): AgentTool<TSchema, ToolResultDetails> {
     return {
         name: exposedName,
@@ -547,18 +506,6 @@ function makeMcpTool(
         parameters: remote.inputSchema as TSchema,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
             const callArgs = (args ?? {}) as Record<string, unknown>
-            // Preview-mode stopgap: remote MCP servers can perform arbitrary
-            // external side effects and aren't yet classified read-vs-write, so
-            // suppress every MCP call in preview (fail-closed) rather than let a
-            // write reach the real world. Returns a shape-valid synthetic
-            // envelope so the model's next turn keeps reasoning; logs
-            // `tool_preview_skipped`. This also blinds MCP *reads* in preview —
-            // an accepted, temporary trade until the dispatch boundary gates on
-            // a real read/write signal (tracked follow-up).
-            if (isPreviewSideEffect(buildToolContext(deps), exposedName, callArgs)) {
-                const skipped = { preview_skipped: true, tool: exposedName }
-                return { content: [{ type: 'text', text: JSON.stringify(skipped) }], details: { output: skipped } }
-            }
             const result = await client.callTool(remote.name, callArgs)
             if (result.isError) {
                 // Surface the first text content as the error message — same
@@ -617,7 +564,6 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         resolvedIdentities,
         http: deps.http,
         posthogApiBaseUrl: deps.posthogApiBaseUrl,
-        isPreview: deps.session.is_preview,
     }
 }
 

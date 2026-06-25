@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 35 enabled ops
+ * PostHog API - MCP 34 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -198,8 +198,6 @@ export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyT
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin = 0
-
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsDefault = 5000
@@ -218,8 +216,6 @@ export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprova
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
 export const agentApplicationsRevisionsCreateBodySpecMcpsDefault = []
-export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
-
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
@@ -552,10 +548,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                             kind: zod.literal('custom_template'),
                             from_template: zod.string(),
                             alias: zod.string(),
-                            version: zod
-                                .number()
-                                .min(agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin)
-                                .optional(),
+                            version: zod.number().min(1).optional(),
                         }),
                         zod.object({
                             kind: zod.literal('client'),
@@ -645,10 +638,8 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         description: zod.string().optional(),
                         from_template: zod.string().optional(),
                         alias: zod.string().optional(),
-                        version: zod
-                            .number()
-                            .min(agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin)
-                            .optional(),
+                        version: zod.number().min(1).optional(),
+                        source_version_id: zod.string().optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
@@ -886,8 +877,6 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApproval
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin = 0
-
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
@@ -906,8 +895,6 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwo
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault = []
-export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin = 0
-
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
@@ -1254,10 +1241,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                             kind: zod.literal('custom_template'),
                             from_template: zod.string(),
                             alias: zod.string(),
-                            version: zod
-                                .number()
-                                .min(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin)
-                                .optional(),
+                            version: zod.number().min(1).optional(),
                         }),
                         zod.object({
                             kind: zod.literal('client'),
@@ -1349,10 +1333,8 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         description: zod.string().optional(),
                         from_template: zod.string().optional(),
                         alias: zod.string().optional(),
-                        version: zod
-                            .number()
-                            .min(agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin)
-                            .optional(),
+                        version: zod.number().min(1).optional(),
+                        source_version_id: zod.string().optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault),
@@ -1571,24 +1553,6 @@ export const AgentApplicationsRevisionsBundleUpdateParams = /* @__PURE__ */ zod.
 export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
     .object({
         agent_md: zod.string(),
-        skills: zod
-            .array(
-                zod
-                    .object({
-                        description: zod
-                            .string()
-                            .describe(
-                                'One-line summary shown in the skill index; the model uses it to decide when to load the skill.'
-                            ),
-                        body: zod
-                            .string()
-                            .describe("The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`."),
-                    })
-                    .describe(
-                        'Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored\nat the canonical `skills/<skill_id>/SKILL.md` path in the bundle.'
-                    )
-            )
-            .optional(),
         tools: zod
             .array(
                 zod
@@ -1602,7 +1566,9 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
             .optional(),
         spec: zod.record(zod.string(), zod.unknown()),
     })
-    .describe('Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed\npayload.')
+    .describe(
+        'Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed\npayload. Skills are not authored here: they come from the llma-skill store\nvia `skill_refs` and are materialized into the bundle at freeze.'
+    )
 
 /**
  * Copy every file from `source_revision_id` into this revision.
@@ -1771,35 +1737,11 @@ export const AgentApplicationsRevisionsPromoteCreateParams = /* @__PURE__ */ zod
 })
 
 /**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
- *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * Full-replace the draft's store-skill references. They are resolved
+ * and materialized into the bundle at freeze, not here — this only records
+ * which skills (and pinned versions) the freeze should pull in.
  */
-export const agentApplicationsRevisionsSkillsUpdatePathSkillIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
-
-export const AgentApplicationsRevisionsSkillsUpdateParams = /* @__PURE__ */ zod.object({
+export const AgentApplicationsRevisionsSkillRefsUpdateParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),
     id: zod.string().describe('A UUID string identifying this agent revision.'),
     project_id: zod
@@ -1807,59 +1749,50 @@ export const AgentApplicationsRevisionsSkillsUpdateParams = /* @__PURE__ */ zod.
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    skill_id: zod.string().regex(agentApplicationsRevisionsSkillsUpdatePathSkillIdRegExp),
 })
 
-export const AgentApplicationsRevisionsSkillsUpdateBody = /* @__PURE__ */ zod
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemFromTemplateMax = 64
+
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax = 64
+
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp = new RegExp(
+    '^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$'
+)
+
+export const AgentApplicationsRevisionsSkillRefsUpdateBody = /* @__PURE__ */ zod
     .object({
-        description: zod
-            .string()
-            .describe('One-line summary shown in the skill index; the model uses it to decide when to load the skill.'),
-        body: zod.string().describe("The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`."),
+        skill_refs: zod
+            .array(
+                zod
+                    .object({
+                        from_template: zod
+                            .string()
+                            .max(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemFromTemplateMax)
+                            .describe(
+                                'Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.'
+                            ),
+                        alias: zod
+                            .string()
+                            .max(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax)
+                            .regex(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp)
+                            .describe(
+                                'Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.'
+                            ),
+                        version: zod
+                            .number()
+                            .min(1)
+                            .optional()
+                            .describe(
+                                "Specific published version to pin. Omit to pin the store's latest version at freeze time."
+                            ),
+                    })
+                    .describe(
+                        "One reference to a versioned skill in the llma-skill store, pinned into\nthis agent's bundle at freeze."
+                    )
+            )
+            .describe('The complete set of store-skill references for this draft; replaces any existing references.'),
     })
-    .describe(
-        'Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored\nat the canonical `skills/<skill_id>/SKILL.md` path in the bundle.'
-    )
-
-/**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
- *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
- */
-export const agentApplicationsRevisionsSkillsDestroyPathSkillIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
-
-export const AgentApplicationsRevisionsSkillsDestroyParams = /* @__PURE__ */ zod.object({
-    application_id: zod.string(),
-    id: zod.string().describe('A UUID string identifying this agent revision.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    skill_id: zod.string().regex(agentApplicationsRevisionsSkillsDestroyPathSkillIdRegExp),
-})
+    .describe("Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references.")
 
 /**
  * Build a Slack app manifest for this revision's slack trigger.

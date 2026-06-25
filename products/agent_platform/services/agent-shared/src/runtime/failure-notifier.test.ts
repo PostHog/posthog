@@ -8,6 +8,7 @@ import {
     TriggerAwareFailureNotifier,
     userFacingMessage,
 } from './failure-notifier'
+import type { TriggerMetadata } from './trigger-metadata'
 
 const APP: AgentApplication = {
     id: 'app-1',
@@ -32,7 +33,7 @@ const REV: AgentRevision = {
     encrypted_env: null,
 }
 
-function makeSession(triggerMetadata: Record<string, unknown> | null): AgentSession {
+function makeSession(triggerMetadata: TriggerMetadata | null): AgentSession {
     return {
         id: 'sess-1',
         application_id: APP.id,
@@ -49,7 +50,6 @@ function makeSession(triggerMetadata: Record<string, unknown> | null): AgentSess
         usage_total: { input_tokens: 0, output_tokens: 0, cost_total: 0 },
         acl: [],
         pending_elevation_requests: [],
-        is_preview: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     } as unknown as AgentSession
@@ -125,12 +125,12 @@ describe('TriggerAwareFailureNotifier', () => {
         }
     }
 
-    it('dispatches by trigger_metadata.type', async () => {
+    it('dispatches by trigger_metadata.kind', async () => {
         const slack = makeSub()
         const webhook = makeSub()
         const n = new TriggerAwareFailureNotifier({ slack, webhook })
         await n.notify({
-            session: makeSession({ type: 'slack', channel: 'C1', thread_ts: '123' }),
+            session: makeSession({ kind: 'slack', workspace_id: 'W', channel: 'C1', ts: 't', thread_ts: '123' }),
             application: APP,
             revision: REV,
             reason: 'x',
@@ -153,18 +153,18 @@ describe('TriggerAwareFailureNotifier', () => {
         expect(slack.notify).not.toHaveBeenCalled()
     })
 
-    it('no-ops when trigger_metadata.type is missing or unregistered', async () => {
+    it('no-ops when trigger_metadata.kind is unregistered', async () => {
         const slack = makeSub()
         const n = new TriggerAwareFailureNotifier({ slack })
         await n.notify({
-            session: makeSession({ channel: 'C1' }),
+            session: makeSession({ kind: 'chat' }),
             application: APP,
             revision: REV,
             reason: 'x',
             category: 'unknown',
         })
         await n.notify({
-            session: makeSession({ type: 'discord' }),
+            session: makeSession({ kind: 'mcp' }),
             application: APP,
             revision: REV,
             reason: 'x',
@@ -183,7 +183,7 @@ describe('TriggerAwareFailureNotifier', () => {
         const n = new TriggerAwareFailureNotifier({ slack }, logger)
         await expect(
             n.notify({
-                session: makeSession({ type: 'slack' }),
+                session: makeSession({ kind: 'slack', workspace_id: 'W', channel: 'C1', ts: 't', thread_ts: '123' }),
                 application: APP,
                 revision: REV,
                 reason: 'x',

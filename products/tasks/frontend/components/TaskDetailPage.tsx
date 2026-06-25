@@ -363,7 +363,7 @@ function TaskRunLogState({
     }
     if (taskId && selectedRun) {
         return (
-            <div className="flex-1 min-h-0 overflow-hidden max-w-6xl mx-auto w-full">
+            <div className="flex-1 min-h-0 overflow-hidden -mr-4 pr-4">
                 <TaskRunChat taskId={taskId} runId={selectedRun.id} />
             </div>
         )

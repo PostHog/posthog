@@ -61,7 +61,6 @@ import {
     IdentityLinkStateStore,
     IdentityStore,
     isDeltaEventKind,
-    isSlackTriggerMetadata,
     LogLevel,
     LogSink,
     MemoryStore,
@@ -81,7 +80,6 @@ import {
     TabularStore,
     ToolContext,
     toolSpanId,
-    readSessionSupportedClientTools,
     WebSearchProvider,
 } from '@posthog/agent-shared'
 
@@ -157,12 +155,6 @@ export interface RunSessionDeps {
      * security hole). No mock variant. */
     approvals: ApprovalStore
     buildApprovalUrl?: (requestId: string) => string
-    /**
-     * Builds the connect URL relayed for an interactive `connect_mcp` call on a
-     * non-PostHog-Code surface (Slack/MCP), where the punch-out form can't
-     * render. Same deep-link scheme as `buildApprovalUrl`. Reads the tool args.
-     */
-    buildMcpConnectUrl?: (args: Record<string, unknown>) => string
     /**
      * S3-backed memory store. Threaded into `AgentToolDeps` → `ToolContext`
      * so native `@posthog/memory-*` tools work; absent → memory tools return
@@ -260,14 +252,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // much so it replies in natural language instead of forcing everything
     // through the slack-post-message tool.
     //
-    // Preview-mode isolation: when the session was created via the preview
-    // ingress path, the relay is disabled — author iteration must not post
-    // into the real Slack channel attached to the live revision. The
-    // system-prompt suppression below also drops the slack-relay guidance so
-    // the model isn't told to "just reply in natural language" while the
-    // platform is actually noop'ing the relay underneath it.
-    const slackReply =
-        !session.is_preview && isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
+    // Slack-triggered sessions relay the model's reply back into the originating
+    // thread (the system prompt below tells the model to answer in natural
+    // language instead of calling a slack tool).
+    const slackReply = session.trigger_metadata?.kind === 'slack' ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
             id: f.ref.id,
@@ -465,8 +453,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             mcpClients: deps.mcpClients,
             http: deps.http,
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
-            supportedClientTools: readSessionSupportedClientTools(session.trigger_metadata),
-            buildMcpConnectUrl: deps.buildMcpConnectUrl,
         }
         const { tools, nameToId } = await buildAgentTools(rev, toolDeps)
 
@@ -707,7 +693,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 latency_ms: started ? Date.now() - started.t0 : 0,
                                 is_error: event.isError,
                                 error: errorText,
-                                is_preview: session.is_preview,
                             },
                         ])
                     }
@@ -837,7 +822,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 stop_reason: msg.stopReason,
                                 is_error: msg.stopReason === 'error',
                                 error: msg.stopReason === 'error' ? msg.errorMessage : undefined,
-                                is_preview: session.is_preview,
                             },
                         ])
                     }
@@ -1107,7 +1091,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                             latency_ms: Date.now() - t0,
                                             is_error: d.isError,
                                             error: d.error,
-                                            is_preview: session.is_preview,
                                         },
                                     ])
                                 } catch (obsErr) {
@@ -1203,7 +1186,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     trace_name: deps.applicationName ?? `agent:${session.application_id}`,
                     input_state: traceInput,
                     output_state: lastOutput,
-                    is_preview: session.is_preview,
                 },
             ])
         }

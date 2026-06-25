@@ -19,12 +19,13 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Team
 
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
-from products.warehouse_sources.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataJob,
     ExternalDataSchema,
+    ExternalDataSource,
     get_all_schemas_for_source_id,
+    get_latest_run_if_exists,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     Any_Source_Errors,
     ExternalDataJobWorkflow,

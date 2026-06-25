@@ -310,7 +310,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "kind": {"type": "string", "const": "custom_template"},
                             "from_template": {"type": "string"},
                             "alias": {"type": "string"},
-                            "version": {"type": "integer", "minimum": 0},
+                            "version": {"type": "integer", "minimum": 1},
                         },
                         "required": ["kind", "from_template", "alias"],
                         "additionalProperties": False,
@@ -420,10 +420,15 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "description": {"type": "string"},
                     # Registry lineage for a skill pinned from a template.
                     # Present on a draft spec; freeze resolves `from_template`,
-                    # assembles `skills/<alias>/SKILL.md`, and stamps id/path.
+                    # assembles `skills/<alias>/SKILL.md`, and stamps id/path +
+                    # `source_version_id`. Allowed here so a forked frozen spec
+                    # (which carries the stamped provenance) round-trips through
+                    # the write path — authors can't set skills[] regardless, the
+                    # serializer pins it to the server value.
                     "from_template": {"type": "string"},
                     "alias": {"type": "string"},
-                    "version": {"type": "integer", "minimum": 0},
+                    "version": {"type": "integer", "minimum": 1},
+                    "source_version_id": {"type": "string"},
                 },
                 "required": ["id", "path"],
                 "additionalProperties": False,

@@ -5,6 +5,7 @@ import { LemonButton, LemonDialog, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -30,6 +31,18 @@ const TIME_RANGE_OPTIONS = [
     { label: '7d', hours: 168 },
 ]
 
+// Value is the metric_type, or "funnel:<orderType>" to also filter the funnel order.
+const METRIC_TYPE_OPTIONS = [
+    { value: '', label: 'All metric types' },
+    { value: 'mean', label: 'Mean' },
+    { value: 'funnel', label: 'Funnel (any order)' },
+    { value: 'funnel:ordered', label: 'Funnel: ordered' },
+    { value: 'funnel:unordered', label: 'Funnel: unordered' },
+    { value: 'funnel:strict', label: 'Funnel: strict' },
+    { value: 'ratio', label: 'Ratio' },
+    { value: 'retention', label: 'Retention' },
+]
+
 export function QueryPerformance(): JSX.Element {
     const { user } = useValues(userLogic)
     const {
@@ -41,9 +54,17 @@ export function QueryPerformance(): JSX.Element {
         hoursBack,
         teamIdFilter,
         experimentIdFilter,
+        metricTypeFilter,
     } = useValues(queryPerformanceLogic)
-    const { setSearch, setPrecomputation, setHoursBack, loadSlowestQueries, setTeamIdFilter, setExperimentIdFilter } =
-        useActions(queryPerformanceLogic)
+    const {
+        setSearch,
+        setPrecomputation,
+        setHoursBack,
+        loadSlowestQueries,
+        setTeamIdFilter,
+        setExperimentIdFilter,
+        setMetricTypeFilter,
+    } = useActions(queryPerformanceLogic)
 
     if (!user?.is_staff) {
         return (
@@ -344,6 +365,13 @@ export function QueryPerformance(): JSX.Element {
                                         value={experimentIdFilter ? Number(experimentIdFilter) : undefined}
                                         onChange={(value) => setExperimentIdFilter(value != null ? String(value) : '')}
                                         className="w-36"
+                                    />
+                                    <LemonSelect
+                                        size="small"
+                                        value={metricTypeFilter}
+                                        onChange={(value) => setMetricTypeFilter(value ?? '')}
+                                        options={METRIC_TYPE_OPTIONS}
+                                        className="w-44"
                                     />
                                     <LemonButton
                                         type="secondary"

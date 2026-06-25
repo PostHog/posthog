@@ -15,7 +15,7 @@ from posthog.hogql.errors import ExposedHogQLError
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.facade.models import ExternalDataSource
     from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
     from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import MySQLImplementation
 
@@ -119,9 +119,9 @@ class MySQLAdapter:
     def validate_source_config(
         self, source: "ExternalDataSource", team: "Team"
     ) -> tuple["MySQLImplementation", "MySQLSourceConfig"]:
+        from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
         from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
         from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
-        from products.warehouse_sources.backend.types import ExternalDataSourceType
 
         if not source.is_direct_mysql:
             raise ExposedHogQLError("Invalid direct MySQL connection.")

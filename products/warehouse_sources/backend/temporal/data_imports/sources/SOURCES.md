@@ -481,6 +481,7 @@ doesn't conflict with concurrent PRs.
 - leexi
 - less_annoying_crm
 - lever
+- liana
 - lightfield
 - linkedin_pages
 - linkrunner
@@ -655,6 +656,7 @@ doesn't conflict with concurrent PRs.
 - svix
 - systeme
 - tavus
+- tawk_to
 - teamtailor
 - tempo
 - testrail

@@ -13,7 +13,7 @@
 
 import { z } from 'zod'
 
-import { buildClientToolResultMarker, CLIENT_KIND_HEADER, parseClientKind } from '@posthog/agent-shared'
+import { buildClientToolResultMarker } from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
@@ -30,17 +30,8 @@ import { defineRoute, type AuthedRouteCtx, type TriggerModule } from './types'
 
 async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>): Promise<void> {
     const { res, deps, resolved } = ctx
-    const { message, external_key: externalKey = null } = ctx.parsed
+    const { message, external_key: externalKey = null, supported_client_tools: supportedClientTools } = ctx.parsed
     const sessionPrincipal = ctx.principal
-    // Stash the caller's client capabilities on the session row so the runner
-    // can tailor behaviour to the client: `client_kind` (unauthenticated header)
-    // suppresses prose that doesn't fit (e.g. the approve-here URL for
-    // posthog-code), and `supported_client_tools` (run body) tells the runner
-    // which interactive client tools (connect_mcp, set_secret) this client can
-    // punch out a form for vs. needs a relayed URL for. UX gating only, never a
-    // security boundary.
-    const clientKind = parseClientKind(ctx.req.headers[CLIENT_KIND_HEADER])
-    const supportedClientTools = ctx.parsed.supported_client_tools ?? []
     const outcome = await enqueueOrResume(
         { queue: deps.queue },
         {
@@ -51,14 +42,10 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
             principal: sessionPrincipal,
             trigger: 'chat',
             requesterDisplay: principalDisplay(sessionPrincipal),
-            triggerMetadata:
-                clientKind || supportedClientTools.length > 0
-                    ? {
-                          ...(clientKind ? { client_kind: clientKind } : {}),
-                          ...(supportedClientTools.length > 0 ? { supported_client_tools: supportedClientTools } : {}),
-                      }
-                    : undefined,
-            isPreview: resolved.isPreview,
+            triggerMetadata: {
+                kind: 'chat',
+                ...(supportedClientTools?.length ? { supported_client_tools: supportedClientTools } : {}),
+            },
         }
     )
     if (outcome.kind === 'elevation_required') {

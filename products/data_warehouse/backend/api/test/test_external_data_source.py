@@ -57,7 +57,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookCreationResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM
+from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
+    MAX_CUSTOM_SOURCES_PER_TEAM,
+    PREVIEW_DEFAULT_ROWS,
+    PREVIEW_MAX_ROWS,
+    ManifestValidationError,
+    PreviewResult,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     PostgresDiscoveredSchema,
@@ -419,6 +425,60 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 201, response.json()
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.direct_query_enabled is expected
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_reports_analytics_event(self, _mock_validate, mock_capture):
+        # report_user_action runs for real (not mocked) and the request carries the MCP marker, so the
+        # test fails if the request stops being forwarded or `source` stops landing — the mcp/ui/api
+        # attribution this PR exists to deliver.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "mcp",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == 201, response.json()
+        events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "data warehouse source created"]
+        assert len(events) == 1
+        properties = events[0].kwargs["properties"]
+        assert properties["source"] == "mcp"  # request-derived transport
+        assert properties["created_via"] == "mcp"  # caller's explicit intent
+        assert properties["source_type"] == "Stripe"
+        assert properties["source_id"] == str(response.json()["id"])
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_patch_external_data_source_reports_analytics_event(self, mock_capture):
+        # Source originally created via the UI, then edited over MCP: the event must carry both the
+        # edit's transport (source=mcp) and the unchanged original origin (created_via=web).
+        source = self._create_external_data_source(created_via=ExternalDataSource.CreatedVia.WEB)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"description": "edited"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == 200, response.json()
+        events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "data warehouse source updated"]
+        assert len(events) == 1
+        properties = events[0].kwargs["properties"]
+        assert properties["source"] == "mcp"  # who performed the edit
+        assert properties["created_via"] == ExternalDataSource.CreatedVia.WEB  # original origin, preserved
+        assert properties["source_type"] == "Stripe"
+        assert properties["source_id"] == str(source.pk)
 
     def test_patch_external_data_source_toggles_direct_query_enabled(self):
         source = self._create_external_data_source()
@@ -9798,3 +9858,163 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/")
         assert response.status_code == status.HTTP_200_OK
         assert [result["credential_id"] for result in response.json()] == [str(newer.pk), str(older.pk)]
+
+
+_PREVIEW_MANIFEST = {
+    "client": {
+        "base_url": "https://api.example.com",
+        "auth": {"type": "api_key", "name": "key", "location": "query"},
+    },
+    "resources": [
+        {"name": "users", "primary_key": "id", "endpoint": {"path": "/users", "data_selector": "data"}},
+    ],
+}
+
+
+class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
+    def _url(self, action: str) -> str:
+        return f"/api/environments/{self.team.pk}/external_data_sources/{action}/"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.preview_resource"
+    )
+    def test_preview_resource_happy_path(self, mock_preview):
+        mock_preview.return_value = PreviewResult(
+            rows=[{"id": 1, "name": "a"}],
+            row_count=1,
+            columns=[{"name": "id", "type": "integer"}, {"name": "name", "type": "string"}],
+            error=None,
+        )
+
+        response = self.client.post(
+            self._url("preview_resource"),
+            data={
+                "source_type": "Custom",
+                "payload": {"manifest_json": json.dumps(_PREVIEW_MANIFEST), "auth_api_key": "sk_test"},
+                "resource_name": "users",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["row_count"] == 1
+        assert body["rows"] == [{"id": 1, "name": "a"}]
+        assert body["columns"] == [{"name": "id", "type": "integer"}, {"name": "name", "type": "string"}]
+        assert body["error"] is None
+        assert mock_preview.call_args.args[2] == "users"
+        assert mock_preview.call_args.args[3] == PREVIEW_DEFAULT_ROWS
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.preview_resource"
+    )
+    def test_preview_resource_forwards_explicit_limit(self, mock_preview):
+        mock_preview.return_value = PreviewResult(rows=[], row_count=0, columns=[], error=None)
+
+        response = self.client.post(
+            self._url("preview_resource"),
+            data={
+                "source_type": "Custom",
+                "payload": {"manifest_json": json.dumps(_PREVIEW_MANIFEST)},
+                "resource_name": "users",
+                "limit": 25,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert mock_preview.call_args.args[3] == 25
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.preview_resource"
+    )
+    def test_preview_resource_manifest_error_returns_400(self, mock_preview):
+        mock_preview.side_effect = ManifestValidationError("resources[0].endpoint.path: must not be empty")
+
+        response = self.client.post(
+            self._url("preview_resource"),
+            data={
+                "source_type": "Custom",
+                "payload": {"manifest_json": json.dumps(_PREVIEW_MANIFEST)},
+                "resource_name": "users",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "must not be empty" in response.json()["message"]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.preview_resource"
+    )
+    def test_preview_resource_fetch_error_returns_200_with_error(self, mock_preview):
+        mock_preview.return_value = PreviewResult(rows=[], row_count=0, columns=[], error="could not reach host")
+
+        response = self.client.post(
+            self._url("preview_resource"),
+            data={
+                "source_type": "Custom",
+                "payload": {"manifest_json": json.dumps(_PREVIEW_MANIFEST)},
+                "resource_name": "users",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["error"] == "could not reach host"
+        assert response.json()["rows"] == []
+
+    def test_preview_resource_non_custom_source_returns_400(self):
+        response = self.client.post(
+            self._url("preview_resource"),
+            data={"source_type": "Stripe", "payload": {"api_key": "sk"}, "resource_name": "charges"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not supported" in response.json()["message"]
+
+    def test_preview_resource_limit_over_cap_returns_400(self):
+        response = self.client.post(
+            self._url("preview_resource"),
+            data={
+                "source_type": "Custom",
+                "payload": {"manifest_json": json.dumps(_PREVIEW_MANIFEST)},
+                "resource_name": "users",
+                "limit": PREVIEW_MAX_ROWS + 1,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_database_schema_accepts_custom_payload(self, _mock_validate):
+        response = self.client.post(
+            self._url("database_schema"),
+            data={
+                "source_type": "Custom",
+                "manifest_json": json.dumps(_PREVIEW_MANIFEST),
+                "auth_api_key": "sk_test",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [table["table"] for table in response.json()] == ["users"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_accepts_custom_payload(self, _mock_validate, _mock_trigger):
+        response = self.client.post(
+            self._url("setup"),
+            data={
+                "source_type": "Custom",
+                "payload": {"manifest_json": json.dumps(_PREVIEW_MANIFEST), "auth_api_key": "sk_test"},
+                "prefix": "custom_preview_",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.source_type == "Custom"
+        assert source.created_via == ExternalDataSource.CreatedVia.MCP

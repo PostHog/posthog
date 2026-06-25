@@ -158,12 +158,6 @@ export interface WorkerDeps {
      */
     buildApprovalUrl?: (requestId: string, slug: string) => string
     /**
-     * Builds the connect URL relayed for `connect_mcp` on non-PostHog-Code
-     * surfaces (Slack/MCP). Forwarded to `runSession` → tool deps. Same deep-link
-     * scheme as `buildApprovalUrl`.
-     */
-    buildMcpConnectUrl?: (args: Record<string, unknown>) => string
-    /**
      * S3-backed memory store for `@posthog/memory-*` tools. Wired from
      * AGENT_MEMORY_S3_* config; unset disables memory tools.
      */
@@ -576,7 +570,6 @@ export class Worker {
                 buildApprovalUrl: buildApprovalUrl
                     ? (requestId) => buildApprovalUrl(requestId, application?.slug ?? '')
                     : undefined,
-                buildMcpConnectUrl: this.deps.buildMcpConnectUrl,
                 memoryStore: this.deps.memoryStore,
                 tabularStore: this.deps.tabularStore,
                 webSearchProviders: this.deps.webSearchProviders,

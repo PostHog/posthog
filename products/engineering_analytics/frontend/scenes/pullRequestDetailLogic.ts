@@ -19,7 +19,6 @@ export interface PullRequestDetailLogicProps {
     number: number
     // Which GitHub source the list was scoped to, threaded from `?source=` via paramsToProps.
     sourceId: string | null
-    tabId?: string
 }
 
 /** Failures first, then still-running, then passes — the order a reviewer triages in. */
@@ -33,10 +32,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'pullRequestDetailLogic']),
     props({} as PullRequestDetailLogicProps),
     // sourceId is part of the identity: the same PR number can resolve to a different source.
-    key(
-        (props) =>
-            `${props.tabId ?? 'default'}/${props.repoOwner}/${props.repoName}#${props.number}@${props.sourceId ?? ''}`
-    ),
+    key((props) => `${props.repoOwner}/${props.repoName}#${props.number}@${props.sourceId ?? ''}`),
 
     loaders(({ props }) => ({
         lifecycle: [

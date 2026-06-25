@@ -314,28 +314,6 @@ async function main(): Promise<void> {
         // PostHog Code (posthog-code://approval/<id>?agent=<slug>).
         buildApprovalUrl: (requestId, slug) =>
             `${config.approvalLinkScheme}://approval/${requestId}${slug ? `?agent=${encodeURIComponent(slug)}` : ''}`,
-        // Connect-URL relayed for `connect_mcp` on non-PostHog-Code surfaces
-        // (Slack/MCP), where the interactive punch-out form can't render. Same
-        // deep-link scheme as the approval link; PostHog Code opens it on the
-        // agent's MCP config so the owner can finish the connect. Reads the tool
-        // args (`agent_slug`/`name`/`url`).
-        buildMcpConnectUrl: (args) => {
-            const params = new URLSearchParams()
-            const agentSlug = typeof args.agent_slug === 'string' ? args.agent_slug : undefined
-            const name = typeof args.name === 'string' ? args.name : undefined
-            const url = typeof args.url === 'string' ? args.url : undefined
-            if (agentSlug) {
-                params.set('agent', agentSlug)
-            }
-            if (name) {
-                params.set('name', name)
-            }
-            if (url) {
-                params.set('url', url)
-            }
-            const qs = params.toString()
-            return `${config.approvalLinkScheme}://connect-mcp${qs ? `?${qs}` : ''}`
-        },
         bus,
         logs: logSink,
         resolveSecrets,
