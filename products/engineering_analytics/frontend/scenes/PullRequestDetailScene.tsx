@@ -398,6 +398,9 @@ interface PrSummaryCardsProps {
     commits: number
     summary: LifecycleSummary | null
     openedAt: string
+    // First load: the cards are fed by three loaders (lifecycle / runs / cost) that resolve at
+    // different times, so without this they'd pop in one at a time. Show a full skeleton row instead.
+    loading: boolean
 }
 
 /**
@@ -416,7 +419,19 @@ function PrSummaryCards({
     commits,
     summary,
     openedAt,
+    loading,
 }: PrSummaryCardsProps): JSX.Element {
+    if (loading) {
+        // One skeleton per card (the verdict card is wider) so the whole row appears at once.
+        return (
+            <div className="flex flex-wrap items-stretch gap-3">
+                <LemonSkeleton className="h-[104px] min-w-72 flex-1 rounded-lg" />
+                <LemonSkeleton className="h-[104px] min-w-44 flex-1 rounded-lg" />
+                <LemonSkeleton className="h-[104px] min-w-44 flex-1 rounded-lg" />
+                <LemonSkeleton className="h-[104px] min-w-44 flex-1 rounded-lg" />
+            </div>
+        )
+    }
     const showCost = cost?.jobs_available
     const openTo = summary?.mergedAt ?? summary?.closedAt ?? dayjs().toISOString()
     const openLabel = summary?.mergedAt ? 'Time to merge' : summary?.closedAt ? 'Time to close' : 'Open so far'
@@ -623,6 +638,10 @@ export function PullRequestDetailScene(): JSX.Element {
                     commits={commitGroups.length}
                     summary={summary}
                     openedAt={summary?.openedAt ?? pullRequest?.created_at ?? ''}
+                    // Skeleton the whole row until the structural data (lifecycle + runs) is in — covers the
+                    // initial frame before afterMount fires too. The cost card then fills on its own once
+                    // prCost resolves. The loadFailed branch returns earlier, so !lifecycle can't hang here.
+                    loading={!lifecycle || (prRunsLoading && runs.length === 0)}
                 />
             </div>
 
