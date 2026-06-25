@@ -3,7 +3,10 @@ import logging
 
 from asgiref.sync import sync_to_async
 
+from posthog.models.team.team import Team
+
 from products.review_hog.backend.reviewer.constants import PUBLISH_REVIEW_ENABLED
+from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspectives
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
@@ -44,6 +47,20 @@ def _emit(message: str) -> None:
 def _stage(number: int, label: str) -> None:
     """Emit a one-line, numbered banner so the current pipeline stage is obvious in the console."""
     _emit(f"━━━━━ STAGE {number}/{_TOTAL_STAGES} · {label} ━━━━━")
+
+
+def _sync_perspectives_for_team(team_id: int) -> None:
+    """Cold-start sync the team's canonical review perspectives before the review pulls them.
+
+    Mirrors the Signals scout runner's lazy sync (prune off — an ad-hoc run only ensures its own
+    perspectives are seeded and current). Log-and-continue: a sync failure shouldn't crash the run;
+    the review proceeds with whatever perspective skills the team already has, and surfaces a clear
+    error later if one is genuinely missing.
+    """
+    try:
+        sync_canonical_perspectives(Team.objects.get(id=team_id))
+    except Exception:
+        logger.exception("Perspective skill sync failed; continuing with existing team perspectives")
 
 
 # TODO: Make it a parent workflow and spawn steps as child workflows for better visualization
@@ -103,6 +120,10 @@ async def main(pr_url: str, *, team_id: int, user_id: int) -> None:
         diff=diff,
     )
     _emit("Captured point-in-time diff snapshot" if snapshotted else "No new diff snapshot this turn")
+
+    # Cold-start: seed/update this team's canonical review perspectives so the parallel review can
+    # pull each one over MCP (skill-get). Mirrors the Signals scout runner's lazy sync.
+    await sync_to_async(_sync_perspectives_for_team)(team_id)
 
     # 3. Generate prompt schemas (static package assets the prompt templates embed)
     logger.info("Generating schemas...")

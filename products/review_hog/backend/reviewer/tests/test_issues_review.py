@@ -7,11 +7,28 @@ from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnal
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuesReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.skill_loader import PERSPECTIVES, LoadedPerspective
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.issues_review import review_chunks
 
 # Every (perspective, chunk) pair produced for a single-chunk list — three perspectives × chunk 1.
 ALL_PERSPECTIVE_KEYS = {(1, 1), (2, 1), (3, 1)}
+
+
+def _perspectives() -> list[LoadedPerspective]:
+    # The three canonical perspectives pinned to v1 — what load_perspectives_for_run returns for a
+    # synced team. Built from the registry so the ordinals stay aligned with PerspectiveType order.
+    return [
+        LoadedPerspective(pass_number=i, perspective=perspective, skill_name=name, version=1)
+        for i, (perspective, name) in enumerate(PERSPECTIVES, start=1)
+    ]
+
+
+def _patch_perspectives() -> Any:
+    return patch(
+        "products.review_hog.backend.reviewer.tools.issues_review.load_perspectives_for_run",
+        MagicMock(return_value=_perspectives()),
+    )
 
 
 def _analyses(chunk_id: int) -> dict[int, ChunkAnalysis]:
@@ -57,6 +74,7 @@ class TestReviewChunks:
         load = MagicMock(return_value={})
         persist = MagicMock()
         with (
+            _patch_perspectives(),
             patch("products.review_hog.backend.reviewer.tools.issues_review.load_perspective_results", load),
             patch("products.review_hog.backend.reviewer.tools.issues_review.persist_perspective_results", persist),
             patch(
@@ -84,6 +102,7 @@ class TestReviewChunks:
         persist = MagicMock()
         sandbox_spy = MagicMock(side_effect=create_mock_run_sandbox_review(sample_issues_review_simple))
         with (
+            _patch_perspectives(),
             patch("products.review_hog.backend.reviewer.tools.issues_review.load_perspective_results", load),
             patch("products.review_hog.backend.reviewer.tools.issues_review.persist_perspective_results", persist),
             patch("products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review", sandbox_spy),
@@ -110,6 +129,7 @@ class TestReviewChunks:
         load = MagicMock(return_value={})
         persist = MagicMock()
         with (
+            _patch_perspectives(),
             patch("products.review_hog.backend.reviewer.tools.issues_review.load_perspective_results", load),
             patch("products.review_hog.backend.reviewer.tools.issues_review.persist_perspective_results", persist),
             patch("products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review", flaky_sandbox),

@@ -5,9 +5,11 @@
 **ReviewHog** (`products/review_hog`) is an automated GitHub PR code reviewer. It is a Django app
 (`backend/apps.py`, label `review_hog`, module `products.review_hog.backend`) driven by a single
 management command — there is **no API, viewset, model, or frontend** yet. A run fetches a PR from
-GitHub, splits it into logically reviewable **chunks**, runs a **three-lens parallel LLM review** of each
+GitHub, splits it into logically reviewable **chunks**, runs a **three-perspective parallel LLM review** of each
 chunk inside **sandbox agents**, then combines → scope-cleans → deduplicates → validates the findings, renders
-a markdown report, and posts inline review comments back to the PR.
+a markdown report, and posts inline review comments back to the PR. Each review **perspective** (Logic &
+Correctness, Contracts & Security, Performance & Reliability) is a DB-synced **LLMA skill** the sandbox agent
+pulls over MCP — the same canonical-skill pattern the Signals scouts use.
 
 Every LLM step runs inside a **sandbox agent** spawned through the shared `products/tasks` infrastructure
 (`Task`/`TaskRun` → Temporal `ProcessTaskWorkflow` → Modal/Docker sandbox → agent-server). ReviewHog does
@@ -81,12 +83,12 @@ re-pointed accordingly:
 
 ### ⏭️ What's next — Stage 2 (START HERE on "continue")
 
-> **✅ Landed so far (subset of Stage 2):** the review now runs the **three lenses in parallel** per chunk
-> with **no cross-lens context** (`review_chunks` → `asyncio.gather` over `(lens × chunk)`;
+> **✅ Landed so far (subset of Stage 2):** the review now runs the **three perspectives in parallel** per chunk
+> with **no cross-perspective context** (`review_chunks` → `asyncio.gather` over `(perspective × chunk)`;
 > `load_previous_pass_results` / `PassContext` / the `PREVIOUS_PASSES_CONTEXT` prompt block are **deleted**);
 > the **dedupe** is hardened with a deterministic positional pre-filter (`_select_dedup_candidates` — only
 > file+line colliders reach the LLM, and a zero-candidate run skips the LLM call); and each issue carries a
-> **`source_lens`** attribution (stamped by `combine_issues`). **Still TODO in Stage 2:** conditional chunking
+> **`source_perspective`** attribution (stamped by `combine_issues`). **Still TODO in Stage 2:** conditional chunking
 > (the chunk gate), the per-chunk batched validator, and explicit `--team-id`/`--user-id`/`--repository`
 > config. _(The `MultiTurnSession.start(model=)` migration below is also still pending — the executor remains
 > on `start_raw`.)_
@@ -178,23 +180,22 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 
 ### 🔭 Stage 3 — durable persistence & the loop-y review (cloud)
 
-> **Status: Stage 3 complete (steps 1–9 built & green).** Foundation, persist-after-success, explicit
-> team/user identity, the per-turn **point-in-time diff snapshot**, and now **step 8 — Postgres is the
-> single source of truth and the on-disk `reviews/<pr>/` store is gone**. The pipeline passes objects
-> in-process within a run and persists every stage to rows; a `head_sha`-scoped **DB-driven resume** reuses
-> the turn-stable sandbox stages (chunk / analyze / lens review) on a re-run. The sandbox executor returns a
-> validated model (via `MultiTurnSession.start(model=…)`) instead of writing a file, and publish is
-> **DB-driven** (body from `ReviewReport.report_markdown`, inline comments from the finding/verdict rows). No
-> object storage. **Step 9 — `reset_review_hog`** now wipes all ReviewHog DB rows (DEBUG-only, unscoped,
-> `--dry-run` / `--yes`) so iteration starts from a clean slate. Lint + tach + the ReviewHog backend suite
-> (128) + the Signals artefact suite pass. What remains (planned, in order): **(10)** **perspectives as LLMA
-> skills** — rename the review "lens" → **perspective** and move the three jinja focus templates into DB-synced
-> `LLMSkill` skills (the Signals-scout pattern), landing **before** Temporal because it collapses the three
-> pass→perspective couplings into one registry the Temporal fan-out will iterate; then **(11)** the **Temporal
-> migration** — `run.py main()` → a **single-turn** `ReviewPRWorkflow` with the fan-out stages as child
-> workflows. The loop-y re-check, cross-turn finding identity, and the `task_run` / `note` work-log artefacts
-> are deferred to a follow-up after the single-turn workflow lands. See the step list and the Deferred / future
-> section below.
+> **Status: Stage 3 complete (steps 1–10 built & green).** Foundation, persist-after-success, explicit
+> team/user identity, the per-turn **point-in-time diff snapshot**, **step 8 — Postgres is the
+> single source of truth and the on-disk `reviews/<pr>/` store is gone**, and **step 9 — `reset_review_hog`**
+> (DEBUG-only full wipe). The pipeline passes objects in-process within a run and persists every stage to rows;
+> a `head_sha`-scoped **DB-driven resume** reuses the turn-stable sandbox stages (chunk / analyze / perspective
+> review) on a re-run. The sandbox executor returns a validated model (via `MultiTurnSession.start(model=…)`)
+> instead of writing a file, and publish is **DB-driven** (body from `ReviewReport.report_markdown`, inline
+> comments from the finding/verdict rows). No object storage. **Step 10 — perspectives as LLMA skills** is now
+> built: the review "lens" is renamed **perspective** throughout, and the three jinja focus templates are gone —
+> each perspective is a DB-synced `LLMSkill` (`products/review_hog/skills/review-hog-perspective-*/SKILL.md`,
+> the Signals-scout canonical-skill pattern) that the sandbox agent **pulls** over MCP via `skill-get`; the
+> three couple into one ordered `PERSPECTIVES` registry. Lint + tach + the ReviewHog backend suite (138) + the
+> Signals artefact suite pass. What remains: **(11)** the **Temporal migration** — `run.py main()` → a
+> **single-turn** `ReviewPRWorkflow` with the fan-out stages as child workflows. The loop-y re-check, cross-turn
+> finding identity, and the `task_run` / `note` work-log artefacts are deferred to a follow-up after the
+> single-turn workflow lands. See the step list and the Deferred / future section below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
 DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
@@ -298,11 +299,12 @@ gives the fail-closed `TeamScopedManager` + canonical-team `save()`; the subclas
 Content schemas (`products/review_hog/backend/reviewer/artefact_content.py`, pydantic):
 
 - **`ReviewIssueFinding`** — `file`, `lines`, an `issue_key`, `title`, `body`, `suggestion`, `priority`,
-  `source_lens`, `is_directly_related_to_changes`. A verdict reuses its finding's `issue_key` so **latest-wins
-  per `issue_key`** pairs them 1:1. The key is `file:start:lens:{pass}-{chunk}-{issue}` — the trailing
-  pipeline id keeps it **unique within a turn** (two distinct findings on the same line from the same lens must
-  not collapse and shadow each other). Robust **cross-turn** identity (still-valid / resolved / newly-appeared)
-  needs semantic matching, not a positional id that's reassigned each turn — deferred to the loop phase.
+  `source_perspective`, `is_directly_related_to_changes`. A verdict reuses its finding's `issue_key` so
+  **latest-wins per `issue_key`** pairs them 1:1. The key is `file:start:perspective:{pass}-{chunk}-{issue}` —
+  the trailing pipeline id keeps it **unique within a turn** (two distinct findings on the same line from the
+  same perspective must not collapse and shadow each other). Robust **cross-turn** identity (still-valid /
+  resolved / newly-appeared) needs semantic matching, not a positional id that's reassigned each turn —
+  deferred to the loop phase.
 - **`ValidationVerdict`** — `issue_key`, `is_valid`, `category`, `argumentation` (latest-wins per issue).
 - Reuse `Commit` / `CodeReference` / `TaskRunArtefact` / `NoteArtefact` from the Signals leaf for the
   commit / code-pointer / turn / note entries.
@@ -405,13 +407,14 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
    no longer writes any durable files — every piece of inter-stage state is a DB row or an in-process value
    passed within the run. What was built:
    - **Three new working-state artefact types** (`ReviewReportArtefact`): `chunk_set`, `chunk_analysis`,
-     `lens_result`, each carrying the turn's `head_sha`. Their content schemas live in `artefact_content.py`
+     `perspective_result` (renamed from `lens_result` in step 10), each carrying the turn's `head_sha`. Their
+     content schemas live in `artefact_content.py`
      (they embed the live `Chunk` / `ChunkAnalysis` / `IssuesReview` pipeline models — per-turn scaffolding, not
      cross-turn-stable findings, so tracking the live shape is fine). A new `add_working_state` appender + the
      `WORKING_STATE_ARTEFACT_TYPES` set gate them, mirroring `add_log`. Migration `0002` adds the enum values
      (state-only, no SQL).
    - **DB-driven, head_sha-scoped resume** (`persistence.py`: `persist_/load_chunk_set`, `…chunk_analyses`,
-     `…lens_results`, with `_load_working_state` latest-wins per key for the current head). `split_pr_into_chunks`
+     `…perspective_results`, with `_load_working_state` latest-wins per key for the current head). `split_pr_into_chunks`
      / `analyze_chunks` / `review_chunks` now take `team_id` / `report_id` / `head_sha`, check the rows first, run
      the sandbox only for missing items, persist, and return objects. A re-run on the same head reuses these
      **turn-stable** sandbox stages. **Dedup and validation recompute** on a re-run — their post-dedup issue set
@@ -448,7 +451,7 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
 9. ✅ **`reset_review_hog` management command — wipe ReviewHog's DB state for a clean slate.** A one-shot
    `python manage.py reset_review_hog` deletes **all** ReviewHog rows across every team — every
    `ReviewReportArtefact` (findings, verdicts, commit snapshots, and the `chunk_set` / `chunk_analysis` /
-   `lens_result` working state) and every `ReviewReport` — so a re-run starts genuinely fresh instead of
+   `perspective_result` working state) and every `ReviewReport` — so a re-run starts genuinely fresh instead of
    resuming or accumulating against stale turns. Now that Postgres is the single source of truth, this is the
    _entire_ "clean state" story — there are no files left to remove. **Local iteration helper only:** it
    refuses to run unless `DEBUG=True` (the only guard — a full wipe is intentionally non-prod), and is
@@ -457,15 +460,22 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
    through the fail-closed managers' cross-team escape hatch (`ReviewReport.objects.unscoped()` /
    `ReviewReportArtefact.objects.unscoped()`), not raw SQL. (Tests in `backend/tests/test_reset_review_hog.py`:
    the DEBUG gate, the cross-team wipe, and `--dry-run` safety.)
-10. ⏭️ **(next) Perspectives as LLMA skills — rename "lens" → "perspective" + DB-synced skill pipeline (before
+10. ✅ **Perspectives as LLMA skills — rename "lens" → "perspective" + DB-synced skill pipeline (before
     Temporal).** The three review "lenses" (Logic & Correctness / Contracts & Security / Performance &
-    Reliability) are renamed **perspectives** — "lens" collides with Replay Vision, which already abandoned it
-    (migration `0006_rename_lens_to_scanner`; "scanner" is now taken too) — and the static jinja focus templates
-    (`prompts/issues_review/pass_contexts/pass{1,2,3}_focus.jinja`) become first-class **LLMA skills** stored and
-    synced the way Signals Scouts store theirs (disk `SKILL.md` → per-team `LLMSkill` rows). Lands **before**
-    Temporal because it collapses the three pass→perspective couplings into one registry the Temporal fan-out
-    iterates, so the perspective-loading code isn't touched twice. Full design in _Perspectives as LLMA skills_
-    under Deferred / future below.
+    Reliability) are renamed **perspectives** — "lens" collided with Replay Vision, which already abandoned it
+    (migration `0006_rename_lens_to_scanner`; "scanner" is taken too). The rename touched the model
+    (`PassType` → `PerspectiveType`, `Issue.source_lens` → `source_perspective`), the durable artefact
+    (`LensResultArtefact` → `PerspectiveResultArtefact`, the `lens_result` → `perspective_result` choice via
+    migration `0003`), and `persist_/load_lens_results` → `…_perspective_results`. The static jinja focus
+    templates (`prompts/issues_review/pass_contexts/pass{1,2,3}_focus.jinja`, now **deleted**) became
+    first-class **LLMA skills** at `products/review_hog/skills/review-hog-perspective-*/SKILL.md`, synced into
+    per-team `LLMSkill` rows by `reviewer/lazy_seed.sync_canonical_perspectives` (`seeded_by="review_hog"`,
+    `category="review_perspective"`) — driven by the `sync_review_hog_perspectives` command and a cold-start
+    sync at run start. Delivery flipped to **pull**: `issues_review/prompt.jinja` instructs the agent to
+    `skill-get(review-hog-perspective-…, version=N)` over MCP (the sandbox's default `full` scope carries
+    `llm_skill:read`). The three couple into one ordered `PERSPECTIVES` registry (`reviewer/skill_loader.py`)
+    the Temporal fan-out will iterate. Per-team custom perspectives stay a later iteration. Full design in
+    _Perspectives as LLMA skills_ under Deferred / future below.
 11. ⏭️ **(after) Make the pipeline Temporal — single-turn workflow first.** Rework `run.py main()` into a
     single-turn **`ReviewPRWorkflow`** parent workflow with the three fan-out stages (analyze / perspective
     review / validate) as **child workflows** and the rest as **activities**, exchanging Postgres **row ids by
@@ -490,8 +500,8 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
 - **Shared abstract artefact base.** If a second consumer proves it out (nest-then-promote), extract an abstract
   `AttributedArtefact` (funnel + fields, with `task` / `report` FKs declared per-subclass to avoid a core→tasks
   FK) into a shared home; Signals would converge onto it via a **mixin only** (no table change). Not now.
-- **Perspectives as LLMA skills — this is step 10** (next; lands _before_ Temporal; design detail here).
-  Two coupled changes:
+- **Perspectives as LLMA skills — built in step 10** (landed _before_ Temporal; design record here).
+  Two coupled changes, both shipped:
   - **Rename "lens" → "perspective" everywhere.** The word "lens" collides with Replay Vision, which already
     abandoned it (migration `0006_rename_lens_to_scanner`; its replacement "scanner" is now taken too). "perspective"
     is collision-clear and idiomatic. The rename touches `Issue.source_lens` → `source_perspective`, `PassType`
@@ -504,12 +514,13 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
   - **Move the three perspectives into DB-synced LLMA skills (the full Signals-scout pattern, "v2").** On disk,
     `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability}/SKILL.md`
     (frontmatter `name` under a `REVIEW_HOG_PERSPECTIVE_PREFIX = "review-hog-perspective-"` constant + `description`;
-    body = the perspective text moved verbatim out of the jinja focus blocks; optional `references/`). A
-    `sync_review_hog_perspectives` command (ported from Signals' `sync_canonical_skills` / `lazy_seed.py`) mirrors
+    body = the perspective text moved out of the jinja focus blocks and **reworded to standalone perspective
+    framing** — the pass-numbered "three-pass" wording was wrong once they run in parallel; substance kept).
+    A `sync_review_hog_perspectives` command (ported from Signals' `sync_canonical_skills` / `lazy_seed.py`) mirrors
     each disk `SKILL.md` into **per-team `LLMSkill` / `LLMSkillFile` rows** (content-hashed; buckets
     created/updated/diverged/tombstoned/pruned; ownership guard `metadata.seeded_by == "review_hog"`,
     `category = "review_perspective"`), driven both by `manage.py sync_review_hog_perspectives`
-    (`--team-id` / `--all-enabled` / `--dry-run`) and a **lazy cold-start sync** at the start of a review run
+    (`--team-id` / `--all-teams` / `--dry-run`) and a **lazy cold-start sync** at the start of a review run
     (mirroring the scout runner — no Temporal coordinator needed yet). Reuses the shared `LLMSkill` model, so
     add `products.skills` to `products.review_hog`'s `tach` `depends_on` (skills is un-isolated; no facade).
     Delivery flips to **pull**: the issues-review prompt stops splicing the focus text and instead instructs the
@@ -527,12 +538,16 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
     `pass{N}_focus.jinja` filename convention, and the positional `list(PassType)[n-1]`) into one ordered
     `PERSPECTIVES` registry — the single source of truth the Temporal "perspective review" fan-out
     (`ReviewPerspectivesWorkflow`) iterates — so the perspective-loading code isn't touched twice.
-  - **Acceptance gate (run at the END of step 10, not before):** an e2e `run_review` against the default PR
-    **#65862** (`--team-id 1 --user-id 1`), with `reset_review_hog` run first for a clean slate, must complete
-    the full pipeline — confirming the three perspectives sync into `LLMSkill` rows and the sandbox agent
-    pull-delivers them via `skill-get` (replacing the deleted jinja splice). The e2e is the step's verification,
-    so it only makes sense once the jinja→skill move is in place. The unit suite (the `PERSPECTIVES`-vs-enum
-    order assert + the loader test) guards the wiring along the way.
+  - **Acceptance gate — ✅ passed.** The e2e `run_review` against PR **#65862** (`--team-id 1 --user-id 1`,
+    `reset_review_hog` run first) completed the full 9-stage pipeline (exit 0): 5 findings + 5 verdicts, a
+    12.5 KB rendered body. The cold-start sync seeded the three perspectives into team 1's `LLMSkill` rows
+    (v1, `seeded_by="review_hog"`, `category="review_perspective"`), and the sandbox agents **pull-delivered**
+    them — the prompt rendered `skill-get(review-hog-perspective-…, version=1)`, the agents loaded and invoked
+    `skill-get`/`skill-file-get` over MCP with no `isError`/`SkillNotFound`/`403`, and produced
+    perspective-specialized output (9 `perspective_result` rows = 3 perspectives × 3 chunks; e.g. a Contracts &
+    Security finding on `serializers.py` keyed `…:Contracts & Security:1-1-1`). The unit suite (the
+    `PERSPECTIVES`-vs-enum order assert, the sync buckets, and the loader test) guards the wiring (138 backend
+    tests green).
 
 - **Everything on Temporal — this is step 11** (the major step after perspectives-as-skills; design detail here).
   Rework `run.py main()` into a **single-turn `ReviewPRWorkflow`** parent workflow (one run = one review turn);
@@ -583,7 +598,7 @@ turn's current diff only); _reuse from the Signals leaf_ — `Commit` / `CodeRef
 `ReviewReportArtefact`, the funnel, **its own registry + `artefact_type_for` / `parse_artefact_content` helpers**
 (the Signals helpers close over Signals' module-global registry and can't take ours), the
 `ReviewIssueFinding` / `ValidationVerdict` schemas, and the working-state schemas
-(`ChunkSetArtefact` / `ChunkAnalysisArtefact` / `LensResultArtefact`). There is no on-disk store.
+(`ChunkSetArtefact` / `ChunkAnalysisArtefact` / `PerspectiveResultArtefact`). There is no on-disk store.
 
 ---
 
@@ -594,7 +609,7 @@ sequential async function. State is passed **in-process** between stages and per
 (`ReviewReport` + `ReviewReportArtefact`); there is **no on-disk store**. Steps that fan out over chunks use
 `asyncio.gather`; all sandbox calls are globally throttled to `MAX_CONCURRENT_SANDBOXES` (`constants.py`) via
 one module-level semaphore in `executor.py`. The expensive, turn-stable sandbox stages (chunk / analyze /
-lens review) are **idempotent via a head_sha-scoped DB resume** — a re-run reuses their rows instead of
+perspective review) are **idempotent via a head_sha-scoped DB resume** — a re-run reuses their rows instead of
 re-calling the sandbox; dedup and validation recompute.
 
 See `ARCHITECTURE_DIAGRAM.mmd` (rendered: `ARCHITECTURE_DIAGRAM.png`) for the visual flow. Compact form:
@@ -605,10 +620,10 @@ flowchart TD
     FETCH --> SCHEMA["2. Generate JSON schemas from Pydantic models"]
     SCHEMA --> CHUNK{{"3. Chunk PR (sandbox)"}}
     CHUNK --> ANALYZE{{"4. Per-chunk analysis (sandbox, parallel)"}}
-    ANALYZE --> L1{{"5a. Lens — Logic & Correctness"}}
-    ANALYZE --> L2{{"5b. Lens — Contracts & Security"}}
-    ANALYZE --> L3{{"5c. Lens — Performance & Reliability"}}
-    L1 --> COMBINE["6. Combine issues (local, stamps source_lens)"]
+    ANALYZE --> L1{{"5a. Perspective — Logic & Correctness"}}
+    ANALYZE --> L2{{"5b. Perspective — Contracts & Security"}}
+    ANALYZE --> L3{{"5c. Perspective — Performance & Reliability"}}
+    L1 --> COMBINE["6. Combine issues (local, stamps source_perspective)"]
     L2 --> COMBINE
     L3 --> COMBINE
     COMBINE --> CLEAN["7. Scope clean (local)"]
@@ -638,20 +653,25 @@ pr_metadata.head_branch` is threaded into every sandbox step. Then `bind_sandbox
 5. **Per-chunk analysis** — `analyze_chunks` (1 sandbox call per chunk, **parallel** via `asyncio.gather`)
    returns a `dict[chunk_id, ChunkAnalysis]` (a `goal` narrative per chunk). Informational; best-effort (logs
    and continues on partial failure). Persists/resumes per-chunk `chunk_analysis` rows.
-6. **Parallel lens review** — `review_chunks` runs **three independent specialist lenses concurrently** per
-   chunk (`asyncio.gather` over `(lens × chunk)`, bounded by the global semaphore), each with **no cross-lens
-   context** — overlap is left to dedup (8):
-   - **Logic & Correctness** (`PassType.LOGIC_CORRECTNESS`)
-   - **Contracts & Security** (`PassType.CONTRACTS_SECURITY`)
-   - **Performance & Reliability** (`PassType.PERFORMANCE_RELIABILITY`)
+6. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
+   concurrently** per chunk (`asyncio.gather` over `(perspective × chunk)`, bounded by the global semaphore),
+   each with **no cross-perspective context** — overlap is left to dedup (8):
+   - **Logic & Correctness** (`PerspectiveType.LOGIC_CORRECTNESS`)
+   - **Contracts & Security** (`PerspectiveType.CONTRACTS_SECURITY`)
+   - **Performance & Reliability** (`PerspectiveType.PERFORMANCE_RELIABILITY`)
 
-   Each lens×chunk is one sandbox call validating `IssuesReview` (step name `issues-review-p{lens}-c{chunk}`),
+   The three perspectives come from the ordered `PERSPECTIVES` registry (`reviewer/skill_loader.py`);
+   `load_perspectives_for_run(team_id)` pins each one's current `LLMSkill` version for the run. Delivery is
+   **pull** — the prompt instructs the sandbox agent to `skill-get(review-hog-perspective-…, version=N)` over
+   MCP and apply that perspective's focus, rather than splicing the focus text into the prompt. Each
+   perspective×chunk is one sandbox call validating `IssuesReview` (step name `issues-review-p{pass}-c{chunk}`),
    with the chunk's `ChunkAnalysis.goal` injected as `CHUNK_ANALYSIS_CONTEXT`. Returns
-   `dict[(pass, chunk), IssuesReview]`; persists/resumes per-pair `lens_result` rows.
+   `dict[(pass, chunk), IssuesReview]`; persists/resumes per-pair `perspective_result` rows. (The `pass` ordinal
+   = the perspective's 1-based position in `PERSPECTIVES`.)
 
-7. **Combine + scope-clean** — `combine_issues(lens_results)` flattens every lens×chunk `Issue` (stamping
-   `source_lens`), then `clean_issues(issues, pr_files)` drops issues whose file/lines don't overlap the PR
-   diff. Both pure, in-process.
+7. **Combine + scope-clean** — `combine_issues(perspective_results)` flattens every perspective×chunk `Issue`
+   (stamping `source_perspective` from the ordinal), then `clean_issues(issues, pr_files)` drops issues whose
+   file/lines don't overlap the PR diff. Both pure, in-process.
 8. **Deduplicate** — `deduplicate_issues(issues, pr_metadata, pr_comments, …)` first runs a **deterministic
    positional pre-filter** (`_select_dedup_candidates`): only issues sharing a file + overlapping lines with
    another issue or a prior bot comment can be duplicates, so isolated issues survive **without** an LLM call
@@ -738,16 +758,16 @@ All Pydantic. `models/__init__.py` is the authoritative registry that generates 
 `schema.json` files from `Model.model_json_schema()` — **`schema.json` files are generated artifacts; edit
 the model and regenerate, never hand-edit.**
 
-| Model                                                                 | File                                    | Schema-backed?                    | Role                                                                                               |
-| --------------------------------------------------------------------- | --------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `ChunksList` / `Chunk` / `FileInfo`                                   | `models/split_pr_into_chunks.py`        | ✅ chunking                       | PR → reviewable chunks (`chunk_type`, `key_changes`)                                               |
-| `ChunkAnalysis` / `ChunkMeta`                                         | `models/chunk_analysis.py`              | ✅ chunk_analysis                 | per-chunk `goal` narrative                                                                         |
-| `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PassType` | `models/issues_review.py`               | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of stages 7–12; `Issue.source_lens` records which lens found it |
-| `IssueDeduplication` / `DuplicateIssue`                               | `models/issue_deduplicator.py`          | ✅ issue_deduplicator             | ids of issues to drop                                                                              |
-| `IssueValidation`                                                     | `models/issue_validation.py`            | ✅ issue_validation               | `is_valid` + `category` per issue                                                                  |
-| `IssueCombination`                                                    | `models/issue_combination.py`           | — internal                        | flat merged issue list                                                                             |
-| `ValidationMarkdownReport*`                                           | `models/prepare_validation_markdown.py` | — internal                        | report tree (Chunk × Analysis × Issue × Validation)                                                |
-| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                | `models/github_meta.py`                 | — internal                        | raw GitHub ingestion                                                                               |
+| Model                                                                        | File                                    | Schema-backed?                    | Role                                                                                                             |
+| ---------------------------------------------------------------------------- | --------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `ChunksList` / `Chunk` / `FileInfo`                                          | `models/split_pr_into_chunks.py`        | ✅ chunking                       | PR → reviewable chunks (`chunk_type`, `key_changes`)                                                             |
+| `ChunkAnalysis` / `ChunkMeta`                                                | `models/chunk_analysis.py`              | ✅ chunk_analysis                 | per-chunk `goal` narrative                                                                                       |
+| `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PerspectiveType` | `models/issues_review.py`               | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of stages 7–12; `Issue.source_perspective` records which perspective found it |
+| `IssueDeduplication` / `DuplicateIssue`                                      | `models/issue_deduplicator.py`          | ✅ issue_deduplicator             | ids of issues to drop                                                                                            |
+| `IssueValidation`                                                            | `models/issue_validation.py`            | ✅ issue_validation               | `is_valid` + `category` per issue                                                                                |
+| `IssueCombination`                                                           | `models/issue_combination.py`           | — internal                        | flat merged issue list                                                                                           |
+| `ValidationMarkdownReport*`                                                  | `models/prepare_validation_markdown.py` | — internal                        | report tree (Chunk × Analysis × Issue × Validation)                                                              |
+| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                       | `models/github_meta.py`                 | — internal                        | raw GitHub ingestion                                                                                             |
 
 `Issue.id` encodes provenance as `"{pass_number}-{chunk_id}-{issue_number}"` and is parsed back throughout
 the pipeline to route validations and group the report. `IssuePriority` is `MUST_FIX` / `SHOULD_FIX` /
@@ -765,17 +785,13 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
   imports / layer boundaries; order by review priority. → `ChunksList`.
 - `chunk_analysis/prompt.jinja` — analyze one chunk's purpose and how it fits the PR (architecture mapping,
   dependency tracing); informational. → `ChunkAnalysis`.
-- `issues_review/prompt.jinja` — the core review prompt, run once per pass per chunk; 10-step process with
-  mandatory codebase investigation and cross-pass dedup. Splices the per-pass focus via
-  `{{ PASS_SPECIFIC_CONTENT }}`. → `IssuesReview`.
-  - `issues_review/pass_contexts/pass1_focus.jinja` — **Logic & Correctness** (defers security→P2,
-    perf→P3).
-  - `issues_review/pass_contexts/pass2_focus.jinja` — **Contracts & Security** (API breaking changes,
-    injection/authz, validation, schema/migration alignment).
-  - `issues_review/pass_contexts/pass3_focus.jinja` — **Performance & Reliability** (N+1/indexes/memory,
-    error handling, scalability, operational readiness; defines a severity rubric).
-  - _Future:_ these three lens focuses are slated to move out of jinja into **LLMA skills** (the Signals
-    Scouts pattern), so lenses become independently authored/selected units — see _Deferred / future_ above.
+- `issues_review/prompt.jinja` — the core review prompt, run once per perspective per chunk; 10-step process
+  with mandatory codebase investigation. The per-perspective focus is **no longer spliced in** — the
+  `<your_review_perspective>` block instructs the agent to `skill-get(PERSPECTIVE_SKILL_NAME, version=N)` over
+  MCP and apply that perspective's focus (pull delivery; the old `pass_contexts/pass{1,2,3}_focus.jinja` files
+  are gone). → `IssuesReview`. The perspective focuses themselves now live as **DB-synced LLMA skills** at
+  `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability}/SKILL.md`
+  (see _Perspectives as LLMA skills_ in the roadmap).
 - `issue_deduplicator/prompt.jinja` — mark duplicates (same file + overlapping lines + similar root cause)
   and issues matching prior review comments; keep the single most comprehensive representative. →
   `IssueDeduplication`.
@@ -793,8 +809,9 @@ Per-run state by kind:
 - **Fetch outputs** (`pr_metadata`, `pr_comments`, `pr_files`) — in-process return values, never persisted
   (re-fetchable from GitHub). The reviewed unified `diff` rides back as a string and becomes the per-turn
   **`commit`** artefact (the durable point-in-time snapshot).
-- **Working state** (the resume substrate, head_sha-scoped): `chunk_set`, `chunk_analysis`, `lens_result`
-  artefacts. The raw/cleaned/combined issue sets are in-process values down the combine→clean→dedup chain.
+- **Working state** (the resume substrate, head_sha-scoped): `chunk_set`, `chunk_analysis`,
+  `perspective_result` artefacts. The raw/cleaned/combined issue sets are in-process values down the
+  combine→clean→dedup chain.
 - **Outputs:** `issue_finding` + `validation_verdict` artefacts (the canonical findings/verdicts) and
   `ReviewReport.report_markdown` (the rendered review body) + the `head_sha` / `last_seen_comment_id`
   watermark.
@@ -834,22 +851,22 @@ Per-run state by kind:
 
 Found during Stage 1 analysis and the first parallel run (PR #65862); **documented, not fixed**:
 
-- **TODO — transient sandbox timeout silently drops a review.** On the #65862 run, the Performance lens ×
-  chunk-1 returned `API Error: The operation timed out.` and was dropped (11/12 `(lens × chunk)` reviews
-  landed). There is **no retry** for transient sandbox/agent errors, and the failure is swallowed by the
-  "log-and-return on partial failure" behavior below — so one timed-out lens silently removes a whole
-  specialty's view of a chunk. Fix: bounded retry on transient sandbox errors in `run_sandbox_review`, and
-  surface the dropped `(lens × chunk)` loudly (or fail the stage) rather than swallowing it.
-- **TODO — lens fan-out back-loads the last lens.** `review_chunks` builds the gather in lens order (all
-  Logic chunks, then all Contracts, then all Performance); with a FIFO semaphore the 3rd lens queues at the
-  back, so on #65862 the Performance reviews finished last (+183/+444/+514s vs Logic/Contracts up front). It
-  is genuinely parallel, but not balanced per-chunk. Fix: interleave the task list by chunk
-  (`L1c1, L2c1, L3c1, L1c2, …`) so a chunk's three lenses co-schedule. (Raising `MAX_CONCURRENT_SANDBOXES`
-  partly mitigates by leaving fewer tasks queued.)
+- **TODO — transient sandbox timeout silently drops a review.** On the #65862 run, the Performance perspective
+  × chunk-1 returned `API Error: The operation timed out.` and was dropped (11/12 `(perspective × chunk)`
+  reviews landed). There is **no retry** for transient sandbox/agent errors, and the failure is swallowed by
+  the "log-and-return on partial failure" behavior below — so one timed-out perspective silently removes a
+  whole specialty's view of a chunk. Fix: bounded retry on transient sandbox errors in `run_sandbox_review`,
+  and surface the dropped `(perspective × chunk)` loudly (or fail the stage) rather than swallowing it.
+- **TODO — perspective fan-out back-loads the last perspective.** `review_chunks` builds the gather in
+  perspective order (all Logic chunks, then all Contracts, then all Performance); with a FIFO semaphore the 3rd
+  perspective queues at the back, so on #65862 the Performance reviews finished last (+183/+444/+514s vs
+  Logic/Contracts up front). It is genuinely parallel, but not balanced per-chunk. Fix: interleave the task
+  list by chunk (`P1c1, P2c1, P3c1, P1c2, …`) so a chunk's three perspectives co-schedule. (Raising
+  `MAX_CONCURRENT_SANDBOXES` partly mitigates by leaving fewer tasks queued.)
   _(Step 8 fixed several Stage-1 issues: the neutered validation batching is gone — `validate_issues` now
   fans out one `asyncio.gather` over all issues under the semaphore; and the duplicate report build is gone —
   publish is DB-driven and the report is rendered once.)_
-- **Inconsistent failure handling** — chunk analysis (step 5) and lens review (step 6) log and continue on
+- **Inconsistent failure handling** — chunk analysis (step 5) and perspective review (step 6) log and continue on
   partial chunk failure (pipeline proceeds with incomplete results — by design, those stages are
   best-effort), whereas chunking and dedup raise `RuntimeError`.
 - **Prompt/schema mismatch** — the `Issue` field is still misspelled `is_directy_related_to_changes` (in

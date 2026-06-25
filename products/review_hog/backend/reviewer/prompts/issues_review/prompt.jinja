@@ -3,7 +3,7 @@
 <pr_chunk_analysis_instructions>
 You are helping me review a specific chunk of a pull request submitted by another developer. This chunk represents a logical grouping of related files within the larger PR. Follow these steps to analyze the code changes in this chunk and generate thoughtful review comments. Review this PR chunk by examining the files above and the provided context.
 
-Each chunk is reviewed by several independent specialist lenses. You are conducting lens {{ PASS_NUMBER }}: {{ PASS_NAME }}, a focused review with specific objectives defined in the `pass_specific_*` blocks. Lenses run in parallel and do not see each other's findings — overlap between lenses is resolved later by a separate deduplication step, so report every issue your lens finds without worrying about what other lenses might report.
+Each chunk is reviewed by several independent specialist perspectives. You are conducting perspective {{ PASS_NUMBER }}: {{ PASS_NAME }}, a focused review whose specific objectives are defined in your perspective skill (see "Your review perspective" below). Perspectives run in parallel and do not see each other's findings — overlap between perspectives is resolved later by a separate deduplication step, so report every issue your perspective finds without worrying about what other perspectives might report.
 </pr_chunk_analysis_instructions>
 
 <pr_current_chunk_context>
@@ -72,7 +72,15 @@ The following analysis was performed on this chunk to understand its architectur
 - Spend at least 40% of your time exploring before analyzing
 </claude_code_instructions>
 
-{{ PASS_SPECIFIC_CONTENT | safe }}
+<your_review_perspective>
+## Your review perspective: {{ PASS_NAME }}
+
+Your specific focus for this review lives in a skill you MUST read before analyzing. As your first step, call this over the PostHog MCP:
+
+    skill-get(skill_name="{{ PERSPECTIVE_SKILL_NAME }}", version={{ PERSPECTIVE_SKILL_VERSION }})
+
+Pin to version {{ PERSPECTIVE_SKILL_VERSION }} explicitly — this review was planned against it; fetching by name alone could race a version published mid-run. The skill body is the brain of this review: it tells you, as the {{ PASS_NAME }} perspective, what to investigate, the commands to run, where to focus, what to leave to other perspectives, and what a valid finding looks like. Apply it as your lens for this entire review. If the skill body references bundled files, pull them on demand with `skill-file-get`. Do not start analyzing before you have read it.
+</your_review_perspective>
 
 <general_analyze_pr_chunk_instructions>
 ## Step 1: Review Provided Context
@@ -110,7 +118,7 @@ Only after thorough investigation and understanding:
   - Test files often have different patterns and conventions than production code
   - Focus your issue detection only on non-test files
   - However, you may still reference test files for context when validating issues in non-test files
-- **Lens-Specific Focus**: Concentrate on issues relevant to {{ PASS_NAME }}
+- **Perspective-Specific Focus**: Concentrate on issues relevant to {{ PASS_NAME }}
 - Identify what the code is trying to accomplish within the chunk's context
 - Look for potential issues or improvements in non-test files only
 - Before adding any issue to your findings check that issue hasn't already been mentioned in Step 3.

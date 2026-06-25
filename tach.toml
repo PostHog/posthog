@@ -542,6 +542,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.signals",
+    "products.skills",
     "products.tasks",
 ]
 layer = "modules"
