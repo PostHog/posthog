@@ -67,7 +67,7 @@ pub struct ProcessingConfig {
     #[envconfig(default = "document_embeddings_input")]
     pub embedding_worker_topic: String,
 
-    #[envconfig(default = "error-tracking-ingestion-notifications")]
+    #[envconfig(default = "error_tracking_ingestion_notifications")]
     pub ingestion_notifications_topic: String,
 
     #[envconfig(default = "600")]

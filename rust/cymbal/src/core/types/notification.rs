@@ -1,4 +1,4 @@
-//! The wire contract for the `error-tracking-ingestion-notifications` Kafka
+//! The wire contract for the `error_tracking_ingestion_notifications` Kafka
 //! topic. The processing mode produces these; the notifications mode consumes
 //! them.
 

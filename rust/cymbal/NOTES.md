@@ -36,9 +36,9 @@ This preserves per-issue ordering across Kafka partitions.
 
 ### Notification commits are batched
 
-The notifications consumer keeps `enable.auto.commit=false`, stores offsets after successful handling, and explicitly commits in small batches by count or time.
+The notifications consumer keeps `enable.auto.commit=false`, fetches notifications in small batches, stores offsets after successful handling, and explicitly commits in batches by count or time.
 It also flushes pending offsets on shutdown and before crashing on a handler error.
-This reduces per-message broker round trips while preserving explicit offset control.
+This reduces per-message fetch and commit overhead while preserving explicit offset control.
 The tradeoff remains that a crash after side effects but before the batch commit replays the uncommitted tail, so idempotency is still important.
 
 ### Signals run after required side effects

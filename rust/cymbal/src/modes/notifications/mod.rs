@@ -1,4 +1,4 @@
-//! Notifications mode: consumes the `error-tracking-ingestion-notifications`
+//! Notifications mode: consumes the `error_tracking_ingestion_notifications`
 //! Kafka topic and fans ingestion notifications out to downstream side effects.
 
 use std::sync::{
@@ -8,7 +8,7 @@ use std::sync::{
 use std::time::Duration;
 
 use axum::{http::StatusCode, routing::get, Router};
-use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
+use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
@@ -36,6 +36,7 @@ const NOTIFICATIONS_KAFKA_ERRORS_TOTAL: &str = "cymbal_notifications_kafka_error
 const NOTIFICATIONS_HANDLE_ERRORS_TOTAL: &str = "cymbal_notifications_handle_errors_total";
 const NOTIFICATIONS_COMMIT_BATCH_SIZE: usize = 100;
 const NOTIFICATIONS_COMMIT_INTERVAL: Duration = Duration::from_secs(1);
+const NOTIFICATIONS_FETCH_BATCH_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// Boot the notifications consumer plus its metrics/health server and run until
 /// shutdown.
@@ -94,46 +95,58 @@ async fn consume_loop(
             _ = commit_interval.tick(), if pending_offsets > 0 => {
                 commit_pending_offsets(&consumer, &mut pending_offsets, "interval");
             }
-            result = consumer.json_recv::<IngestionNotification>() => {
-                match result {
-                    Ok((notification, offset)) => {
-                        log_notification_summary(&notification);
-                        metrics::counter!(NOTIFICATIONS_RECEIVED_TOTAL).increment(1);
-                        match handle_notification(&context, notification).await {
-                            Ok(()) => {
-                                metrics::counter!(NOTIFICATIONS_HANDLED_TOTAL).increment(1);
-                                if let Err(e) = offset.store() {
-                                    panic!("failed to store notification offset: {e}");
-                                }
-                                pending_offsets += 1;
-                                if pending_offsets >= NOTIFICATIONS_COMMIT_BATCH_SIZE {
-                                    commit_pending_offsets(&consumer, &mut pending_offsets, "batch");
-                                }
-                            }
-                            Err(e) => {
-                                metrics::counter!(NOTIFICATIONS_HANDLE_ERRORS_TOTAL).increment(1);
-                                commit_pending_offsets(&consumer, &mut pending_offsets, "before_panic");
-                                panic!("failed to handle notification: {e}");
-                            }
+            batch = consumer.json_recv_batch::<IngestionNotification>(
+                NOTIFICATIONS_COMMIT_BATCH_SIZE,
+                NOTIFICATIONS_FETCH_BATCH_TIMEOUT,
+            ) => {
+                handle_notification_batch(&consumer, &context, batch, &mut pending_offsets).await;
+                if pending_offsets >= NOTIFICATIONS_COMMIT_BATCH_SIZE {
+                    commit_pending_offsets(&consumer, &mut pending_offsets, "batch");
+                }
+            }
+        }
+    }
+}
+
+async fn handle_notification_batch(
+    consumer: &SingleTopicConsumer,
+    context: &NotificationsContext,
+    batch: Vec<Result<(IngestionNotification, Offset), RecvErr>>,
+    pending_offsets: &mut usize,
+) {
+    for result in batch {
+        match result {
+            Ok((notification, offset)) => {
+                log_notification_summary(&notification);
+                metrics::counter!(NOTIFICATIONS_RECEIVED_TOTAL).increment(1);
+                match handle_notification(context, notification).await {
+                    Ok(()) => {
+                        metrics::counter!(NOTIFICATIONS_HANDLED_TOTAL).increment(1);
+                        if let Err(e) = offset.store() {
+                            panic!("failed to store notification offset: {e}");
                         }
+                        *pending_offsets += 1;
                     }
-                    Err(RecvErr::Serde(e)) => {
-                        warn!(error = %e, "notification serde error (poison pill skipped)");
-                        metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "serde").increment(1);
-                        pending_offsets += 1;
-                        commit_pending_offsets(&consumer, &mut pending_offsets, "poison_pill");
-                    }
-                    Err(RecvErr::Empty) => {
-                        metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "empty").increment(1);
-                        pending_offsets += 1;
-                        commit_pending_offsets(&consumer, &mut pending_offsets, "poison_pill");
-                    }
-                    Err(RecvErr::Kafka(e)) => {
-                        error!(error = %e, "notifications kafka error");
-                        metrics::counter!(NOTIFICATIONS_KAFKA_ERRORS_TOTAL).increment(1);
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    Err(e) => {
+                        metrics::counter!(NOTIFICATIONS_HANDLE_ERRORS_TOTAL).increment(1);
+                        commit_pending_offsets(consumer, pending_offsets, "before_panic");
+                        panic!("failed to handle notification: {e}");
                     }
                 }
+            }
+            Err(RecvErr::Serde(e)) => {
+                warn!(error = %e, "notification serde error (poison pill skipped)");
+                metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "serde").increment(1);
+                *pending_offsets += 1;
+            }
+            Err(RecvErr::Empty) => {
+                metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "empty").increment(1);
+                *pending_offsets += 1;
+            }
+            Err(RecvErr::Kafka(e)) => {
+                error!(error = %e, "notifications kafka error");
+                metrics::counter!(NOTIFICATIONS_KAFKA_ERRORS_TOTAL).increment(1);
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
     }
