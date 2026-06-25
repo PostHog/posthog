@@ -16,6 +16,7 @@ in `products/slack_app/backend/api.py` are the ones that actually call
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from django.core.exceptions import ValidationError
@@ -52,6 +53,35 @@ ACTION_UNLINK_ACCOUNT = "slack_app_home:unlink_account"
 ACTION_SET_PROJECT_PERSONAL = "slack_app_home:set_project_personal"
 ACTION_SET_PROJECT_WORKSPACE = "slack_app_home:set_project_workspace"
 ACTION_RESET_PROJECT_PERSONAL = "slack_app_home:reset_project_personal"
+ACTION_TASKS_FILTER_REPO = "slack_app_home:tasks_filter_repo"
+ACTION_TASKS_FILTER_STATUS = "slack_app_home:tasks_filter_status"
+ACTION_TASKS_REFRESH = "slack_app_home:tasks_refresh"
+# Slack requires every action_id to be unique within a view, so Prev/Next
+# can't share one id — they both carry the target page as `value`.
+ACTION_TASKS_PAGE_PREV = "slack_app_home:tasks_page_prev"
+ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
+
+# Single block_id for the whole controls row. Block Kit only persists
+# state in `view.state.values` under blocks that carry a `block_id`, so
+# both the repo and the status dropdowns live under the same key here and
+# the handler can read them back on each pick.
+BLOCK_TASKS_CONTROLS = "block_tasks_controls"
+
+# Sentinel value the "All …" options carry — Slack rejects empty `value`
+# strings, so the resolver treats this as "no filter".
+TASKS_FILTER_ALL = "all"
+
+# Status keys the filter picker exposes — superset of `TaskRun.Status` values
+# we surface on the card. Kept here so the renderer and resolver stay in sync.
+TASKS_STATUS_OPTIONS: tuple[tuple[str, str], ...] = (
+    (TASKS_FILTER_ALL, "All statuses"),
+    ("in_progress", "🔄 in progress"),
+    ("completed", "🦔 done"),
+    ("failed", "❌ failed"),
+    ("cancelled", "🚫 cancelled"),
+    ("queued", "⏳ queued"),
+    ("not_started", "🕒 not started"),
+)
 
 EDIT_MODAL_PERSONAL_CALLBACK_ID = "slack_app_ai_prefs:personal"
 EDIT_MODAL_WORKSPACE_CALLBACK_ID = "slack_app_ai_prefs:workspace"
@@ -254,6 +284,48 @@ class ProjectState:
 
 
 @dataclass(frozen=True)
+class TaskItem:
+    """One row on the Tasks card."""
+
+    title: str
+    posthog_url: str
+    status: str | None  # TaskRun.Status value or None when there's no run yet
+    repository: str | None
+    pr_url: str | None
+    thread_url: str | None
+    updated_at_label: str
+    error_message: str | None = None  # surfaced on row 2 in place of the normal meta line
+
+
+@dataclass(frozen=True)
+class TasksState:
+    """Inputs the renderer needs to draw the Tasks card.
+
+    ``items`` is already paginated to a single page. ``available_repos``
+    is computed against the unfiltered set so picking a repo doesn't make
+    the others disappear from the dropdown.
+    """
+
+    items: tuple[TaskItem, ...] = ()
+    available_repos: tuple[str, ...] = ()
+    selected_repo: str | None = None
+    selected_status: str | None = None
+    has_any_tasks: bool = False
+    page: int = 0
+    total_pages: int = 0
+    total_filtered: int = 0
+    refreshed_at_epoch: int = 0  # Unix seconds; 0 hides the "Last refreshed" line
+
+    @property
+    def has_prev(self) -> bool:
+        return self.page > 0
+
+    @property
+    def has_next(self) -> bool:
+        return self.page + 1 < self.total_pages
+
+
+@dataclass(frozen=True)
 class AccountState:
     """Inputs the renderer needs to draw the optional account-link card.
 
@@ -275,6 +347,7 @@ def render_home_view(
     is_admin: bool,
     account_state: AccountState | None = None,
     project_state: ProjectState | None = None,
+    tasks_state: TasksState | None = None,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -297,11 +370,18 @@ def render_home_view(
     blocks.extend(_personal_section_blocks(user_row))
     blocks.extend(_workspace_section_blocks(workspace_row, is_admin=is_admin))
 
-    # Section 3 — account linking: tucked at the end because it's a setup
-    # step you do once, not a knob you tune. Flag-gated.
+    # Section 3 — account linking: shown before Tasks so the connect
+    # prompt is visible while the Tasks list is still empty. Flag-gated.
     if account_state and account_state.enabled:
         blocks.append({"type": "divider"})
         blocks.extend(_account_section_blocks(account_state))
+
+    # Section 4 — your tasks: a quiet list of tasks the calling user
+    # started via @PostHog mentions, so they can see status without
+    # the bot pinging the activity feed for every transition.
+    if tasks_state is not None:
+        blocks.append({"type": "divider"})
+        blocks.extend(_tasks_section_blocks(tasks_state))
 
     blocks.append({"type": "divider"})
     blocks.extend(_footer_blocks())
@@ -337,7 +417,7 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
     know which one, so don't lie. Just say so and let the user override.
     """
     header = _section_title(
-        "AI model",
+        "🤖 AI model",
         "Which Claude / Codex configuration handles your @PostHog mentions.",
     )
     source_blurb = {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Source: {source.label}"}]}
@@ -389,7 +469,7 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
 
     blocks: list[dict] = [
         _section_title(
-            "Project routing",
+            "🧭 Project routing",
             "Which PostHog project @PostHog mentions land in. Personal picks override the workspace default.",
         ),
     ]
@@ -452,7 +532,7 @@ def _account_section_blocks(account_state: AccountState) -> list[dict]:
     """
     if account_state.linked_email:
         return [
-            _section_title("Linked PostHog account"),
+            _section_title("🔗 Linked PostHog account"),
             {
                 "type": "section",
                 "text": {
@@ -483,7 +563,7 @@ def _account_section_blocks(account_state: AccountState) -> list[dict]:
         ]
     blocks: list[dict] = [
         _section_title(
-            "Connect your PostHog account",
+            "🔗 Connect your PostHog account",
             "Link your Slack identity to a PostHog user so @PostHog knows it's you without falling back to email matching.",
         ),
     ]
@@ -578,6 +658,181 @@ def _workspace_section_blocks(
 
 def _footer_blocks() -> list[dict]:
     return []
+
+
+_TASK_STATUS_LABELS: dict[str, str] = dict(TASKS_STATUS_OPTIONS)
+
+
+def _tasks_section_blocks(state: TasksState) -> list[dict]:
+    """Render the Tasks card.
+
+    Header carries the filters + Refresh, each task renders as its own
+    section block (linked title + muted meta line), and a Prev/Next strip
+    paginates across pages.
+    """
+    blocks: list[dict] = [_section_title("🦔 Tasks", "Tasks you started by mentioning @PostHog.")]
+
+    if state.has_any_tasks:
+        blocks.append(_tasks_controls_block(state))
+        if state.refreshed_at_epoch:
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": (
+                                f"_Last refreshed <!date^{state.refreshed_at_epoch}"
+                                "^{date_short_pretty} at {time}|just now>_"
+                            ),
+                        }
+                    ],
+                }
+            )
+
+    if not state.items:
+        empty_text = (
+            "No tasks match the current filters."
+            if state.has_any_tasks
+            else "Mention @PostHog in any channel to start a task."
+        )
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"_{empty_text}_"}})
+        return blocks
+
+    for index, item in enumerate(state.items):
+        if index > 0:
+            blocks.append({"type": "divider"})
+        blocks.extend(_task_item_block(item))
+
+    if state.total_pages > 1:
+        blocks.extend(_tasks_pagination_blocks(state))
+
+    return blocks
+
+
+def _task_item_block(item: TaskItem) -> list[dict]:
+    """One task row split across two Block Kit blocks for visual hierarchy.
+
+    The title goes in a `section` (full-size mrkdwn); the optional error
+    message and the status · repo · thread · PR · updated meta go in a single
+    `context` block underneath. Context renders text noticeably smaller and
+    dimmer than section, so the supporting detail recedes while the title
+    stays scannable.
+
+    Failed tasks surface the error and the meta line — error context never
+    replaces the surrounding state. Newlines in the upstream error message
+    collapse to spaces so a traceback doesn't blow the row open vertically.
+    """
+    status_label = _TASK_STATUS_LABELS.get(item.status or "", "")
+    title_line = f"*<{item.posthog_url}|{item.title}>*" if item.posthog_url else f"*{item.title}*"
+
+    meta_parts: list[str] = []
+    if status_label:
+        meta_parts.append(status_label)
+    if item.repository:
+        meta_parts.append(f"`{item.repository}`")
+    if item.thread_url:
+        meta_parts.append(f"<{item.thread_url}|Thread>")
+    if item.pr_url:
+        meta_parts.append(f"<{item.pr_url}|PR>")
+    if item.updated_at_label:
+        meta_parts.append(f"_Updated {item.updated_at_label}_")
+
+    sub_rows: list[str] = []
+    if item.error_message:
+        err = " ".join(item.error_message.strip().split())
+        sub_rows.append(f"`{err}`")
+    if meta_parts:
+        sub_rows.append(" · ".join(meta_parts))
+
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": title_line}}]
+    if sub_rows:
+        # Slack caps context elements at 75 chars of plain text but allows
+        # much longer mrkdwn — a single mrkdwn element holds the whole stack
+        # with a paragraph break between rows.
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "\n\n".join(sub_rows)}]})
+    return blocks
+
+
+def _tasks_pagination_blocks(state: TasksState) -> list[dict]:
+    info = {
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": f"Page *{state.page + 1}* of *{state.total_pages}* · {state.total_filtered} tasks",
+            }
+        ],
+    }
+    elements: list[dict[str, Any]] = []
+    if state.has_prev:
+        elements.append(
+            {
+                "type": "button",
+                "action_id": ACTION_TASKS_PAGE_PREV,
+                "value": str(state.page - 1),
+                "text": {"type": "plain_text", "text": "← Previous", "emoji": True},
+            }
+        )
+    if state.has_next:
+        elements.append(
+            {
+                "type": "button",
+                "action_id": ACTION_TASKS_PAGE_NEXT,
+                "value": str(state.page + 1),
+                "text": {"type": "plain_text", "text": "Next →", "emoji": True},
+            }
+        )
+    if not elements:
+        return [info]
+    return [info, {"type": "actions", "elements": elements}]
+
+
+def _tasks_controls_block(state: TasksState) -> dict:
+    elements: list[dict[str, Any]] = []
+
+    if state.available_repos:
+        repo_options = [
+            {"text": {"type": "plain_text", "text": "All repos", "emoji": True}, "value": TASKS_FILTER_ALL},
+            *(
+                {"text": {"type": "plain_text", "text": repo, "emoji": True}, "value": repo}
+                for repo in state.available_repos
+            ),
+        ]
+        repo_select: dict[str, Any] = {
+            "type": "static_select",
+            "action_id": ACTION_TASKS_FILTER_REPO,
+            "placeholder": {"type": "plain_text", "text": "All repos"},
+            "options": repo_options,
+        }
+        if state.selected_repo and any(o["value"] == state.selected_repo for o in repo_options):
+            repo_select["initial_option"] = next(o for o in repo_options if o["value"] == state.selected_repo)
+        elements.append(repo_select)
+
+    status_options = [
+        {"text": {"type": "plain_text", "text": label, "emoji": True}, "value": value}
+        for value, label in TASKS_STATUS_OPTIONS
+    ]
+    status_select: dict[str, Any] = {
+        "type": "static_select",
+        "action_id": ACTION_TASKS_FILTER_STATUS,
+        "placeholder": {"type": "plain_text", "text": "All statuses"},
+        "options": status_options,
+    }
+    if state.selected_status and any(o["value"] == state.selected_status for o in status_options):
+        status_select["initial_option"] = next(o for o in status_options if o["value"] == state.selected_status)
+    elements.append(status_select)
+
+    elements.append(
+        {
+            "type": "button",
+            "action_id": ACTION_TASKS_REFRESH,
+            "value": str(state.page),
+            "text": {"type": "plain_text", "text": "Refresh", "emoji": True},
+        }
+    )
+
+    return {"type": "actions", "block_id": BLOCK_TASKS_CONTROLS, "elements": elements}
 
 
 def _row_summary(row: SlackSettings | None) -> str:
@@ -788,6 +1043,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     is_admin = _is_admin(slack, integration, slack_user_id)
     account_state = _resolve_account_state(integration, slack_user_id)
     project_state = _resolve_project_state(integration, slack_user_id)
+    tasks_state = _resolve_tasks_state(integration, slack_user_id)
 
     view = render_home_view(
         effective=effective,
@@ -796,6 +1052,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
         is_admin=is_admin,
         account_state=account_state,
         project_state=project_state,
+        tasks_state=tasks_state,
     )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
@@ -868,6 +1125,32 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         if slack_oauth_link_enabled(integration, integration.integration_id):
             _unlink_user_account(integration, slack_user_id)
         _republish_home(integration, slack_user_id)
+        return HttpResponse(status=200)
+
+    if action_id in (
+        ACTION_TASKS_FILTER_REPO,
+        ACTION_TASKS_FILTER_STATUS,
+        ACTION_TASKS_REFRESH,
+        ACTION_TASKS_PAGE_PREV,
+        ACTION_TASKS_PAGE_NEXT,
+    ):
+        selected_repo, selected_status = _read_tasks_filters_from_payload(payload)
+        # Filter changes snap back to page 0; Refresh / Prev / Next carry the
+        # target page as the button value so the Home tab stays stateless.
+        if action_id in (ACTION_TASKS_REFRESH, ACTION_TASKS_PAGE_PREV, ACTION_TASKS_PAGE_NEXT):
+            try:
+                page = max(0, int(action.get("value") or "0"))
+            except (TypeError, ValueError):
+                page = 0
+        else:
+            page = 0
+        _republish_home(
+            integration,
+            slack_user_id,
+            selected_repo=selected_repo,
+            selected_status=selected_status,
+            page=page,
+        )
         return HttpResponse(status=200)
 
     if action_id in (MODAL_ACTION_RUNTIME_ADAPTER, MODAL_ACTION_MODEL):
@@ -1110,13 +1393,27 @@ def _clear_project_personal(integration: Integration, slack_user_id: str) -> Non
     row.save(update_fields=["default_integration", "updated_at"])
 
 
-def _republish_home(integration: Integration, slack_user_id: str) -> None:
+def _republish_home(
+    integration: Integration,
+    slack_user_id: str,
+    *,
+    selected_repo: str | None = None,
+    selected_status: str | None = None,
+    page: int = 0,
+) -> None:
     user_row, workspace_row = _load_rows(integration, slack_user_id)
     effective = resolve_ai_preferences(integration, slack_user_id)
     slack = SlackIntegration(integration)
     is_admin = _is_admin(slack, integration, slack_user_id)
     account_state = _resolve_account_state(integration, slack_user_id)
     project_state = _resolve_project_state(integration, slack_user_id)
+    tasks_state = _resolve_tasks_state(
+        integration,
+        slack_user_id,
+        selected_repo=selected_repo,
+        selected_status=selected_status,
+        page=page,
+    )
     view = render_home_view(
         effective=effective,
         user_row=user_row,
@@ -1124,11 +1421,188 @@ def _republish_home(integration: Integration, slack_user_id: str) -> None:
         is_admin=is_admin,
         account_state=account_state,
         project_state=project_state,
+        tasks_state=tasks_state,
     )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
     except Exception:
         logger.exception("slack_app_home_republish_failed")
+
+
+_TASKS_PAGE_SIZE = 10
+_TASKS_MAX_TOTAL = 100
+# Tasks fall off the Home tab once their Slack thread has been quiet for two
+# weeks. Keeps the list tight and avoids dragging in stale work that the user
+# already moved past in the PostHog UI.
+_TASKS_RECENT_WINDOW = timedelta(days=14)
+
+
+def _resolve_tasks_state(
+    integration: Integration,
+    slack_user_id: str,
+    *,
+    selected_repo: str | None = None,
+    selected_status: str | None = None,
+    page: int = 0,
+) -> TasksState:
+    """List tasks the calling Slack user started via @PostHog mentions.
+
+    Scoped to teams the user can access in the workspace. The `Task` ORM
+    query lives here rather than behind a new facade method because the
+    slack-specific authorization model (mentioning_slack_user_id +
+    accessible-team scoping) does not generalise.
+    """
+
+    from django.conf import settings
+    from django.utils import timezone as django_timezone
+
+    from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.tasks.backend.facade import api as tasks_facade
+    from products.tasks.backend.models import Task
+
+    slack_team_id = integration.integration_id
+    # `-updated_at` advances on each thread reply, so "latest activity"
+    # surfaces first. We don't expose a sort control today.
+    recent_cutoff = django_timezone.now() - _TASKS_RECENT_WINDOW
+    mappings = list(
+        SlackThreadTaskMapping.objects.filter(
+            slack_workspace_id=slack_team_id,
+            mentioning_slack_user_id=slack_user_id,
+            updated_at__gte=recent_cutoff,
+        )
+        .order_by("-updated_at")
+        .values("task_id", "team_id", "channel", "thread_ts", "updated_at")[:_TASKS_MAX_TOTAL]
+    )
+    if not mappings:
+        return TasksState()
+
+    candidates = list(
+        Integration.objects.filter(kind="slack", integration_id=slack_team_id)
+        .select_related("team", "team__organization")
+        .order_by("id")
+    )
+    accessible_team_ids = {c.team_id for c in _filter_accessible_integrations(integration, slack_user_id, candidates)}
+    if not accessible_team_ids:
+        return TasksState()
+
+    task_ids_ordered = [m["task_id"] for m in mappings]
+    tasks = list(
+        Task.objects.filter(id__in=task_ids_ordered, team_id__in=accessible_team_ids).only(
+            "id", "team_id", "title", "repository"
+        )
+    )
+    if not tasks:
+        return TasksState()
+
+    runs_by_task = tasks_facade.get_latest_run_by_task([t.id for t in tasks])
+    pr_urls_by_task = tasks_facade.get_latest_pr_url_by_task([t.id for t in tasks])
+    tasks_by_id = {str(t.id): t for t in tasks}
+    mapping_by_task = {str(m["task_id"]): m for m in mappings}
+
+    site_url = (settings.SITE_URL or "").rstrip("/")
+    now = django_timezone.now()
+    all_items: list[TaskItem] = []
+    repos_seen: list[str] = []
+    seen_repo_set: set[str] = set()
+    for task_id in task_ids_ordered:
+        t = tasks_by_id.get(str(task_id))
+        if t is None:
+            continue
+        run = runs_by_task.get(str(t.id))
+        mapping: dict[str, Any] = mapping_by_task.get(str(t.id), {})
+        all_items.append(
+            TaskItem(
+                title=t.title,
+                posthog_url=f"{site_url}/project/{t.team_id}/tasks/{t.id}",
+                status=run.status if run else None,
+                repository=t.repository,
+                pr_url=pr_urls_by_task.get(str(t.id)),
+                thread_url=_slack_thread_permalink(mapping.get("channel", ""), mapping.get("thread_ts", "")),
+                updated_at_label=_format_relative(mapping.get("updated_at"), now=now),
+                error_message=run.error_message if run else None,
+            )
+        )
+        if t.repository and t.repository not in seen_repo_set:
+            repos_seen.append(t.repository)
+            seen_repo_set.add(t.repository)
+
+    # `selected_*` is None when the user has never picked, and `TASKS_FILTER_ALL`
+    # when they explicitly reset back to "All …". Either is a no-op filter.
+    effective_repo = selected_repo if selected_repo and selected_repo != TASKS_FILTER_ALL else None
+    effective_status = selected_status if selected_status and selected_status != TASKS_FILTER_ALL else None
+    filtered = [
+        item
+        for item in all_items
+        if (effective_repo is None or item.repository == effective_repo)
+        and (effective_status is None or item.status == effective_status)
+    ]
+
+    total_filtered = len(filtered)
+    total_pages = max(1, (total_filtered + _TASKS_PAGE_SIZE - 1) // _TASKS_PAGE_SIZE) if total_filtered else 0
+    safe_page = max(0, min(page, total_pages - 1)) if total_pages else 0
+    start = safe_page * _TASKS_PAGE_SIZE
+    end = start + _TASKS_PAGE_SIZE
+    page_items = filtered[start:end]
+
+    return TasksState(
+        items=tuple(page_items),
+        available_repos=tuple(repos_seen),
+        selected_repo=selected_repo,
+        selected_status=selected_status,
+        has_any_tasks=True,
+        page=safe_page,
+        total_pages=total_pages,
+        total_filtered=total_filtered,
+        refreshed_at_epoch=int(now.timestamp()),
+    )
+
+
+def _slack_thread_permalink(channel: str, thread_ts: str) -> str | None:
+    """Build the Slack web URL for a thread root.
+
+    Format is the canonical `https://slack.com/archives/{channel}/p{ts_no_dot}`
+    Slack rewrites server-side to land the viewer in the right workspace.
+    """
+    if not channel or not thread_ts:
+        return None
+    return f"https://slack.com/archives/{channel}/p{thread_ts.replace('.', '')}"
+
+
+def _format_relative(when: datetime | None, *, now: datetime) -> str:
+    """Render a `datetime` as a compact relative label (`5m ago`, `Jun 20`).
+
+    `when` is None-tolerant so a missing mapping field never crashes the
+    Home tab; the column just shows an em-dash via the table's empty fallback.
+    """
+    if when is None:
+        return ""
+    delta = now - when
+    seconds = int(delta.total_seconds())
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    if seconds < 7 * 86400:
+        return f"{seconds // 86400}d ago"
+    return when.strftime("%b %d")
+
+
+def _read_tasks_filters_from_payload(payload: dict) -> tuple[str | None, str | None]:
+    """Pull current filter selections off the Home tab view state.
+
+    The Home tab is stateless — each pick triggers a `block_actions` payload
+    that carries the *whole* view's input state, so the handler can re-publish
+    honouring whatever the user has dialled in. Block Kit only persists
+    state under blocks that carry a `block_id`, so the controls row uses
+    a single fixed `BLOCK_TASKS_CONTROLS` key for every select inside it.
+    """
+    values = (payload.get("view") or {}).get("state", {}).get("values", {}) or {}
+    controls = values.get(BLOCK_TASKS_CONTROLS, {})
+    repo = (controls.get(ACTION_TASKS_FILTER_REPO, {}).get("selected_option") or {}).get("value")
+    status = (controls.get(ACTION_TASKS_FILTER_STATUS, {}).get("selected_option") or {}).get("value")
+    return repo, status
 
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
