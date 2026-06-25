@@ -17,6 +17,7 @@ JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
 # Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
 AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
+CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
 REPORT_TOOLS = ["emit_report", "edit_report", "search_scout_reports"]
 
 
@@ -221,6 +222,52 @@ class TestScoutReportAPI(APIBaseTest):
             self._latest_artefact(response.json()["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
             is None
         )
+
+    @parameterized.expand(
+        [
+            ("surfaced", True, True, "surfaced"),
+            ("suppressed", False, True, "suppressed"),
+            ("gate_skipped", True, False, "gate_skipped"),
+        ]
+    )
+    def test_emit_report_captures_lifecycle_event(
+        self, _name: str, safe: bool, ai_approved: bool, expected_outcome: str
+    ) -> None:
+        # The `signals_scout_report_emitted` event is the report channel's observability funnel — its
+        # `outcome` must classify every terminal path (surfaced / suppressed / gate_skipped) correctly and
+        # carry the run/report ids that join it to the run lifecycle events.
+        if not ai_approved:
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        run = _make_run(self.team)
+        with (
+            _safe_judge(choice=safe, explanation="" if safe else "unsafe"),
+            patch(EMBED_PATH),
+            patch(AUTOSTART_PATH, new=AsyncMock()),
+            patch(CAPTURE_PATH) as capture,
+        ):
+            body = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
+        props = event.kwargs["properties"]
+        assert props["outcome"] == expected_outcome
+        assert props["run_id"] == str(run.id)
+        assert props["report_id"] == body["report_id"]
+        assert props["evidence_count"] == 1
+
+    def test_edit_report_captures_edited_event(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(CAPTURE_PATH) as capture:
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "title": "new title", "append_note": "re-validated"},
+                format="json",
+            )
+        event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited")
+        props = event.kwargs["properties"]
+        assert props["report_id"] == created["report_id"]
+        assert "title" in props["updated_fields"]
+        assert props["note_appended"] is True
 
     @parameterized.expand(
         [

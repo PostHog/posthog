@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Any
 
+import posthoganalytics
 from asgiref.sync import async_to_sync
 
+from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -275,6 +278,81 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
 
 
+def _report_event_base(run: SignalScoutRun) -> dict[str, Any]:
+    """Shared dimensions for the report-channel lifecycle events, mirroring the `signals_scout_run_*`
+    events so the two join on `run_id` / `task_run_id` — a report event sits under the run that authored
+    it. All fields are plain columns on the bridge row (no FK query)."""
+    return {
+        "skill_name": run.skill_name,
+        "skill_version": run.skill_version,
+        "scout_config_id": str(run.scout_config_id) if run.scout_config_id else None,
+        "run_id": str(run.id),
+        "task_run_id": str(run.task_run_id) if run.task_run_id else None,
+    }
+
+
+def _capture_report_emitted(*, team: Team, run: SignalScoutRun, result: EmitReportResult, evidence_count: int) -> None:
+    """Emit the scout-owned `signals_scout_report_emitted` event — the report-channel counterpart to
+    `signals_scout_run_finished`, fired once per `emit_report` call that reached a terminal outcome.
+
+    `outcome` is the single dimension to segment the channel funnel on: `gate_skipped` (a preflight gate
+    stopped the call before any report existed), `suppressed` (authored but the judge / actionability kept
+    it out of the inbox), or `surfaced` (landed in the inbox as READY / PENDING_INPUT). Keyed on the team
+    and carrying the run / task ids so it joins to the run lifecycle events. Best-effort: a capture failure
+    must never fail or mask the emit. Accesses `team.organization` — call on a sync thread."""
+    if result.skipped_reason is not None:
+        outcome = "gate_skipped"
+    elif result.emitted:
+        outcome = "surfaced"
+    else:
+        outcome = "suppressed"
+    properties = {
+        **_report_event_base(run),
+        "report_id": result.report_id,
+        "status": result.status,
+        "outcome": outcome,
+        "skipped_reason": result.skipped_reason,
+        "evidence_count": evidence_count,
+    }
+    try:
+        posthoganalytics.capture(
+            event="signals_scout_report_emitted",
+            distinct_id=str(team.uuid),
+            properties=properties,
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to capture report-emitted analytics event",
+            extra={"team_id": team.id, "run_id": str(run.id), "skill_name": run.skill_name},
+        )
+
+
+def _capture_report_edited(*, team: Team, run: SignalScoutRun, result: EditReportResult) -> None:
+    """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
+    `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
+    `note_appended` distinguish a title/summary rewrite from a note-only append. Best-effort; never fails
+    the edit. Accesses `team.organization` — call on a sync thread."""
+    properties = {
+        **_report_event_base(run),
+        "report_id": result.report_id,
+        "updated_fields": result.updated_fields,
+        "note_appended": result.note_appended,
+    }
+    try:
+        posthoganalytics.capture(
+            event="signals_scout_report_edited",
+            distinct_id=str(team.uuid),
+            properties=properties,
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to capture report-edited analytics event",
+            extra={"team_id": team.id, "run_id": str(run.id), "skill_name": run.skill_name},
+        )
+
+
 async def emit_report(
     *,
     team: Team,
@@ -307,7 +385,11 @@ async def emit_report(
 
     preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team, run)
     if preflight is not None:
-        return _gate_skip_result(preflight)
+        result = _gate_skip_result(preflight)
+        await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
+            team=team, run=run, result=result, evidence_count=len(evidence)
+        )
+        return result
 
     task_id = await database_sync_to_async(_resolve_task_id, thread_sensitive=False)(run)
     attribution = _attribution_for(task_id)
@@ -336,7 +418,11 @@ async def emit_report(
     )
     if surfaced:
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
-    return _emit_result(persisted.report_id, judgement)
+    result = _emit_result(persisted.report_id, judgement)
+    await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
+        team=team, run=run, result=result, evidence_count=len(evidence)
+    )
+    return result
 
 
 def emit_report_sync(
@@ -370,7 +456,9 @@ def emit_report_sync(
 
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
-        return _gate_skip_result(preflight)
+        result = _gate_skip_result(preflight)
+        _capture_report_emitted(team=team, run=run, result=result, evidence_count=len(evidence))
+        return result
 
     task_id = _resolve_task_id(run)
     attribution = _attribution_for(task_id)
@@ -401,7 +489,9 @@ def emit_report_sync(
     )
     if surfaced:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
-    return _emit_result(persisted.report_id, judgement)
+    result = _emit_result(persisted.report_id, judgement)
+    _capture_report_emitted(team=team, run=run, result=result, evidence_count=len(evidence))
+    return result
 
 
 def _do_edit_report(
@@ -433,7 +523,9 @@ def _do_edit_report(
         "signals_scout.edit_report: edited",
         extra={"team_id": team.id, "report_id": report_id, "fields": updated_fields, "note": note_appended},
     )
-    return EditReportResult(report_id=report_id, updated_fields=updated_fields, note_appended=note_appended)
+    result = EditReportResult(report_id=report_id, updated_fields=updated_fields, note_appended=note_appended)
+    _capture_report_edited(team=team, run=run, result=result)
+    return result
 
 
 def _validate_edit_inputs(team: Team, run: SignalScoutRun, title, summary, append_note) -> None:
