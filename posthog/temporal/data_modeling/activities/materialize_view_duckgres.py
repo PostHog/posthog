@@ -3,13 +3,13 @@ import typing
 import datetime as dt
 import dataclasses
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.ducklake.common import get_duckgres_server_for_organization, is_dev_mode
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
@@ -63,7 +63,7 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
         return False
 
     try:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             FEATURE_FLAG,
             str(team.pk),
             groups={

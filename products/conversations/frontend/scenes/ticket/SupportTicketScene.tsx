@@ -12,6 +12,7 @@ import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalend
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -25,6 +26,7 @@ import { ChatView } from '../../components/Chat/ChatView'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
+import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
@@ -78,6 +80,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -228,6 +232,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <span className="text-muted-alt">Channel</span>
                                     <span className="capitalize">
                                         <ChannelsTag channel={ticket.channel_source} detail={ticket.channel_detail} />
+                                    </span>
+                                </div>
+                            )}
+                            {ticket?.organization_id && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">Organization</span>
+                                    <span className="text-xs truncate text-right" title={ticket.organization_id}>
+                                        {ticket.organization_id}
                                     </span>
                                 </div>
                             )}
@@ -389,8 +401,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {/* Staff Actions Panel */}
                     {user?.is_staff && ticket && <StaffActionsPanel />}
 
-                    {/* Activity History Panel */}
-                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
+                    {/* AI Triage Panel */}
+                    {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
 
                     {ticket?.channel_source === 'widget' && (
                         <>
@@ -421,6 +433,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             />
                         </>
                     )}
+
+                    {/* Activity History Panel */}
+                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
                 </div>
             </div>
         </SceneContent>

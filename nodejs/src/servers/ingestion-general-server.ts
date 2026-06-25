@@ -45,6 +45,7 @@ import {
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
     RedisConnectionsConfig,
+    getDefaultIngestionConsumerConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
@@ -109,6 +110,7 @@ export class IngestionGeneralServer implements NodeServer {
     constructor(config: Partial<IngestionGeneralServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),

@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
 
 from posthog.schema_enums import (
+    AccessControlLevel as AccessControlLevel,
     Action as Action,
     Action1 as Action1,
     AgentMode as AgentMode,
@@ -104,6 +105,7 @@ from posthog.schema_enums import (
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
+    FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
     FunnelCorrelationResultsType as FunnelCorrelationResultsType,
     FunnelLayout as FunnelLayout,
@@ -2300,7 +2302,24 @@ class ReplayVisionScannerFindingSignalExtra(BaseModel):
         ...,
         description=("The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`."),
     )
+    distinct_id: str | None = None
+    end_time: float = Field(
+        ...,
+        description=("When the issue ends in the recording, in seconds (the footer's REC_T value)."),
+    )
+    exported_asset_id: float = Field(..., description="The rasterized MP4 asset the scanner analysed.")
     observation_id: str
+    problem_type: str = Field(
+        ...,
+        description=(
+            "Issue category: 'bug' / 'crash' / 'design_flaw' / 'ux_friction'. Kept open"
+            " so new categories don't fail validation."
+        ),
+    )
+    recording_active_seconds: float | None = None
+    recording_duration: float | None = None
+    recording_end_time: str | None = Field(default=None, description="ISO 8601 recording end.")
+    recording_start_time: str | None = Field(default=None, description="ISO 8601 recording start (the REC_T=0 anchor).")
     scanner_id: str
     scanner_name: str
     scanner_type: str = Field(
@@ -2312,6 +2331,13 @@ class ReplayVisionScannerFindingSignalExtra(BaseModel):
         ),
     )
     session_id: str
+    start_time: float = Field(
+        ...,
+        description=(
+            "When the issue starts in the recording, in seconds from recording start (the footer's REC_T value)."
+        ),
+    )
+    url: str = Field(..., description="The page the issue happened on (the footer's URL value).")
 
 
 class ResolvedDateRangeResponse(BaseModel):
@@ -5244,6 +5270,18 @@ class FunnelExclusionSteps(BaseModel):
     )
     funnelFromStep: int
     funnelToStep: int
+
+
+class FunnelsAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnel_step: int | None = Field(
+        default=None,
+        description=("Zero-based step index to evaluate. Null = the last step (overall conversion)."),
+    )
+    metric: FunnelConversionMetric
+    type: Literal["FunnelsAlertConfig"] = "FunnelsAlertConfig"
 
 
 class FunnelsFilterLegacy(BaseModel):
@@ -22195,6 +22233,10 @@ class ExperimentHoldoutType(BaseModel):
     id: int
     name: str
     updated_at: str | None = None
+    user_access_level: AccessControlLevel | None = Field(
+        default=None,
+        description=("Read-only, server-computed effective access level; absent on a not-yet-created holdout."),
+    )
 
 
 class FunnelsFilter(BaseModel):
@@ -24787,6 +24829,14 @@ class FunnelPathsFilter(BaseModel):
 class FunnelsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    compare: Compare | None = Field(
+        default=None,
+        description=(
+            "When the source funnel has compare-to-previous enabled, scopes the actors"
+            " to a single period. The runner resolves `'previous'` to the shifted date"
+            " range; `'current'` (or unset) uses the source's own date range."
+        ),
     )
     funnelStep: int | None = Field(
         default=None,

@@ -6,11 +6,11 @@ from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 
-from posthog.temporal.data_imports.sources.common.grpc.sampling import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc.sampling import (
     CAPTURE_CONFIG_REDIS_KEY,
     CAPTURE_COUNTER_KEY_PREFIX,
 )
-from posthog.temporal.data_imports.sources.common.sample_scrub import CaptureConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sample_scrub import CaptureConfig
 
 COMMAND = "warehouse_sources_capture_grpc_samples"
 

@@ -221,18 +221,6 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.activeCard).toBeNull()
     })
 
-    it('keeps filter state isolated per internal tab', () => {
-        const tabA = engineeringAnalyticsLogic({ tabId: 'tab-a' })
-        const tabB = engineeringAnalyticsLogic({ tabId: 'tab-b' })
-        tabA.mount()
-        tabB.mount()
-
-        tabA.actions.setStateFilter('merged')
-
-        expect(tabA.values.stateFilter).toBe('merged')
-        expect(tabB.values.stateFilter).toBe(DEFAULT_FILTERS.state)
-    })
-
     it('scene logic mounts without a tabId so /engineering-analytics resolves instead of 404ing', () => {
         // #62051 collapsed sceneLogic to single-scene state and stopped threading a tabId into
         // scene logics. A tab-aware scene logic then throws "must have a tabId prop" on mount,

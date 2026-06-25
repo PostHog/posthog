@@ -77,6 +77,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         r = redis.get_client()
         for key in r.scan_iter("*"):
             r.delete(key)
+
+        # Temporary: keep the remote_config Rust shadow (phase 2) inert so endpoint tests never make
+        # a real outbound call. Delete with remote_config_shadow.py at the phase-3 cutover.
+        shadow_patcher = patch("products.feature_flags.backend.api.feature_flag.shadow_compare_remote_config")
+        shadow_patcher.start()
+        self.addCleanup(shadow_patcher.stop)
+
         return super().setUp()
 
     @staticmethod
@@ -625,7 +632,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ("false", False),
         ]
     )
-    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
     def test_boolean_early_exit_accepted(self, _name, value, mock_feature_enabled):
         mock_feature_enabled.return_value = True
         response = self.client.post(
@@ -644,7 +651,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag = FeatureFlag.objects.get(key=f"early-exit-{_name}", team=self.team)
         self.assertEqual(flag.filters["early_exit"], value)
 
-    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
     def test_early_exit_rejected_without_feature_flag(self, mock_feature_enabled):
         mock_feature_enabled.return_value = False
         response = self.client.post(
@@ -662,7 +669,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("early_exit is not available", response.json()["detail"])
 
-    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
     def test_early_exit_false_accepted_without_feature_flag(self, mock_feature_enabled):
         mock_feature_enabled.return_value = False
         response = self.client.post(
@@ -679,7 +686,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
     def test_early_exit_unchanged_truthy_allowed_when_flag_disabled(self, mock_feature_enabled):
         # A flag created while the feature was enabled keeps working if access is later revoked,
         # as long as the PATCH doesn't newly turn early_exit on.
@@ -2100,6 +2107,35 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
+
+    def test_remote_config_returns_response_even_if_shadow_raises(self):
+        # The throwaway Rust shadow (phase 2) must never break the live endpoint, even if it raises.
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+        )
+        self.client.logout()
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.shadow_compare_remote_config",
+            side_effect=RuntimeError("boom"),
+        ) as shadow:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), '{"test": true}')
+        shadow.assert_called_once()
+        self.assertEqual(shadow.call_args.kwargs["key"], "my-remote-config-flag")
+        self.assertIn("project_id", shadow.call_args.kwargs)
 
     # Encrypted remote config payloads are decrypted only for personal API keys; project
     # secret keys get the redacted marker. This is the parity oracle for the Rust port,
@@ -5118,7 +5154,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ),
         ]
     )
-    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
     def test_behavioral_cohort_flag_validation(
         self,
         _name,

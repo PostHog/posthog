@@ -96,6 +96,9 @@
         <warpstream_cyclotron>
             <kafka_broker_list from_env="KAFKA_HOSTS"/>
         </warpstream_cyclotron>
+        <warpstream_logs>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_logs>
     </named_collections>
 
     <macros>

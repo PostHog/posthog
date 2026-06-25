@@ -5,10 +5,10 @@ import React from 'react'
 import { LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { dayjs } from 'lib/dayjs'
@@ -451,7 +451,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     const { push } = useActions(router)
 
     // Tab switching shortcuts
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab1',
         keybind: [keyBinds.tab1],
         intent: 'Go to Dashboard',
@@ -459,7 +459,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         callback: () => push(combineUrl(urls.aiObservabilityDashboard(), searchParams).url),
         scope: Scene.AIObservability,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab2',
         keybind: [keyBinds.tab2],
         intent: 'Go to Traces',
@@ -467,7 +467,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         callback: () => push(combineUrl(urls.aiObservabilityTraces(), searchParams).url),
         scope: Scene.AIObservability,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab3',
         keybind: [keyBinds.tab3],
         intent: 'Go to Generations',
@@ -475,7 +475,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         callback: () => push(combineUrl(urls.aiObservabilityGenerations(), searchParams).url),
         scope: Scene.AIObservability,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab4',
         keybind: [keyBinds.tab4],
         intent: 'Go to Users',
@@ -483,7 +483,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         callback: () => push(combineUrl(urls.aiObservabilityUsers(), searchParams).url),
         scope: Scene.AIObservability,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab5',
         keybind: [keyBinds.tab5],
         intent: 'Go to Errors',
