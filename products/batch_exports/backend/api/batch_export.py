@@ -354,8 +354,8 @@ class S3FamilyDestinationConfigSerializer(serializers.Serializer):
     """Shared non-credential configuration for S3-family batch-export destinations.
 
     Credentials (and, for S3-compatible providers, the `endpoint_url`) live in the linked
-    Integration, not in this config — legacy exports may still carry them inline. Mirrors the
-    non-credential fields of `S3FamilyBaseInputs` in `products/batch_exports/backend/service.py`.
+    Integration, not in this config. Mirrors the non-credential fields of `S3FamilyBaseInputs` in
+    `products/batch_exports/backend/service.py`.
     """
 
     bucket_name = serializers.CharField(help_text="Name of the destination bucket.")
@@ -1133,6 +1133,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if destination_type in S3_FAMILY_TYPES:
             integration: Integration | None = destination_attrs.get("integration")
 
+            # TODO: remove this guard once integrations are mandatory for S3 and inline credentials are gone.
+            if instance is not None and instance.destination.integration is not None and integration is None:
+                raise serializers.ValidationError(
+                    "Cannot remove the integration from an S3 batch export that uses one. "
+                    "Re-send its `integration` to keep it (or a different one to swap)."
+                )
+
             # we already validate the required inputs in BatchExportDestinationSerializer::validate
             # so here we just ensure that the inputs are not empty
             required_non_empty_inputs = ["bucket_name", "region", "prefix"]
@@ -1147,10 +1154,17 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if empty_inputs:
                 raise serializers.ValidationError(f"The following inputs are empty: {empty_inputs}")
 
-            # When an Integration is supplied it must belong to the team and match the destination kind.
-            if integration is not None and destination_type in S3_INTEGRATION_HANDLERS:
-                if integration.team_id != self.context["team_id"]:
-                    raise serializers.ValidationError("Integration does not belong to this team.")
+            # When an Integration is supplied it must match the destination kind. (Team ownership is
+            # already enforced by the team-scoped `integration` field, which can only resolve
+            # integrations belonging to the request's team.)
+            if integration is not None:
+                # An Integration only makes sense for the integration-backed S3 types. Reject it on the
+                # legacy "S3" type
+                # TODO: remove this branch once the legacy "S3" destination type is fully removed.
+                if destination_type not in S3_INTEGRATION_HANDLERS:
+                    raise serializers.ValidationError(
+                        f"{destination_type} destinations do not support integration-based credentials."
+                    )
                 try:
                     S3_INTEGRATION_HANDLERS[destination_type](integration)
                 except S3CredentialIntegrationError as e:
@@ -1180,14 +1194,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(f"Invalid endpoint_url: '{merged_config['endpoint_url']}'")
 
         if destination_type == BatchExportDestination.Destination.DATABRICKS:
-            team_id = self.context["team_id"]
-
             # validate the Integration is valid (this is mandatory for Databricks batch exports)
             integration = destination_attrs.get("integration")
             if integration is None:
                 raise serializers.ValidationError("Integration is required for Databricks batch exports")
-            if integration.team_id != team_id:
-                raise serializers.ValidationError("Integration does not belong to this team.")
             if integration.kind != Integration.IntegrationKind.DATABRICKS:
                 raise serializers.ValidationError("Integration is not a Databricks integration.")
             # try instantiate the integration to check if it's valid
@@ -1197,39 +1207,27 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(str(e))
 
         if destination_type == BatchExportDestination.Destination.POSTGRES:
-            team_id = self.context["team_id"]
             integration = destination_attrs.get("integration")
             # New Postgres exports must use an Integration for credentials. Exports created before
             # integrations existed keep their inline credentials, so only require it on create
             # (`instance is None`); existing inline-credential exports stay valid when edited.
             if integration is None and instance is None:
                 raise serializers.ValidationError("Integration is required for Postgres batch exports")
-            if integration is not None:
-                if integration.team_id != team_id:
-                    raise serializers.ValidationError("Integration does not belong to this team.")
-                if integration.kind != Integration.IntegrationKind.POSTGRESQL:
-                    raise serializers.ValidationError("Integration is not a PostgreSQL integration.")
+            if integration is not None and integration.kind != Integration.IntegrationKind.POSTGRESQL:
+                raise serializers.ValidationError("Integration is not a PostgreSQL integration.")
 
         if destination_type == BatchExportDestination.Destination.BIGQUERY:
-            team_id = self.context["team_id"]
-
             integration = destination_attrs.get("integration")
             if integration is None:
                 raise serializers.ValidationError("Integration is required for BigQuery batch exports")
-            if integration.team_id != team_id:
-                raise serializers.ValidationError("Integration does not belong to this team.")
             if integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
                 raise serializers.ValidationError("Integration is not a Google Cloud service account integration.")
 
         if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
-            team_id = self.context["team_id"]
-
             # validate the Integration is valid (this is mandatory for Azure Blob batch exports)
             integration = destination_attrs.get("integration")
             if integration is None:
                 raise serializers.ValidationError("Integration is required for Azure Blob batch exports")
-            if integration.team_id != team_id:
-                raise serializers.ValidationError("Integration does not belong to this team.")
             if integration.kind != Integration.IntegrationKind.AZURE_BLOB:
                 raise serializers.ValidationError("Integration is not an Azure Blob integration.")
             # try instantiate the integration to check if it's valid

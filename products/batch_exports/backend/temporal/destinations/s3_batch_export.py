@@ -20,7 +20,12 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import AwsS3Integration, Integration, S3CompatibleIntegration
+from posthog.models.integration import (
+    AwsS3Integration,
+    Integration,
+    S3CompatibleIntegration,
+    S3CredentialIntegrationError,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -75,6 +80,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "InvalidCredentialsError",
     # The linked Integration was deleted or doesn't belong to the team
     "S3IntegrationNotFoundError",
+    # The linked Integration is the wrong kind or has invalid/missing credentials
+    "S3CredentialIntegrationError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -121,8 +128,10 @@ class S3IntegrationNotFoundError(Exception):
 async def _get_s3_integration(integration_id: int, team_id: int) -> AwsS3Integration | S3CompatibleIntegration:
     """Fetch an S3-family integration from the database.
 
-    The kind is validated on create by the batch export serializer, so the final branch is purely
-    defensive against an integration whose kind was changed out from under the export.
+    The kind is validated on create by the batch export serializer, so the wrong-kind branch is
+    purely defensive against an integration whose kind was changed out from under the export.
+    `AwsS3Integration`/`S3CompatibleIntegration` themselves raise `S3CredentialIntegrationError` if
+    the credentials are malformed.
     """
     try:
         integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
@@ -133,7 +142,10 @@ async def _get_s3_integration(integration_id: int, team_id: int) -> AwsS3Integra
         return AwsS3Integration(integration)
     if integration.kind == Integration.IntegrationKind.S3_COMPATIBLE:
         return S3CompatibleIntegration(integration)
-    raise S3IntegrationNotFoundError(integration_id, team_id)
+    raise S3CredentialIntegrationError(
+        f"Integration with ID '{integration_id}' for team '{team_id}' is not an S3 integration "
+        f"(kind='{integration.kind}')"
+    )
 
 
 @dataclasses.dataclass(kw_only=True)
