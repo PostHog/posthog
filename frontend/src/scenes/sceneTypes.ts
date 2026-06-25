@@ -207,7 +207,6 @@ export enum Scene {
     MarketingAnalyticsSettings = 'MarketingAnalyticsSettings',
     MessagingLibraryTemplate = 'MessagingLibraryTemplate',
     NewAction = 'NewAction',
-    TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
     SlackTaskContext = 'SlackTaskContext',
     OrganizationDeactivated = 'OrganizationDeactivated',
