@@ -82,4 +82,5 @@ _PERSONS_DB_DIRECT_TEST_PATHS = (
     "test_person_schema",
     "dags/tests/test_detach_distinct_id",
     "dags/tests/test_person_property_reconciliation",
+    "management/commands/test/test_background_delete_model",
 )

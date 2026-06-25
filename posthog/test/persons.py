@@ -27,6 +27,7 @@ from posthog.models.person.util import (
     create_person_distinct_id as _ch_create_person_distinct_id,
 )
 from posthog.models.utils import UUIDT
+from posthog.person_db_router import persons_orm_blocked
 
 if TYPE_CHECKING:
     import uuid
@@ -263,7 +264,13 @@ def _build_person(create_kwargs: dict[str, Any]) -> Person:
 
 
 def create_person(*, team: Team | None = None, distinct_ids: list[str] | None = None, **kwargs: Any) -> Person:
-    """Create a person in ClickHouse + the personhog fake (no persons DB write)."""
+    """Create a person for tests.
+
+    Consumer tests (the personhog fake is active): seed ClickHouse + the fake,
+    no persons DB write.  Persons-DB-layer tests (the fake is off / excluded in
+    conftest): write real persons-DB rows so the code under test, which reads the
+    persons DB directly, sees them — matching the pre-personhog behavior.
+    """
     if team is None and "team_id" not in kwargs:
         raise TypeError("create_person() requires 'team' or 'team_id'")
     create_kwargs: dict[str, Any] = {**kwargs}
@@ -271,10 +278,26 @@ def create_person(*, team: Team | None = None, distinct_ids: list[str] | None = 
         create_kwargs["team"] = team
 
     dids = [str(d) for d in (distinct_ids or [])]
+
+    if not persons_orm_blocked():
+        return _create_person_in_orm(create_kwargs, dids)
+
     person = _build_person(create_kwargs)
     person._distinct_ids = list(dids)
     _ch_sync_person(person, dids)
     _seed_person_into_fake(person, dids)
+    return person
+
+
+def _create_person_in_orm(create_kwargs: dict[str, Any], dids: list[str]) -> Person:
+    """Write a real persons-DB person + distinct ids (for fake-off / excluded tests)."""
+    if not create_kwargs.get("uuid"):
+        create_kwargs["uuid"] = UUIDT()
+    person = Person.objects.create(**create_kwargs)
+    for distinct_id in dids:
+        PersonDistinctId.objects.create(team_id=person.team_id, person=person, distinct_id=distinct_id, version=0)
+    person._distinct_ids = list(dids)
+    _ch_sync_person(person, dids)
     return person
 
 
@@ -302,12 +325,19 @@ def update_person(person: Person) -> None:
 
 
 def add_distinct_id(*, person: Person, distinct_id: str, version: int = 0) -> PersonDistinctId:
-    """Add a distinct ID to a person in ClickHouse + the personhog fake."""
+    """Add a distinct ID to a person in ClickHouse + the personhog fake (or the persons DB when fake-off)."""
     _ch_create_person_distinct_id(person.team_id, str(distinct_id), str(person.uuid), version=version)
-    _seed_distinct_id_into_fake(person.team_id, person.pk, distinct_id, version=version)
+
     existing_distinct_ids = getattr(person, "_distinct_ids", None)
     if existing_distinct_ids is not None and distinct_id not in existing_distinct_ids:
         existing_distinct_ids.append(distinct_id)
+
+    if not persons_orm_blocked():
+        return PersonDistinctId.objects.create(
+            team_id=person.team_id, person=person, distinct_id=str(distinct_id), version=version
+        )
+
+    _seed_distinct_id_into_fake(person.team_id, person.pk, distinct_id, version=version)
     return PersonDistinctId(team_id=person.team_id, person=person, distinct_id=distinct_id, version=version)
 
 
