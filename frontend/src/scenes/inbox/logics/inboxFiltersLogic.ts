@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -145,6 +145,16 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                     state.includes(priority) ? state.filter((p) => p !== priority) : [...state, priority],
                 clearFilters: () => [],
             },
+        ],
+    }),
+
+    selectors({
+        // Whether any list-narrowing filter is active. Scope and sort are excluded: they don't hide
+        // reports the way search/source/priority do, and `clearFilters` leaves them untouched.
+        hasActiveFilters: [
+            (s) => [s.searchQuery, s.sourceProductFilter, s.priorityFilter],
+            (searchQuery, sourceProductFilter, priorityFilter): boolean =>
+                searchQuery.trim().length > 0 || sourceProductFilter.length > 0 || priorityFilter.length > 0,
         ],
     }),
 

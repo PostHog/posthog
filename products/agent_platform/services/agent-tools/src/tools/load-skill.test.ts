@@ -1,4 +1,12 @@
-import { resolveSkillFile } from './load-skill'
+import type { ToolContext } from '@posthog/agent-shared'
+
+import { loadSkill, resolveSkillFile } from './load-skill'
+
+const SKILL_INDEX = [{ id: 'research', path: 'skills/research/SKILL.md', description: 'x' }]
+
+function ctxWith(readBundleFile: ToolContext['readBundleFile']): ToolContext {
+    return { skillIndex: SKILL_INDEX, readBundleFile, log: () => {} } as unknown as ToolContext
+}
 
 describe('resolveSkillFile', () => {
     it('resolves a companion file relative to the skill folder', () => {
@@ -39,5 +47,40 @@ describe('resolveSkillFile', () => {
         // read there could reach a sibling skill, so it must be refused.
         expect(() => resolveSkillFile('skills/research.md', 'other.md')).toThrow(/no companion files/)
         expect(() => resolveSkillFile('skills/research.md', 'sibling/SKILL.md')).toThrow(/no companion files/)
+    })
+})
+
+describe('loadSkill.run', () => {
+    it('returns the skill body on a successful read', async () => {
+        const res = await loadSkill.run(
+            { id: 'research' },
+            ctxWith(async () => '# body')
+        )
+        expect(res).toEqual({ id: 'research', path: 'skills/research/SKILL.md', body: '# body' })
+    })
+
+    it('reports a genuinely-absent file as "not found in the bundle"', async () => {
+        await expect(
+            loadSkill.run(
+                { id: 'research' },
+                ctxWith(async () => null)
+            )
+        ).rejects.toThrow(/not found in the bundle/)
+    })
+
+    it('reports an operational read failure as retryable, not "not found"', async () => {
+        const ctx = ctxWith(async () => {
+            throw new Error('S3 timeout')
+        })
+        await expect(loadSkill.run({ id: 'research' }, ctx)).rejects.toThrow(/transient error.*S3 timeout.*Retry/s)
+    })
+
+    it('rejects an unknown skill id', async () => {
+        await expect(
+            loadSkill.run(
+                { id: 'nope' },
+                ctxWith(async () => '# body')
+            )
+        ).rejects.toThrow(/unknown skill id/)
     })
 })

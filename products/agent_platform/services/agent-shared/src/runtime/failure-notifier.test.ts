@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { AgentApplication, AgentSession } from '../spec/spec'
+import { AgentApplication, AgentRevision, AgentSession } from '../spec/spec'
 import {
     categorize,
     FailureNotifier,
@@ -17,6 +17,18 @@ const APP: AgentApplication = {
     description: '',
     live_revision_id: null,
     archived: false,
+}
+
+const REV: AgentRevision = {
+    id: 'rev-1',
+    application_id: APP.id,
+    parent_revision_id: null,
+    created_by_id: null,
+    created_at: new Date().toISOString(),
+    state: 'live',
+    bundle_uri: 's3://x/',
+    bundle_sha256: null,
+    spec: { model: 'claude-sonnet-4-6' } as unknown as AgentRevision['spec'],
     encrypted_env: null,
 }
 
@@ -37,6 +49,7 @@ function makeSession(triggerMetadata: Record<string, unknown> | null): AgentSess
         usage_total: { input_tokens: 0, output_tokens: 0, cost_total: 0 },
         acl: [],
         pending_elevation_requests: [],
+        is_preview: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     } as unknown as AgentSession
@@ -100,7 +113,7 @@ describe('NoopFailureNotifier', () => {
     it('returns without doing anything', async () => {
         const n = new NoopFailureNotifier()
         await expect(
-            n.notify({ session: makeSession(null), application: APP, reason: 'x', category: 'unknown' })
+            n.notify({ session: makeSession(null), application: APP, revision: REV, reason: 'x', category: 'unknown' })
         ).resolves.toBeUndefined()
     })
 })
@@ -119,6 +132,7 @@ describe('TriggerAwareFailureNotifier', () => {
         await n.notify({
             session: makeSession({ type: 'slack', channel: 'C1', thread_ts: '123' }),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
@@ -129,7 +143,13 @@ describe('TriggerAwareFailureNotifier', () => {
     it('no-ops when trigger_metadata is null', async () => {
         const slack = makeSub()
         const n = new TriggerAwareFailureNotifier({ slack })
-        await n.notify({ session: makeSession(null), application: APP, reason: 'x', category: 'unknown' })
+        await n.notify({
+            session: makeSession(null),
+            application: APP,
+            revision: REV,
+            reason: 'x',
+            category: 'unknown',
+        })
         expect(slack.notify).not.toHaveBeenCalled()
     })
 
@@ -139,12 +159,14 @@ describe('TriggerAwareFailureNotifier', () => {
         await n.notify({
             session: makeSession({ channel: 'C1' }),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
         await n.notify({
             session: makeSession({ type: 'discord' }),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
@@ -163,6 +185,7 @@ describe('TriggerAwareFailureNotifier', () => {
             n.notify({
                 session: makeSession({ type: 'slack' }),
                 application: APP,
+                revision: REV,
                 reason: 'x',
                 category: 'unknown',
             })

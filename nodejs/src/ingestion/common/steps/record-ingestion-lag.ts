@@ -1,7 +1,7 @@
-import { ingestionLagGauge, ingestionLagHistogram } from '../../../common/metrics'
-import { IngestedEventInfo } from '../../event-processing/emit-event-step'
-import { PipelineResult, ok } from '../../pipelines/results'
-import { ProcessingStep } from '../../pipelines/steps'
+import { ingestionLagGauge, ingestionLagHistogram } from '~/common/metrics'
+import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
+import { PipelineResult, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 
 export interface RecordIngestionLagInput {
     ingested: Promise<IngestedEventInfo | null>[]

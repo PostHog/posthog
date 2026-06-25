@@ -118,3 +118,29 @@ def test_compared_funnel_evaluates_current_period_only():
     assert result.is_breakdown is False
     assert len(result.series) == 1
     assert result.series[0].points[0].value == 10.0  # current period: 100/1000
+
+
+def test_breakdown_compared_funnel_evaluates_current_breakdowns_only():
+    # Breakdown + compare: the runner emits the current breakdown groups followed by the previous
+    # ones. The previous groups filter to empty and must be dropped — an empty group previously made
+    # funnel_step resolve to -1 and raised "out of range" instead of evaluating the current breakdowns.
+    us_current = [
+        {"order": 0, "count": 100, "breakdown_value": "US", "compare_label": "current"},
+        {"order": 1, "count": 40, "breakdown_value": "US", "compare_label": "current"},
+    ]
+    de_current = [
+        {"order": 0, "count": 80, "breakdown_value": "DE", "compare_label": "current"},
+        {"order": 1, "count": 20, "breakdown_value": "DE", "compare_label": "current"},
+    ]
+    us_previous = [
+        {"order": 0, "count": 90, "breakdown_value": "US", "compare_label": "previous"},
+        {"order": 1, "count": 30, "breakdown_value": "US", "compare_label": "previous"},
+    ]
+    de_previous = [
+        {"order": 0, "count": 70, "breakdown_value": "DE", "compare_label": "previous"},
+        {"order": 1, "count": 10, "breakdown_value": "DE", "compare_label": "previous"},
+    ]
+    result = _extract([us_current, de_current, us_previous, de_previous])
+    assert result.is_breakdown is True
+    assert {s.label for s in result.series} == {"US", "DE"}  # current breakdowns only, no crash
+    assert {s.label: s.points[0].value for s in result.series} == {"US": 40.0, "DE": 25.0}

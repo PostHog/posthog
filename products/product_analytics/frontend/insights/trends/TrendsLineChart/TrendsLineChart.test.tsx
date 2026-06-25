@@ -4,6 +4,8 @@ import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     buildTrendsQuery,
@@ -807,5 +809,94 @@ describe('TrendsLineChart', () => {
             // Without a click handler the canvas still renders; clicking is a no-op.
             expect(personsModal.get()).not.toBeInTheDocument()
         })
+    })
+
+    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
+        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+        const twoSeriesQuery = buildTrendsQuery({
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+            ],
+            trendsFilter: { showLegend: true },
+        })
+
+        const getInChartLegend = (container: HTMLElement): HTMLElement =>
+            container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-line-legend"]')!
+
+        it('renders the in-chart legend and suppresses the legacy side legend', async () => {
+            const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
+
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+
+            const legendEl = getInChartLegend(container)
+            expect(legendEl.textContent).toContain('Napped')
+            expect(container.querySelector('.InsightLegendMenu')).not.toBeInTheDocument()
+        })
+
+        it('keeps a toggled-off series listed and dimmed in the legend but out of the tooltip', async () => {
+            const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
+
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+            const legendEl = getInChartLegend(container)
+
+            await legend.toggle('Napped')
+
+            // Hidden series stays listed (so it can be restored) but is rendered dimmed.
+            const nappedRow = await waitFor(() => {
+                const row = [...legendEl.querySelectorAll<HTMLElement>('button')].find((b) =>
+                    b.textContent?.includes('Napped')
+                )
+                expect(row?.className).toContain('opacity-40')
+                return row
+            })
+            expect(nappedRow).toBeInTheDocument()
+
+            const tooltip = await chart.hoverTooltip(2)
+            expect(tooltip.element.textContent).not.toContain('Napped')
+        })
+
+        it('renders a static, non-interactive legend in shared mode', async () => {
+            const { container } = renderInsight({
+                query: twoSeriesQuery,
+                featureFlags: quillLegendFlag,
+                inSharedMode: true,
+            })
+
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+            const legendEl = getInChartLegend(container)
+
+            expect(legendEl.textContent).toContain('Napped')
+            expect(legendEl.querySelector('button')).not.toBeInTheDocument()
+        })
+
+        it.each(['left', 'right'] as const)(
+            'lays the legend out vertically when legendPosition is %s',
+            async (position) => {
+                const { container } = renderInsight({
+                    query: buildTrendsQuery({
+                        series: [
+                            { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                            { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                        ],
+                        trendsFilter: { showLegend: true, legendPosition: position },
+                    }),
+                    featureFlags: quillLegendFlag,
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                })
+
+                const legendEl = getInChartLegend(container)
+                expect(legendEl.className).toContain('flex-col')
+            }
+        )
     })
 })

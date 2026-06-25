@@ -50,7 +50,11 @@ const _isCurrentPeriodRow = (row: any): boolean =>
  * `_current_period_only`); no-op when compare is off. */
 function _currentPeriodOnly(result: any[]): any[] {
     if (Array.isArray(result[0])) {
-        return result.map((steps) => (Array.isArray(steps) ? steps.filter((row) => _isCurrentPeriodRow(row)) : steps))
+        // Breakdown: the runner emits previous-period breakdowns as their own groups that filter to
+        // empty — drop them, or they'd surface as a misleading whole-preview "no-data".
+        return result
+            .map((steps) => (Array.isArray(steps) ? steps.filter((row) => _isCurrentPeriodRow(row)) : steps))
+            .filter((steps) => !Array.isArray(steps) || steps.length > 0)
     }
     return result.filter((row) => _isCurrentPeriodRow(row))
 }

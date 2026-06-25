@@ -25,9 +25,11 @@ function fillHistoryBuckets(history: RateLimitHistoryBucket[], bucketMinutes: nu
 export function RateLimitHistoryChart({
     history,
     bucketMinutes,
+    emptyMessage = 'No rate limiting activity recorded yet. Exceptions dropped by your project-wide limit will appear here.',
 }: {
     history: RateLimitHistoryBucket[]
     bucketMinutes: number
+    emptyMessage?: string
 }): JSX.Element {
     const { xData, yData, isEmpty } = useMemo(() => {
         const filled = fillHistoryBuckets(history, bucketMinutes)
@@ -74,7 +76,7 @@ export function RateLimitHistoryChart({
     if (isEmpty) {
         return (
             <div className="h-80 border rounded flex items-center justify-center text-muted-foreground text-sm p-4 text-center">
-                No rate limiting activity recorded yet. Exceptions dropped by your project-wide limit will appear here.
+                {emptyMessage}
             </div>
         )
     }

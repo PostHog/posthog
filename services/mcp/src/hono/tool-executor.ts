@@ -232,7 +232,7 @@ export class ToolExecutor {
 
             void trackToolCall(tool.name, Date.now() - startMs, true, state, undefined, intentMeta)
 
-            const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
+            const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
         }
     }
@@ -294,7 +294,7 @@ export class ToolExecutor {
 
             void trackToolCall('exec', Date.now() - startMs, true, state, undefined, intentMeta)
 
-            const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
+            const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             // Attribute the failure to the inner tool that actually ran (e.g. `query-logs`),
             // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
             // exception fingerprint point at the real source instead of collapsing every
@@ -390,7 +390,7 @@ export class ToolExecutor {
             stop({ status: 'error' })
             classifyToolError(error, 'render-ui')
             void trackToolCall('render-ui', Date.now() - startMs, true, state, undefined, intentMeta)
-            const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
+            const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, 'render-ui', state.distinctId, sessionUuid)
         }
     }

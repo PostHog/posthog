@@ -124,6 +124,43 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIsNone(issue)
 
+    @patch.object(ErrorTrackingIssueContext, "_query_first_event")
+    async def test_first_event_window_hit_skips_fallback(self, mock_query):
+        mock_query.return_value = {"properties": {"$exception_list": []}}
+        context = self._create_context(self.issue_id_one)
+        first_seen = now() - relativedelta(hours=3)
+
+        event = await context.aget_first_event(first_seen)
+
+        self.assertIsNotNone(event)
+        # Window hit → only the narrow ±1h lookup runs, no full-history fallback.
+        self.assertEqual(mock_query.call_count, 1)
+        window = mock_query.call_args.args[0]
+        self.assertEqual(window.date_from, (first_seen - relativedelta(hours=1)).isoformat())
+        self.assertEqual(window.date_to, (first_seen + relativedelta(hours=1)).isoformat())
+
+    @patch.object(ErrorTrackingIssueContext, "_query_first_event")
+    async def test_first_event_falls_back_to_all_time_when_window_misses(self, mock_query):
+        mock_query.side_effect = [None, {"properties": {"$exception_list": []}}]
+        context = self._create_context(self.issue_id_one)
+
+        event = await context.aget_first_event(now() - relativedelta(hours=3))
+
+        self.assertIsNotNone(event)
+        # Window missed → second lookup spans the full history.
+        self.assertEqual(mock_query.call_count, 2)
+        self.assertEqual(mock_query.call_args_list[1].args[0].date_from, "all")
+
+    @patch.object(ErrorTrackingIssueContext, "_query_first_event")
+    async def test_first_event_without_first_seen_uses_all_time(self, mock_query):
+        mock_query.return_value = {"properties": {"$exception_list": []}}
+        context = self._create_context(self.issue_id_one)
+
+        await context.aget_first_event(None)
+
+        self.assertEqual(mock_query.call_count, 1)
+        self.assertEqual(mock_query.call_args.args[0].date_from, "all")
+
     async def test_format_stacktrace_correctly(self):
         context = self._create_context(self.issue_id_one)
 

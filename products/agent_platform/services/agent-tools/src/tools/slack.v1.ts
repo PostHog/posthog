@@ -1,4 +1,11 @@
-import { defineNativeTool, HttpFetcher, SLACK_BOT_TOKEN_KEY, ToolContext, Type } from '@posthog/agent-shared'
+import {
+    defineNativeTool,
+    HttpFetcher,
+    isPreviewSideEffect,
+    SLACK_BOT_TOKEN_KEY,
+    ToolContext,
+    Type,
+} from '@posthog/agent-shared'
 
 /**
  * Resolve the agent's Slack bot token from `encrypted_env` via `ctx.secret`.
@@ -24,20 +31,41 @@ async function slackCall(
     method: string,
     body: Record<string, unknown>
 ): Promise<unknown> {
+    // Slack's read methods (conversations.*) reject JSON — they read
+    // form-encoded params. Form works for every method, so use it throughout.
+    const form = new URLSearchParams()
+    for (const [k, v] of Object.entries(body)) {
+        if (v !== undefined && v !== null) {
+            form.append(k, String(v))
+        }
+    }
     const res = await http.fetch(`https://slack.com/api/${method}`, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Type': 'application/x-www-form-urlencoded',
             Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(body),
+        body: form.toString(),
     })
     if (!res.ok) {
         throw new Error(`slack.${method} HTTP ${res.status}`)
     }
-    const j = (await res.json()) as { ok: boolean; error?: string }
+    const j = (await res.json()) as {
+        ok: boolean
+        error?: string
+        warning?: string
+        response_metadata?: { messages?: string[] }
+    }
     if (!j.ok) {
-        throw new Error(`slack.${method} error: ${j.error ?? 'unknown'}`)
+        // Include Slack's warning + field messages so the agent can self-correct.
+        const parts = [`slack.${method} error: ${j.error ?? 'unknown'}`]
+        if (j.warning) {
+            parts.push(`warning: ${j.warning}`)
+        }
+        if (j.response_metadata?.messages?.length) {
+            parts.push(`detail: ${j.response_metadata.messages.join('; ')}`)
+        }
+        throw new Error(parts.join(' | '))
     }
     return j
 }
@@ -99,9 +127,18 @@ export const slackPostMessageV1 = defineNativeTool({
         ts: Type.String(),
         channel: Type.String(),
     }),
-    requires: { scopes: ['chat:write'] },
+    requires: { provider: { id: 'slack', scopes: ['chat:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
+        // Preview-mode noop: don't post into the real channel attached to the
+        // live revision while the author is iterating. The synthetic `ts` is
+        // shape-valid so a follow-up `slack-update-message` / `slack-react`
+        // in the same preview turn doesn't blow up on a missing ts — though
+        // those write tools also short-circuit on preview, so the synthetic
+        // value never reaches slack.com regardless.
+        if (isPreviewSideEffect(ctx, '@posthog/slack-post-message', args)) {
+            return { ts: `preview-noop:${Date.now()}`, channel: args.channel }
+        }
         const token = slackBotToken(ctx)
         const res = (await slackCall(ctx.http, token, 'chat.postMessage', {
             channel: args.channel,
@@ -121,9 +158,12 @@ export const slackUpdateMessageV1 = defineNativeTool({
         text: Type.String(),
     }),
     returns: Type.Object({ ok: Type.Boolean() }),
-    requires: { scopes: ['chat:write'] },
+    requires: { provider: { id: 'slack', scopes: ['chat:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
+        if (isPreviewSideEffect(ctx, '@posthog/slack-update-message', args)) {
+            return { ok: true }
+        }
         const token = slackBotToken(ctx)
         await slackCall(ctx.http, token, 'chat.update', { channel: args.channel, ts: args.ts, text: args.text })
         return { ok: true }
@@ -146,7 +186,7 @@ export const slackReadChannelV1 = defineNativeTool({
         has_more: Type.Boolean(),
         next_cursor: Type.Optional(Type.String()),
     }),
-    requires: { scopes: ['channels:history', 'groups:history'] },
+    requires: { provider: { id: 'slack', scopes: ['channels:history', 'groups:history'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)
@@ -189,7 +229,7 @@ export const slackReadThreadV1 = defineNativeTool({
         has_more: Type.Boolean(),
         next_cursor: Type.Optional(Type.String()),
     }),
-    requires: { scopes: ['channels:history', 'groups:history'] },
+    requires: { provider: { id: 'slack', scopes: ['channels:history', 'groups:history'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)
@@ -225,9 +265,12 @@ export const slackReactV1 = defineNativeTool({
         name: Type.String(),
     }),
     returns: Type.Object({ ok: Type.Boolean() }),
-    requires: { scopes: ['reactions:write'] },
+    requires: { provider: { id: 'slack', scopes: ['reactions:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
+        if (isPreviewSideEffect(ctx, '@posthog/slack-react', args)) {
+            return { ok: true }
+        }
         const token = slackBotToken(ctx)
         await slackCall(ctx.http, token, 'reactions.add', {
             channel: args.channel,

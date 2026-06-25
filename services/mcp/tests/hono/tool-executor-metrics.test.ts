@@ -50,6 +50,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             trackEvent: vi.fn(),
             trackContextSwitchEvent: vi.fn(),
             getSessionUuid: vi.fn().mockResolvedValue(undefined),
+            getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
             api: {},
