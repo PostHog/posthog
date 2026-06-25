@@ -244,13 +244,17 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
                 extra=signal.extra,
             )
 
+    # Called in-process (not via execute_activity), so it inherits this activity's
+    # start_to_close_timeout / heartbeat_timeout / retry_policy rather than taking its own —
+    # it heartbeats the surrounding activity as it polls. Bounded well under the parent's
+    # budget so a stuck poll raises and lets the parent retry instead of eating the full hour.
     await wait_for_signal_in_clickhouse_activity(
         WaitForClickHouseInput(
             team_id=input.team_id,
             signals=[
                 WaitForClickHouseSignal(signal_id=signal.signal_id, timestamp=signal.timestamp) for signal in signals
             ],
-            max_wait_time_seconds=3600,
+            max_wait_time_seconds=1800,
         )
     )
 

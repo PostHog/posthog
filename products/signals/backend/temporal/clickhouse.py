@@ -3,6 +3,8 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
+from django.db import InterfaceError, OperationalError
+
 import structlog
 from asgiref.sync import sync_to_async
 
@@ -12,8 +14,10 @@ from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team
 
-# Errors worth retrying
-RETRIABLE_ERRORS = (ClickHouseAtCapacity, *CH_TRANSIENT_ERRORS)
+# Errors worth retrying. Django's OperationalError/InterfaceError cover a Postgres connection
+# dropped mid-query (the query path touches Postgres for team/HogQL metadata), which would
+# otherwise crash a long-running poll loop instead of recovering on the next attempt.
+RETRIABLE_ERRORS = (ClickHouseAtCapacity, OperationalError, InterfaceError, *CH_TRANSIENT_ERRORS)
 
 logger = structlog.get_logger(__name__)
 

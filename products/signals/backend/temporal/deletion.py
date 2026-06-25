@@ -100,7 +100,9 @@ class SignalReportDeletionWorkflow:
                 max_wait_time_seconds=3600,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
-            heartbeat_timeout=timedelta(minutes=2),
+            # Generous heartbeat: a slow synchronous ClickHouse query can't heartbeat while it
+            # runs, so 2 minutes was tight enough to trip a false heartbeat timeout.
+            heartbeat_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
