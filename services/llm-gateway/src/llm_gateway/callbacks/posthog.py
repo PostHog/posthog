@@ -50,7 +50,13 @@ def _replace_binary_content(data: Any) -> Any:
             return data
 
 
-_MAX_CAPTURE_SIZE = 15 * 1024 * 1024
+# Capture rejects events whose Kafka message exceeds message.max.bytes (~1 MB,
+# the librdkafka default) with a 413, and the posthoganalytics client drops
+# events over its own ~900 KB ceiling. $ai_generation events carry the full
+# prompt/completion via $ai_input / $ai_output_choices, so they routinely cross
+# that line. Truncate well below 1 MB to leave headroom for the event envelope
+# (distinct_id, event name, other properties) and JSON re-escaping on the wire.
+_MAX_CAPTURE_SIZE = 800 * 1024
 _MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
 _TRUNCATION_MARKER = "[truncated: content too large for capture]"
 _TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")

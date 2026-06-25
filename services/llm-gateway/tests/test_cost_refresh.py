@@ -53,6 +53,11 @@ class TestApplyCostAliases:
         apply_cost_aliases(cost)
         assert cost["openai/@cf/moonshotai/kimi-k2.6"]["input_cost_per_token"] == 0.999
 
+    @patch.dict(
+        "llm_gateway.rate_limiting.cost_refresh.COST_ALIASES",
+        {"openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6"},
+        clear=True,
+    )
     @patch("llm_gateway.rate_limiting.cost_refresh.logger")
     def test_warns_when_canonical_missing(self, mock_logger: MagicMock) -> None:
         cost: dict[str, Any] = {"gpt-4o": {}}
@@ -64,6 +69,11 @@ class TestApplyCostAliases:
             canonical="moonshot/kimi-k2.6",
         )
 
+    @patch.dict(
+        "llm_gateway.rate_limiting.cost_refresh.COST_ALIASES",
+        {"openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6"},
+        clear=True,
+    )
     @patch("llm_gateway.rate_limiting.cost_refresh.logger")
     def test_does_not_warn_when_alias_already_present(self, mock_logger: MagicMock) -> None:
         cost: dict[str, Any] = {"openai/@cf/moonshotai/kimi-k2.6": {"input_cost_per_token": 0.999}}
