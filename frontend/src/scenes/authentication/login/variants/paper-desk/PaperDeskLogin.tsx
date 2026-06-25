@@ -137,7 +137,7 @@ function Login(): JSX.Element {
                                     type="email"
                                     autoFocus
                                     placeholder="you@yourcompany.com"
-                                    autoComplete="email"
+                                    autoComplete="username webauthn"
                                     value={value ?? ''}
                                     onChange={onChange}
                                     onBlur={() => precheck({ email: login.email })}

@@ -174,6 +174,7 @@ function Login(): JSX.Element {
                                 data-attr="login-email"
                                 placeholder="email@yourcompany.com"
                                 type="email"
+                                autoComplete="username webauthn"
                                 onBlur={() => precheck({ email: login.email })}
                                 onPressEnter={(e) => {
                                     if (isPasswordHidden) {
