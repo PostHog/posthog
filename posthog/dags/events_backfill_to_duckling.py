@@ -230,7 +230,7 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     Crossplane composition and produced buckets that don't exist. Fail loudly if nothing
     can name it rather than export to a guessed bucket.
     """
-    from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+    from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
     org_id = _get_org_id_for_team(team_id)
     events_table, persons_table = _resolve_table_names(team_id)

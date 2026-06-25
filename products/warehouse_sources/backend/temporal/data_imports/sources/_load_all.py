@@ -261,6 +261,7 @@ from .hellobaton.source import HellobatonSource
 from .helpscout.source import HelpScoutSource
 from .hibob.source import HiBobSource
 from .high_level.source import HighLevelSource
+from .hightouch.source import HightouchSource
 from .hoorayhr.source import HoorayHRSource
 from .hubplanner.source import HubplannerSource
 from .hubspot.source import HubspotSource

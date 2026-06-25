@@ -246,6 +246,11 @@ function CollapsibleBreakdownSection({
                                                                             metric={metric}
                                                                             query={query}
                                                                             onRetry={onRetry}
+                                                                            retryDisabledReason={
+                                                                                isRecalculating
+                                                                                    ? 'Recalculation in progress'
+                                                                                    : undefined
+                                                                            }
                                                                         />
                                                                     )}
                                                                 </td>
@@ -835,6 +840,7 @@ export function MetricRowGroup({
                             error={error}
                             query={debugQuery}
                             onRetry={handleRetry}
+                            retryDisabledReason={isRecalculating ? 'Recalculation in progress' : undefined}
                         />
                     </td>
                 </tr>

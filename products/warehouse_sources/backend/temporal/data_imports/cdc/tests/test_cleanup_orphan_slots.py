@@ -58,7 +58,7 @@ def _run(adapter):
             "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter",
             return_value=adapter,
         ),
-        patch("products.data_warehouse.backend.data_load.service.delete_cdc_extraction_schedule") as mock_delete,
+        patch("products.data_warehouse.backend.logic.data_load.service.delete_cdc_extraction_schedule") as mock_delete,
     ):
         cleanup_orphan_slots_activity()
     return mock_activity, mock_delete
