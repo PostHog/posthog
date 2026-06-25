@@ -102,7 +102,7 @@ tools:
             completed runs; to get a trend, call this over two adjacent windows and compare.
         param_overrides:
             date_from:
-                description: Window start — relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+                description: Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
             date_to:
                 description: Window end — relative or ISO8601. Defaults to now.
         url_prefix: /engineering-analytics/workflows

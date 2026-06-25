@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CICardSummaryApi,
     EngineeringAnalyticsCiCardsParams,
+    EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPrRunsParams,
     EngineeringAnalyticsPullRequestsParams,
@@ -19,6 +20,7 @@ import type {
     EngineeringAnalyticsWorkflowRunParams,
     EngineeringAnalyticsWorkflowRunsParams,
     GitHubSourceApi,
+    PRCostSummaryApi,
     PRLifecycleApi,
     PullRequestListApi,
     WorkflowHealthItemApi,
@@ -51,6 +53,36 @@ export const engineeringAnalyticsCiCards = async (
     options?: RequestInit
 ): Promise<CICardSummaryApi> => {
     return apiMutator<CICardSummaryApi>(getEngineeringAnalyticsCiCardsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsPrCostUrl = (projectId: string, params: EngineeringAnalyticsPrCostParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/pr_cost/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/pr_cost/`
+}
+
+/**
+ * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet.
+ */
+export const engineeringAnalyticsPrCost = async (
+    projectId: string,
+    params: EngineeringAnalyticsPrCostParams,
+    options?: RequestInit
+): Promise<PRCostSummaryApi> => {
+    return apiMutator<PRCostSummaryApi>(getEngineeringAnalyticsPrCostUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -222,7 +254,7 @@ export const getEngineeringAnalyticsWorkflowJobsUrl = (
 }
 
 /**
- * Jobs of a single workflow run, with per-job duration, runner tier, and estimated cost. Returns an empty list when the job-level source isn't synced yet.
+ * Jobs of a single workflow run attempt, with per-job duration, runner tier, and estimated cost. Scoped to one run_attempt (the latest unless specified) so a re-run's attempts don't merge. Returns an empty list when the job-level source isn't synced yet.
  */
 export const engineeringAnalyticsWorkflowJobs = async (
     projectId: string,

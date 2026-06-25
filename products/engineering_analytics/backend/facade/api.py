@@ -24,6 +24,7 @@ from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     GitHubSource,
+    PRCostSummary,
     PRLifecycle,
     PullRequestList,
     WorkflowHealthItem,
@@ -57,6 +58,19 @@ def get_pr_lifecycle(
     user_access_control: "UserAccessControl | None" = None,
 ) -> PRLifecycle | None:
     return logic.build_pr_lifecycle(
+        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+    )
+
+
+def get_pr_cost(
+    *,
+    team: Team,
+    pr_number: int,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> PRCostSummary:
+    return logic.build_pr_cost(
         curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
     )
 
@@ -101,10 +115,13 @@ def list_workflow_jobs(
     *,
     team: Team,
     run_id: int,
+    run_attempt: int | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowJob]:
-    return logic.build_workflow_jobs(curated=_authorized_source(team, source_id, user_access_control), run_id=run_id)
+    return logic.build_workflow_jobs(
+        curated=_authorized_source(team, source_id, user_access_control), run_id=run_id, run_attempt=run_attempt
+    )
 
 
 def get_ci_cards(

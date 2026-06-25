@@ -23,6 +23,67 @@ export const CICardSummaryApi = zod.object({
 export type CICardSummaryApi = zod.input<typeof CICardSummaryApi>
 export type CICardSummaryApiOutput = zod.output<typeof CICardSummaryApi>
 
+export const WorkflowCostApi = zod.object({
+    workflow_name: zod.string().describe('GitHub Actions workflow name this cost is for.'),
+    billable_minutes: zod.number().describe('Billable (self-hosted) minutes for this workflow within the scope.'),
+    estimated_cost_usd: zod
+        .number()
+        .nullable()
+        .describe('Estimated dollar cost for this workflow, or null when nothing was costable.'),
+    costed_jobs: zod.number().describe('Costed jobs for this workflow (billable Linux runner, finished).'),
+    unsettled_jobs: zod.number().describe('Billable Linux jobs still queued\/running for this workflow.'),
+    excluded_jobs: zod.number().describe('Provider-hosted\/non-Linux jobs for this workflow, outside the estimate.'),
+})
+
+export type WorkflowCostApi = zod.input<typeof WorkflowCostApi>
+export type WorkflowCostApiOutput = zod.output<typeof WorkflowCostApi>
+
+export const PRCostSummaryApi = zod.object({
+    by_workflow: zod
+        .array(
+            zod.object({
+                workflow_name: zod.string().describe('GitHub Actions workflow name this cost is for.'),
+                billable_minutes: zod
+                    .number()
+                    .describe('Billable (self-hosted) minutes for this workflow within the scope.'),
+                estimated_cost_usd: zod
+                    .number()
+                    .nullable()
+                    .describe('Estimated dollar cost for this workflow, or null when nothing was costable.'),
+                costed_jobs: zod.number().describe('Costed jobs for this workflow (billable Linux runner, finished).'),
+                unsettled_jobs: zod.number().describe('Billable Linux jobs still queued\/running for this workflow.'),
+                excluded_jobs: zod
+                    .number()
+                    .describe('Provider-hosted\/non-Linux jobs for this workflow, outside the estimate.'),
+            })
+        )
+        .describe('Same spend broken down per workflow.'),
+    jobs_available: zod
+        .boolean()
+        .describe(
+            "False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero\/null and the cost cards should be hidden."
+        ),
+    billable_minutes: zod
+        .number()
+        .describe('Wall-clock minutes consumed on billable (self-hosted) runners, summed across costed jobs.'),
+    estimated_cost_usd: zod
+        .number()
+        .nullable()
+        .describe(
+            'Estimated dollar cost (sum of per-job estimates: elapsed x tier multiplier x reference rate). Null when no job was costable.'
+        ),
+    costed_jobs: zod.number().describe('Jobs counted in the estimate (billable Linux runner, finished).'),
+    unsettled_jobs: zod
+        .number()
+        .describe('Billable Linux jobs still queued\/running (no elapsed) — excluded from the estimate.'),
+    excluded_jobs: zod
+        .number()
+        .describe('Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners — outside the estimate.'),
+})
+
+export type PRCostSummaryApi = zod.input<typeof PRCostSummaryApi>
+export type PRCostSummaryApiOutput = zod.output<typeof PRCostSummaryApi>
+
 export const AuthorApi = zod.object({
     handle: zod.string().describe('Login handle of the pull request author.'),
     display_name: zod.string().describe('Human-readable name; equals the handle in v1.'),
@@ -214,10 +275,14 @@ export const WorkflowRunDetailApi = zod.object({
         .describe(
             "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', 'action_required', ...), or null while still in progress."
         ),
-    run_started_at: zod.iso.datetime({ offset: true }).describe('When the run started.'),
+    run_started_at: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe('When the run started, or null for a queued\/barely-started run.'),
     updated_at: zod.iso
         .datetime({ offset: true })
-        .describe('When the run was last updated (its finish time once completed).'),
+        .nullable()
+        .describe('When the run was last updated (its finish time once completed), or null when unstarted.'),
     duration_seconds: zod.number().nullable().describe('Wall-clock duration in seconds; null until the run completes.'),
     run_attempt: zod.number().describe('Re-run attempt number; 1 for the first attempt.'),
     pr_number: zod.number().describe('Attributed pull request number, or 0 when unattributed.'),
@@ -450,6 +515,12 @@ export const WorkflowHealthItemApi = zod.object({
         .describe(
             "Whether the most recent completed run was a decisive failure (conclusion 'failure' or 'timed_out'). Null when no run has completed in the window. Powers the OK\/RED status badge."
         ),
+    latest_run_conclusion: zod
+        .string()
+        .nullable()
+        .describe(
+            "Raw conclusion of the most recent completed run ('success', 'cancelled', 'skipped', ...), so a real pass can be told from a non-failure non-success. Null when none completed."
+        ),
     granularity: zod
         .string()
         .describe("Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'."),
@@ -476,7 +547,12 @@ export const WorkflowJobApi = zod.object({
         .nullable()
         .describe('When the job completed, or null while still running.'),
     duration_seconds: zod.number().nullable().describe('Wall-clock duration in seconds; null until the job completes.'),
-    runner_label: zod.string().describe("Runner tier the job ran on (e.g. '16-core'), or '' when unknown."),
+    runner_provider: zod
+        .string()
+        .describe("Where the job ran: 'github_hosted' (free for open source), 'self_hosted' (billable), or 'unknown'."),
+    runner_label: zod
+        .string()
+        .describe("Runner tier the job ran on (e.g. '16-core' or 'ubuntu-latest'), or '' when unknown."),
     estimated_cost_usd: zod
         .number()
         .nullable()

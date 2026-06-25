@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { RunJobsTable } from '../components/runTables'
 import { githubCommitUrl, githubRunUrl } from '../lib/github'
 import { verdictTag } from '../lib/runStatus'
 import { WorkflowRunDetailLogicProps, workflowRunDetailLogic } from './workflowRunDetailLogic'
@@ -37,8 +38,17 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 }
 
 export function WorkflowRunDetailScene(): JSX.Element {
-    const { run, runLoading, loadFailed, sourceId } = useValues(workflowRunDetailLogic)
+    const { run, runLoading, loadFailed, sourceId, jobs, jobsLoading, isValidRunId } = useValues(workflowRunDetailLogic)
     const { loadRun } = useActions(workflowRunDetailLogic)
+
+    if (!isValidRunId) {
+        return (
+            <SceneContent>
+                <SceneTitleSection name="Workflow run" resourceType={{ type: 'health' }} />
+                <span className="text-secondary">That run id isn't valid.</span>
+            </SceneContent>
+        )
+    }
 
     const githubUrl = run ? githubRunUrl(run.repo.owner, run.repo.name, run.id) : null
     const verdict = run ? verdictTag(run.conclusion) : null
@@ -106,10 +116,18 @@ export function WorkflowRunDetailScene(): JSX.Element {
                             </span>
                         </DetailRow>
                         <DetailRow label="Started">
-                            <TZLabel time={run.run_started_at} />
+                            {run.run_started_at ? (
+                                <TZLabel time={run.run_started_at} />
+                            ) : (
+                                <span className="text-secondary">—</span>
+                            )}
                         </DetailRow>
                         <DetailRow label="Updated">
-                            <TZLabel time={run.updated_at} />
+                            {run.updated_at ? (
+                                <TZLabel time={run.updated_at} />
+                            ) : (
+                                <span className="text-secondary">—</span>
+                            )}
                         </DetailRow>
                         <DetailRow label="Branch">
                             {run.head_branch ? (
@@ -142,8 +160,9 @@ export function WorkflowRunDetailScene(): JSX.Element {
                         </DetailRow>
                     </div>
 
-                    <div className="text-xs text-tertiary">
-                        Run-level only — per-job and per-step detail aren't tracked yet.
+                    <div className="flex flex-col gap-2">
+                        <h3 className="mb-0">Jobs</h3>
+                        <RunJobsTable jobs={jobs} loading={jobsLoading} />
                     </div>
                 </>
             ) : (

@@ -29528,6 +29528,44 @@ export namespace Schemas {
       NeedsAttention: 'needs_attention',
     } as const;
 
+    export interface WorkflowCost {
+      /** GitHub Actions workflow name this cost is for. */
+      workflow_name: string;
+      /** Billable (self-hosted) minutes for this workflow within the scope. */
+      billable_minutes: number;
+      /**
+         * Estimated dollar cost for this workflow, or null when nothing was costable.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+      /** Costed jobs for this workflow (billable Linux runner, finished). */
+      costed_jobs: number;
+      /** Billable Linux jobs still queued/running for this workflow. */
+      unsettled_jobs: number;
+      /** Provider-hosted/non-Linux jobs for this workflow, outside the estimate. */
+      excluded_jobs: number;
+    }
+
+    export interface PRCostSummary {
+      /** Same spend broken down per workflow. */
+      by_workflow: WorkflowCost[];
+      /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
+      jobs_available: boolean;
+      /** Wall-clock minutes consumed on billable (self-hosted) runners, summed across costed jobs. */
+      billable_minutes: number;
+      /**
+         * Estimated dollar cost (sum of per-job estimates: elapsed x tier multiplier x reference rate). Null when no job was costable.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+      /** Jobs counted in the estimate (billable Linux runner, finished). */
+      costed_jobs: number;
+      /** Billable Linux jobs still queued/running (no elapsed) — excluded from the estimate. */
+      unsettled_jobs: number;
+      /** Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners — outside the estimate. */
+      excluded_jobs: number;
+    }
+
     export interface RepoRef {
       /** Code host provider, e.g. 'github'. */
       provider: string;
@@ -50620,6 +50658,11 @@ export namespace Schemas {
          * @nullable
          */
       latest_run_failed: boolean | null;
+      /**
+         * Raw conclusion of the most recent completed run ('success', 'cancelled', 'skipped', ...), so a real pass can be told from a non-failure non-success. Null when none completed.
+         * @nullable
+         */
+      latest_run_conclusion: string | null;
       /** Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'. */
       granularity: string;
     }
@@ -50653,7 +50696,9 @@ export namespace Schemas {
          * @nullable
          */
       duration_seconds: number | null;
-      /** Runner tier the job ran on (e.g. '16-core'), or '' when unknown. */
+      /** Where the job ran: 'github_hosted' (free for open source), 'self_hosted' (billable), or 'unknown'. */
+      runner_provider: string;
+      /** Runner tier the job ran on (e.g. '16-core' or 'ubuntu-latest'), or '' when unknown. */
       runner_label: string;
       /**
          * Estimated cost in USD from runner tier + elapsed time; null when the tier is unknown or the job hasn't finished.
@@ -50680,10 +50725,16 @@ export namespace Schemas {
          * @nullable
          */
       conclusion: string | null;
-      /** When the run started. */
-      run_started_at: string;
-      /** When the run was last updated (its finish time once completed). */
-      updated_at: string;
+      /**
+         * When the run started, or null for a queued/barely-started run.
+         * @nullable
+         */
+      run_started_at: string | null;
+      /**
+         * When the run was last updated (its finish time once completed), or null when unstarted.
+         * @nullable
+         */
+      updated_at: string | null;
       /**
          * Wall-clock duration in seconds; null until the run completes.
          * @nullable
@@ -58569,6 +58620,21 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsPrCostParams = {
+    /**
+     * Pull request number to estimate cost for.
+     */
+    pr_number: number;
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
@@ -58616,7 +58682,7 @@ export namespace Schemas {
      */
     branch?: string;
     /**
-     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     * Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
      */
     date_from?: string;
     /**
@@ -58630,6 +58696,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowJobsParams = {
+    /**
+     * Which re-run attempt to scope jobs to. Omit to use the run's latest attempt; pass an explicit attempt to avoid mixing jobs across a re-run's attempts.
+     */
+    run_attempt?: number;
     /**
      * Workflow run id to list jobs for.
      */

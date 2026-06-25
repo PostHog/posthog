@@ -65,6 +65,7 @@ def _workflow_health() -> contracts.WorkflowHealthItem:
         p95_seconds=600.0,
         last_failure_at=datetime(2026, 1, 20, tzinfo=UTC),
         latest_run_failed=False,
+        latest_run_conclusion="success",
         granularity="day",
         buckets=[
             contracts.WorkflowHealthBucket(
@@ -101,6 +102,7 @@ def _workflow_job() -> contracts.WorkflowJob:
         started_at=datetime(2026, 1, 20, tzinfo=UTC),
         completed_at=datetime(2026, 1, 20, tzinfo=UTC),
         duration_seconds=120,
+        runner_provider="self_hosted",
         runner_label="16-core",
         estimated_cost_usd=0.05,
     )
@@ -271,6 +273,39 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
     def test_pr_runs_400_when_params_missing(self) -> None:
         response = self.client.get(self._url("pr_runs"), {"pr_number": "10"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_pr_cost_serializes(self) -> None:
+        summary = contracts.PRCostSummary(
+            jobs_available=True,
+            billable_minutes=2510.0,
+            estimated_cost_usd=61.2,
+            costed_jobs=40,
+            unsettled_jobs=2,
+            excluded_jobs=3,
+            by_workflow=[
+                contracts.WorkflowCost(
+                    workflow_name="CI",
+                    billable_minutes=2510.0,
+                    estimated_cost_usd=61.2,
+                    costed_jobs=40,
+                    unsettled_jobs=2,
+                    excluded_jobs=3,
+                )
+            ],
+        )
+        with mock.patch(f"{_VIEWS}.get_pr_cost", return_value=summary) as getter:
+            response = self.client.get(self._url("pr_cost"), {"pr_number": "10", "repo": "PostHog/posthog"})
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["billable_minutes"] == 2510.0 and body["unsettled_jobs"] == 2
+        assert getter.call_args.kwargs["pr_number"] == 10
+        assert getter.call_args.kwargs["repo"] == "PostHog/posthog"
+
+    def test_pr_cost_400_when_params_missing(self) -> None:
+        response = self.client.get(self._url("pr_cost"), {"pr_number": "10"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 

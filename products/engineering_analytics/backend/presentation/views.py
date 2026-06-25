@@ -24,6 +24,7 @@ from products.engineering_analytics.backend.facade.contracts import GitHubSource
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
     GitHubSourceSerializer,
+    PRCostSummarySerializer,
     PRLifecycleSerializer,
     PullRequestListSerializer,
     WorkflowHealthItemSerializer,
@@ -48,6 +49,16 @@ _DATE_FROM = OpenApiParameter(
     location=OpenApiParameter.QUERY,
     required=False,
     description="Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.",
+)
+
+# Workflow health defaults to a tighter window than the PR list (a CI-health "now" view), so it
+# advertises its own default rather than reusing _DATE_FROM's -30d.
+_WORKFLOW_DATE_FROM = OpenApiParameter(
+    name="date_from",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h.",
 )
 
 _DATE_TO = OpenApiParameter(
@@ -81,6 +92,28 @@ def _bad_request(exc: ValueError, *, fallback: str) -> Response:
     return Response({"detail": str(exc) or fallback}, status=status.HTTP_400_BAD_REQUEST)
 
 
+def _require_int_param(request: Request, name: str) -> int:
+    """Required integer query param; raises ValueError (handled by `_bad_request`) when missing or non-int."""
+    raw = request.query_params.get(name)
+    if raw is None:
+        raise ValueError(f"{name} is required")
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be an integer") from None
+
+
+def _optional_int_param(request: Request, name: str) -> int | None:
+    """Optional integer query param; None when absent/blank, ValueError when present but non-int."""
+    raw = request.query_params.get(name)
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be an integer") from None
+
+
 @extend_schema(tags=[ENGINEERING_ANALYTICS_TAG])
 class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
@@ -93,6 +126,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "workflow_health",
         "pr_lifecycle",
         "pr_runs",
+        "pr_cost",
         "workflow_run",
         "workflow_runs",
         "workflow_jobs",
@@ -174,7 +208,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_health",
-        parameters=[_DATE_FROM, _DATE_TO, _BRANCH, _SOURCE_ID],
+        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _SOURCE_ID],
         responses={
             200: WorkflowHealthItemSerializer(many=True),
             400: OpenApiResponse(
@@ -230,18 +264,10 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def pr_lifecycle(self, request: Request, **kwargs) -> Response:
-        raw_pr_number = request.query_params.get("pr_number")
-        if raw_pr_number is None:
-            return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            pr_number = int(raw_pr_number)
-        except ValueError:
-            return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
             result = api.get_pr_lifecycle(
                 team=self.team,
-                pr_number=pr_number,
+                pr_number=_require_int_param(request, "pr_number"),
                 repo=request.query_params.get("repo") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
@@ -282,16 +308,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def pr_runs(self, request: Request, **kwargs) -> Response:
-        raw_pr_number = request.query_params.get("pr_number")
         repo = request.query_params.get("repo")
-        if raw_pr_number is None or not repo:
-            return Response({"detail": "pr_number and repo are required"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            pr_number = int(raw_pr_number)
-        except ValueError:
-            return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
+            pr_number = _require_int_param(request, "pr_number")
+            if not repo:
+                raise ValueError("repo is required")
             runs = api.list_pr_runs(
                 team=self.team,
                 pr_number=pr_number,
@@ -302,6 +323,54 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid repo or source_id")
         return Response(WorkflowRunDetailSerializer(instance=runs, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_pr_cost",
+        parameters=[
+            OpenApiParameter(
+                name="pr_number",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Pull request number to estimate cost for.",
+            ),
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="'owner/name' repository the pull request belongs to.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: PRCostSummarySerializer,
+            400: OpenApiResponse(description="Missing pr_number/repo, or invalid repo or source_id."),
+        },
+        description=(
+            "Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. "
+            "Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux "
+            "jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level "
+            "source isn't synced yet."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def pr_cost(self, request: Request, **kwargs) -> Response:
+        repo = request.query_params.get("repo")
+        try:
+            pr_number = _require_int_param(request, "pr_number")
+            if not repo:
+                raise ValueError("repo is required")
+            result = api.get_pr_cost(
+                team=self.team,
+                pr_number=pr_number,
+                repo=repo,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(PRCostSummarySerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_run",
@@ -327,18 +396,10 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def workflow_run(self, request: Request, **kwargs) -> Response:
-        raw_run_id = request.query_params.get("run_id")
-        if raw_run_id is None:
-            return Response({"detail": "run_id must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            run_id = int(raw_run_id)
-        except ValueError:
-            return Response({"detail": "run_id must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
             result = api.get_workflow_run(
                 team=self.team,
-                run_id=run_id,
+                run_id=_require_int_param(request, "run_id"),
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
@@ -406,31 +467,33 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 required=True,
                 description="Workflow run id to list jobs for.",
             ),
+            OpenApiParameter(
+                name="run_attempt",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Which re-run attempt to scope jobs to. Omit to use the run's latest attempt; pass an "
+                "explicit attempt to avoid mixing jobs across a re-run's attempts.",
+            ),
             _SOURCE_ID,
         ],
         responses={
             200: WorkflowJobSerializer(many=True),
-            400: OpenApiResponse(description="Missing or non-integer run_id, or invalid source_id."),
+            400: OpenApiResponse(description="Missing or non-integer run_id/run_attempt, or invalid source_id."),
         },
         description=(
-            "Jobs of a single workflow run, with per-job duration, runner tier, and estimated cost. "
+            "Jobs of a single workflow run attempt, with per-job duration, runner tier, and estimated cost. "
+            "Scoped to one run_attempt (the latest unless specified) so a re-run's attempts don't merge. "
             "Returns an empty list when the job-level source isn't synced yet."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def workflow_jobs(self, request: Request, **kwargs) -> Response:
-        raw_run_id = request.query_params.get("run_id")
-        if raw_run_id is None:
-            return Response({"detail": "run_id must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            run_id = int(raw_run_id)
-        except ValueError:
-            return Response({"detail": "run_id must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
             jobs = api.list_workflow_jobs(
                 team=self.team,
-                run_id=run_id,
+                run_id=_require_int_param(request, "run_id"),
+                run_attempt=_optional_int_param(request, "run_attempt"),
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )

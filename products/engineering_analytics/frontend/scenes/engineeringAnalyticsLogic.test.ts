@@ -121,6 +121,7 @@ const WORKFLOWS: WorkflowHealthItemApi[] = [
         p95_seconds: 600,
         last_failure_at: '2026-05-30T00:00:00Z',
         latest_run_failed: false,
+        latest_run_conclusion: 'success',
     },
 ]
 const SOURCES: GitHubSourceApi[] = [
@@ -482,6 +483,7 @@ describe('engineeringAnalyticsLogic', () => {
                 finishedAt: '2026-06-01T00:31:00Z',
                 durationSeconds: 1800,
                 runId: 9001,
+                runAttempt: null,
             },
             {
                 workflow: 'Frontend CI',
@@ -490,6 +492,7 @@ describe('engineeringAnalyticsLogic', () => {
                 finishedAt: null,
                 durationSeconds: null,
                 runId: null,
+                runAttempt: null,
             },
             {
                 workflow: 'Backend CI',
@@ -498,6 +501,7 @@ describe('engineeringAnalyticsLogic', () => {
                 finishedAt: '2026-06-01T01:20:00Z',
                 durationSeconds: 1200,
                 runId: 9002,
+                runAttempt: null,
             },
             // A finish without a matching start (outside the window) still yields a row.
             {
@@ -507,6 +511,7 @@ describe('engineeringAnalyticsLogic', () => {
                 finishedAt: '2026-06-01T00:10:00Z',
                 durationSeconds: null,
                 runId: 9003,
+                runAttempt: null,
             },
         ])
         // The detail page triages: failures first, then still-running, then passes.

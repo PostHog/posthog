@@ -7,6 +7,12 @@ export interface FailureSparklineProps {
     failures: number[]
     /** One tooltip label per bucket; falls back to the index when omitted. Must match `completed` length. */
     labels?: string[]
+    /** Accessible name for the chart (role="img"); screen readers can't read the per-bucket titles. */
+    ariaLabel?: string
+    /** Minimum bucket slots. When there are fewer buckets than this, the bars stay narrow and
+     *  right-align (the left fills with empty track) instead of stretching fat — for the few-push
+     *  PR view. Omit (the Workflows tab) to let the buckets fill the full width. */
+    minSlots?: number
     className?: string
 }
 
@@ -31,21 +37,33 @@ const BAR_INSET = 0.18 // leaves a gutter between bars within each unit-wide buc
  * baseline is the point: a healthy workflow shows a clean track, so "no failures" never looks like
  * "no data".
  */
-export function FailureSparkline({ completed, failures, labels, className }: FailureSparklineProps): JSX.Element {
+export function FailureSparkline({
+    completed,
+    failures,
+    labels,
+    ariaLabel = 'Run failure history',
+    minSlots,
+    className,
+}: FailureSparklineProps): JSX.Element {
     const maxCompleted = Math.max(...completed, 1)
     const usableHeight = BASELINE_Y - TOP_PAD
+    // Reserve at least `minSlots` columns so a handful of buckets stay narrow and sit on the right
+    // (empty track to their left) rather than stretching across the whole cell.
+    const slots = Math.max(completed.length, minSlots ?? 0, 1)
+    const offset = slots - completed.length
 
     return (
         <svg
             className={cn('w-full h-8 overflow-visible', className)}
-            viewBox={`0 0 ${completed.length} ${VIEW_HEIGHT}`}
+            viewBox={`0 0 ${slots} ${VIEW_HEIGHT}`}
             preserveAspectRatio="none"
             role="img"
+            aria-label={ariaLabel}
         >
             <line
                 x1={0}
                 y1={BASELINE_Y}
-                x2={completed.length}
+                x2={slots}
                 y2={BASELINE_Y}
                 stroke="var(--muted)"
                 strokeWidth={1}
@@ -60,7 +78,7 @@ export function FailureSparkline({ completed, failures, labels, className }: Fai
                 const failHeight =
                     fails > 0 ? Math.min(barHeight, Math.max(MIN_FAIL_HEIGHT, (fails / total) * barHeight)) : 0
                 const successHeight = barHeight - failHeight
-                const x = i + BAR_INSET
+                const x = offset + i + BAR_INSET
                 const width = 1 - BAR_INSET * 2
                 const label = labels?.[i] ?? `Bucket ${i + 1}`
                 return (
@@ -85,7 +103,7 @@ export function FailureSparkline({ completed, failures, labels, className }: Fai
                             />
                         )}
                         {/* Full-height transparent hit area so hovering an empty bucket still shows its tooltip. */}
-                        <rect x={i} y={0} width={1} height={VIEW_HEIGHT} fill="transparent">
+                        <rect x={offset + i} y={0} width={1} height={VIEW_HEIGHT} fill="transparent">
                             <title>{label}</title>
                         </rect>
                     </g>

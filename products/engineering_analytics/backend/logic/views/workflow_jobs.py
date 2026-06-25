@@ -39,9 +39,10 @@ def build_query(table_name: str) -> str:
                 conclusion,
                 ifNull(labels, '[]') AS labels,
                 ifNull(runner_name, '') AS runner_name,
-                -- nullIf keeps an empty/queued timestamp NULL (parseDateTimeBestEffort can't parse '').
-                parseDateTimeBestEffort(nullIf(started_at, '')) AS started_at,
-                parseDateTimeBestEffort(nullIf(completed_at, '')) AS completed_at
+                -- HogQL maps parseDateTimeBestEffort to the OrNull variant, so an empty/queued '' lands
+                -- as NULL with no explicit nullIf — same as the runs builder.
+                parseDateTimeBestEffort(started_at) AS started_at,
+                parseDateTimeBestEffort(completed_at) AS completed_at
             FROM {table_name}
         )
     """

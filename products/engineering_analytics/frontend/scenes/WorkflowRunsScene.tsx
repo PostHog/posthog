@@ -111,11 +111,14 @@ export function WorkflowRunsScene(): JSX.Element {
             key: 'started',
             width: 140,
             align: 'right',
-            render: (_, run) => (
-                <span className="text-xs whitespace-nowrap">
-                    <TZLabel time={run.run_started_at} />
-                </span>
-            ),
+            render: (_, run) =>
+                run.run_started_at ? (
+                    <span className="text-xs whitespace-nowrap">
+                        <TZLabel time={run.run_started_at} />
+                    </span>
+                ) : (
+                    <span className="text-xs text-secondary">—</span>
+                ),
         },
     ]
 

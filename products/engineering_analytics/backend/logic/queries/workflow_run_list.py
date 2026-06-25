@@ -8,17 +8,16 @@ the latest attempt), so the list mirrors what GitHub Actions shows.
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import RepoRef, WorkflowRunDetail
+from products.engineering_analytics.backend.facade.contracts import WorkflowRunDetail
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._run_detail import RUN_DETAIL_COLUMNS, to_run_detail
 
 # Safety bound on the runs list (mirrors the PR table's cap philosophy).
 _LIMIT = 200
 
 _SELECT = f"""
     SELECT
-        id, workflow_name, head_sha, head_branch, status, conclusion,
-        run_started_at, updated_at, duration_seconds, run_attempt, pr_number,
-        repo_owner, repo_name
+        {RUN_DETAIL_COLUMNS}
     FROM __RUNS_SOURCE__ AS r
     WHERE repo_owner = {{repo_owner}} AND repo_name = {{repo_name}} AND workflow_name = {{workflow_name}}
     ORDER BY run_started_at DESC, run_attempt DESC
@@ -42,34 +41,4 @@ def query_workflow_run_list(
             "workflow_name": ast.Constant(value=workflow_name),
         },
     )
-    return [
-        WorkflowRunDetail(
-            repo=RepoRef(provider="github", owner=repo_owner, name=repo_name),
-            id=int(run_id),
-            workflow_name=workflow_name,
-            head_sha=head_sha or "",
-            head_branch=head_branch or "",
-            status=status or "",
-            conclusion=conclusion or None,
-            run_started_at=run_started_at,
-            updated_at=updated_at,
-            duration_seconds=int(duration_seconds) if duration_seconds is not None else None,
-            run_attempt=int(run_attempt) if run_attempt is not None else 1,
-            pr_number=int(pr_number) if pr_number is not None else 0,
-        )
-        for (
-            run_id,
-            _workflow_name,
-            head_sha,
-            head_branch,
-            status,
-            conclusion,
-            run_started_at,
-            updated_at,
-            duration_seconds,
-            run_attempt,
-            pr_number,
-            _repo_owner,
-            _repo_name,
-        ) in response.results
-    ]
+    return [to_run_detail(row) for row in (response.results or [])]

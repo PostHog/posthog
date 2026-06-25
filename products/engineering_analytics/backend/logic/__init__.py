@@ -16,6 +16,7 @@ from posthog.utils import relative_date_parse
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     GitHubSource,
+    PRCostSummary,
     PRLifecycle,
     PullRequestList,
     WorkflowHealthItem,
@@ -24,6 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_cost
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
@@ -64,12 +66,21 @@ def build_pr_runs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     return query_pr_runs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
+def build_pr_cost(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRCostSummary:
+    owner, name = _split_repo(repo)
+    if not (owner and name):
+        raise ValueError("repo must be in 'owner/name' format")
+    return query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+
+
 def build_workflow_run(*, curated: CuratedGitHubSource, run_id: int) -> WorkflowRunDetail | None:
     return query_workflow_run(curated=curated, run_id=run_id)
 
 
-def build_workflow_jobs(*, curated: CuratedGitHubSource, run_id: int) -> list[WorkflowJob]:
-    return query_workflow_jobs(curated=curated, run_id=run_id)
+def build_workflow_jobs(
+    *, curated: CuratedGitHubSource, run_id: int, run_attempt: int | None = None
+) -> list[WorkflowJob]:
+    return query_workflow_jobs(curated=curated, run_id=run_id, run_attempt=run_attempt)
 
 
 def build_workflow_run_list(

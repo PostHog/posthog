@@ -90,9 +90,8 @@ def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# Local-demo stopgap: the real job-level source (github_workflow_jobs) is built separately. Until it
-# lands, synthesize a few jobs per run so the expandable job breakdown is demoable end to end. Tiers
-# vary so the cost model produces a spread; the last job inherits a failing run's conclusion.
+# Synthesize a few jobs per run so the expandable job breakdown and cost cards are demoable in local
+# dev. Tiers vary so the cost model produces a spread; the last job inherits a failing run's conclusion.
 _JOB_NAMES = ("build", "test", "lint", "e2e")
 _RUNNER_LABELS = (
     '["depot-ubuntu-22.04-16"]',
@@ -102,18 +101,38 @@ _RUNNER_LABELS = (
 )
 
 
+_TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+
 def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     for run in runs:
         completed = run.get("status") == "completed"
         run_conclusion = run.get("conclusion")
         count = (run["id"] % 3) + 2  # 2–4 jobs, deterministic per run
+
+        # Stagger jobs sequentially across the run's window so the job Gantt reads as a real timeline
+        # (build → test → …) instead of identical full-width bars.
+        try:
+            run_start = datetime.strptime(run["run_started_at"], _TS_FMT)
+            run_end = datetime.strptime(run["updated_at"], _TS_FMT)
+        except (KeyError, TypeError, ValueError):
+            run_start = run_end = None
+        window = (run_end - run_start).total_seconds() if run_start and run_end and run_end > run_start else 0.0
+        segment = window / count if window else 0.0
+
         for idx in range(count):
             is_last = idx == count - 1
             # Healthy jobs pass; a failing run's failure surfaces on its last job.
             conclusion = run_conclusion if (is_last and run_conclusion in ("failure", "timed_out")) else None
             if completed and conclusion is None:
                 conclusion = "success"
+
+            job_start = run_start + timedelta(seconds=idx * segment) if run_start else None
+            job_end = run_start + timedelta(seconds=(idx + 1) * segment) if (run_start and completed) else None
+            started_at = job_start.strftime(_TS_FMT) if job_start else None
+            completed_at = job_end.strftime(_TS_FMT) if job_end else None
+
             jobs.append(
                 {
                     "id": run["id"] * 10 + idx,
@@ -128,13 +147,93 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "labels": _RUNNER_LABELS[idx % len(_RUNNER_LABELS)],
                     "runner_name": f"runner-{idx + 1}",
                     "runner_group_name": "depot",
-                    "created_at": run.get("run_started_at"),
-                    "started_at": run.get("run_started_at"),
-                    "completed_at": run.get("updated_at") if completed else None,
+                    "created_at": started_at,
+                    "started_at": started_at,
+                    "completed_at": completed_at,
                     "steps": "[]",
                 }
             )
     return jobs
+
+
+# A synthetic multi-push PR so the per-push sparkline and multi-run expansion are demoable — captured
+# real PRs rarely re-run many workflows across pushes, so nothing in the fixture shows the progression.
+# Local-seed only; clearly numbered 99001 and labelled "demo".
+_DEMO_PR_NUMBER = 99001
+# Per-workflow conclusion across the 4 pushes (oldest → newest) — a mix of red→green progressions,
+# steady-green, a late blip, and one still running on the latest push.
+_DEMO_MATRIX: dict[str, list[str | None]] = {
+    "Backend CI": ["failure", "failure", "success", "success"],
+    "Frontend CI": ["failure", "success", "success", "success"],
+    "Rust CI": ["success", "failure", "success", "success"],
+    "E2E Tests": ["failure", "failure", "failure", "success"],
+    "Storybook": ["success", "success", "success", "success"],
+    "Lint": ["success", "success", "success", "success"],
+    "Migrations": ["success", "success", "failure", "success"],
+    "MCP CI": ["success", "success", "success", None],  # None → still running on the latest push
+    "Docs": ["success", "success", "success", "success"],
+    "Security": ["timed_out", "failure", "success", "success"],
+}
+
+
+def _demo_multi_push(
+    prs: list[dict[str, Any]], runs: list[dict[str, Any]]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    # Anchor the demo just after the fixture's newest row so the rebase lands its last push at "now".
+    newest = max(
+        datetime.fromisoformat(row[field])
+        for row, fields in [*((pr, PR_DATE_FIELDS) for pr in prs), *((run, RUN_DATE_FIELDS) for run in runs)]
+        for field in fields
+        if row[field] is not None
+    )
+    anchor = newest + timedelta(hours=1)
+    push_shas = [f"demo00{k + 1}" + "f" * 33 for k in range(4)]  # 40 chars, distinct first 7 (demo001…demo004)
+    workflows = list(_DEMO_MATRIX.keys())
+
+    def iso(dt: datetime) -> str:
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    demo_runs: list[dict[str, Any]] = []
+    for push_index in range(4):
+        push_time = anchor - timedelta(days=3 - push_index)
+        for wf_index, workflow in enumerate(workflows):
+            conclusion = _DEMO_MATRIX[workflow][push_index]
+            running = conclusion is None
+            start = push_time + timedelta(minutes=2 * wf_index)
+            end = start + timedelta(minutes=5 + (wf_index % 6) * 4)  # 5–25 min spread for p50/p95
+            demo_runs.append(
+                {
+                    "id": 9_900_000_000 + push_index * 100 + wf_index,
+                    "name": workflow,
+                    "head_sha": push_shas[push_index],
+                    "head_branch": "demo/multi-push-progression",
+                    "status": "in_progress" if running else "completed",
+                    "conclusion": None if running else conclusion,
+                    "created_at": iso(start),
+                    "run_started_at": iso(start),
+                    "updated_at": iso(start) if running else iso(end),
+                    "run_attempt": 1,
+                    "repository": {"full_name": "PostHog/posthog"},
+                    "pull_requests": [{"number": _DEMO_PR_NUMBER}],
+                }
+            )
+
+    demo_pr = {
+        "id": 9_900_100_001,
+        "number": _DEMO_PR_NUMBER,
+        "title": "demo: multi-push CI progression (seeded)",
+        "state": "open",
+        "draft": False,
+        "created_at": iso(anchor - timedelta(days=3)),
+        "updated_at": iso(anchor),
+        "merged_at": None,
+        "closed_at": None,
+        "user": {"login": "webjunkie", "avatar_url": ""},
+        "head": {"sha": push_shas[3]},
+        "base": {"repo": {"full_name": "PostHog/posthog"}},
+        "labels": ["demo"],
+    }
+    return demo_pr, demo_runs
 
 
 def _warehouse_endpoint() -> str:
@@ -185,6 +284,11 @@ class Command(BaseCommand):
         prs = self._load_fixture(options["fixture_dir"], "github_pull_requests.json")
         runs = self._load_fixture(options["fixture_dir"], "github_workflow_runs.json")
 
+        # Append a synthetic multi-push PR (the fixture has none rich enough to show the progression).
+        demo_pr, demo_runs = _demo_multi_push(prs, runs)
+        prs.append(demo_pr)
+        runs.extend(demo_runs)
+
         # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
         shift = timedelta(0) if options["keep_dates"] else self._rebase_delta(prs, runs)
         prs = [self._shift_dates(pr, PR_DATE_FIELDS, shift) for pr in prs]
@@ -205,7 +309,7 @@ class Command(BaseCommand):
             self._upsert_schema_table(
                 team, source, credential, prefix, WORKFLOW_RUNS_SCHEMA, WORKFLOW_RUNS_COLUMNS, map(_flatten_run, runs)
             )
-            # Local-demo stopgap until the real job-level source lands (see _synthesize_jobs).
+            # Synthesized demo jobs for the job-level breakdown (see _synthesize_jobs).
             jobs = _synthesize_jobs(runs)
             self._upsert_schema_table(
                 team, source, credential, prefix, WORKFLOW_JOBS_SCHEMA, WORKFLOW_JOBS_COLUMNS, jobs
@@ -216,6 +320,9 @@ class Command(BaseCommand):
                 f"Seeded {len(prs)} pull requests, {len(runs)} workflow runs, and {len(jobs)} jobs into "
                 f"team {team.pk} under GitHub source prefix '{prefix}'."
             )
+        )
+        self.stdout.write(
+            f"Multi-push demo PR: /project/{team.pk}/engineering-analytics/PostHog/posthog/pull/{_DEMO_PR_NUMBER}"
         )
 
     def _load_fixture(self, fixture_dir: Path, filename: str) -> list[dict[str, Any]]:

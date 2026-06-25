@@ -20,5 +20,9 @@ export function verdictTag(conclusion: string | null): { label: string; type: Le
     if (isPassingConclusion(conclusion)) {
         return { label, type: conclusion === 'success' ? 'success' : 'muted' }
     }
+    // Cancelled is neither a pass nor a decisive failure — neutral, not amber.
+    if (conclusion === 'cancelled') {
+        return { label, type: 'muted' }
+    }
     return { label, type: 'warning' }
 }

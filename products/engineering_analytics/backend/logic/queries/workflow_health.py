@@ -48,7 +48,8 @@ _SELECT = f"""
         quantileIf(0.95)(duration_seconds, status = 'completed') AS p95_seconds,
         max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
-        argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed') AS latest_failed
+        argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed') AS latest_failed,
+        argMaxIf(conclusion, run_started_at, status = 'completed') AS latest_conclusion
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY repo_owner, repo_name, workflow_name
@@ -136,6 +137,9 @@ def query_workflow_health(
             # argMaxIf defaults to 0 when nothing completed; the completed_count guard tells
             # "latest run passed" apart from "no completed run yet".
             latest_run_failed=bool(latest_failed) if completed_count else None,
+            # The raw conclusion of that latest completed run, so the UI can tell a real pass from a
+            # cancelled/skipped run (both have latest_run_failed false). None when nothing completed.
+            latest_run_conclusion=(latest_conclusion or None) if completed_count else None,
             granularity=granularity,
             buckets=[
                 buckets_by_workflow.get((repo_owner, repo_name, workflow_name), {}).get(
@@ -144,7 +148,7 @@ def query_workflow_health(
                 for bucket in window
             ],
         )
-        for repo_owner, repo_name, workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed in response.results
+        for repo_owner, repo_name, workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion in response.results
     ]
 
 

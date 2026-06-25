@@ -4,6 +4,10 @@ Reads the curated jobs subquery (``_curated.jobs_source``) for one ``run_id``. J
 optional source — when it isn't synced, ``jobs_source()`` is None and this returns ``[]`` so the UI
 degrades to an empty breakdown instead of erroring. Per-job cost is derived from the runner tier
 (parsed from ``labels``) and elapsed time via the pure cost model (``logic.cost``).
+
+A re-run carries several attempts under one ``run_id``; scoping to a single ``run_attempt`` keeps a
+row's statuses, durations, and costs from merging across attempts (and double-counting cost). The
+caller passes the attempt it's showing; when omitted, the latest attempt is used.
 """
 
 import json
@@ -12,18 +16,20 @@ from typing import Any
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowJob
-from products.engineering_analytics.backend.logic.cost import classify_runner, estimate_job_cost_usd
+from products.engineering_analytics.backend.logic.cost import estimate_job_cost_usd, runner_descriptor
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 _SELECT = """
-    SELECT id, run_id, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds
+    SELECT id, run_id, run_attempt, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id = {run_id}
     ORDER BY started_at ASC, id ASC
 """
 
 
-def query_workflow_jobs(*, curated: CuratedGitHubSource, run_id: int) -> list[WorkflowJob]:
+def query_workflow_jobs(
+    *, curated: CuratedGitHubSource, run_id: int, run_attempt: int | None = None
+) -> list[WorkflowJob]:
     jobs_source = curated.jobs_source()
     if jobs_source is None:
         # The optional job-level source isn't synced for this team yet.
@@ -33,15 +39,33 @@ def query_workflow_jobs(*, curated: CuratedGitHubSource, run_id: int) -> list[Wo
         query_type="engineering_analytics.workflow_jobs",
         placeholders={"run_id": ast.Constant(value=run_id)},
     )
-    return [_to_job(row) for row in (response.results or [])]
+    rows = list(response.results or [])
+    target_attempt = run_attempt
+    if target_attempt is None:
+        attempts = [int(row[2]) for row in rows if row[2] is not None]
+        target_attempt = max(attempts) if attempts else None
+    if target_attempt is not None:
+        rows = [row for row in rows if row[2] is not None and int(row[2]) == target_attempt]
+    return [_to_job(row) for row in rows]
 
 
 def _to_job(row: tuple[Any, ...]) -> WorkflowJob:
-    job_id, job_run_id, name, status, conclusion, labels_raw, runner_name, started_at, completed_at, duration = row
+    (
+        job_id,
+        job_run_id,
+        _run_attempt,
+        name,
+        status,
+        conclusion,
+        labels_raw,
+        runner_name,
+        started_at,
+        completed_at,
+        duration,
+    ) = row
     labels = _parse_labels(labels_raw)
-    tier = classify_runner(labels)
     duration_seconds = int(duration) if duration is not None else None
-    runner_label = f"{tier.vcpu}-core" if tier else (labels[0] if labels else (runner_name or ""))
+    provider, runner_label = runner_descriptor(labels)
     return WorkflowJob(
         id=int(job_id),
         run_id=int(job_run_id) if job_run_id is not None else 0,
@@ -51,7 +75,8 @@ def _to_job(row: tuple[Any, ...]) -> WorkflowJob:
         started_at=started_at,
         completed_at=completed_at,
         duration_seconds=duration_seconds,
-        runner_label=runner_label,
+        runner_provider=provider,
+        runner_label=runner_label or (runner_name or ""),
         estimated_cost_usd=estimate_job_cost_usd(labels, duration_seconds),
     )
 

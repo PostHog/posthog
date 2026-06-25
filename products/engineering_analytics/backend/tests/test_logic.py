@@ -77,6 +77,7 @@ def _job_row(
     name: str,
     conclusion: str,
     *,
+    run_attempt: int = 1,
     labels: str = '["depot-ubuntu-22.04-4"]',
     started: str = "2026-01-01 00:00:00",
     completed: str = "2026-01-01 00:02:00",
@@ -84,7 +85,7 @@ def _job_row(
     return {
         "id": job_id,
         "run_id": run_id,
-        "run_attempt": 1,
+        "run_attempt": run_attempt,
         "name": name,
         "workflow_name": "CI",
         "status": "completed",
@@ -323,12 +324,13 @@ class TestEndpointMapping(BaseTest):
 
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
         # Columns: owner, name, workflow, run_count, success_rate, p50, p95, last_failure_at,
-        # completed_count, latest_failed.
+        # completed_count, latest_failed, latest_conclusion.
         rows = [
-            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00"), 8, 0),
+            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00"), 8, 0, "success"),
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None,
-            # and latest_run_failed is None (the completed_count guard) rather than False.
-            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None, 0, 0),
+            # latest_run_failed is None (the completed_count guard), and latest_run_conclusion is None too
+            # despite argMaxIf's '' default.
+            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None, 0, 0, ""),
         ]
         # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
         # owner, name, workflow, bucket_start, run_count, completed, successes, failures.
@@ -340,6 +342,7 @@ class TestEndpointMapping(BaseTest):
         assert items[0].repo.owner == "PostHog" and items[0].repo.name == "posthog"
         assert items[0].granularity == "day"
         assert items[0].latest_run_failed is False
+        assert items[0].latest_run_conclusion == "success"
         # The series spans the whole window, zero-filled except the bucket with runs.
         assert len(items[0].buckets) >= 30
         seeded_bucket = next(entry for entry in items[0].buckets if entry.run_count > 0)
@@ -348,6 +351,7 @@ class TestEndpointMapping(BaseTest):
         assert items[0].p50_seconds == 120.0 and items[0].p95_seconds == 600.0
         assert items[1].success_rate is None
         assert items[1].latest_run_failed is None
+        assert items[1].latest_run_conclusion is None
         assert items[1].p50_seconds is None and items[1].p95_seconds is None
         assert items[1].last_failure_at is None
 
@@ -596,7 +600,7 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()
-        items = api.list_workflow_health(team=self.team)
+        items = api.list_workflow_health(team=self.team, date_from="-30d")
         ci = next(item for item in items if item.workflow_name == "CI")
         assert ci.run_count == 2
         assert ci.success_rate == 0.5  # 1 success of 2 completed
@@ -622,7 +626,7 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                 _run_row(6006, "CI", "sha-f", "completed", "action_required", _ago(1), _ago(1)),
             ],
         )
-        ci = next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI")
+        ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
         bucket = next(entry for entry in ci.buckets if entry.run_count > 0)
         # 6 completed, 1 success, 2 failures (failure + timed_out) — skipped/cancelled/action_required are neither.
         assert (bucket.completed, bucket.successes, bucket.failures) == (6, 1, 2)
@@ -643,10 +647,12 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                 _run_row(6102, "CI", "sha-h", "completed", "timed_out", _ago(1), _ago(1)),
             ],
         )
-        ci = next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI")
+        ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
         assert ci.last_failure_at is not None
         # The latest completed run (the timeout) was decisive — drives the RED status badge.
         assert ci.latest_run_failed is True
+        # And its raw conclusion is carried so the UI can distinguish a real pass from a non-failure.
+        assert ci.latest_run_conclusion == "timed_out"
 
     def test_workflow_run_detail_by_id(self) -> None:
         # The run detail page fetches one run by id; re-runs share the id, so the latest attempt wins.
@@ -760,9 +766,105 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         jobs = api.list_workflow_jobs(team=self.team, run_id=9100)
         assert {j.name for j in jobs} == {"build", "e2e"}
         build = next(j for j in jobs if j.name == "build")
-        assert build.runner_label == "16-core" and build.estimated_cost_usd is not None
-        # github-hosted runner isn't Depot-billed → no cost estimate.
-        assert next(j for j in jobs if j.name == "e2e").estimated_cost_usd is None
+        assert build.runner_provider == "self_hosted" and build.runner_label == "16-core"
+        assert build.estimated_cost_usd is not None
+        # github-hosted runner isn't billable → no cost estimate, and the provider reads as github_hosted.
+        e2e = next(j for j in jobs if j.name == "e2e")
+        assert e2e.runner_provider == "github_hosted" and e2e.estimated_cost_usd is None
+
+    def test_workflow_run_detail_handles_null_timestamps(self) -> None:
+        # A queued/barely-started run lands with empty timestamps; the mapper must yield None, not raise
+        # a contract validation error (regression guard for nullable run_started_at/updated_at).
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(63, "alice", "open", 0, _ago(1), head_sha="sha63")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9300, "CI", "sha63", "queued", None, "", "", pr_number=63)],
+        )
+        run = api.get_workflow_run(team=self.team, run_id=9300)
+        assert run is not None
+        assert run.run_started_at is None and run.updated_at is None
+        assert run.status == "queued" and run.conclusion is None
+        # The list path maps the same sparse row without error.
+        runs = api.list_pr_runs(team=self.team, pr_number=63, repo="PostHog/posthog")
+        assert [r.id for r in runs] == [9300]
+
+    def test_workflow_jobs_scoped_to_attempt(self) -> None:
+        # A re-run carries multiple attempts under one run_id; the jobs query must not merge them.
+        # Default (no run_attempt) returns the latest attempt; an explicit attempt returns just that one.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(62, "alice", "open", 0, _ago(1), head_sha="sha62")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9200, "CI", "sha62", "completed", "success", _ago(1), _ago(1), run_attempt=2)],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(92000, 9200, "build", "failure", run_attempt=1),
+                _job_row(92001, 9200, "test", "failure", run_attempt=1),
+                _job_row(92002, 9200, "build", "success", run_attempt=2),
+            ],
+        )
+        # Default: latest attempt (2) only — the failed first attempt's jobs don't leak in.
+        latest = api.list_workflow_jobs(team=self.team, run_id=9200)
+        assert {j.id for j in latest} == {92002}
+        assert latest[0].conclusion == "success"
+        # Explicit older attempt: just that attempt's jobs.
+        first = api.list_workflow_jobs(team=self.team, run_id=9200, run_attempt=1)
+        assert {j.id for j in first} == {92000, 92001}
+
+    def test_pr_cost_aggregates_billable_jobs_across_runs(self) -> None:
+        # PR cost sums the jobs of all the PR's runs (across commits), counting only billable Linux
+        # runners; absent jobs source → graceful empty with jobs_available False.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(60, "alice", "open", 0, _ago(1), head_sha="sha60")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(9100, "CI", "sha60a", "completed", "success", _ago(2), _ago(2), pr_number=60),
+                _run_row(9101, "CI", "sha60b", "completed", "failure", _ago(1), _ago(1), pr_number=60),
+                _run_row(9102, "CI", "sha99", "completed", "success", _ago(1), _ago(1), pr_number=61),
+            ],
+        )
+        # No jobs table synced yet → every figure zero/None, cards hidden.
+        empty = api.get_pr_cost(team=self.team, pr_number=60, repo="PostHog/posthog")
+        assert empty.jobs_available is False and empty.estimated_cost_usd is None and empty.billable_minutes == 0.0
+
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                # Two billable Linux jobs across two of the PR's runs, plus a github-hosted (excluded).
+                _job_row(91000, 9100, "build", "success", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(91001, 9101, "test", "failure", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(91002, 9101, "e2e", "success", labels='["ubuntu-latest"]'),
+                # A job on another PR's run must not leak into PR 60's cost.
+                _job_row(91003, 9102, "build", "success", labels='["depot-ubuntu-22.04-16"]'),
+            ],
+        )
+        cost = api.get_pr_cost(team=self.team, pr_number=60, repo="PostHog/posthog")
+        assert cost.jobs_available is True
+        assert cost.costed_jobs == 2  # the two depot Linux jobs on PR 60's runs
+        assert cost.excluded_jobs == 1  # the github-hosted one
+        assert cost.estimated_cost_usd is not None and cost.estimated_cost_usd > 0
+        assert cost.billable_minutes == pytest.approx(4.0)  # 2 jobs x 2 min each (_job_row default window)
+        # Per-workflow breakdown sums to the same: PR 60's runs are all the "CI" workflow.
+        ci_cost = next(w for w in cost.by_workflow if w.workflow_name == "CI")
+        assert ci_cost.costed_jobs == 2 and ci_cost.excluded_jobs == 1
 
     def test_workflow_health_branch_filter(self) -> None:
         self._create_table(
@@ -780,21 +882,34 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             ],
         )
         # Unfiltered: every branch's runs aggregate together.
-        assert next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI").run_count == 3
+        assert (
+            next(
+                i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI"
+            ).run_count
+            == 3
+        )
 
         # Scoped to a branch: only that branch's runs count, and rates recompute over them.
-        main_only = next(i for i in api.list_workflow_health(team=self.team, branch="main") if i.workflow_name == "CI")
+        main_only = next(
+            i
+            for i in api.list_workflow_health(team=self.team, date_from="-30d", branch="main")
+            if i.workflow_name == "CI"
+        )
         assert main_only.run_count == 2
         assert main_only.success_rate == 0.5
 
         # A blank branch is treated as "no filter", not a literal match on ''.
         assert (
-            next(i for i in api.list_workflow_health(team=self.team, branch="  ") if i.workflow_name == "CI").run_count
+            next(
+                i
+                for i in api.list_workflow_health(team=self.team, date_from="-30d", branch="  ")
+                if i.workflow_name == "CI"
+            ).run_count
             == 3
         )
 
         # A branch with no runs yields no rows.
-        assert api.list_workflow_health(team=self.team, branch="nope") == []
+        assert api.list_workflow_health(team=self.team, date_from="-30d", branch="nope") == []
 
     def test_pull_request_list_rollup_is_repo_qualified(self) -> None:
         # PR numbers restart per repo. Two repos share PR #10; the per-PR push / re-run rollup must

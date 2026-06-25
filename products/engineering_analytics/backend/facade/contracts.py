@@ -156,8 +156,10 @@ class WorkflowRunDetail:
     # 'action_required' / ...), or None while still in progress. Kept as a str (not WorkflowConclusion)
     # because the data carries conclusions outside that enum.
     conclusion: str | None
-    run_started_at: datetime
-    updated_at: datetime
+    # None for a queued/barely-started run whose timestamp the warehouse hasn't landed yet — the curated
+    # builder parses these with the OrNull variant, so a sparse row maps to None rather than failing.
+    run_started_at: datetime | None
+    updated_at: datetime | None
     # None until the run completes — duration is only computed for completed runs.
     duration_seconds: int | None
     # Re-run attempt number; 1 for the first attempt.
@@ -183,9 +185,54 @@ class WorkflowJob:
     started_at: datetime | None
     completed_at: datetime | None
     duration_seconds: int | None
-    # The job's primary runner label (tier), or '' when unknown.
+    # Where the job ran: 'github_hosted' (free for open source), 'self_hosted' (billable), or 'unknown'.
+    # Provider-neutral so other CI providers can slot in.
+    runner_provider: str
+    # The job's runner tier label, e.g. '16-core' (self-hosted) or 'ubuntu-latest' (GitHub-hosted).
     runner_label: str
     estimated_cost_usd: float | None
+
+
+@dataclass(frozen=True)
+class WorkflowCost:
+    """One workflow's billable CI spend within a scope (a PR, or a window) — same shape as the per-PR
+    rollup but keyed by ``workflow_name``, for the per-workflow cost column. Billable runners only.
+    """
+
+    workflow_name: str
+    billable_minutes: float
+    estimated_cost_usd: float | None
+    costed_jobs: int
+    unsettled_jobs: int
+    excluded_jobs: int
+
+
+@dataclass(frozen=True)
+class PRCostSummary:
+    """Estimated CI spend for one PR, summed over the jobs of all its workflow runs.
+
+    Billable runners only: provider-hosted runners (free GitHub-hosted minutes) and non-Linux tiers
+    carry no honest figure and are counted in ``excluded_jobs`` rather than mis-costed. The dollar
+    figure comes from the (currently Depot-shaped) cost model in ``logic.cost``; the contract stays
+    provider-neutral so other CI providers can slot in. ``jobs_available`` is False when the optional
+    job-level source (``github_workflow_jobs``) isn't synced — every figure is then zero/None and the
+    UI hides the cost cards. ``estimated_cost_usd`` is None when nothing was costable, so a PR with
+    only unsettled jobs reads as "no figure yet", not ``$0.00``.
+    """
+
+    jobs_available: bool
+    # Wall-clock minutes consumed on billable (self-hosted) runners (sum of elapsed across costed jobs).
+    billable_minutes: float
+    # Estimated dollar cost (sum of per-job estimates), or None when no job was costable.
+    estimated_cost_usd: float | None
+    # Costed jobs (billable Linux runner, finished).
+    costed_jobs: int
+    # Billable Linux jobs still queued/running (no elapsed) — excluded from cost, surfaced as "unsettled".
+    unsettled_jobs: int
+    # Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners — outside the estimate.
+    excluded_jobs: int
+    # Same spend broken down per workflow, so the PR's per-workflow table can show a cost column.
+    by_workflow: list[WorkflowCost]
 
 
 @dataclass(frozen=True)
@@ -309,6 +356,10 @@ class WorkflowHealthItem:
     # bool, not the raw conclusion, because the data carries conclusions outside
     # WorkflowConclusion (e.g. action_required) that would fail validation here.
     latest_run_failed: bool | None
+    # Raw conclusion of that most recent completed run ('success' / 'cancelled' / 'skipped' / ...), so the
+    # UI can tell a real pass from a cancelled/skipped run (both have latest_run_failed false). None when
+    # nothing has completed. A str, not WorkflowConclusion, because the data carries values outside the enum.
+    latest_run_conclusion: str | None
     # Bucket width of the history series, chosen to fit the window: 'hour', 'day', or 'week'.
     granularity: str
     # Run history across the whole window, oldest first, zero-filled, bucketed by `granularity`.

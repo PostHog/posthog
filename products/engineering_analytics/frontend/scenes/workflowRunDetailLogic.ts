@@ -6,8 +6,8 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { engineeringAnalyticsWorkflowRun } from '../generated/api'
-import type { WorkflowRunDetailApi } from '../generated/api.schemas'
+import { engineeringAnalyticsWorkflowJobs, engineeringAnalyticsWorkflowRun } from '../generated/api'
+import type { WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
 import type { workflowRunDetailLogicType } from './workflowRunDetailLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -41,6 +41,18 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                     }),
             },
         ],
+        // A single workflow run drills into its jobs — the same breakdown the PR view shows on expand.
+        // null while not loaded (kea reducers can't hold undefined), [] when the source isn't synced.
+        jobs: [
+            null as WorkflowJobApi[] | null,
+            {
+                loadJobs: async (): Promise<WorkflowJobApi[]> =>
+                    await engineeringAnalyticsWorkflowJobs(projectId(), {
+                        run_id: props.runId,
+                        source_id: props.sourceId ?? undefined,
+                    }),
+            },
+        ],
     })),
 
     reducers({
@@ -57,6 +69,11 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
     selectors({
         // Exposed so the scene can preserve `?source=` when linking out to the PR detail.
         sourceId: [() => [(_, p: WorkflowRunDetailLogicProps) => p.sourceId], (sourceId): string | null => sourceId],
+        // A non-numeric path segment yields NaN — the scene shows a clean "not found" instead of a load error.
+        isValidRunId: [
+            () => [(_, p: WorkflowRunDetailLogicProps) => p.runId],
+            (runId): boolean => Number.isFinite(runId),
+        ],
         breadcrumbs: [
             (_, p) => [p.repoOwner, p.repoName, p.runId],
             (repoOwner, repoName, runId): Breadcrumb[] => [
@@ -75,7 +92,11 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
         ],
     }),
 
-    afterMount(({ actions }) => {
-        actions.loadRun()
+    afterMount(({ actions, props }) => {
+        // Skip the load for a non-numeric run id (NaN) — it would just 400; the scene renders "not found".
+        if (Number.isFinite(props.runId)) {
+            actions.loadRun()
+            actions.loadJobs()
+        }
     }),
 ])

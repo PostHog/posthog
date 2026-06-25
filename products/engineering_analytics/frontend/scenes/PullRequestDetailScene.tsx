@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
-import { Fragment } from 'react'
+import { Fragment, ReactNode } from 'react'
 
-import { IconCollapse, IconExternal, IconExpand } from '@posthog/icons'
+import { IconExternal } from '@posthog/icons'
 import {
     LemonButton,
+    LemonInput,
     LemonSkeleton,
     LemonTable,
     LemonTableColumns,
@@ -19,16 +19,23 @@ import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import type { PullRequestApi, WorkflowJobApi } from '../generated/api.schemas'
-import { githubCommitUrl, githubPrUrl, githubWorkflowUrl } from '../lib/github'
+import { RunJobsTable, StatusDot, formatCost } from '../components/runTables'
+import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
+import type { PRCostSummaryApi, PullRequestApi, WorkflowJobApi } from '../generated/api.schemas'
+import { githubCommitUrl, githubPrUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
 import { verdictTag } from '../lib/runStatus'
-import { PullRequestDetailLogicProps, pullRequestDetailLogic } from './pullRequestDetailLogic'
+import {
+    PrCommitRuns,
+    PrRunRow,
+    PullRequestDetailLogicProps,
+    jobCacheKey,
+    pullRequestDetailLogic,
+} from './pullRequestDetailLogic'
 
 export const scene: SceneExport<PullRequestDetailLogicProps> = {
     component: PullRequestDetailScene,
@@ -59,38 +66,109 @@ interface TimelineNode {
     dotClass: string
     /** The connector leading into this node — dashed when the time span is still running. */
     dashedIncoming?: boolean
-    showTime?: boolean
+    /** Small caption under the dot — relative time, "pushed", "now", … */
+    sublabel?: ReactNode
+    /** Round nodes render the sha in mono. */
+    mono?: boolean
+    /** Color the label red — a failed round / closed PR. */
+    danger?: boolean
 }
 
+interface LifecycleStripProps {
+    summary: LifecycleSummary
+    openedAt: string
+    // One node per push (CI round); each scrolls to its run table below.
+    commitGroups: PrCommitRuns[]
+}
+
+/** The earliest run start in a round — where that push's CI begins on the timeline. */
+function roundStart(group: PrCommitRuns): string | null {
+    const starts = group.runs.map((run) => run.startedAt).filter((at): at is string => !!at)
+    return starts.length ? starts.reduce((min, at) => (at < min ? at : min)) : group.latestStart
+}
+
+// Fixed row heights so the dots and connectors line up across columns regardless of label/pill
+// height — the previous free-flow layout drifted out of alignment and read as glitchy.
+const ROW_LABEL = 'flex h-5 items-center'
+const ROW_DOT = 'flex h-3 items-center'
+const ROW_SUB = 'flex h-4 items-center'
+
+// Cap how many push nodes the strip draws so it always fits on one line (no horizontal scroll, ever).
+// Older pushes collapse into a single "+N earlier" node; every round stays reachable in the list below.
+const MAX_PUSH_NODES = 4
+
 /**
- * Horizontal timeline: dots are milestones, the duration above each connector is the
- * gap between them — where the hours actually went. Chronological — a PR's head-SHA
- * runs can start (and finish) after the merge.
+ * Horizontal lifecycle timeline: dots are milestones, the pill above each connector is the gap
+ * between them — where the hours actually went. Chronological — a PR's head-SHA runs can start (and
+ * finish) after the merge. Each push (CI round) is its own node, red when that round had a failure;
+ * clicking it jumps to that round's run table below.
  */
-function LifecycleStrip({ summary, openedAt }: { summary: LifecycleSummary; openedAt: string }): JSX.Element {
+function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps): JSX.Element {
     const nodes: TimelineNode[] = [
-        { key: 'opened', label: 'Opened', at: openedAt, dotClass: 'bg-muted', showTime: true },
+        {
+            key: 'opened',
+            label: 'Opened',
+            at: openedAt,
+            dotClass: 'bg-muted',
+            sublabel: <TZLabel time={openedAt} />,
+        },
     ]
-    if (summary.firstCiStartedAt) {
+    // Only the most recent pushes get their own node; the rest collapse into one summary node so the
+    // strip never needs to scroll. commitGroups is newest-first. Don't collapse a single straggler —
+    // a "+1 earlier" node saves nothing, so only summarize when at least two would be hidden.
+    const collapseOlder = commitGroups.length > MAX_PUSH_NODES + 1
+    const shownRounds = collapseOlder ? commitGroups.slice(0, MAX_PUSH_NODES) : commitGroups
+    const hiddenRounds = collapseOlder ? commitGroups.slice(MAX_PUSH_NODES) : []
+    shownRounds.forEach((group, index) => {
+        const at = roundStart(group)
+        if (!at) {
+            return
+        }
+        const hasFailure = group.runs.some((run) => run.conclusion != null && !isPassingConclusion(run.conclusion))
         nodes.push({
-            key: 'ci-start',
-            label: 'First CI run',
-            at: summary.firstCiStartedAt,
-            dotClass: 'bg-muted',
+            key: `round-${group.headSha}`,
+            label: group.headSha.slice(0, 7),
+            at,
+            dotClass: hasFailure ? 'bg-danger' : 'bg-muted',
+            mono: true,
+            danger: hasFailure,
+            // index 0 is the latest push (newest-first).
+            sublabel: index === 0 ? 'latest push' : 'pushed',
         })
-    }
-    if (summary.lastCiFinishedAt) {
-        nodes.push({
-            key: 'ci-end',
-            label: 'Last CI verdict',
-            at: summary.lastCiFinishedAt,
-            dotClass: 'bg-muted',
-        })
+    })
+    if (hiddenRounds.length) {
+        const at = roundStart(hiddenRounds[0])
+        const anyFailure = hiddenRounds.some((group) =>
+            group.runs.some((run) => run.conclusion != null && !isPassingConclusion(run.conclusion))
+        )
+        if (at) {
+            nodes.push({
+                key: 'earlier-pushes',
+                label: `+${hiddenRounds.length} earlier`,
+                at,
+                dotClass: anyFailure ? 'bg-danger' : 'bg-muted',
+                danger: anyFailure,
+                sublabel: 'pushes',
+            })
+        }
     }
     if (summary.mergedAt) {
-        nodes.push({ key: 'merged', label: 'Merged', at: summary.mergedAt, dotClass: 'bg-success', showTime: true })
+        nodes.push({
+            key: 'merged',
+            label: 'Merged',
+            at: summary.mergedAt,
+            dotClass: 'bg-success',
+            sublabel: <TZLabel time={summary.mergedAt} />,
+        })
     } else if (summary.closedAt) {
-        nodes.push({ key: 'closed', label: 'Closed', at: summary.closedAt, dotClass: 'bg-danger', showTime: true })
+        nodes.push({
+            key: 'closed',
+            label: 'Closed',
+            at: summary.closedAt,
+            dotClass: 'bg-danger',
+            danger: true,
+            sublabel: <TZLabel time={summary.closedAt} />,
+        })
     }
     nodes.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
 
@@ -102,11 +180,14 @@ function LifecycleStrip({ summary, openedAt }: { summary: LifecycleSummary; open
             at: dayjs().toISOString(),
             dotClass: 'animate-pulse border-2 border-warning bg-transparent',
             dashedIncoming: true,
+            sublabel: 'now',
         })
     }
 
     // Not necessarily the last node's time: head-SHA runs can outlive the merge.
     const totalTo = summary.mergedAt ?? summary.closedAt ?? nodes[nodes.length - 1].at
+    const endLabel = summary.mergedAt ? 'merged' : summary.closedAt ? 'closed' : 'still open'
+    const subtitle = commitGroups.length ? `opened → latest push → ${endLabel}` : `opened → ${endLabel}`
     const connector = (dashed: boolean | undefined): string =>
         dashed ? 'w-full border-t border-dashed border-border-bold' : 'h-px w-full bg-border-bold'
 
@@ -117,53 +198,73 @@ function LifecycleStrip({ summary, openedAt }: { summary: LifecycleSummary; open
     const minGrow = totalSeconds * 0.04
 
     return (
-        <div className="flex items-center gap-6 rounded-lg border bg-surface-primary px-5 py-3">
-            <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
-                {nodes.map((node, index) => (
-                    <Fragment key={node.key}>
-                        {index > 0 && (
-                            <div
-                                className="flex min-w-10 flex-col gap-1"
-                                style={{
-                                    flexGrow: Math.max(
-                                        minGrow,
-                                        dayjs(node.at).diff(dayjs(nodes[index - 1].at), 'second')
-                                    ),
-                                }}
-                            >
-                                <span className="text-center text-xs leading-4 whitespace-nowrap text-secondary tabular-nums">
-                                    {gapBetween(nodes[index - 1].at, node.at)}
-                                </span>
-                                <span className="flex h-2.5 items-center">
-                                    <span className={connector(node.dashedIncoming)} />
-                                </span>
-                                <span className="text-xs leading-4">&nbsp;</span>
-                            </div>
-                        )}
-                        <div className="flex shrink-0 flex-col items-center gap-1 px-1">
-                            <span className="text-xs font-medium leading-4 whitespace-nowrap">{node.label}</span>
-                            <span className="flex h-2.5 w-full items-center">
-                                <span className={cn('flex-1', index > 0 && connector(node.dashedIncoming))} />
-                                <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', node.dotClass)} />
-                                <span
-                                    className={cn(
-                                        'flex-1',
-                                        index < nodes.length - 1 && connector(nodes[index + 1].dashedIncoming)
-                                    )}
-                                />
-                            </span>
-                            <span className="text-xs leading-4 whitespace-nowrap text-tertiary">
-                                {node.showTime ? <TZLabel time={node.at} /> : <>&nbsp;</>}
-                            </span>
-                        </div>
-                    </Fragment>
-                ))}
+        <div className="rounded-lg border bg-surface-primary px-5 py-4">
+            <div className="mb-3 flex items-baseline gap-2">
+                <span className="text-xs font-semibold tracking-wide text-secondary uppercase">Lifecycle</span>
+                <span className="text-xs text-tertiary">{subtitle}</span>
             </div>
-            <div className="flex shrink-0 flex-col items-end self-center border-l border-primary pl-6">
-                <span className="text-lg font-semibold leading-6 tabular-nums">{gapBetween(openedAt, totalTo)}</span>
-                <span className="text-xs text-tertiary">
-                    {summary.mergedAt ? 'open → merge' : summary.closedAt ? 'open → close' : 'open so far'}
-                </span>
+            <div className="flex items-center gap-6">
+                <div className="flex min-w-0 flex-1 items-stretch">
+                    {nodes.map((node, index) => (
+                        <Fragment key={node.key}>
+                            {index > 0 && (
+                                <div
+                                    className="flex min-w-12 flex-col"
+                                    style={{
+                                        flexGrow: Math.max(
+                                            minGrow,
+                                            dayjs(node.at).diff(dayjs(nodes[index - 1].at), 'second')
+                                        ),
+                                    }}
+                                >
+                                    <span className={cn(ROW_LABEL, 'justify-center')}>
+                                        <span className="rounded-full border bg-surface-secondary px-2 text-xs leading-4 whitespace-nowrap text-secondary tabular-nums">
+                                            {gapBetween(nodes[index - 1].at, node.at)}
+                                        </span>
+                                    </span>
+                                    <span className={ROW_DOT}>
+                                        <span className={connector(node.dashedIncoming)} />
+                                    </span>
+                                    <span className={ROW_SUB} />
+                                </div>
+                            )}
+                            <div className="flex shrink-0 flex-col items-center px-1">
+                                <span className={ROW_LABEL}>
+                                    <span
+                                        className={cn(
+                                            'text-xs font-medium whitespace-nowrap',
+                                            node.mono && 'font-mono',
+                                            node.danger && 'text-danger'
+                                        )}
+                                    >
+                                        {node.label}
+                                    </span>
+                                </span>
+                                <span className={cn(ROW_DOT, 'w-full')}>
+                                    <span className={cn('flex-1', index > 0 && connector(node.dashedIncoming))} />
+                                    <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', node.dotClass)} />
+                                    <span
+                                        className={cn(
+                                            'flex-1',
+                                            index < nodes.length - 1 && connector(nodes[index + 1].dashedIncoming)
+                                        )}
+                                    />
+                                </span>
+                                <span className={cn(ROW_SUB, 'text-xs whitespace-nowrap text-tertiary')}>
+                                    {node.sublabel ?? <>&nbsp;</>}
+                                </span>
+                            </div>
+                        </Fragment>
+                    ))}
+                </div>
+                <div className="flex shrink-0 flex-col items-end self-center border-l border-primary pl-6">
+                    <span className="text-lg font-semibold leading-6 tabular-nums">
+                        {gapBetween(openedAt, totalTo)}
+                    </span>
+                    <span className="text-xs text-tertiary">
+                        {summary.mergedAt ? 'open → merge' : summary.closedAt ? 'open → close' : 'open so far'}
+                    </span>
+                </div>
             </div>
         </div>
     )
@@ -189,155 +290,213 @@ function MetaRow({ pullRequest }: { pullRequest: PullRequestApi }): JSX.Element 
     )
 }
 
-// Verdict tag type → bar fill, so the Gantt bars match the Verdict column's colors.
-const BAR_BG: Record<string, string> = {
-    success: 'bg-success',
-    danger: 'bg-danger',
-    warning: 'bg-warning',
-    muted: 'bg-muted',
-}
-
-/**
- * One run as a Gantt bar on the shared CI timeline (earliest start → latest finish across the PR's
- * runs), so overlap and stragglers are visible at a glance. A still-running bar extends to "now".
- */
-function RunGanttBar({
-    run,
-    axisStart,
-    axisEnd,
-}: {
-    run: WorkflowRun
-    axisStart: number
-    axisEnd: number
-}): JSX.Element {
-    if (!run.startedAt) {
-        return <span className="text-xs text-secondary">—</span>
-    }
-    const start = dayjs(run.startedAt).valueOf()
-    const end = run.finishedAt ? dayjs(run.finishedAt).valueOf() : dayjs().valueOf()
-    const span = Math.max(1, axisEnd - axisStart)
-    const left = Math.max(0, Math.min(100, ((start - axisStart) / span) * 100))
-    const width = Math.max(2, Math.min(100 - left, ((end - start) / span) * 100))
-    const tag = verdictTag(run.conclusion)
-    const finishedLabel = run.finishedAt ? dayjs(run.finishedAt).format('HH:mm:ss') : 'now'
-    const durationLabel = run.durationSeconds == null ? '' : ` · ${humanFriendlyDuration(run.durationSeconds)}`
-    return (
-        <div
-            className="relative h-3 w-full"
-            title={`${dayjs(run.startedAt).format('HH:mm:ss')} → ${finishedLabel}${durationLabel}`}
-        >
-            <div
-                className={cn(
-                    'absolute top-0 h-3 rounded-sm',
-                    BAR_BG[tag.type] ?? 'bg-muted',
-                    run.conclusion === null && 'animate-pulse'
-                )}
-                style={{ left: `${left}%`, width: `${width}%` }}
-            />
-        </div>
-    )
-}
-
 // Stable per-row key — re-runs share a runId, so the start time disambiguates attempt rows. Used for
 // both LemonTable's rowKey and the expand-state set, so expanding one attempt doesn't open the others.
 function runRowKey(run: WorkflowRun): string {
     return `${run.workflow}@${run.startedAt ?? run.finishedAt ?? run.runId ?? ''}`
 }
 
-function formatCost(usd: number | null): string {
-    return usd == null ? '—' : `$${usd.toFixed(2)}`
+function formatMinutes(minutes: number): string {
+    return `${Math.round(minutes).toLocaleString()} min`
 }
 
-/** Expanded-row content for a run: its jobs (runner tier, duration, est. cost). Lazy-loaded on expand. */
-function RunJobs({ jobs, loading }: { jobs: WorkflowJobApi[] | undefined; loading: boolean }): JSX.Element {
-    if (jobs === undefined) {
-        return <div className="px-3 py-2 text-xs text-secondary">{loading ? 'Loading jobs…' : 'No job data yet.'}</div>
-    }
-    if (jobs.length === 0) {
-        return (
-            <div className="px-3 py-2 text-xs text-secondary">
-                No job data yet — the job-level source isn't synced for this team.
-            </div>
+/** One headline stat: small label, big number, a muted subline for the caveat/breakdown. */
+function StatCard({ label, value, sub }: { label: string; value: string; sub: ReactNode }): JSX.Element {
+    return (
+        <div className="flex min-w-44 flex-1 flex-col gap-1 rounded-lg border bg-surface-primary px-5 py-4">
+            <span className="text-xs text-secondary">{label}</span>
+            <span className="text-2xl font-semibold leading-7 tabular-nums">{value}</span>
+            <span className="text-xs text-tertiary">{sub}</span>
+        </div>
+    )
+}
+
+const VERDICT_LEGEND: { key: 'passed' | 'failed' | 'running'; dot: string; label: string }[] = [
+    { key: 'passed', dot: 'bg-success', label: 'passed' },
+    { key: 'failed', dot: 'bg-danger', label: 'failed' },
+    { key: 'running', dot: 'bg-warning', label: 'running' },
+]
+
+// Stroke straight from the same CSS vars the verdict dots / LemonTags use (bg-success = var(--success)),
+// so the donut arc matches the legend dots beside it and the StatusDots in the run tables exactly.
+const DONUT_STROKE: Record<'passed' | 'failed' | 'running', string> = {
+    passed: 'var(--success)',
+    failed: 'var(--danger)',
+    running: 'var(--warning)',
+}
+
+interface VerdictCounts {
+    passed: number
+    failed: number
+    running: number
+}
+
+/** Donut of run verdicts with the pass rate (passed / settled) in the center. */
+function VerdictDonut({ counts }: { counts: VerdictCounts }): JSX.Element {
+    const total = counts.passed + counts.failed + counts.running
+    const settled = counts.passed + counts.failed
+    const passRate = settled > 0 ? Math.round((counts.passed / settled) * 100) : null
+    const radius = 40
+    const circumference = 2 * Math.PI * radius
+
+    let offset = 0
+    const arcs = VERDICT_LEGEND.flatMap(({ key }) => {
+        const value = counts[key]
+        if (value <= 0 || total <= 0) {
+            return []
+        }
+        const length = (value / total) * circumference
+        const arc = (
+            <circle
+                key={key}
+                cx="50"
+                cy="50"
+                r={radius}
+                fill="none"
+                strokeWidth="10"
+                stroke={DONUT_STROKE[key]}
+                strokeDasharray={`${length} ${circumference - length}`}
+                strokeDashoffset={-offset}
+            />
         )
-    }
-    const jobColumns: LemonTableColumns<WorkflowJobApi> = [
-        { title: 'Job', key: 'name', render: (_, job) => <span className="font-medium">{job.name}</span> },
-        {
-            title: 'Status',
-            key: 'status',
-            width: 120,
-            render: (_, job) => {
-                const tag = verdictTag(job.conclusion)
-                return <LemonTag type={tag.type}>{tag.label}</LemonTag>
-            },
-        },
-        {
-            title: 'Runner',
-            key: 'runner',
-            width: 120,
-            render: (_, job) => <span className="font-mono text-xs">{job.runner_label || '—'}</span>,
-        },
-        {
-            title: 'Duration',
-            key: 'duration',
-            width: 110,
-            align: 'right',
-            render: (_, job) => (
-                <span className="text-xs whitespace-nowrap tabular-nums">
-                    {job.duration_seconds == null ? '—' : humanFriendlyDuration(job.duration_seconds)}
+        offset += length
+        return [arc]
+    })
+
+    return (
+        <div className="relative h-24 w-24 shrink-0">
+            <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
+                <circle cx="50" cy="50" r={radius} fill="none" strokeWidth="10" stroke="var(--border)" />
+                {arcs}
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-xl leading-none font-semibold tabular-nums">
+                    {passRate == null ? '—' : `${passRate}%`}
                 </span>
-            ),
-        },
-        {
-            title: 'Est. cost',
-            key: 'cost',
-            width: 100,
-            align: 'right',
-            render: (_, job) => <span className="text-xs tabular-nums">{formatCost(job.estimated_cost_usd)}</span>,
-        },
-    ]
-    return <LemonTable embedded size="small" columns={jobColumns} dataSource={jobs} rowKey={(job) => job.id} />
+                <span className="text-xs text-tertiary">pass rate</span>
+            </div>
+        </div>
+    )
+}
+
+interface PrSummaryCardsProps {
+    cost: PRCostSummaryApi | null
+    costLoading: boolean
+    pushes: number
+    rerunCycles: number
+    counts: VerdictCounts
+    runsTotal: number
+    commits: number
+    summary: LifecycleSummary | null
+    openedAt: string
+}
+
+/**
+ * Headline stats for a PR's CI: a verdict donut over all commits, billable runner minutes + estimated
+ * cost (when the job-level source is synced), CI triggers, and how long the PR has been open. Cost is
+ * provider-neutral and explicitly an estimate — the chip spells out the model (wall-clock × reference
+ * rate) and unsettled jobs are called out as excluded.
+ */
+function PrSummaryCards({
+    cost,
+    costLoading,
+    pushes,
+    rerunCycles,
+    counts,
+    runsTotal,
+    commits,
+    summary,
+    openedAt,
+}: PrSummaryCardsProps): JSX.Element {
+    const showCost = cost?.jobs_available
+    const openTo = summary?.mergedAt ?? summary?.closedAt ?? dayjs().toISOString()
+    const openLabel = summary?.mergedAt ? 'Time to merge' : summary?.closedAt ? 'Time to close' : 'Open so far'
+    return (
+        <div className="flex flex-col gap-2">
+            {showCost && (
+                <div className="flex flex-wrap items-center gap-2">
+                    <LemonTag type="warning">estimate · wall-clock × reference rate</LemonTag>
+                    {cost.unsettled_jobs > 0 && (
+                        <LemonTag type="muted">{pluralize(cost.unsettled_jobs, 'unsettled job')} excluded</LemonTag>
+                    )}
+                </div>
+            )}
+            <div className="flex flex-wrap items-stretch gap-3">
+                {runsTotal > 0 && (
+                    <div className="flex min-w-72 flex-1 flex-col gap-2 rounded-lg border bg-surface-primary px-5 py-4">
+                        <span className="text-xs text-secondary">Run verdicts · all commits &amp; re-runs</span>
+                        <div className="flex items-center gap-4">
+                            <VerdictDonut counts={counts} />
+                            <div className="flex flex-col gap-0.5 text-xs">
+                                {VERDICT_LEGEND.map(({ key, dot, label }) => (
+                                    <span key={key} className="flex items-center gap-1.5">
+                                        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dot)} />
+                                        <span className="font-medium tabular-nums">{counts[key]}</span>
+                                        <span className="text-secondary">{label}</span>
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                        <span className="text-xs text-tertiary">
+                            {pluralize(runsTotal, 'run')} · {pluralize(commits, 'commit')}
+                        </span>
+                    </div>
+                )}
+                {costLoading && !cost ? (
+                    <LemonSkeleton className="h-24 w-44" />
+                ) : showCost ? (
+                    <StatCard
+                        label="Billable CI minutes"
+                        value={formatMinutes(cost.billable_minutes)}
+                        sub={<>≈ {formatCost(cost.estimated_cost_usd)} estimated</>}
+                    />
+                ) : null}
+                <StatCard
+                    label="Pushes (CI triggers)"
+                    value={pushes.toLocaleString()}
+                    sub={rerunCycles > 0 ? pluralize(rerunCycles, 're-run cycle') : 'no re-runs'}
+                />
+                {openedAt && (
+                    <StatCard
+                        label={openLabel}
+                        value={gapBetween(openedAt, openTo)}
+                        sub={
+                            <>
+                                opened <TZLabel time={openedAt} />
+                            </>
+                        }
+                    />
+                )}
+            </div>
+        </div>
+    )
 }
 
 interface RunsTableProps {
-    runs: WorkflowRun[]
+    runs: PrRunRow[]
     repoOwner: string
     repoName: string
-    sourceId: string | null
     loading: boolean
-    runJobs: Record<number, WorkflowJobApi[]>
+    runJobs: Record<string, WorkflowJobApi[]>
     runJobsLoading: boolean
     expandedRunKeys: string[]
-    setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null) => void
+    setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
 }
 
-/** One commit's CI runs: Gantt on a shared axis, attempts labeled, expand a row for its jobs. */
+/** One workflow's runs on the PR: commit (which push) + attempt, verdict, duration; expand a row for its jobs. */
 function RunsTable({
     runs,
     repoOwner,
     repoName,
-    sourceId,
     loading,
     runJobs,
     runJobsLoading,
     expandedRunKeys,
     setRunExpanded,
 }: RunsTableProps): JSX.Element {
-    // Shared Gantt axis for this commit's runs: earliest start → latest finish (running extends to now).
-    const startMs = runs
-        .map((run) => run.startedAt)
-        .filter((at): at is string => !!at)
-        .map((at) => dayjs(at).valueOf())
-    const endMs = runs
-        .map((run) => run.finishedAt ?? (run.startedAt ? dayjs().toISOString() : null))
-        .filter((at): at is string => !!at)
-        .map((at) => dayjs(at).valueOf())
-    const axisStart = startMs.length ? Math.min(...startMs) : null
-    const axisEnd = endMs.length ? Math.max(...endMs) : null
-
     // Re-runs share a runId; number each multi-attempt run by start order to label "attempt N".
     const attemptIndexByKey = new Map<string, number>()
-    const runsByRunId = new Map<number, WorkflowRun[]>()
+    const runsByRunId = new Map<number, PrRunRow[]>()
     runs.forEach((run) => {
         if (run.runId != null) {
             const group = runsByRunId.get(run.runId) ?? []
@@ -353,57 +512,30 @@ function RunsTable({
         }
     })
 
-    const columns: LemonTableColumns<WorkflowRun> = [
+    const columns: LemonTableColumns<PrRunRow> = [
         {
-            // Visible expand affordance — the whole row toggles (onRow below), this just shows state.
-            key: 'expand',
-            width: 0,
-            render: (_, run) =>
-                run.runId != null ? (
-                    <span className="text-secondary">
-                        {expandedRunKeys.includes(runRowKey(run)) ? <IconCollapse /> : <IconExpand />}
-                    </span>
-                ) : null,
-        },
-        {
-            title: 'Workflow',
-            key: 'workflow',
-            // Tiebreak by start so a workflow's re-run attempts stay in order under it.
-            sorter: (a, b) =>
-                a.workflow.localeCompare(b.workflow) || (a.startedAt ?? '').localeCompare(b.startedAt ?? ''),
+            // The workflow is already the parent row, so lead with the commit (which push) + attempt.
+            title: 'Commit',
+            key: 'commit',
+            // Tiebreak by start so a commit's re-run attempts stay in order.
+            sorter: (a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''),
             render: (_, run) => {
                 const attempt = attemptIndexByKey.get(runRowKey(run))
-                const attemptTag = attempt ? <LemonTag type="muted">attempt {attempt}</LemonTag> : null
-                // A run with an id links to its detail page; without one, fall back to the workflow's
-                // GitHub Actions list (we have no run to point at).
-                const label =
-                    run.runId != null ? (
-                        <Link
-                            to={
-                                combineUrl(
-                                    urls.engineeringAnalyticsWorkflowRun(repoOwner, repoName, run.runId),
-                                    sourceId ? { source: sourceId } : {}
-                                ).url
-                            }
-                            className="font-medium"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {run.workflow}
-                        </Link>
-                    ) : (
-                        <Link
-                            to={githubWorkflowUrl(repoOwner, repoName, run.workflow)}
-                            target="_blank"
-                            className="font-medium"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {run.workflow}
-                        </Link>
-                    )
                 return (
                     <div className="flex items-center gap-2">
-                        {label}
-                        {attemptTag}
+                        {run.headSha ? (
+                            <Link
+                                to={githubCommitUrl(repoOwner, repoName, run.headSha)}
+                                target="_blank"
+                                className="font-mono text-xs font-medium"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {run.headSha.slice(0, 7)}
+                            </Link>
+                        ) : (
+                            <span className="text-xs text-secondary">—</span>
+                        )}
+                        {attempt ? <span className="text-xs text-secondary">· attempt {attempt}</span> : null}
                     </div>
                 )
             },
@@ -411,46 +543,32 @@ function RunsTable({
         {
             title: 'Verdict',
             key: 'verdict',
-            width: 140,
+            width: 110,
             sorter: (a, b) => verdictTag(a.conclusion).label.localeCompare(verdictTag(b.conclusion).label),
-            render: (_, run) => {
-                const tag = verdictTag(run.conclusion)
-                return <LemonTag type={tag.type}>{tag.label}</LemonTag>
-            },
-        },
-        {
-            title: 'Timeline',
-            key: 'timeline',
-            width: 240,
-            sorter: (a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''),
-            render: (_, run) =>
-                axisStart != null && axisEnd != null ? (
-                    <RunGanttBar run={run} axisStart={axisStart} axisEnd={axisEnd} />
-                ) : (
-                    <span className="text-xs text-secondary">—</span>
-                ),
+            render: (_, run) => <StatusDot conclusion={run.conclusion} />,
         },
         {
             title: 'Duration',
             key: 'duration',
-            width: 130,
+            width: 90,
             align: 'right',
             sorter: (a, b) => (a.durationSeconds ?? -1) - (b.durationSeconds ?? -1),
             render: (_, run) => (
-                <span className="text-xs whitespace-nowrap tabular-nums">
+                <span className="text-xs tabular-nums whitespace-nowrap">
                     {run.durationSeconds == null ? '—' : humanFriendlyDuration(run.durationSeconds)}
                 </span>
             ),
         },
         {
-            title: 'Finished',
-            key: 'finished',
-            width: 140,
+            title: 'Started',
+            key: 'started',
+            width: 130,
             align: 'right',
+            sorter: (a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''),
             render: (_, run) =>
-                run.finishedAt ? (
+                run.startedAt ? (
                     <span className="text-xs whitespace-nowrap">
-                        <TZLabel time={run.finishedAt} />
+                        <TZLabel time={run.startedAt} />
                     </span>
                 ) : (
                     <span className="text-xs text-secondary">—</span>
@@ -467,9 +585,9 @@ function RunsTable({
             rowKey={runRowKey}
             loading={loading}
             useURLForSorting={false}
-            // Group by workflow by default (runs on one commit share a start, so chronological ties and
-            // looks scrambled); the Gantt column carries the timing. Headers re-sort.
-            defaultSorting={{ columnKey: 'workflow', order: 1 }}
+            // Oldest push first so the rows read in the same order as the sparkline (left → right),
+            // making each bar map to its commit row.
+            defaultSorting={{ columnKey: 'started', order: 1 }}
             // Whole-row click toggles the job breakdown (the logs-viewer pattern); in-row links
             // stopPropagation so they still navigate.
             onRow={(run) =>
@@ -477,19 +595,30 @@ function RunsTable({
                     ? {
                           className: 'cursor-pointer',
                           onClick: () =>
-                              setRunExpanded(runRowKey(run), !expandedRunKeys.includes(runRowKey(run)), run.runId),
+                              setRunExpanded(
+                                  runRowKey(run),
+                                  !expandedRunKeys.includes(runRowKey(run)),
+                                  run.runId,
+                                  run.runAttempt
+                              ),
                       }
                     : {}
             }
             expandable={{
-                showRowExpansionToggle: false,
+                // Built-in compact toggle (chevron icon) + whole-row click. No onRowExpand/onRowCollapse
+                // so the toggle click just bubbles to onRow — one toggle, not two.
+                noIndent: true,
                 rowExpandable: (run) => run.runId != null,
                 isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
                 expandedRowRender: (run) => (
-                    <RunJobs jobs={run.runId != null ? runJobs[run.runId] : undefined} loading={runJobsLoading} />
+                    <RunJobsTable
+                        jobs={run.runId != null ? runJobs[jobCacheKey(run.runId, run.runAttempt)] : undefined}
+                        loading={runJobsLoading}
+                        embedded
+                    />
                 ),
             }}
-            emptyState="No CI runs for this commit."
+            emptyState="No CI runs match."
             nouns={['workflow run', 'workflow runs']}
         />
     )
@@ -503,7 +632,15 @@ export function PullRequestDetailScene(): JSX.Element {
         summary,
         runs,
         commitGroups,
+        filteredRuns,
+        filteredWorkflowHealthRows,
         prRunsLoading,
+        prRunsFailed,
+        prCost,
+        prCostLoading,
+        pushes,
+        rerunCycles,
+        workflowFilter,
         repoOwner,
         repoName,
         sourceId,
@@ -511,7 +648,8 @@ export function PullRequestDetailScene(): JSX.Element {
         runJobsLoading,
         expandedRunKeys,
     } = useValues(pullRequestDetailLogic)
-    const { loadLifecycle, setRunExpanded } = useActions(pullRequestDetailLogic)
+    const { loadLifecycle, loadPrRuns, loadJobs, setRunExpanded, setWorkflowFilter } =
+        useActions(pullRequestDetailLogic)
 
     const pullRequest = lifecycle?.pull_request
     const githubUrl = pullRequest
@@ -560,68 +698,122 @@ export function PullRequestDetailScene(): JSX.Element {
 
             {pullRequest ? <MetaRow pullRequest={pullRequest} /> : <LemonSkeleton className="h-5 w-96" />}
 
+            <div className="max-w-5xl">
+                <PrSummaryCards
+                    cost={prCost}
+                    costLoading={prCostLoading}
+                    pushes={pushes}
+                    rerunCycles={rerunCycles}
+                    counts={{ passed, failed, running }}
+                    runsTotal={runs.length}
+                    commits={commitGroups.length}
+                    summary={summary}
+                    openedAt={summary?.openedAt ?? pullRequest?.created_at ?? ''}
+                />
+            </div>
+
             {summary && pullRequest ? (
-                <LifecycleStrip summary={summary} openedAt={summary.openedAt ?? pullRequest.created_at} />
+                <div className="max-w-5xl">
+                    <LifecycleStrip
+                        summary={summary}
+                        openedAt={summary.openedAt ?? pullRequest.created_at}
+                        commitGroups={commitGroups}
+                    />
+                </div>
             ) : (
-                <LemonSkeleton className="h-12 w-full" />
+                <LemonSkeleton className="h-12 w-full max-w-5xl" />
             )}
 
-            <div>
-                <div className="mb-2 flex items-baseline justify-between">
+            <div className="max-w-5xl">
+                <div className="mb-2 flex items-baseline gap-3">
                     <h3 className="mb-0">CI runs</h3>
                     {runs.length > 0 && (
                         <span className="text-xs text-secondary">
-                            {pluralize(passed, 'run')} passed
+                            Cumulative · {pluralize(passed, 'run')} passed
                             {failed > 0 && <> · {failed} failed</>}
                             {running > 0 && <> · {running} still running</>}
                             {commitGroups.length > 1 && <> · {pluralize(commitGroups.length, 'commit')}</>}
                         </span>
                     )}
                 </div>
+                {commitGroups.length > 0 && (
+                    <LemonInput
+                        type="search"
+                        placeholder="Filter workflows…"
+                        value={workflowFilter}
+                        onChange={setWorkflowFilter}
+                        className="mb-3 max-w-md"
+                    />
+                )}
                 {prRunsLoading && commitGroups.length === 0 ? (
                     <LemonSkeleton className="h-24 w-full" />
+                ) : prRunsFailed ? (
+                    <div className="flex items-center gap-3">
+                        <span className="text-sm text-secondary">Couldn't load CI runs for this pull request.</span>
+                        <LemonButton type="secondary" size="small" onClick={loadPrRuns} loading={prRunsLoading}>
+                            Retry
+                        </LemonButton>
+                    </div>
                 ) : commitGroups.length === 0 ? (
                     <div className="text-sm text-secondary">No CI runs attributed to this pull request yet.</div>
+                ) : filteredWorkflowHealthRows.length === 0 ? (
+                    <div className="text-sm text-secondary">No workflows match “{workflowFilter}”.</div>
                 ) : (
-                    <div className="flex flex-col gap-4">
-                        {commitGroups.map((group) => (
-                            <div key={group.headSha} className="flex flex-col gap-1">
-                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                                    <Link
-                                        to={githubCommitUrl(repoOwner, repoName, group.headSha)}
-                                        target="_blank"
-                                        className="font-mono text-xs font-medium"
-                                    >
-                                        {group.headSha.slice(0, 7)}
-                                    </Link>
-                                    {group.headBranch && (
-                                        <span className="font-mono text-xs text-secondary">{group.headBranch}</span>
-                                    )}
-                                    <span className="text-xs text-tertiary">{pluralize(group.runs.length, 'run')}</span>
-                                    {group.latestStart && (
-                                        <span className="text-xs text-tertiary">
-                                            · <TZLabel time={group.latestStart} />
-                                        </span>
-                                    )}
-                                </div>
-                                <RunsTable
-                                    runs={group.runs}
-                                    repoOwner={repoOwner}
-                                    repoName={repoName}
-                                    sourceId={sourceId}
-                                    loading={prRunsLoading}
-                                    runJobs={runJobs}
-                                    runJobsLoading={runJobsLoading}
-                                    expandedRunKeys={expandedRunKeys}
-                                    setRunExpanded={setRunExpanded}
-                                />
-                            </div>
-                        ))}
-                    </div>
+                    <WorkflowHealthTable
+                        rows={filteredWorkflowHealthRows}
+                        loading={prRunsLoading}
+                        sourceId={sourceId}
+                        showCost={prCost?.jobs_available ?? false}
+                        dataAttr="engineering-analytics-pr-workflow-table"
+                        emptyState="No CI runs match."
+                        expandable={{
+                            noIndent: true,
+                            rowExpandable: (row) => filteredRuns.some((run) => run.workflow === row.workflowName),
+                            // Single run on the PR → load its jobs straight away (we skip the runs layer below).
+                            onRowExpand: (row) => {
+                                const wfRuns = filteredRuns.filter((run) => run.workflow === row.workflowName)
+                                const run = wfRuns.length === 1 ? wfRuns[0] : null
+                                if (run?.runId != null && !(jobCacheKey(run.runId, run.runAttempt) in runJobs)) {
+                                    loadJobs({ runId: run.runId, runAttempt: run.runAttempt })
+                                }
+                            },
+                            expandedRowRender: (row) => {
+                                const wfRuns = filteredRuns.filter((run) => run.workflow === row.workflowName)
+                                // One run → no point in a one-row runs table; jump straight to its jobs.
+                                if (wfRuns.length === 1) {
+                                    const run = wfRuns[0]
+                                    return (
+                                        <RunJobsTable
+                                            jobs={
+                                                run.runId != null
+                                                    ? runJobs[jobCacheKey(run.runId, run.runAttempt)]
+                                                    : undefined
+                                            }
+                                            loading={runJobsLoading}
+                                            embedded
+                                        />
+                                    )
+                                }
+                                // Multiple runs (re-runs / multi-push) → list them, each expandable to jobs.
+                                return (
+                                    <RunsTable
+                                        runs={wfRuns}
+                                        repoOwner={repoOwner}
+                                        repoName={repoName}
+                                        loading={prRunsLoading}
+                                        runJobs={runJobs}
+                                        runJobsLoading={runJobsLoading}
+                                        expandedRunKeys={expandedRunKeys}
+                                        setRunExpanded={setRunExpanded}
+                                    />
+                                )
+                            },
+                        }}
+                    />
                 )}
             </div>
 
-            <div className="text-xs text-tertiary">
+            <div className="max-w-5xl text-xs text-tertiary">
                 CI runs attributed to this pull request across all its commits — review and comment activity isn't
                 tracked yet.
             </div>

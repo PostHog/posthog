@@ -71,8 +71,9 @@ export interface CardsData {
     failingCi: number
 }
 
-/** Bucket width of a workflow's history series, chosen server-side to fit the window. */
-export type WorkflowGranularity = 'hour' | 'day' | 'week'
+/** Bucket width of a workflow's history series. 'hour'/'day'/'week' come from the server (time-bucketed
+ *  workflow health); 'push' is computed client-side for the PR view, where each bucket is one push. */
+export type WorkflowGranularity = 'hour' | 'day' | 'week' | 'push'
 
 export interface WorkflowHealthBucket {
     /** Bucket start (ISO), aligned to the granularity (top of hour / midnight / Monday). */
@@ -82,6 +83,9 @@ export interface WorkflowHealthBucket {
     successes: number
     /** Decisive failures only (failure / timed_out); excludes skipped, cancelled, action_required. */
     failures: number
+    /** Pre-formatted sparkline label; when set, used verbatim instead of formatting bucketStart by time
+     *  (push buckets aren't time-aligned, so they carry their own "Push N (sha)" label). */
+    label?: string
 }
 
 export interface WorkflowHealthRow {
@@ -96,10 +100,16 @@ export interface WorkflowHealthRow {
     lastFailureAt: string | null
     /** Most recent completed run was a decisive failure; null when nothing has completed. Drives OK/RED. */
     latestRunFailed: boolean | null
+    /** Raw conclusion of the most recent completed run (success / cancelled / skipped / …); null if none. */
+    latestRunConclusion: string | null
     /** Bucket width of `buckets`: 'hour', 'day', or 'week'. */
     granularity: WorkflowGranularity
     /** Zero-filled across the whole window, oldest first. */
     buckets: WorkflowHealthBucket[]
+    /** Billable CI minutes for this workflow within the scope; undefined when no cost data is loaded. */
+    billableMinutes?: number | null
+    /** Estimated $ cost for this workflow within the scope; null when nothing was costable. */
+    estimatedCostUsd?: number | null
 }
 
 export type WorkflowTrendDirection = 'up' | 'down' | 'flat'
@@ -137,7 +147,8 @@ export function workflowFailureSeries(
     const completed = buckets.map((b) => b.completed)
     const failures = buckets.map((b) => b.failures)
     const labels = buckets.map((b) => {
-        const when = formatBucket(b.bucketStart, granularity)
+        // Push buckets carry their own label (not time-aligned); time buckets format from bucketStart.
+        const when = b.label ?? formatBucket(b.bucketStart, granularity)
         return b.completed > 0 ? `${when} · ${b.failures} of ${b.completed} failed` : `${when} · no completed runs`
     })
     return { completed, failures, labels }
@@ -353,9 +364,12 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 // Defensive ?? null: a new frontend can briefly hit an older backend
                                 // whose response predates this field — degrade to "unknown", not crash.
                                 latestRunFailed: it.latest_run_failed ?? null,
+                                latestRunConclusion: it.latest_run_conclusion ?? null,
                                 // Defensive ?? 'day': older backends predate adaptive bucketing.
                                 granularity: (it.granularity ?? 'day') as WorkflowGranularity,
-                                buckets: it.buckets.map((b) => ({
+                                // ?? []: a new frontend can briefly hit an older backend whose response
+                                // predates the buckets field during a rolling deploy — degrade, don't crash.
+                                buckets: (it.buckets ?? []).map((b) => ({
                                     bucketStart: b.bucket_start,
                                     runCount: b.run_count,
                                     completed: b.completed,

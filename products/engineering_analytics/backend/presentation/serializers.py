@@ -14,12 +14,14 @@ from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIStatusRollup,
     GitHubSource,
+    PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
     PullRequest,
     PullRequestList,
     PullRequestListItem,
     RepoRef,
+    WorkflowCost,
     WorkflowHealthBucket,
     WorkflowHealthItem,
     WorkflowJob,
@@ -122,8 +124,14 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
                 "'action_required', ...), or null while still in progress.",
                 "allow_null": True,
             },
-            "run_started_at": {"help_text": "When the run started."},
-            "updated_at": {"help_text": "When the run was last updated (its finish time once completed)."},
+            "run_started_at": {
+                "help_text": "When the run started, or null for a queued/barely-started run.",
+                "allow_null": True,
+            },
+            "updated_at": {
+                "help_text": "When the run was last updated (its finish time once completed), or null when unstarted.",
+                "allow_null": True,
+            },
             "duration_seconds": {
                 "help_text": "Wall-clock duration in seconds; null until the run completes.",
                 "allow_null": True,
@@ -151,11 +159,62 @@ class WorkflowJobSerializer(DataclassSerializer):
                 "help_text": "Wall-clock duration in seconds; null until the job completes.",
                 "allow_null": True,
             },
-            "runner_label": {"help_text": "Runner tier the job ran on (e.g. '16-core'), or '' when unknown."},
+            "runner_provider": {
+                "help_text": "Where the job ran: 'github_hosted' (free for open source), 'self_hosted' (billable), "
+                "or 'unknown'.",
+            },
+            "runner_label": {
+                "help_text": "Runner tier the job ran on (e.g. '16-core' or 'ubuntu-latest'), or '' when unknown."
+            },
             "estimated_cost_usd": {
                 "help_text": "Estimated cost in USD from runner tier + elapsed time; null when the tier is "
                 "unknown or the job hasn't finished.",
                 "allow_null": True,
+            },
+        }
+
+
+class WorkflowCostSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowCost
+        extra_kwargs = {
+            "workflow_name": {"help_text": "GitHub Actions workflow name this cost is for."},
+            "billable_minutes": {"help_text": "Billable (self-hosted) minutes for this workflow within the scope."},
+            "estimated_cost_usd": {
+                "help_text": "Estimated dollar cost for this workflow, or null when nothing was costable.",
+                "allow_null": True,
+            },
+            "costed_jobs": {"help_text": "Costed jobs for this workflow (billable Linux runner, finished)."},
+            "unsettled_jobs": {"help_text": "Billable Linux jobs still queued/running for this workflow."},
+            "excluded_jobs": {"help_text": "Provider-hosted/non-Linux jobs for this workflow, outside the estimate."},
+        }
+
+
+class PRCostSummarySerializer(DataclassSerializer):
+    by_workflow = WorkflowCostSerializer(many=True, help_text="Same spend broken down per workflow.")
+
+    class Meta:
+        dataclass = PRCostSummary
+        extra_kwargs = {
+            "jobs_available": {
+                "help_text": "False when the job-level source (github_workflow_jobs) isn't synced — every "
+                "figure is then zero/null and the cost cards should be hidden.",
+            },
+            "billable_minutes": {
+                "help_text": "Wall-clock minutes consumed on billable (self-hosted) runners, summed across "
+                "costed jobs.",
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated dollar cost (sum of per-job estimates: elapsed x tier multiplier x "
+                "reference rate). Null when no job was costable.",
+                "allow_null": True,
+            },
+            "costed_jobs": {"help_text": "Jobs counted in the estimate (billable Linux runner, finished)."},
+            "unsettled_jobs": {
+                "help_text": "Billable Linux jobs still queued/running (no elapsed) — excluded from the estimate.",
+            },
+            "excluded_jobs": {
+                "help_text": "Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners — outside the estimate.",
             },
         }
 
@@ -281,6 +340,11 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
             "latest_run_failed": {
                 "help_text": "Whether the most recent completed run was a decisive failure (conclusion 'failure' "
                 "or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.",
+                "allow_null": True,
+            },
+            "latest_run_conclusion": {
+                "help_text": "Raw conclusion of the most recent completed run ('success', 'cancelled', 'skipped', "
+                "...), so a real pass can be told from a non-failure non-success. Null when none completed.",
                 "allow_null": True,
             },
             "granularity": {
