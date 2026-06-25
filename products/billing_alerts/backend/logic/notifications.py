@@ -25,8 +25,12 @@ logger = structlog.get_logger(__name__)
 def _kind_for_event(event: BillingAlertEvent) -> EventKind | None:
     if event.kind == BillingAlertEvent.Kind.BROKEN_CONFIG:
         return "broken"
-    if event.kind in (BillingAlertEvent.Kind.FIRING, BillingAlertEvent.Kind.RESOLVED, BillingAlertEvent.Kind.ERRORED):
-        return event.kind
+    if event.kind == BillingAlertEvent.Kind.FIRING:
+        return "firing"
+    if event.kind == BillingAlertEvent.Kind.RESOLVED:
+        return "resolved"
+    if event.kind == BillingAlertEvent.Kind.ERRORED:
+        return "errored"
     return None
 
 

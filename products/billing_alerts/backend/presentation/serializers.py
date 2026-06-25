@@ -225,6 +225,8 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         ).values_list("template_id", "filters")
 
         for template_id, filters in hog_functions:
+            if template_id is None:
+                continue
             destination_type = DESTINATION_TYPE_BY_TEMPLATE_ID.get(template_id)
             if destination_type is None or not isinstance(filters, dict):
                 continue
