@@ -12,6 +12,7 @@ import {
     ApprovalRequest,
     ApprovalStore,
     EMPTY_USAGE_TOTAL,
+    type TriggerMetadata,
     UpsertApprovalRequestInput,
     UpsertApprovalRequestResult,
 } from '@posthog/agent-shared'
@@ -136,12 +137,24 @@ describe('queueApprovalResult: model-facing envelope', () => {
         })
     })
 
-    it('includes approver_hint + approval_url regardless of trigger_metadata', async () => {
+    // The approval envelope used to suppress approver_hint + approval_url for
+    // posthog-code (`client_kind`-gated). That gating is gone — the envelope
+    // is now uniform across every trigger kind. Pin that contract by
+    // exercising each TriggerMetadata variant + null.
+    it.each<[string, TriggerMetadata | null]>([
+        ['null trigger_metadata', null],
+        ['chat with no declared client tools', { kind: 'chat' }],
+        ['chat with declared client tools', { kind: 'chat', supported_client_tools: ['connect_mcp'] }],
+        ['slack', { kind: 'slack', workspace_id: 'W', channel: 'C', ts: 't', thread_ts: 't' }],
+        ['webhook', { kind: 'webhook' }],
+        ['mcp', { kind: 'mcp' }],
+        ['cron', { kind: 'cron', cron_name: 'daily', schedule: '0 9 * * *', fired_at: '2026-06-25T09:00:00Z' }],
+    ])('includes approver_hint + approval_url for %s', async (_label, trigger_metadata) => {
         const store = makeStubStore()
         const out = await queueApprovalResult({
             approvals: store,
             buildApprovalUrl: (id) => `https://console.example.com/approvals?request=${id}`,
-            session: makeSession({ trigger_metadata: { kind: 'chat', supported_client_tools: ['connect_mcp'] } }),
+            session: makeSession({ trigger_metadata }),
             revisionId: TEST_REV_ID,
             turn: 1,
             toolName: '@posthog/memory-write',

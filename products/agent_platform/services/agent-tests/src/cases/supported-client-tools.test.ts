@@ -1,7 +1,9 @@
 /**
  * `supported_client_tools` gating: the /run caller declares which `kind:'client'`
  * tool ids it can fulfil; the runner exposes only those to the model. A
- * `required` client tool the caller can't fulfil fails session open.
+ * `required` client tool the caller can't fulfil fails chat session open;
+ * non-chat triggers (webhook/slack/cron/mcp) have no client to declare
+ * support, so every client tool is hidden there and the model degrades.
  */
 
 import request from 'supertest'
@@ -122,5 +124,25 @@ describe('supported_client_tools: capability-gated exposure', () => {
 
         const session = await c.queue.get(sessionId)
         expect(session!.state).toBe('failed')
+    })
+
+    // Non-chat triggers have no connecting client to declare capabilities, so
+    // every `kind:'client'` tool — required or not — is hidden and the model
+    // degrades per agent.md. The `required` check fires only when there's
+    // actually a client to disappoint (chat triggers); webhook/slack/cron/mcp
+    // sessions never throw `client_tool_unsupported`.
+    it('webhook session degrades silently when the spec has a required client tool', async () => {
+        c.setScript([fauxText('handled the webhook')])
+        await c.deployAgent({
+            slug: 'webhook-required-client',
+            spec: { tools: [clientTool('connect_mcp', true)] },
+        })
+        const res = await request(c.ingress).post('/agents/webhook-required-client/webhook').send({ alert: 'fired' })
+        expect(res.status).toBe(200)
+        await c.drain({ iterations: 100 })
+
+        const session = await c.queue.get(res.body.session_id)
+        expect(session!.state).toBe('completed')
+        expect(session!.trigger_metadata).toEqual({ kind: 'webhook' })
     })
 })

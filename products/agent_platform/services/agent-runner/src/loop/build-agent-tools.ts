@@ -231,21 +231,29 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             continue
         }
         if (t.kind === 'client') {
-            // Exposed to the model only if the connecting client declared this
-            // id in /run `supported_client_tools`. A `required` tool the client
-            // can't fulfil fails session open; otherwise it's hidden and the
-            // agent.md degrades.
-            const supported =
-                deps.session.trigger_metadata?.kind === 'chat'
-                    ? (deps.session.trigger_metadata.supported_client_tools ?? [])
-                    : []
-            if (!supported.includes(t.id)) {
-                if (t.required) {
-                    throw new Error(`client_tool_unsupported:${t.id}`)
+            // Client tools need a connected client to fulfil the call. Only
+            // chat-triggered sessions have one, so for non-chat triggers we
+            // hide every client tool and let the agent.md degrade — `required`
+            // is only enforced when there's a client to declare support.
+            // Spec freeze rejects `required:true` client tools combined with
+            // non-chat triggers, so this branch is the runtime safety net.
+            const chatMeta = deps.session.trigger_metadata?.kind === 'chat' ? deps.session.trigger_metadata : null
+            const supported = chatMeta?.supported_client_tools ?? []
+            // Dispatcher availability is a runner-side concern (server
+            // misconfig); check before the caller-declaration gate so the
+            // failure code points at the right party. `dispatchClientTool` is
+            // always wired in prod (driver.ts:447); this branch catches the
+            // case where a runner instance ships without it.
+            if (!deps.dispatchClientTool) {
+                if (t.required && chatMeta) {
+                    throw new Error(`client_tool_dispatcher_unavailable:${t.id}`)
                 }
                 continue
             }
-            if (!deps.dispatchClientTool) {
+            if (!supported.includes(t.id)) {
+                if (t.required && chatMeta) {
+                    throw new Error(`client_tool_unsupported:${t.id}`)
+                }
                 continue
             }
             tools.push(makeClientTool(t, deps))
