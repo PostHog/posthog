@@ -18,7 +18,7 @@ use crate::{
     print_hog_string_output,
     program::Module,
     util::{get_json_nested, regex_extract, regex_match},
-    values::{HogLiteral, HogValue, Num},
+    values::{compare_values, HogLiteral, HogValue, Num, NumOp},
     vm::{HogVM, MAX_JSON_SERDE_DEPTH},
     ExportedFunction,
 };
@@ -1256,6 +1256,129 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "NotImplementedError",
             native_func(|vm, args| error_constructor(vm, &args, "NotImplementedError")),
         ),
+        // Operator-alias functions: the function forms of Hog operators. Note these are the *function*
+        // semantics, which differ slightly from the opcodes — e.g. `equals` is strict (no string
+        // coercion) whereas the `==` opcode coerces via unifyComparisonTypes.
+        (
+            "equals",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "equals")?;
+                Ok(HogLiteral::Boolean(strict_equals(vm, &args[0], &args[1])?).into())
+            }),
+        ),
+        (
+            "notEquals",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "notEquals")?;
+                Ok(HogLiteral::Boolean(!strict_equals(vm, &args[0], &args[1])?).into())
+            }),
+        ),
+        (
+            "greater",
+            native_func(|vm, args| compare_fn(vm, &args, NumOp::Gt, "greater")),
+        ),
+        (
+            "greaterOrEquals",
+            native_func(|vm, args| compare_fn(vm, &args, NumOp::Gte, "greaterOrEquals")),
+        ),
+        (
+            "less",
+            native_func(|vm, args| compare_fn(vm, &args, NumOp::Lt, "less")),
+        ),
+        (
+            "lessOrEquals",
+            native_func(|vm, args| compare_fn(vm, &args, NumOp::Lte, "lessOrEquals")),
+        ),
+        (
+            "plus",
+            native_func(|vm, args| arith_fn(vm, &args, NumOp::Add, "plus")),
+        ),
+        (
+            "minus",
+            native_func(|vm, args| arith_fn(vm, &args, NumOp::Sub, "minus")),
+        ),
+        (
+            "and",
+            native_func(|vm, args| {
+                // `args.every(Boolean)` — all operands truthy.
+                for arg in &args {
+                    if !arg.deref(&vm.heap)?.truthy() {
+                        return Ok(HogLiteral::Boolean(false).into());
+                    }
+                }
+                Ok(HogLiteral::Boolean(true).into())
+            }),
+        ),
+        (
+            "or",
+            native_func(|vm, args| {
+                // `args.some(Boolean)` — any operand truthy.
+                for arg in &args {
+                    if arg.deref(&vm.heap)?.truthy() {
+                        return Ok(HogLiteral::Boolean(true).into());
+                    }
+                }
+                Ok(HogLiteral::Boolean(false).into())
+            }),
+        ),
+        (
+            "not",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "not")?;
+                Ok(HogLiteral::Boolean(!args[0].deref(&vm.heap)?.truthy()).into())
+            }),
+        ),
+        (
+            "if",
+            native_func(|vm, args| {
+                assert_argc(&args, 3, "if")?;
+                if args[0].deref(&vm.heap)?.truthy() {
+                    Ok(args[1].clone())
+                } else {
+                    Ok(args[2].clone())
+                }
+            }),
+        ),
+        (
+            "multiIf",
+            native_func(|vm, args| {
+                // multiIf(cond1, val1, cond2, val2, ..., default).
+                if args.is_empty() {
+                    return Err(VmError::NativeCallFailed(
+                        "multiIf requires at least one argument".to_string(),
+                    ));
+                }
+                let default = args.last().unwrap();
+                let pairs = &args[..args.len() - 1];
+                let mut i = 0;
+                while i + 1 < pairs.len() {
+                    if pairs[i].deref(&vm.heap)?.truthy() {
+                        return Ok(pairs[i + 1].clone());
+                    }
+                    i += 2;
+                }
+                Ok(default.clone())
+            }),
+        ),
+        (
+            "in",
+            native_func(|vm, args| {
+                // `in(val, arr)` — array/tuple membership only (the function form, like `has`).
+                assert_argc(&args, 2, "in")?;
+                let needle = &args[0];
+                match args[1].deref(&vm.heap)? {
+                    HogLiteral::Array(vals) | HogLiteral::Tuple(vals) => {
+                        for val in vals.iter() {
+                            if *needle.equals(val, &vm.heap)?.try_as()? {
+                                return Ok(HogLiteral::Boolean(true).into());
+                            }
+                        }
+                        Ok(HogLiteral::Boolean(false).into())
+                    }
+                    _ => Ok(HogLiteral::Boolean(false).into()),
+                }
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -1855,6 +1978,12 @@ fn make_hog_interval(vm: &HogVM, args: &[HogValue], unit: &str) -> Result<HogVal
 // Add an interval to a DateTime. day/hour/minute/second are absolute durations; month is wall-clock
 // field math (clamping the day) re-interpreted in the value's zone.
 fn apply_interval(vm: &HogVM, dt_value: &HogValue, unit: &str, value: i64) -> Result<HogValue, VmError> {
+    // Adding an interval to a Date yields a Date; to a DateTime yields a DateTime (reference
+    // applyIntervalToDateTime). We do the arithmetic in epoch seconds either way, then re-wrap.
+    let is_date = match dt_value.deref(&vm.heap)? {
+        HogLiteral::Object(obj) => obj_marker(&vm.heap, obj, "__hogDate__")?,
+        _ => false,
+    };
     let (secs, zone) = hog_datetime_parts(vm, dt_value, "dateAdd")?;
     let new_secs = match unit {
         "day" => secs + (value as f64) * 86400.0,
@@ -1885,6 +2014,15 @@ fn apply_interval(vm: &HogVM, dt_value: &HogValue, unit: &str, value: i64) -> Re
         }
         _ => return Err(VmError::NativeCallFailed(format!("Unknown interval unit {unit}"))),
     };
+    if is_date {
+        let utc = DateTime::from_timestamp(new_secs.floor() as i64, 0).ok_or_else(|| {
+            VmError::NativeCallFailed("dateAdd: timestamp out of range".to_string())
+        })?;
+        return construct_free_standing(
+            json!({ "__hogDate__": true, "year": utc.year(), "month": utc.month(), "day": utc.day() }),
+            0,
+        );
+    }
     make_hog_datetime(new_secs, &zone)
 }
 
@@ -2351,6 +2489,28 @@ fn is_hog_empty(lit: &HogLiteral) -> bool {
         HogLiteral::Object(o) => o.is_empty(),
         _ => false,
     }
+}
+
+// `equals`/`notEquals` use strict equality (reference `a === b`): no cross-type coercion, so a
+// number and a numeric string are never equal. Differs from the coercing `==`/`!=` opcodes.
+fn strict_equals(vm: &HogVM, a: &HogValue, b: &HogValue) -> Result<bool, VmError> {
+    Ok(a.deref(&vm.heap)? == b.deref(&vm.heap)?)
+}
+
+// greater/less/greaterOrEquals/lessOrEquals as functions — reuse the VM's comparison semantics.
+fn compare_fn(vm: &HogVM, args: &[HogValue], op: NumOp, name: &str) -> Result<HogValue, VmError> {
+    assert_argc(args, 2, name)?;
+    let a = args[0].deref(&vm.heap)?;
+    let b = args[1].deref(&vm.heap)?;
+    Ok(compare_values(op, a, b, &vm.heap)?.into())
+}
+
+// plus/minus as functions — numeric arithmetic over the two operands.
+fn arith_fn(vm: &HogVM, args: &[HogValue], op: NumOp, name: &str) -> Result<HogValue, VmError> {
+    assert_argc(args, 2, name)?;
+    let a = args[0].deref(&vm.heap)?.try_as::<Num>()?.clone();
+    let b = args[1].deref(&vm.heap)?.try_as::<Num>()?.clone();
+    Ok(Num::binary_op(op, &a, &b)?.into())
 }
 
 fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {
