@@ -10,8 +10,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from posthog.models.person import Person, PersonDistinctId
-from posthog.models.person.util import delete_persons_from_postgres
+from posthog.models.person.util import delete_persons_from_postgres, get_person_by_distinct_id, get_person_by_uuid
 from posthog.models.team.util import _delete_persons_for_teams
 from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.test.persons import create_person
@@ -104,8 +103,10 @@ class TestDeletePersonsFromPostgresIntegration(BaseTest):
 
         delete_persons_from_postgres(self.team.pk, [p1, p2])
 
-        assert Person.objects.filter(team_id=self.team.pk).count() == 0
-        assert PersonDistinctId.objects.filter(team_id=self.team.pk).count() == 0
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is None
+        assert get_person_by_uuid(self.team.pk, str(p2.uuid)) is None
+        assert get_person_by_distinct_id(self.team.pk, "a") is None
+        assert get_person_by_distinct_id(self.team.pk, "b") is None
 
 
 class TestDeletePersonsForTeamsIntegration(BaseTest):

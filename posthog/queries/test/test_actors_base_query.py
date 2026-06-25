@@ -8,7 +8,8 @@ from posthog.test.base import (
     snapshot_postgres_queries,
 )
 
-from posthog.models import Group, Person
+from posthog.models import Group
+from posthog.models.person.util import get_persons_by_uuids
 from posthog.queries.actor_base_query import (
     get_groups,
     get_people,
@@ -32,7 +33,7 @@ class TestActorsBaseQuery(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        persons = Person.objects.filter(uuid=person.uuid)
+        persons = get_persons_by_uuids(self.team.pk, [str(person.uuid)])
         result = serialize_people(self.team, persons)
 
         assert len(result) == 1
