@@ -51,6 +51,49 @@ class MetricsTable(Table):
         return "metrics"
 
 
+class MetricEventsTable(Table):
+    description: str = "Event-per-emission application metrics: one row per metric occurrence, trace-connected, aggregated at query time. Distinct from `metrics`, which is pre-aggregated."
+    workload: Workload | None = Workload.LOGS
+
+    fields: dict[str, FieldOrTable] = {
+        "uuid": StringDatabaseField(name="uuid", nullable=False),
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "timestamp": DateTimeDatabaseField(
+            name="timestamp", nullable=False, description="When the metric was emitted (UTC)."
+        ),
+        "created_at": DateTimeDatabaseField(
+            name="created_at", nullable=False, description="When the row was ingested (UTC)."
+        ),
+        "trace_id": StringDatabaseField(
+            name="trace_id", nullable=False, description="Trace this emission belongs to; pivot to spans/logs."
+        ),
+        "span_id": StringDatabaseField(name="span_id", nullable=False),
+        "trace_flags": IntegerDatabaseField(name="trace_flags", nullable=False),
+        "service_name": StringDatabaseField(name="service_name", nullable=False),
+        "metric_name": StringDatabaseField(name="metric_name", nullable=False),
+        "kind": StringDatabaseField(
+            name="kind",
+            nullable=False,
+            description="counter | gauge | distribution — determines the query-time aggregation.",
+        ),
+        "value": FloatDatabaseField(
+            name="value",
+            nullable=False,
+            description="The emitted value (counter increment, gauge reading, or distribution sample).",
+        ),
+        "unit": StringDatabaseField(name="unit", nullable=False),
+        "resource_attributes": MapStringDatabaseField(name="resource_attributes", nullable=False),
+        "resource_fingerprint": IntegerDatabaseField(name="resource_fingerprint", nullable=False),
+        "attributes": MapStringDatabaseField(name="attributes", nullable=False),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "metric_events"
+
+    def to_printed_hogql(self):
+        return "metric_events"
+
+
 class MetricAttributesTable(Table):
     workload: Workload | None = Workload.LOGS
 
