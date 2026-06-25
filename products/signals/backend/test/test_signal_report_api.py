@@ -1984,3 +1984,90 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
         response = self.client.patch(self._url(str(report.id)), data={"title": "Nope"}, format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def _artefacts_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
+
+    def _create_task(self, team=None) -> "Task":
+        Task = apps.get_model("tasks", "Task")
+        return Task.objects.create(
+            team=team or self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+    def _artefacts(self, report: SignalReport, artefact_type: str) -> list[SignalReportArtefact]:
+        return list(report.artefacts.filter(type=artefact_type).order_by("created_at"))
+
+    def test_update_title_records_title_change_artefact(self):
+        report = self._create_report()
+        self.client.patch(self._url(str(report.id)), data={"title": "New title"}, format="json")
+
+        artefacts = self._artefacts(report, SignalReportArtefact.ArtefactType.TITLE_CHANGE)
+        assert len(artefacts) == 1
+        content = json.loads(artefacts[0].content)
+        assert content == {"old_title": "Original title", "new_title": "New title"}
+        # Attributed to the requesting user, not a task, when no task header is present.
+        assert artefacts[0].created_by_id == self.user.id
+        assert artefacts[0].task_id is None
+
+    def test_update_summary_records_summary_change_artefact(self):
+        report = self._create_report()
+        self.client.patch(self._url(str(report.id)), data={"summary": "New summary"}, format="json")
+
+        artefacts = self._artefacts(report, SignalReportArtefact.ArtefactType.SUMMARY_CHANGE)
+        assert len(artefacts) == 1
+        content = json.loads(artefacts[0].content)
+        assert content == {"old_summary": "Original summary", "new_summary": "New summary"}
+
+    def test_update_both_records_one_artefact_per_field(self):
+        report = self._create_report()
+        self.client.patch(
+            self._url(str(report.id)),
+            data={"title": "New title", "summary": "New summary"},
+            format="json",
+        )
+        assert len(self._artefacts(report, SignalReportArtefact.ArtefactType.TITLE_CHANGE)) == 1
+        assert len(self._artefacts(report, SignalReportArtefact.ArtefactType.SUMMARY_CHANGE)) == 1
+
+    def test_no_op_edit_records_no_artefact(self):
+        # Setting a field to its current value isn't a change, so it leaves no edit-history entry.
+        report = self._create_report()
+        response = self.client.patch(
+            self._url(str(report.id)),
+            data={"title": "Original title", "summary": "New summary"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert self._artefacts(report, SignalReportArtefact.ArtefactType.TITLE_CHANGE) == []
+        assert len(self._artefacts(report, SignalReportArtefact.ArtefactType.SUMMARY_CHANGE)) == 1
+
+    def test_edit_attributed_to_task_when_header_present(self):
+        # Mirrors the other artefact-writing paths: an agent's task header overrides user attribution.
+        report = self._create_report()
+        task = self._create_task()
+        response = self.client.patch(
+            self._url(str(report.id)),
+            data={"title": "Agent title"},
+            format="json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        artefacts = self._artefacts(report, SignalReportArtefact.ArtefactType.TITLE_CHANGE)
+        assert len(artefacts) == 1
+        assert str(artefacts[0].task_id) == str(task.id)
+        assert artefacts[0].created_by_id is None
+
+    @parameterized.expand([("title_change",), ("summary_change",)])
+    def test_change_artefacts_are_read_only_via_artefact_api(self, artefact_type):
+        # Edit-history artefacts are system-generated; the generic artefact write API must refuse
+        # them so a caller can't fabricate edits that never happened.
+        report = self._create_report()
+        response = self.client.post(
+            self._artefacts_url(str(report.id)),
+            data=json.dumps({"artefact_type": artefact_type, "content": {}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "read-only" in response.json()["error"]

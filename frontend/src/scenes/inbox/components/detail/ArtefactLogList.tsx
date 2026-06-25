@@ -27,7 +27,9 @@ import {
     LineReferenceContent,
     NoteContent,
     SignalFindingContent,
+    SummaryChangeContent,
     TaskRunArtefactContent,
+    TitleChangeContent,
 } from './artefactTypes'
 
 /** Map a file extension to a CodeSnippet language for syntax highlighting; falls back to plain text. */
@@ -148,6 +150,51 @@ function CollapsibleNote({ note, author }: { note: string; author?: string }): J
                     </LemonMarkdown>
                     {author?.trim() ? <span className="mt-1 block text-tertiary text-[11px]">— {author}</span> : null}
                 </div>
+            ) : null}
+        </div>
+    )
+}
+
+/**
+ * A `title_change` / `summary_change` artefact: shows the value the report now carries, with the
+ * previous value tucked behind a "Show previous" toggle (omitted when the field had no prior value).
+ * `markdown` renders the body as markdown — summaries are descriptions, titles are plain text.
+ */
+function ContentChangeBody({
+    previous,
+    current,
+    markdown = false,
+}: {
+    previous?: string | null
+    current: string
+    markdown?: boolean
+}): JSX.Element {
+    const [showPrevious, setShowPrevious] = useState(false)
+    const renderText = (text: string, muted: boolean): JSX.Element => {
+        const color = muted ? 'text-secondary' : 'text-default'
+        return markdown ? (
+            <LemonMarkdown className={`text-xs leading-normal ${color}`} disableImages>
+                {text}
+            </LemonMarkdown>
+        ) : (
+            <span className={`text-xs ${color}`}>{text}</span>
+        )
+    }
+    return (
+        <div className="flex w-full min-w-0 flex-col gap-1">
+            <div className="min-w-0">{renderText(current, false)}</div>
+            {previous?.trim() ? (
+                <>
+                    <button
+                        type="button"
+                        onClick={() => setShowPrevious((v) => !v)}
+                        className="flex w-fit items-center gap-1 rounded px-1 py-0.5 text-xs text-secondary transition-colors hover:bg-fill-highlight-50"
+                    >
+                        {showPrevious ? <IconChevronDown /> : <IconChevronRight />}
+                        {showPrevious ? 'Hide previous' : 'Show previous'}
+                    </button>
+                    {showPrevious ? <div className="min-w-0">{renderText(previous, true)}</div> : null}
+                </>
             ) : null}
         </div>
     )
@@ -293,6 +340,14 @@ function ArtefactBody({
         }
         case 'suggested_reviewers':
             return <ReviewersBody reviewers={(content as unknown as EnrichedReviewer[]) ?? []} />
+        case 'title_change': {
+            const c = content as TitleChangeContent
+            return <ContentChangeBody previous={c.old_title} current={c.new_title ?? ''} />
+        }
+        case 'summary_change': {
+            const c = content as SummaryChangeContent
+            return <ContentChangeBody previous={c.old_summary} current={c.new_summary ?? ''} markdown />
+        }
         case 'dismissal': {
             const c = content as DismissalContent
             return (

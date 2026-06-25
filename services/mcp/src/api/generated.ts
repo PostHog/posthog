@@ -32186,6 +32186,8 @@ export namespace Schemas {
      * * `commit` - Commit
      * * `task_run` - Task Run
      * * `note` - Note
+     * * `title_change` - Title Change
+     * * `summary_change` - Summary Change
      */
     export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
 
@@ -32203,6 +32205,8 @@ export namespace Schemas {
       Commit: 'commit',
       TaskRun: 'task_run',
       Note: 'note',
+      TitleChange: 'title_change',
+      SummaryChange: 'summary_change',
     } as const;
 
     export interface _User {

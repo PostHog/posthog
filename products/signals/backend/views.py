@@ -58,6 +58,8 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     Dismissal,
     SuggestedReviewers,
+    SummaryChange,
+    TitleChange,
     parse_artefact_content,
 )
 from products.signals.backend.facade.api import emit_signal
@@ -1054,17 +1056,36 @@ class SignalReportViewSet(
     def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         report = cast(SignalReport, self.get_object())
         data = request.validated_data
+        # Attribution mirrors the other artefact-writing paths (suggested reviewers, commit/task_run):
+        # the edit is the agent's task when an `X-PostHog-Task-Id` header is present, otherwise the
+        # requesting user. Resolved up front so a bad task header 400s before we mutate anything.
+        attribution = resolve_request_attribution(request, self.team.id)
         update_fields: list[str] = []
-        if "title" in data:
+        # Each real change is logged as its own append-only edit-history artefact capturing the
+        # before/after, so the report carries an audit trail of human/agent title & summary edits.
+        edit_artefacts: list[TitleChange | SummaryChange] = []
+        if "title" in data and data["title"] != report.title:
+            edit_artefacts.append(TitleChange(old_title=report.title, new_title=data["title"]))
             report.title = data["title"]
             update_fields.append("title")
-        if "summary" in data:
+        if "summary" in data and data["summary"] != report.summary:
+            edit_artefacts.append(SummaryChange(old_summary=report.summary, new_summary=data["summary"]))
             report.summary = data["summary"]
             update_fields.append("summary")
-        # `updated_at` is auto_now, but `update_fields` saves only the listed columns, so add it
-        # explicitly to keep the edit timestamped.
-        update_fields.append("updated_at")
-        report.save(update_fields=update_fields)
+
+        if update_fields:
+            # `updated_at` is auto_now, but `update_fields` saves only the listed columns, so add it
+            # explicitly to keep the edit timestamped.
+            update_fields.append("updated_at")
+            with transaction.atomic():
+                report.save(update_fields=update_fields)
+                for content in edit_artefacts:
+                    SignalReportArtefact.add_log(
+                        team_id=self.team.id,
+                        report_id=str(report.id),
+                        content=content,
+                        attribution=attribution,
+                    )
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @extend_schema(
