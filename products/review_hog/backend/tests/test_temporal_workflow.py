@@ -10,6 +10,7 @@ import pytest
 
 import temporalio.worker
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -181,12 +182,40 @@ async def test_analyze_chunks_workflow_is_best_effort_on_unit_failure():
                 task_queue=task_queue,
             )
 
-    # Chunk 2 fails after its retries; the workflow returns the survivors instead of failing the turn.
+    # 1 of 3 fails (33%, under the 70% floor): the workflow returns the survivors, not a failure.
     assert analyzed == 2
 
 
 @pytest.mark.asyncio
-async def test_validate_issues_workflow_collects_kept_drops_failures():
+async def test_analyze_chunks_workflow_fails_above_failure_floor():
+    # 3 of 4 fail (75%, over the 70% floor): a near-total wipeout fails the run loudly instead of
+    # finalizing an empty review as success.
+    @activity.defn(name="analyze_chunk_activity")
+    async def analyze(input: AnalyzeChunkInput) -> bool:
+        if input.chunk_id in (1, 2, 3):
+            raise RuntimeError("sandbox boom")
+        return True
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[AnalyzeChunksWorkflow],
+            activities=[analyze],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    AnalyzeChunksWorkflow.run,
+                    AnalyzeChunksInputs(**_stage_kwargs(), chunk_ids=[1, 2, 3, 4]),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+
+@pytest.mark.asyncio
+async def test_validate_issues_workflow_collects_kept_drops_skips():
     @activity.defn(name="load_validation_skill_activity")
     async def load_validation(input) -> LoadedValidationSkillDTO:
         return LoadedValidationSkillDTO(skill_name="s-val", version=1)
@@ -213,5 +242,36 @@ async def test_validate_issues_workflow_collects_kept_drops_failures():
                 task_queue=task_queue,
             )
 
-    # Only the issue with a verdict is collected; the failed/None one is dropped.
+    # A None verdict is a deliberate skip (e.g. an unresolved chunk), not a failure: it's dropped from
+    # the result but does NOT count toward the failure floor.
     assert validations == {"kept": "vj"}
+
+
+@pytest.mark.asyncio
+async def test_validate_issues_workflow_fails_above_failure_floor():
+    # Every validate unit raises a genuine sandbox failure (100%, over the 70% floor) — distinct from
+    # the None skip above — so the workflow fails loudly instead of returning an empty verdict set.
+    @activity.defn(name="load_validation_skill_activity")
+    async def load_validation(input) -> LoadedValidationSkillDTO:
+        return LoadedValidationSkillDTO(skill_name="s-val", version=1)
+
+    @activity.defn(name="validate_issue_activity")
+    async def validate_issue(input: ValidateIssueInput) -> ValidateIssueResult:
+        raise RuntimeError("sandbox boom")
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[ValidateIssuesWorkflow],
+            activities=[load_validation, validate_issue],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    ValidateIssuesWorkflow.run,
+                    ValidateIssuesInputs(**_stage_kwargs(), issues_json=["a", "b"]),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )

@@ -190,18 +190,20 @@ async def test_deduplicate_prior_comment_makes_issue_a_candidate(pr_metadata: PR
 
 
 @pytest.mark.asyncio
-async def test_deduplicate_raises_when_sandbox_returns_none(pr_metadata: PRMetadata) -> None:
+async def test_deduplicate_propagates_sandbox_failure(pr_metadata: PRMetadata) -> None:
+    # run_sandbox_review now raises on a sandbox failure (instead of returning None); deduplicate_issues
+    # lets it propagate so the dedup activity fails, is retried, then fails the run loudly.
     issues = [
         _issue("1-1", "src/auth.py", 45, 50),
         _issue("2-1", "src/auth.py", 45, 50),
     ]
 
     async def mock_failure(**kwargs: Any) -> None:
-        return None
+        raise RuntimeError("sandbox crashed")
 
     with (
         patch(f"{_MODULE}.run_sandbox_review", mock_failure),
-        pytest.raises(RuntimeError, match="Issue deduplication failed"),
+        pytest.raises(RuntimeError, match="sandbox crashed"),
     ):
         await deduplicate_issues(
             team_id=1,

@@ -333,8 +333,6 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
             model_to_validate=ChunksList,
             step_name="chunking",
         )
-    if chunks is None:
-        raise ApplicationError("Failed to generate chunks using sandbox")
     await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=chunks
     )
@@ -364,7 +362,7 @@ def _prepare_analysis_prompt(team_id: int, report_id: str, head_sha: str, chunk_
 @scoped_temporal()
 @close_db_connections
 async def analyze_chunk_activity(input: AnalyzeChunkInput) -> bool:
-    """Analyze one chunk through a sandbox agent and persist it (idempotent; best-effort)."""
+    """Analyze one chunk through a sandbox agent and persist it (idempotent; raises on failure so it retries)."""
     prompt = await database_sync_to_async(_prepare_analysis_prompt, thread_sensitive=False)(
         input.team_id, input.report_id, input.head_sha, input.chunk_id
     )
@@ -381,9 +379,6 @@ async def analyze_chunk_activity(input: AnalyzeChunkInput) -> bool:
             model_to_validate=ChunkAnalysis,
             step_name=f"chunk-analysis-{input.chunk_id}",
         )
-    if analysis is None:
-        logger.error(f"Failed to analyze chunk {input.chunk_id} using sandbox")
-        return False
     await database_sync_to_async(persist_chunk_analyses, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, analyses={input.chunk_id: analysis}
     )
@@ -461,9 +456,6 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
             model_to_validate=IssuesReview,
             step_name=f"issues-review-p{input.pass_number}-c{input.chunk_id}",
         )
-    if review is None:
-        logger.error(f"Failed to review chunk {input.chunk_id} (perspective {input.pass_number}) using sandbox")
-        return False
     await database_sync_to_async(persist_perspective_results, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -592,9 +584,6 @@ async def validate_issue_activity(input: ValidateIssueInput) -> ValidateIssueRes
             model_to_validate=IssueValidation,
             step_name=f"validation-{issue.id}",
         )
-    if validation is None:
-        logger.error(f"Failed to validate issue {issue.id}")
-        return ValidateIssueResult(issue_id=issue.id, validation_json=None)
     await database_sync_to_async(persist_verdict, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, issue=issue, validation=validation
     )

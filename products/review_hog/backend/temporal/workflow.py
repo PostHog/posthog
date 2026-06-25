@@ -7,10 +7,11 @@ slices — and every consumer reloads its inputs from the `pr_snapshot` artefact
 hits Temporal's ~2 MiB cap. Stage progress is logged via `workflow.logger` so it streams in the
 worker log (the former stdout banners).
 
-The fan-out children dispatch per-unit sandbox activities under a fresh `asyncio.Semaphore` and
-`gather(return_exceptions=True)`, so a single failed unit degrades best-effort (matching the previous
-in-process behaviour) rather than failing the turn. Publishing stays gated off
-(`PUBLISH_REVIEW_ENABLED`) through the migration.
+The fan-out children dispatch per-unit sandbox activities (each retried) under a fresh
+`asyncio.Semaphore` and `gather(return_exceptions=True)`, so a minority of failed units degrade
+best-effort; a near-total wipeout (> `FAN_OUT_FAILURE_FLOOR`) fails the run loudly instead of
+finalizing an empty review as success. Publishing stays gated off (`PUBLISH_REVIEW_ENABLED`) through
+the migration.
 """
 
 import json
@@ -21,8 +22,13 @@ from datetime import timedelta
 import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
-from products.review_hog.backend.reviewer.constants import MAX_CONCURRENT_SANDBOXES, PUBLISH_REVIEW_ENABLED
+from products.review_hog.backend.reviewer.constants import (
+    FAN_OUT_FAILURE_FLOOR,
+    MAX_CONCURRENT_SANDBOXES,
+    PUBLISH_REVIEW_ENABLED,
+)
 from products.review_hog.backend.temporal.activities import (
     AnalyzeChunkInput,
     BuildBodyInput,
@@ -67,6 +73,18 @@ _FETCH_TIMEOUT = timedelta(minutes=5)
 _RETRY = RetryPolicy(maximum_attempts=2)
 
 
+def _enforce_failure_floor(stage: str, failed: int, total: int) -> None:
+    """Fail the run when more than `FAN_OUT_FAILURE_FLOOR` of a fan-out stage's units failed.
+
+    A few flaky units degrade best-effort; a near-total wipeout (e.g. the sandbox layer down) must
+    surface loudly instead of letting the pipeline finalize an empty review as success.
+    """
+    if total and failed / total > FAN_OUT_FAILURE_FLOOR:
+        raise ApplicationError(
+            f"{stage}: {failed}/{total} units failed (> {FAN_OUT_FAILURE_FLOOR:.0%}); failing the run"
+        )
+
+
 @dataclass
 class AnalyzeChunksInputs(SandboxStageInput):
     chunk_ids: list[int]
@@ -109,9 +127,12 @@ class AnalyzeChunksWorkflow:
                 )
 
         results = await asyncio.gather(*(_analyze(c) for c in inputs.chunk_ids), return_exceptions=True)
-        analyzed = sum(1 for r in results if r is True)
-        if analyzed != len(inputs.chunk_ids):
-            workflow.logger.warning(f"Analyzed {analyzed}/{len(inputs.chunk_ids)} chunk(s); rest failed best-effort")
+        total = len(inputs.chunk_ids)
+        failed = sum(1 for r in results if isinstance(r, BaseException))
+        _enforce_failure_floor("Analyze", failed, total)
+        analyzed = total - failed
+        if failed:
+            workflow.logger.warning(f"Analyzed {analyzed}/{total} chunk(s); {failed} failed best-effort")
         return analyzed
 
 
@@ -157,9 +178,14 @@ class ReviewPerspectivesWorkflow:
                 )
 
         results = await asyncio.gather(*(_review(p, c) for p, c in units), return_exceptions=True)
-        reviewed = sum(1 for r in results if r is True)
-        if reviewed != len(units):
-            workflow.logger.warning(f"Reviewed {reviewed}/{len(units)} (perspective, chunk) pair(s); rest best-effort")
+        total = len(units)
+        failed = sum(1 for r in results if isinstance(r, BaseException))
+        _enforce_failure_floor("Review", failed, total)
+        reviewed = total - failed
+        if failed:
+            workflow.logger.warning(
+                f"Reviewed {reviewed}/{total} (perspective, chunk) pair(s); {failed} failed best-effort"
+            )
         return reviewed
 
 
@@ -205,14 +231,15 @@ class ValidateIssuesWorkflow:
                 )
 
         results = await asyncio.gather(*(_validate(j) for j in inputs.issues_json), return_exceptions=True)
+        total = len(inputs.issues_json)
+        failed = sum(1 for r in results if isinstance(r, BaseException))
+        _enforce_failure_floor("Validate", failed, total)
         validations: dict[str, str] = {}
         for result in results:
             if isinstance(result, ValidateIssueResult) and result.validation_json is not None:
                 validations[result.issue_id] = result.validation_json
-        if len(validations) != len(inputs.issues_json):
-            workflow.logger.warning(
-                f"Validated {len(validations)}/{len(inputs.issues_json)} issue(s); rest dropped best-effort"
-            )
+        if failed:
+            workflow.logger.warning(f"Validated {len(validations)}/{total} issue(s); {failed} failed best-effort")
         return validations
 
 
@@ -249,7 +276,7 @@ class ReviewPRWorkflow:
                 pr_url=inputs.pr_url,
             ),
             start_to_close_timeout=_FETCH_TIMEOUT,
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            retry_policy=_RETRY,
         )
         report_id, head_sha, branch = meta.report_id, meta.head_sha, meta.branch
         workflow.logger.info(

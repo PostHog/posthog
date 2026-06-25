@@ -67,19 +67,19 @@ class TestRunSandboxReview:
         assert (context.team_id, context.user_id, context.repository) == (7, 9, "acme/app")
 
     @pytest.mark.asyncio
-    async def test_start_failure_returns_none(self) -> None:
-        # start() ends its own session on failure and raises; _run_prompt swallows it and returns None.
+    async def test_start_failure_propagates(self) -> None:
+        # start() ends its own session on failure and raises; run_sandbox_review re-raises (it must NOT
+        # swallow, or the Temporal activity would see a success and never retry the transient flake).
         mock_start = AsyncMock(side_effect=RuntimeError("sandbox crashed"))
 
         with patch(f"{_EXECUTOR_PREFIX}.MultiTurnSession.start", mock_start):
-            result = await run_sandbox_review(
-                team_id=1,
-                user_id=2,
-                repository="test/repo",
-                branch="b",
-                prompt="p",
-                system_prompt="s",
-                model_to_validate=DummyModel,
-            )
-
-        assert result is None
+            with pytest.raises(RuntimeError, match="sandbox crashed"):
+                await run_sandbox_review(
+                    team_id=1,
+                    user_id=2,
+                    repository="test/repo",
+                    branch="b",
+                    prompt="p",
+                    system_prompt="s",
+                    model_to_validate=DummyModel,
+                )

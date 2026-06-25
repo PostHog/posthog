@@ -114,10 +114,6 @@ async def deduplicate_issues(
         model_to_validate=IssueDeduplication,
         step_name="dedup",
     )
-    if deduplication_result is None:
-        logger.error("Failed to run issue deduplication")
-        raise RuntimeError("Issue deduplication failed")
-
     # `unique` issues always survive; only positional candidates can be dropped by the LLM.
     duplicate_ids = {dup.id for dup in deduplication_result.duplicates}
     deduplicated_issues = unique + [issue for issue in candidates if issue.id not in duplicate_ids]

@@ -50,6 +50,8 @@ def execute_review_pr_workflow(*, pr_url: str, team_id: int, user_id: int) -> st
             # A new turn may start once the prior one finishes (the living-report re-review), but a
             # second concurrent run of the same PR is rejected.
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            # Retry the whole review once on a hard failure; the re-run resumes (reuses persisted
+            # chunk/analysis/perspective rows for the same head) rather than redoing the work.
+            retry_policy=RetryPolicy(maximum_attempts=2),
         )
     )

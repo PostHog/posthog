@@ -6,6 +6,11 @@ from products.review_hog.backend.reviewer.models.issues_review import IssuePrior
 # true global ceiling is the tasks-task-queue worker's own concurrency, where the sandboxes execute.
 MAX_CONCURRENT_SANDBOXES = 10
 
+# A fan-out stage (analyze / review / validate) degrades best-effort while at most this fraction of
+# its units fail; above it the run fails loudly instead of finalizing a near-empty review as success
+# (a total wipeout — e.g. the sandbox layer down — must not look like a clean PR).
+FAN_OUT_FAILURE_FLOOR = 0.70
+
 # PUBLISH
 # When False, the run produces the local review report but does not post anything to GitHub.
 PUBLISH_REVIEW_ENABLED = False
