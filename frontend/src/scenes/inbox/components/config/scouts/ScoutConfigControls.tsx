@@ -3,11 +3,6 @@ import { LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import { SignalScoutConfig, SignalScoutConfigUpdate } from '../../../types'
 import { formatRunInterval, RUN_INTERVAL_OPTIONS } from '../../../utils/scoutRunsWindow'
 
-const MODE_OPTIONS = [
-    { value: 'live', label: 'Live' },
-    { value: 'dry_run', label: 'Dry run' },
-]
-
 interface ScoutConfigControlsProps {
     config: SignalScoutConfig
     onUpdate: (configId: string, updates: SignalScoutConfigUpdate) => void
@@ -50,22 +45,6 @@ export function ScoutEnabledSwitch({ config, onUpdate }: ScoutConfigControlsProp
 export function ScoutConfigForm({ config, onUpdate }: ScoutConfigControlsProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-4">
-                <div className="flex flex-col min-w-0">
-                    <span className="text-xs text-default">Mode</span>
-                    <span className="text-[11.5px] text-muted">
-                        Dry run executes the scout but holds back its findings
-                    </span>
-                </div>
-                <LemonSelect
-                    size="small"
-                    value={config.emit ? 'live' : 'dry_run'}
-                    options={MODE_OPTIONS}
-                    disabledReason={config.enabled ? undefined : 'Enable the scout first'}
-                    className="w-24"
-                    onChange={(value) => onUpdate(config.id, { emit: value === 'live' })}
-                />
-            </div>
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Cadence</span>

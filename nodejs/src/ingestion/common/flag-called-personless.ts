@@ -1,4 +1,4 @@
-import { buildIntegerMatcher } from '~/config/config'
+import { buildIntegerMatcher } from '~/common/config/config'
 import { DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS } from '~/ingestion/config'
 import { PluginEvent } from '~/plugin-scaffold'
 

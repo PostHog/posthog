@@ -41,7 +41,18 @@ interface SetupWidgetCardProps {
     children?: React.ReactNode
 }
 
-function TrailingAffordance({ tone, to }: { tone: WidgetTone; to?: string }): JSX.Element | null {
+function TrailingAffordance({
+    tone,
+    to,
+    loading,
+}: {
+    tone: WidgetTone
+    to?: string
+    loading?: boolean
+}): JSX.Element | null {
+    if (loading) {
+        return <LemonSkeleton className="h-4 w-12 rounded" />
+    }
     if (tone === 'todo') {
         return (
             <LemonTag type="warning" size="small">
@@ -104,7 +115,7 @@ function SetupWidgetCard(props: SetupWidgetCardProps): JSX.Element {
                     ) : (
                         <span className="text-xs text-secondary">{status}</span>
                     )}
-                    <TrailingAffordance tone={tone} to={to} />
+                    <TrailingAffordance tone={tone} to={to} loading={loading} />
                 </div>
             </>
         ) : (
@@ -120,7 +131,7 @@ function SetupWidgetCard(props: SetupWidgetCardProps): JSX.Element {
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1.5">
                         <span className={cn('text-default truncate', TITLE_CLASS[size])}>{title}</span>
-                        <TrailingAffordance tone={tone} to={to} />
+                        <TrailingAffordance tone={tone} to={to} loading={loading} />
                     </div>
                     {loading ? (
                         <LemonSkeleton className="h-3 w-20" />

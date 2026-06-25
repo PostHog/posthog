@@ -66,6 +66,14 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             ("vendor_claudecode", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
             ("session_codex", {"mcp_session_client_name": "codex-mcp-client"}, "OpenAI Codex"),
             ("session_cursor", {"mcp_session_client_name": "cursor-vscode"}, "Cursor"),
+            # The posthog-node MCP analytics SDK reports clientInfo.name as $mcp_client_name,
+            # not the hosted server's mcp_session_client_name. Both must classify.
+            ("sdk_client_name_claudeai", {"$mcp_client_name": "claude-ai"}, "Claude.ai"),
+            (
+                "sdk_client_name_mcp_remote_stripped",
+                {"$mcp_client_name": "claude-ai (via mcp-remote 0.1.37)"},
+                "Claude.ai",
+            ),
             ("ua_claude_cli", {"$mcp_client_user_agent": "claude-code/2.1.0 (cli)"}, "Claude Code"),
             (
                 "ua_claude_sdk",

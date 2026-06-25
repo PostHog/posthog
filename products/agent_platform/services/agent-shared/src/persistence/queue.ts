@@ -70,6 +70,8 @@ export interface ListSessionsOpts {
     createdAfter?: string
     /** ISO datetime — only return sessions with created_at <= this. */
     createdBefore?: string
+    /** Case-insensitive substring over the session id and external_key. */
+    search?: string
 }
 
 /**
@@ -123,8 +125,20 @@ export interface SessionQueue extends SessionInputsStore {
      * callers (runner claim loop, sweep) that legitimately fetch by id alone.
      */
     getForApplication(sessionId: string, applicationId: string): Promise<AgentSession | null>
-    /** Find an existing session matching (application_id, external_key). */
-    findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
+    /**
+     * Find an existing session matching `(application_id, external_key,
+     * revision_id)`. `revisionId` is part of the lookup, not a filter applied
+     * afterward, so resume never crosses a revision boundary: a request routed
+     * to one revision can only resume a session created on that same revision.
+     * This keeps draft-preview runs talking to the draft they targeted —
+     * rather than silently resuming the live session under a shared
+     * external_key — and keeps two draft revisions previewed against the same
+     * external_key isolated, so their conversation histories don't bleed
+     * together. The filter lives in SQL (not an after-the-fact JS guard) so the
+     * `ORDER BY updated_at DESC LIMIT 1` can never return a row from a
+     * different revision.
+     */
+    findByExternalKey(applicationId: string, externalKey: string, revisionId: string): Promise<AgentSession | null>
     /**
      * Find an existing session matching (application_id, idempotency_key).
      * Returns null if no row exists (including when the key was nulled by the

@@ -1,8 +1,8 @@
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { captureIngestionWarning } from '~/ingestion/common/utils'
 
-import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { Hub } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { Clickhouse } from '../../helpers/clickhouse'
 
 jest.setTimeout(60000) // 60 sec timeout

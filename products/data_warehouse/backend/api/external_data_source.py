@@ -38,36 +38,11 @@ from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter, source_type_supports_cdc
-from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
-from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
-from posthog.temporal.data_imports.sources.common.config import Config
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
-from posthog.temporal.data_imports.sources.common.sql import (
-    RowFilterValidationError,
-    filter_dwh_columns_by_enabled_columns,
-    sql_schema_metadata,
-    validate_and_coerce_row_filters,
-)
-from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
-from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
-from posthog.temporal.data_imports.sources.postgres.cdc.config import (
-    DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
-    DEFAULT_LAG_WARNING_THRESHOLD_MB,
-)
-from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
-from posthog.temporal.data_imports.sources.postgres.postgres import (
-    SSLRequiredError,
-    get_primary_key_columns,
-    source_requires_ssl,
-)
-from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -79,6 +54,7 @@ from products.data_warehouse.backend.api.external_data_schema import (
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
+from products.data_warehouse.backend.api.public_source_configs import build_source_configs
 from products.data_warehouse.backend.data_load.service import (
     bulk_create_external_data_job_schedules,
     bulk_delete_external_data_schedules,
@@ -116,7 +92,6 @@ from products.data_warehouse.backend.sql_warehouse_migration import (
     is_multi_schema_capable_sql_source,
     source_namespace_is_blank,
 )
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -131,6 +106,52 @@ from products.warehouse_sources.backend.models.util import (
     postgres_columns_to_dwh_columns,
     validate_source_prefix,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
+    CDCSourceAdapter,
+    get_cdc_adapter,
+    source_type_supports_cdc,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    AnySource,
+    ExternalWebhookInfo,
+    FieldType,
+    WebhookSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_default_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    RowFilterValidationError,
+    filter_dwh_columns_by_enabled_columns,
+    sql_schema_metadata,
+    validate_and_coerce_row_filters,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
+    MAX_CUSTOM_SOURCES_PER_TEAM,
+    PREVIEW_DEFAULT_ROWS,
+    PREVIEW_MAX_ROWS,
+    CustomSource,
+    manifest_request_hosts,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
+    DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
+    DEFAULT_LAG_WARNING_THRESHOLD_MB,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    SSLRequiredError,
+    get_primary_key_columns,
+    source_requires_ssl,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -854,6 +875,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
+        # CDC resource ownership changes must go through the CDC-specific endpoints.
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                new_job_inputs[key] = existing_job_inputs[key]
+            else:
+                new_job_inputs.pop(key, None)
+
         # If the connection target changed, require credentials to be re-entered. Covers
         # both the generic `host` field and source-specific URL fields like ServiceNow's
         # `instance_url`, so a stored credential can't be redirected to a new host.
@@ -973,7 +1001,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
-        validated_data["job_inputs"] = source_config.to_dict()
+        validated_job_inputs = source_config.to_dict()
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                validated_job_inputs[key] = existing_job_inputs[key]
+        validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted:
             if isinstance(source, (PostgresSource, MySQLSource)):
@@ -1110,6 +1142,10 @@ class SourceSetupSerializer(serializers.Serializer):
             "details the user stored via the connect-link page (discover ids with the stored_credentials "
             "endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth "
             "integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). "
+            "For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified "
+            "RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth "
+            "type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' "
+            "(http_basic); keep secrets in these auth_* keys, never inline in the manifest. "
             "A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible "
             "sync defaults."
         ),
@@ -1231,11 +1267,70 @@ class DatabaseSchemaRequestSerializer(serializers.Serializer):
     The request body contains source_type plus flat source-specific credential fields
     (e.g. host, port, database, user, password, schema for Postgres). The credential
     fields vary per source_type and are validated dynamically by the source registry.
+
+    For source_type "Custom" (a user-defined REST API) the body carries `manifest_json`
+    (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the
+    credential for the manifest's declared auth type — `auth_token` (bearer), `auth_api_key`
+    (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never
+    inline in manifest_json. The returned tables mirror the manifest's resources, with
+    detected primary keys and incremental cursors.
     """
 
     source_type = serializers.ChoiceField(
         choices=ExternalDataSourceType.choices,
         help_text="The source type to validate against.",
+    )
+
+
+class SourcePreviewRequestSerializer(serializers.Serializer):
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        help_text="The source type to preview. Only 'Custom' (a user-defined REST API) is supported today.",
+    )
+    payload = serializers.DictField(
+        required=False,
+        help_text=(
+            "Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig "
+            "describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth "
+            "type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay "
+            "in these auth_* keys, never inline in the manifest."
+        ),
+    )
+    resource_name = serializers.CharField(
+        help_text="Which manifest resource (table) to read a sample from — one of the resource names in manifest_json.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=PREVIEW_DEFAULT_ROWS,
+        min_value=1,
+        max_value=PREVIEW_MAX_ROWS,
+        help_text=f"Maximum sample rows to return (1–{PREVIEW_MAX_ROWS}). Defaults to {PREVIEW_DEFAULT_ROWS}.",
+    )
+
+
+class SourcePreviewColumnSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Column name as it appears in the previewed rows.")
+    type = serializers.CharField(
+        help_text="JSON type inferred from the first non-null value: string, integer, number, boolean, object, array, or null."
+    )
+
+
+class SourcePreviewResponseSerializer(serializers.Serializer):
+    rows = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="Up to `limit` sample rows, after data_selector extraction — the raw records the sync would ingest.",
+    )
+    row_count = serializers.IntegerField(help_text="Number of sample rows returned (≤ limit).")
+    columns = SourcePreviewColumnSerializer(
+        many=True,
+        help_text="Columns observed across the sample rows, each with an inferred JSON type.",
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Set when the live read failed (e.g. the host was unreachable or returned an auth error); rows is then "
+            "empty. Manifest, validation, and SSRF problems return HTTP 400 instead of populating this field."
+        ),
     )
 
 
@@ -1280,6 +1375,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "enable_cdc",
         "disable_cdc",
         "update_cdc_settings",
+        # Live outbound HTTP to a caller-supplied manifest (including POSTs) — a
+        # side-effecting action, so it needs write scope, not read.
+        "preview_resource",
     ]
     scope_object_read_actions = [
         "list",
@@ -1310,7 +1408,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+        # Building the full HogQL Database and serializing per-schema table columns is expensive
+        # and only needed when a caller reads `schemas[].table.columns` — which the source list view
+        # never does (it only reads name/row_count). Gate both to single-source reads.
+        include_columns = self.action != "list"
+        context["include_columns"] = include_columns
+        if include_columns:
+            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
 
         return context
 
@@ -1361,6 +1465,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
+        )
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        # Runs for both PUT and PATCH (DRF's partial_update delegates to update -> perform_update).
+        # `created_via` is write-once and reflects original creation origin; the edit's own origin
+        # comes from the request-derived `source` that report_user_action attaches.
+        super().perform_update(serializer)
+        instance = cast(ExternalDataSource, serializer.instance)
+        report_user_action(
+            cast(User, self.request.user),
+            "data warehouse source updated",
+            {
+                "source_type": instance.source_type,
+                "created_via": instance.created_via,
+                "source_id": str(instance.pk),
+            },
+            team=self.team,
+            request=self.request,
         )
 
     def _create_external_data_source(
@@ -1874,6 +1996,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             managed_viewset.sync_views()
             ensure_person_join(self.team.pk, new_source_model.prefix)
+
+        # `source` (web/api/mcp) is derived from the request by report_user_action; `created_via`
+        # is the caller's explicit intent. They usually agree but are kept separate so a transport
+        # change (e.g. a new wrapper UA) doesn't silently rewrite historical attribution.
+        report_user_action(
+            cast(User, request.user),
+            "data warehouse source created",
+            {
+                "source_type": source_type,
+                "created_via": created_via,
+                "source_access_method": access_method,
+                "direct_query_enabled": direct_query_enabled,
+                "schema_count": len(active_schemas),
+                "source_id": str(new_source_model.pk),
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
@@ -2409,6 +2549,61 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if webhook_result is not None:
                 response.data["webhook"] = webhook_result
         return response
+
+    @extend_schema(request=SourcePreviewRequestSerializer, responses={200: SourcePreviewResponseSerializer})
+    @action(methods=["POST"], detail=False)
+    def preview_resource(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read a bounded sample of rows for one resource of a Custom REST source.
+
+        Lets a manifest author verify `data_selector`, `primary_key`, and the incremental
+        `cursor_path` against live data before creating the source. Only `source_type: "Custom"`
+        is supported — other source types return 400. The read is bounded (single page per
+        resource, capped row count, short timeouts, no redirects). Manifest, validation, and SSRF
+        problems return 400; a live fetch failure returns 200 with `error` set and empty `rows`.
+        """
+        serializer = SourcePreviewRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        source_type = serializer.validated_data["source_type"]
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        if not isinstance(source, CustomSource):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Preview is not supported for source type '{source_type}'."},
+            )
+
+        payload = dict(serializer.validated_data.get("payload") or {})
+        is_valid, errors = source.validate_config(payload)
+        if not is_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid source config: {', '.join(errors)}"},
+            )
+        source_config = source.parse_config(payload)
+
+        try:
+            # preview_resource runs its own SSRF host check and bounded live read, so no
+            # separate validate_credentials probe — the read is the credential check.
+            result = source.preview_resource(
+                cast(CustomSourceConfig, source_config),
+                self.team_id,
+                serializer.validated_data["resource_name"],
+                serializer.validated_data["limit"],
+            )
+        except ValueError as e:
+            # ManifestValidationError (a ValueError) for manifest/graph/URL issues, or a plain
+            # ValueError for an unknown resource_name / dependency cycle — all caller mistakes.
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "rows": result.rows,
+                "row_count": result.row_count,
+                "columns": result.columns,
+                "error": result.error,
+            },
+        )
 
     def _auto_register_webhook(
         self,
@@ -3167,14 +3362,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
-        sources = SourceRegistry.get_all_sources()
-        results = {}
-        for source_type, source in sources.items():
-            config = source.get_source_config.model_dump()
-            config["supportsColumnSelection"] = bool(source.supports_column_selection)
-            results[str(source_type)] = config
-
-        return Response(status=status.HTTP_200_OK, data=results)
+        return Response(status=status.HTTP_200_OK, data=build_source_configs())
 
     @extend_schema(
         parameters=[
@@ -3598,6 +3786,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 context={**serializer_context, "post_commit_actions": schema_post_commit_actions},
             )
             schema_serializer.is_valid(raise_exception=True)
+            # Do the webhook-only source-discovery call (e.g. Google Ads token refresh + field query)
+            # here, before the per-schema transaction below. Running it inside update()'s transaction
+            # held the DB connection idle-in-transaction long enough for the server to close it.
+            # update() reads the cached result, so it still validates and fails per-schema.
+            schema_serializer.warm_webhook_only_check(schema)
             prepared.append((schema, schema_serializer, schema_post_commit_actions))
 
         # Commit each schema in its own transaction. A single atomic block around the whole batch

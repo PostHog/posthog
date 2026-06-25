@@ -11,6 +11,7 @@ import {
 import { useCustomParserMaxTool } from '../customParser/useCustomParserMaxTool'
 import { useAIData } from '../hooks/useAIData'
 import { normalizeMessage, normalizeMessages } from '../messageNormalization'
+import type { GenerationSentiment } from '../sentimentResults'
 import { parserRecipesLogic } from '../settings/parserRecipesLogic'
 import { AIDataLoading } from './AIDataLoading'
 import { JSONValueDisplay } from './JSONValueDisplay'
@@ -18,6 +19,7 @@ import { JSONValueDisplay } from './JSONValueDisplay'
 interface EventContentConversationProps {
     eventId: string
     traceId?: string | null
+    timestamp?: string
     rawInput: unknown
     rawOutput: unknown
     tools?: unknown
@@ -30,6 +32,7 @@ interface EventContentConversationProps {
     highlightMessageIndex?: number | null
     /** Generation id for per-message sentiment lookups; only generations have sentiment. */
     generationEventId?: string
+    generationSentiment?: GenerationSentiment | null
 }
 
 // Renders an event's input/output, routing to one of two renderers: the chat UI
@@ -38,6 +41,7 @@ interface EventContentConversationProps {
 export function EventContentConversation({
     eventId,
     traceId,
+    timestamp,
     rawInput,
     rawOutput,
     tools,
@@ -48,11 +52,20 @@ export function EventContentConversation({
     displayOption,
     highlightMessageIndex,
     generationEventId,
+    generationSentiment,
 }: EventContentConversationProps): JSX.Element {
-    const { input, output, isLoading } = useAIData({
+    const {
+        input,
+        output,
+        tools: loadedTools,
+        isLoading,
+    } = useAIData({
         uuid: eventId,
         input: rawInput,
         output: rawOutput,
+        tools,
+        traceId: traceId ?? undefined,
+        timestamp,
     })
     // The normalizer is a module singleton — recipesVersion signals the memos below are stale
     const { recipesVersion } = useValues(parserRecipesLogic)
@@ -64,7 +77,7 @@ export function EventContentConversation({
             return undefined
         }
         const indices: number[] = []
-        if (tools) {
+        if (loadedTools) {
             indices.push(-1) // tools message prepended by normalizeMessages
         }
         if (Array.isArray(input)) {
@@ -77,12 +90,12 @@ export function EventContentConversation({
         }
         return indices
         // oxlint-disable-next-line react-hooks/exhaustive-deps
-    }, [input, tools, generationEventId, recipesVersion])
+    }, [input, loadedTools, generationEventId, recipesVersion])
 
     const { recognized: inputRecognized, messages: inputMessages } = React.useMemo(
-        () => normalizeMessages(input, 'user', tools),
+        () => normalizeMessages(input, 'user', loadedTools),
         // oxlint-disable-next-line react-hooks/exhaustive-deps
-        [input, tools, recipesVersion]
+        [input, loadedTools, recipesVersion]
     )
     const { recognized: outputRecognized, messages: outputMessages } = React.useMemo(
         () => normalizeMessages(output, 'assistant'),
@@ -94,7 +107,7 @@ export function EventContentConversation({
         eventId,
         input,
         output,
-        tools,
+        tools: loadedTools,
         inputRecognized,
         outputRecognized,
         isLoading,
@@ -128,7 +141,7 @@ export function EventContentConversation({
             searchQuery={searchQuery}
             displayOption={displayOption}
             traceId={traceId}
-            generationEventId={generationEventId}
+            generationSentiment={generationSentiment}
             highlightMessageIndex={highlightMessageIndex}
         />
     )
