@@ -50,6 +50,7 @@ import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-e
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CyclotronV2Manager } from './services/cyclotron-v2'
+import { serializeResolverState } from './services/hogflows/batch-resolver.types'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
@@ -2954,6 +2955,180 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         expect(statusPuts[0]).toEqual({ status: 'failed' })
 
+        const children = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(children.rows).toHaveLength(0)
+    })
+
+    it('Django down: resolver retries the terminal PUT instead of acking', async () => {
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        const personIds = [new UUIDT().toString()]
+        let putAttempts = 0
+
+        mockInternalFetch.mockImplementation((url: string) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () =>
+                        Promise.resolve(
+                            JSON.stringify({
+                                users_affected: personIds,
+                                cursor: null,
+                                has_more: false,
+                            })
+                        ),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                putAttempts += 1
+                return Promise.resolve({
+                    status: 503,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('Service Unavailable'),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        })
+
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        resolverWorker = new CdpCyclotronWorkerBatchResolve(hub, deps)
+        await resolverWorker.start()
+
+        // Wait until at least one Django PUT attempt has happened — proves the
+        // resolver reached the terminal-write phase. Then verify the resolver
+        // job is parked (status='available' with pendingTerminal still set),
+        // not acked.
+        await waitForExpect(() => {
+            expect(putAttempts).toBeGreaterThanOrEqual(1)
+        }, 20000)
+
+        const rows = await cyclotronPool.query<{ status: string; state: Buffer | null }>(
+            `SELECT status::text AS status, state FROM cyclotron_jobs
+             WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(rows.rows).toHaveLength(1)
+        expect(rows.rows[0].status).toBe('available')
+        const state = parseJSON((rows.rows[0].state as Buffer).toString('utf-8')) as { pendingTerminal?: string }
+        expect(state.pendingTerminal).toBe('completed')
+    })
+
+    it('audience fetch failure: resolver reschedules with backoff, cursor unchanged, no children enqueued', async () => {
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        let fetchAttempts = 0
+
+        mockInternalFetch.mockImplementation((url: string) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                fetchAttempts += 1
+                // Audience fetch always fails — resolver should keep retrying,
+                // never advance the cursor, never enqueue children.
+                return Promise.reject(new Error('The operation was aborted due to timeout'))
+            }
+            return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        })
+
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        resolverWorker = new CdpCyclotronWorkerBatchResolve(hub, deps)
+        await resolverWorker.start()
+
+        await waitForExpect(() => {
+            expect(fetchAttempts).toBeGreaterThanOrEqual(1)
+        }, 20000)
+
+        const rows = await cyclotronPool.query<{ status: string; state: Buffer | null }>(
+            `SELECT status::text AS status, state FROM cyclotron_jobs
+             WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(rows.rows).toHaveLength(1)
+        expect(rows.rows[0].status).toBe('available')
+        const state = parseJSON((rows.rows[0].state as Buffer).toString('utf-8')) as {
+            cursor: string | null
+            totalEnqueued: number
+            pagesProcessed: number
+            pendingTerminal?: string
+        }
+        expect(state.cursor).toBeNull() // never advanced
+        expect(state.totalEnqueued).toBe(0)
+        expect(state.pagesProcessed).toBe(0)
+        expect(state.pendingTerminal).toBeUndefined()
+
+        const children = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(children.rows).toHaveLength(0)
+    })
+
+    it('truncation: pre-existing job at maxAudienceSize skips fetch + emits customer log + writes status=completed', async () => {
+        // Pre-populate a resolver job at the cap so the next dequeue takes
+        // the truncation branch (audience fetch never runs).
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        const statusPuts: Array<{ status: string }> = []
+
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        })
+
+        const cappedState = serializeResolverState({
+            batchJobId: parentRunId,
+            teamId: team.id,
+            hogFlowId: flow.id,
+            filters: { properties: [], filter_test_accounts: false },
+            variables: {},
+            maxAudienceSize: 100,
+            cursor: 'some-cursor',
+            totalEnqueued: 100,
+            pagesProcessed: 1,
+            startedAt: new Date().toISOString(),
+        })
+        await batchResolverProducer.createJob({
+            teamId: team.id,
+            queueName: 'hogflow_batch_resolve',
+            parentRunId,
+            functionId: flow.id,
+            state: cappedState,
+        })
+
+        resolverWorker = new CdpCyclotronWorkerBatchResolve(hub, deps)
+        await resolverWorker.start()
+
+        await waitForExpect(() => {
+            expect(statusPuts).toHaveLength(1)
+        }, 20000)
+
+        // Status PUT was completed (truncation is still success, not failure)
+        expect(statusPuts[0]).toEqual({ status: 'completed' })
+
+        // No children — the resolver short-circuited before audience fetch
         const children = await cyclotronPool.query(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
             [parentRunId]
