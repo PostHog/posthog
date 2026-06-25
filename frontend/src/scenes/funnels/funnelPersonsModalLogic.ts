@@ -106,6 +106,12 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
         openPersonsModalForStep: ({ step, stepIndex, converted }) => {
             // Note - when in a legend the step.order is always 0 so we use stepIndex instead
             const stepNo = typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1
+            // There is no drop-off before the first step — funnelStep -1 is invalid and the backend
+            // rejects it. In compare mode the rescaled first bar can expose a clickable drop-off track,
+            // so ignore that click instead of firing a query that 500s.
+            if (!converted && stepNo === 1) {
+                return
+            }
             const title = funnelTitle({
                 converted,
                 step: stepNo,
@@ -125,6 +131,10 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
             const stepNo = step.order + 1
+            // See openPersonsModalForStep: a first-step drop-off (funnelStep -1) is invalid.
+            if (!converted && stepNo === 1) {
+                return
+            }
             const breakdownValues = getBreakdownStepValues(series, series.order)
             const title = funnelTitle({
                 converted,
@@ -141,6 +151,8 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                 source: values.querySource!,
                 funnelStep: converted ? stepNo : -stepNo,
                 funnelStepBreakdown: series.breakdown_value === 'Baseline' ? null : series.breakdown_value,
+                // In compare mode each bar belongs to one period; scope its actors to that period.
+                compare: series.compare_label,
                 includeRecordings: true,
             }
             openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })

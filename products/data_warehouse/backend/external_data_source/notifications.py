@@ -45,6 +45,7 @@ def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta
     ).filter(Q(schema__last_error_notified_at__isnull=True) | Q(finished_at__gt=OuterRef("last_error_notified_at")))
     return list(
         ExternalDataSchema.objects.exclude(deleted=True)
+        .exclude(source__deleted=True)
         .filter(status=ExternalDataSchema.Status.FAILED)
         .filter(Exists(unnotified_failed_job))
         .values_list("team_id", flat=True)
@@ -53,17 +54,28 @@ def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta
 
 
 def notify_external_data_sync_failures(team_id: int) -> None:
-    """Email the team a digest of every currently-failing external data schema.
+    """Email the team a digest of failing external data schemas with an un-communicated failure.
 
-    Runs inside the digest Celery task; exceptions are swallowed so a notification
-    problem never crash-loops the task. Throttling to one email per team per digest
-    day happens in the email layer via the MessagingRecord campaign key, so
+    A failure is reported once: a schema is listed only if it was never notified or
+    has a failed run newer than its last notification. A stuck-but-stopped sync
+    (deleted source, paused schema) has no newer run, so it drops out after the first
+    digest instead of riding every later one. Schemas of a deleted source are excluded
+    entirely. Runs inside the digest Celery task; exceptions are swallowed so a
+    notification problem never crash-loops the task. Throttling to one email per team
+    per digest day happens in the email layer via the MessagingRecord campaign key, so
     scheduling this for every failed job is safe.
     """
     try:
+        newer_failed_job = ExternalDataJob.objects.filter(
+            schema_id=OuterRef("id"),
+            status=ExternalDataJob.Status.FAILED,
+            finished_at__gt=OuterRef("last_error_notified_at"),
+        )
         failing_schemas = list(
             ExternalDataSchema.objects.exclude(deleted=True)
+            .exclude(source__deleted=True)
             .filter(team_id=team_id, status=ExternalDataSchema.Status.FAILED)
+            .filter(Q(last_error_notified_at__isnull=True) | Exists(newer_failed_job))
             .select_related("source")
             # Paused (should_sync=False) schemas first — they need user action.
             .order_by("should_sync", "name")

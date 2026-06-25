@@ -143,6 +143,7 @@ const ListSessionsQuerySchema = z.object({
     agent_user_id: z.string().optional(),
     created_after: z.string().optional(),
     created_before: z.string().optional(),
+    search: z.string().optional(),
 })
 
 const GetSessionQuerySchema = z.object({
@@ -401,6 +402,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 agentUserId: q.agent_user_id,
                 createdAfter: q.created_after,
                 createdBefore: q.created_before,
+                search: q.search,
             }
             const [sessions, count] = await Promise.all([
                 opts.queue.listByApplication(q.application_id, { ...filter, limit: q.limit, offset: q.offset }),
@@ -422,7 +424,6 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 preview: lastAssistantTextPreview(s.conversation),
                 usage_total: s.usage_total,
                 retry_count: s.retry_count,
-                is_preview: s.is_preview,
                 created_at: s.created_at,
                 updated_at: s.updated_at,
             }))
@@ -480,7 +481,6 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 turns: s.conversation.length,
                 preview: lastAssistantTextPreview(s.conversation),
                 usage_total: s.usage_total,
-                is_preview: s.is_preview,
                 created_at: s.created_at,
                 updated_at: s.updated_at,
             }))
@@ -608,11 +608,6 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         decision_at: r.decision_at,
         decision_reason: r.decision_reason,
         dispatch_outcome: r.dispatch_outcome,
-        // Preview-mode marker copied from `agent_session.is_preview` at insert
-        // time (see PgApprovalStore.upsertQueued). Surfaced to the inbox UI so
-        // the approvals queue can render a "preview" badge and (optionally)
-        // hide preview approvals from a default operator view.
-        is_preview: r.is_preview,
         created_at: r.created_at,
         expires_at: r.expires_at,
     })

@@ -3692,7 +3692,7 @@ export type FileSystemIconType =
     | 'insight/hog'
     | 'team_activity'
     | 'home'
-    | 'apps'
+    | 'tools'
     | 'live'
     | 'chat'
     | 'search'
@@ -4488,6 +4488,10 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     funnelTrendsDropOff?: boolean
     /** Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal. */
     funnelTrendsEntrancePeriodStart?: string
+    /** When the source funnel has compare-to-previous enabled, scopes the actors to a single
+     * period. The runner resolves `'previous'` to the shifted date range; `'current'` (or unset)
+     * uses the source's own date range. */
+    compare?: 'current' | 'previous'
 }
 
 export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
@@ -4911,6 +4915,18 @@ export interface HogQLAlertConfig {
      * non-evaluated column is used, falling back to the row number (any_row) or the value column
      * name (last_row/first_row). */
     label_column?: string | null
+}
+
+/** How a funnel alert measures conversion at its step.
+ * `conversion_from_start` = step count / first-step count; `conversion_from_previous` = step count / previous-step count. */
+export type FunnelConversionMetric = 'conversion_from_start' | 'conversion_from_previous'
+
+/** Alert config for funnel insights. Evaluates the conversion rate (as a percentage) at one step. */
+export interface FunnelsAlertConfig {
+    type: 'FunnelsAlertConfig'
+    /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
+    funnel_step?: integer | null
+    metric: FunnelConversionMetric
 }
 
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */

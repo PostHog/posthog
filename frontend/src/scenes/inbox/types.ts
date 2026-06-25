@@ -209,7 +209,7 @@ export interface SignalScoutConfig {
     enabled: boolean
     /** Whether the scout writes findings to the inbox. false = dry-run. */
     emit: boolean
-    /** Minutes between runs (10–43200). */
+    /** Minutes between runs (30–43200). */
     run_interval_minutes: number
     /** When the coordinator last dispatched this scout; null if never. */
     last_run_at: string | null
