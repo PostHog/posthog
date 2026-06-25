@@ -38,6 +38,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -1466,6 +1467,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
         )
 
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        # Runs for both PUT and PATCH (DRF's partial_update delegates to update -> perform_update).
+        # `created_via` is write-once and reflects original creation origin; the edit's own origin
+        # comes from the request-derived `source` that report_user_action attaches.
+        super().perform_update(serializer)
+        instance = cast(ExternalDataSource, serializer.instance)
+        report_user_action(
+            cast(User, self.request.user),
+            "data warehouse source updated",
+            {
+                "source_type": instance.source_type,
+                "created_via": instance.created_via,
+                "source_id": str(instance.pk),
+            },
+            team=self.team,
+            request=self.request,
+        )
+
     def _create_external_data_source(
         self,
         request: Request,
@@ -1977,6 +1996,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             managed_viewset.sync_views()
             ensure_person_join(self.team.pk, new_source_model.prefix)
+
+        # `source` (web/api/mcp) is derived from the request by report_user_action; `created_via`
+        # is the caller's explicit intent. They usually agree but are kept separate so a transport
+        # change (e.g. a new wrapper UA) doesn't silently rewrite historical attribution.
+        report_user_action(
+            cast(User, request.user),
+            "data warehouse source created",
+            {
+                "source_type": source_type,
+                "created_via": created_via,
+                "source_access_method": access_method,
+                "direct_query_enabled": direct_query_enabled,
+                "schema_count": len(active_schemas),
+                "source_id": str(new_source_model.pk),
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
