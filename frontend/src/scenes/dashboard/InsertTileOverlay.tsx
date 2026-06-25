@@ -90,25 +90,27 @@ function InsertionStrip({
     getMenuItems: (targetY: number) => LemonMenuItem[]
 }): JSX.Element {
     const stripRef = useRef<HTMLDivElement>(null)
-    // Freeze the "+" while the pointer is pressed: repositioning it mid-click moves the DOM node out
-    // from under the cursor, so the browser never completes the click and it takes a second one.
-    const pointerDownRef = useRef(false)
+    const buttonRef = useRef<HTMLDivElement>(null)
     const [menuOpen, setMenuOpen] = useState(false)
-    // Where the "+" sits along the strip — follows the cursor, frozen while the menu is open so it
-    // stays anchored under the popover. Null until first hover, where it falls back to the left edge.
-    const [buttonX, setButtonX] = useState<number | null>(null)
 
     const revealClass = menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
 
-    // Map a viewport cursor X to a clamped position along the strip, keeping the "+" fully on screen.
-    const clampButtonX = (clientX: number): number => {
-        const rect = stripRef.current?.getBoundingClientRect()
-        if (!rect) {
-            return buttonX ?? BUTTON_EDGE_PADDING
+    // Move the "+" to follow the cursor by writing to the DOM directly — no setState, so the LemonMenu
+    // subtree never re-renders during a hover/move. A re-render landing between mousedown and the
+    // menu's click-to-open was eating the first click. Frozen while the menu is open.
+    const followCursor = (clientX: number): void => {
+        if (menuOpen || !buttonRef.current) {
+            return
         }
-        const x = clientX - rect.left
-        return Math.min(Math.max(x, BUTTON_EDGE_PADDING), gridWidth - BUTTON_EDGE_PADDING)
+        const rect = stripRef.current?.getBoundingClientRect()
+        if (rect) {
+            const x = Math.min(Math.max(clientX - rect.left, BUTTON_EDGE_PADDING), gridWidth - BUTTON_EDGE_PADDING)
+            buttonRef.current.style.left = `${x}px`
+        }
     }
+
+    // Stable items so the dropdown overlay isn't rebuilt under the pointer on unrelated re-renders.
+    const menuItems = useMemo(() => getMenuItems(targetY), [getMenuItems, targetY])
 
     return (
         <div
@@ -116,12 +118,8 @@ function InsertionStrip({
             className="group absolute pointer-events-auto"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ left: 0, width: gridWidth, top: topPx - HOVER_HIT_HEIGHT / 2, height: HOVER_HIT_HEIGHT }}
-            // Seed on enter so the "+" appears under the cursor instead of sliding in from the left.
-            onMouseEnter={(e) => !menuOpen && !pointerDownRef.current && setButtonX(clampButtonX(e.clientX))}
-            onMouseMove={(e) => !menuOpen && !pointerDownRef.current && setButtonX(clampButtonX(e.clientX))}
-            onMouseDown={() => (pointerDownRef.current = true)}
-            onMouseUp={() => (pointerDownRef.current = false)}
-            onMouseLeave={() => (pointerDownRef.current = false)}
+            onMouseEnter={(e) => followCursor(e.clientX)}
+            onMouseMove={(e) => followCursor(e.clientX)}
         >
             <div
                 className={clsx(
@@ -130,11 +128,15 @@ function InsertionStrip({
                 )}
             />
             <div
-                className={clsx('absolute top-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity', revealClass)}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ left: buttonX ?? BUTTON_EDGE_PADDING }}
+                ref={buttonRef}
+                // `left` is set imperatively in followCursor (not via the style prop) so the followed
+                // position survives the open/close re-render and the menu stays anchored under the cursor.
+                className={clsx(
+                    'absolute left-4 top-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity',
+                    revealClass
+                )}
             >
-                <LemonMenu items={getMenuItems(targetY)} onVisibilityChange={setMenuOpen}>
+                <LemonMenu items={menuItems} onVisibilityChange={setMenuOpen}>
                     <LemonButton
                         size="xsmall"
                         type="primary"
