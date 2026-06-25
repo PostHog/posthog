@@ -30,8 +30,16 @@ export interface LifecycleValueLabelOptions {
     showPercentages: boolean
 }
 
-// Each segment's percentage is its share of the band's absolute total — `abs` so the negative
-// dormant series contributes a sensible denominator instead of cancelling the positives.
+// Sum of the active segments in a band — new/resurrecting/returning are stacked as positives;
+// dormant is the lone negative series, so positives-only gives the active total for that period.
+function activeBandTotal(bandValues: number[]): number {
+    return bandValues.reduce((sum, v) => (v > 0 ? sum + v : sum), 0)
+}
+
+// A segment's percentage is its share of the active orgs that period — *not* of every status, so
+// the active statuses sum to 100%. Dormant is the exception: an org is dormant precisely because it
+// was active last period and is absent now, so its share is measured against the *previous* period's
+// active total (the pool it could have lapsed from), not this period's.
 export function buildLifecycleValueLabelFormatter(
     formatValue: (value: number) => string,
     { showValues, showPercentages }: LifecycleValueLabelOptions
@@ -41,11 +49,14 @@ export function buildLifecycleValueLabelFormatter(
         if (!showPercentages || context.isPercent) {
             return valueText
         }
-        const absTotal = context.bandValues.reduce((sum, v) => sum + Math.abs(v), 0)
-        if (absTotal === 0) {
+        const isDormant = context.rawValue < 0
+        const denominator = isDormant
+            ? activeBandTotal(context.previousBandValues)
+            : activeBandTotal(context.bandValues)
+        if (denominator === 0) {
             return valueText
         }
-        const pct = Math.round((Math.abs(context.rawValue) / absTotal) * 100)
+        const pct = Math.round((Math.abs(context.rawValue) / denominator) * 100)
         return showValues ? `${valueText} (${pct}%)` : `${pct}%`
     }
 }

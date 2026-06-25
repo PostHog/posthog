@@ -246,31 +246,56 @@ describe('buildTrendsLifecycleConfig', () => {
 
 describe('buildLifecycleValueLabelFormatter', () => {
     const formatValue = (v: number): string => `${v}`
-    // Diverging band: positive new + negative dormant. abs total = 30, so 20 → 67%, -10 → 33%.
-    const band: ValueLabelContext = { rawValue: 20, bandValues: [20, -10], isPercent: false }
+    // Active band: new 20 + resurrecting 10 (positives), dormant -10. Active total = 30, so an active
+    // segment of 20 → 67%. Dormant divides by the *previous* band's active total instead.
+    const band: ValueLabelContext = {
+        rawValue: 20,
+        bandValues: [20, 10, -10],
+        previousBandValues: [40, 10, -5],
+        isPercent: false,
+    }
 
     it.each([
         { name: 'values only', showValues: true, showPercentages: false, expected: '20' },
         { name: 'values + percentages', showValues: true, showPercentages: true, expected: '20 (67%)' },
         { name: 'percentages only', showValues: false, showPercentages: true, expected: '67%' },
-    ])('renders $name as "$expected"', ({ showValues, showPercentages, expected }) => {
+    ])('renders active $name as "$expected"', ({ showValues, showPercentages, expected }) => {
         const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues, showPercentages })
         expect(formatter(20, 0, 0, band)).toBe(expected)
     })
 
-    it('uses absolute values so the negative dormant segment gets a sensible share', () => {
+    it('excludes dormant from the active denominator so active statuses sum to 100%', () => {
         const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: false, showPercentages: true })
-        expect(formatter(-10, 1, 0, { rawValue: -10, bandValues: [20, -10], isPercent: false })).toBe('33%')
+        // new 20 + resurrecting 10 = 30 active → 67% + 33%, dormant ignored in the denominator.
+        expect(formatter(20, 0, 0, { ...band, rawValue: 20 })).toBe('67%')
+        expect(formatter(10, 1, 0, { ...band, rawValue: 10 })).toBe('33%')
     })
 
-    it('returns an empty string (skip) for percentages-only when the band has no total', () => {
+    it('measures dormant against the previous period active total', () => {
         const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: false, showPercentages: true })
-        expect(formatter(0, 0, 0, { rawValue: 0, bandValues: [0, 0], isPercent: false })).toBe('')
+        // dormant -10 vs previous active (40 + 10) = 50 → 20% lapsed.
+        expect(formatter(-10, 2, 1, { ...band, rawValue: -10 })).toBe('20%')
+    })
+
+    it('skips the dormant percentage at the first period (no previous band)', () => {
+        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: true, showPercentages: true })
+        expect(
+            formatter(-10, 2, 0, { rawValue: -10, bandValues: [20, -10], previousBandValues: [], isPercent: false })
+        ).toBe('-10')
+    })
+
+    it('returns an empty string (skip) for percentages-only when the band has no active total', () => {
+        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: false, showPercentages: true })
+        expect(formatter(0, 0, 0, { rawValue: 0, bandValues: [0, 0], previousBandValues: [], isPercent: false })).toBe(
+            ''
+        )
     })
 
     it('does not append percentages in percent layout (labels already express fractions)', () => {
         const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: true, showPercentages: true })
-        expect(formatter(0.2, 0, 0, { rawValue: 20, bandValues: [20, 80], isPercent: true })).toBe('0.2')
+        expect(
+            formatter(0.2, 0, 0, { rawValue: 20, bandValues: [20, 80], previousBandValues: [], isPercent: true })
+        ).toBe('0.2')
     })
 })
 
