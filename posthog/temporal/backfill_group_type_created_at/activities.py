@@ -48,7 +48,9 @@ async def plan_group_type_created_at_backfill(input: PlanBackfillInput) -> dict:
         # Group types are project-scoped, but events carry team_id, so the earliest
         # event must be found across every environment in the project.
         team_ids = list(Team.objects.filter(project_id=project_id).values_list("id", flat=True))
-        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+        # Read from the writer (matching the original PERSONS_DB_FOR_WRITE) so the plan sees the
+        # current created_at, consistent with the writer-side guard in the apply step.
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             cursor.execute(
                 "SELECT group_type, group_type_index, created_at FROM posthog_grouptypemapping WHERE project_id = %s",
                 [project_id],
