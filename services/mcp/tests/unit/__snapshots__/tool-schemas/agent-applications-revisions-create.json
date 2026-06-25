@@ -270,6 +270,7 @@
                 },
                 "model": {
                     "minLength": 1,
+                    "pattern": "^[a-z0-9_-]+\\/[a-zA-Z0-9._:-]+$",
                     "type": "string"
                 },
                 "reasoning": {
@@ -340,8 +341,11 @@
                             "path": {
                                 "type": "string"
                             },
+                            "source_version_id": {
+                                "type": "string"
+                            },
                             "version": {
-                                "minimum": 0,
+                                "minimum": 1,
                                 "type": "number"
                             }
                         },
@@ -447,7 +451,7 @@
                                         "type": "string"
                                     },
                                     "version": {
-                                        "minimum": 0,
+                                        "minimum": 1,
                                         "type": "number"
                                     }
                                 },

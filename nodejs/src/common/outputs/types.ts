@@ -1,4 +1,4 @@
-import { MessageKey } from '~/kafka/producer'
+import { MessageKey } from '~/common/kafka/producer'
 
 /** A Kafka message with a Buffer value, used by IngestionOutputs. */
 export type IngestionOutputMessage = {
