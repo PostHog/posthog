@@ -3135,4 +3135,44 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         )
         expect(children.rows).toHaveLength(0)
     })
+
+    it('invalid resolver state: garbage bytes → job.fail() (not retry)', async () => {
+        // Insert a resolver job with state that doesn't match the Zod schema.
+        // Simulates schema drift, corruption, or a row written by an
+        // incompatible older deploy. The resolver must FAIL the job (terminal)
+        // rather than reschedule — otherwise we'd retry-loop forever on a job
+        // that can never succeed.
+        const parentRunId = new UUIDT().toString()
+        const malformedState = Buffer.from(JSON.stringify({ not: 'a valid resolver state' }))
+        await batchResolverProducer.createJob({
+            teamId: team.id,
+            queueName: 'hogflow_batch_resolve',
+            parentRunId,
+            functionId: new UUIDT().toString(),
+            state: malformedState,
+        })
+
+        mockInternalFetch.mockImplementation((url: string) =>
+            Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        )
+
+        resolverWorker = new CdpCyclotronWorkerBatchResolve(hub, deps)
+        await resolverWorker.start()
+
+        await waitForExpect(async () => {
+            const r = await cyclotronPool.query<{ status: string }>(
+                `SELECT status::text AS status FROM cyclotron_jobs
+                 WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
+                [parentRunId]
+            )
+            expect(r.rows[0]?.status).toBe('failed')
+        }, 20000)
+
+        // No children, no Django PUT — the resolver failed before any work.
+        const children = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(children.rows).toHaveLength(0)
+    })
 })
