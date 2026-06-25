@@ -10,12 +10,12 @@ workspace = true
 anyhow = { workspace = true }
 axum = { workspace = true }
 flate2 = { workspace = true }
-jemalloc_pprof = { version = "0.8", features = ["flamegraph"] }
+jemalloc_pprof = { version = "0.9", features = ["flamegraph"] }
 pprof = { version = "0.15", features = ["protobuf-codec", "flamegraph"] }
 serde = { workspace = true }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = { version = "0.6", features = ["profiling", "unprefixed_malloc_on_supported_platforms"] }
+tikv-jemallocator = { version = "0.7", features = ["profiling", "unprefixed_malloc_on_supported_platforms"] }
 
 tokio = { workspace = true }
 
