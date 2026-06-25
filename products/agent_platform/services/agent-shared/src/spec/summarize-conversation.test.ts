@@ -25,7 +25,7 @@ function assistant({
         content: text ? [{ type: 'text', text }] : [],
         api: 'anthropic-messages',
         provider: 'anthropic',
-        model: 'claude-haiku-4-5',
+        model: 'anthropic/claude-haiku-4-5',
         usage: {
             input,
             output,

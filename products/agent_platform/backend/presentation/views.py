@@ -1043,14 +1043,6 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                 ),
                                 "usage_total": _AGENT_SESSION_USAGE_TOTAL,
                                 "retry_count": drf_serializers.IntegerField(),
-                                "is_preview": drf_serializers.BooleanField(
-                                    help_text=(
-                                        "True when the session ran against a draft revision in preview mode. "
-                                        "Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics "
-                                        "events are tagged with `$agent_is_preview: true`. Surface a preview badge "
-                                        "on the row so authors can distinguish iteration from live traffic."
-                                    ),
-                                ),
                                 "created_at": drf_serializers.DateTimeField(),
                                 "updated_at": drf_serializers.DateTimeField(),
                             },
@@ -1261,14 +1253,6 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         help_text="Times the janitor has re-queued this session after a stuck-running detection.",
                     ),
                     "usage_total": _AGENT_SESSION_USAGE_TOTAL,
-                    "is_preview": drf_serializers.BooleanField(
-                        help_text=(
-                            "True when the session ran against a draft revision in preview mode. "
-                            "Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics "
-                            "events are tagged with `$agent_is_preview: true`. Surface a preview badge "
-                            "on session detail so authors can distinguish iteration from live traffic."
-                        ),
-                    ),
                     "created_at": drf_serializers.DateTimeField(),
                     "updated_at": drf_serializers.DateTimeField(),
                     "conversation_trimmed": drf_serializers.BooleanField(
@@ -1381,13 +1365,6 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "application_id": drf_serializers.UUIDField(help_text="UUID of the parent agent application."),
         "team_id": drf_serializers.IntegerField(help_text="Team that owns the agent."),
         "revision_id": drf_serializers.UUIDField(help_text="Revision the gated call was proposed against."),
-        "is_preview": drf_serializers.BooleanField(
-            help_text=(
-                "Mirrors the owning session's `is_preview`. True when the request originated from a "
-                "draft revision running in preview mode — render a preview badge in the approvals "
-                "queue so reviewers can tell author-iteration approvals apart from production traffic."
-            ),
-        ),
         "turn": drf_serializers.IntegerField(help_text="Turn number within the session that emitted the call."),
         "tool_call_id": drf_serializers.CharField(
             help_text="pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result."
@@ -2999,14 +2976,6 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                     help_text="Last assistant text (~120 chars). Null when no assistant turns yet.",
                                 ),
                                 "usage_total": _AGENT_SESSION_USAGE_TOTAL,
-                                "is_preview": drf_serializers.BooleanField(
-                                    help_text=(
-                                        "True when the session ran against a draft revision in preview mode. "
-                                        "Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics "
-                                        "events are tagged with `$agent_is_preview: true`. Render a preview badge "
-                                        "on the row so author iteration is distinguishable from live traffic."
-                                    ),
-                                ),
                                 "created_at": drf_serializers.DateTimeField(),
                                 "updated_at": drf_serializers.DateTimeField(),
                             },

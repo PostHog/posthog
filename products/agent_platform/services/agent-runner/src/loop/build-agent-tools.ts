@@ -38,13 +38,13 @@ import {
     getSecretAllowedHosts,
     HttpFetcher,
     IdentityAuthRequiredError,
-    isPreviewSideEffect,
     MemoryStore,
     TabularStore,
     Sandbox,
     ToolContext,
+    WebSearchProvider,
 } from '@posthog/agent-shared'
-import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
+import { getNativeTool, hasNativeTool, WEB_SEARCH_TOOL_ID } from '@posthog/agent-tools'
 
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 import { buildToolNameMap } from './provider-safe-names'
@@ -124,6 +124,12 @@ export interface AgentToolDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /**
+     * Web-search provider chain for `@posthog/web-search`. Forwarded onto the
+     * `ToolContext`; an empty/absent chain also gates the tool out of the
+     * session surface below (so the model never sees a tool that throws).
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
     /**
      * Dispatcher for `kind: "client"` tools. The driver wires this up
      * over the session event bus: `execute` publishes a
@@ -220,6 +226,12 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             if (!hasNativeTool(t.id)) {
                 continue
             }
+            // `@posthog/web-search` is config-gated: with no provider keyed at
+            // boot the chain is empty, so drop it rather than surface a tool
+            // that only ever throws `web_search_not_configured`.
+            if (t.id === WEB_SEARCH_TOOL_ID && !deps.webSearchProviders?.length) {
+                continue
+            }
             tools.push(makeNativeTool(t.id, deps))
             continue
         }
@@ -291,7 +303,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                     continue
                 }
                 seen.add(exposedName)
-                tools.push(makeMcpTool(exposedName, client, remote, deps))
+                tools.push(makeMcpTool(exposedName, client, remote))
             }
         }
     }
@@ -401,16 +413,6 @@ function makeCustomTool(
         description,
         parameters,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
-            // Preview-mode stopgap: custom tools run author-supplied code in the
-            // sandbox and can perform arbitrary external writes, with no
-            // read-vs-write signal to gate on. Suppress every custom-tool call in
-            // preview (fail-closed) before resolving identity or touching the
-            // sandbox. Same accepted trade as MCP — blinds read-only custom tools
-            // too until the dispatch boundary gains a real classification.
-            if (isPreviewSideEffect(buildToolContext(deps), id, args as Record<string, unknown>)) {
-                const skipped = { preview_skipped: true, tool: id }
-                return { content: [{ type: 'text', text: JSON.stringify(skipped) }], details: { output: skipped } }
-            }
             const gate = await gateIdentity(requiresIdentity ? { id: requiresIdentity, scopes: [] } : undefined, deps)
             if (!gate.proceed) {
                 return gate.result
@@ -491,8 +493,7 @@ function makeClientTool(
 function makeMcpTool(
     exposedName: string,
     client: OpenedMcp,
-    remote: RemoteMcpTool,
-    deps: AgentToolDeps
+    remote: RemoteMcpTool
 ): AgentTool<TSchema, ToolResultDetails> {
     return {
         name: exposedName,
@@ -501,18 +502,6 @@ function makeMcpTool(
         parameters: remote.inputSchema as TSchema,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
             const callArgs = (args ?? {}) as Record<string, unknown>
-            // Preview-mode stopgap: remote MCP servers can perform arbitrary
-            // external side effects and aren't yet classified read-vs-write, so
-            // suppress every MCP call in preview (fail-closed) rather than let a
-            // write reach the real world. Returns a shape-valid synthetic
-            // envelope so the model's next turn keeps reasoning; logs
-            // `tool_preview_skipped`. This also blinds MCP *reads* in preview —
-            // an accepted, temporary trade until the dispatch boundary gates on
-            // a real read/write signal (tracked follow-up).
-            if (isPreviewSideEffect(buildToolContext(deps), exposedName, callArgs)) {
-                const skipped = { preview_skipped: true, tool: exposedName }
-                return { content: [{ type: 'text', text: JSON.stringify(skipped) }], details: { output: skipped } }
-            }
             const result = await client.callTool(remote.name, callArgs)
             if (result.isError) {
                 // Surface the first text content as the error message — same
@@ -561,6 +550,7 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         },
         memoryStore: deps.memoryStore,
         tabularStore: deps.tabularStore,
+        webSearchProviders: deps.webSearchProviders,
         credentials: credentialBroker
             ? {
                   resolve: (target) => credentialBroker.resolve(sessionId, target),
@@ -570,7 +560,6 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         resolvedIdentities,
         http: deps.http,
         posthogApiBaseUrl: deps.posthogApiBaseUrl,
-        isPreview: deps.session.is_preview,
         gatewayCatalog: deps.gatewayCatalog,
     }
 }

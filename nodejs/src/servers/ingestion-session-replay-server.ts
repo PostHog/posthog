@@ -6,6 +6,8 @@ import {
 import {
     SessionReplayOutputsConfig,
     type SessionReplayProducerName,
+    getDefaultSessionRecordingApiConfig,
+    getDefaultSessionRecordingConfig,
     getDefaultSessionReplayOutputsConfig,
 } from '~/ingestion/pipelines/sessionreplay/config'
 import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '~/ingestion/pipelines/sessionreplay/consumer'
@@ -19,7 +21,7 @@ import {
 import { initializePrometheusLabels } from '../api/router'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
+import { KafkaBrokerConfig, RedisConnectionsConfig, getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { RedisPool } from '../types'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
@@ -64,6 +66,9 @@ export class IngestionSessionReplayServer implements NodeServer {
     constructor(config: Partial<IngestionSessionReplayServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
+            ...overrideConfigWithEnv(getDefaultSessionRecordingConfig()),
+            ...overrideConfigWithEnv(getDefaultSessionRecordingApiConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaSessionreplayProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),
