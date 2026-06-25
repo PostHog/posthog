@@ -135,6 +135,12 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         # auto/medium). auto: platform resolves `level` to a cross-provider list
         # at runtime. manual: author's explicit priority list.
         "models": {
+            "description": (
+                "How this agent selects its model. `auto`: pick a quality/cost `level` and the platform "
+                "resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: "
+                "give an explicit priority-ordered `models` list (primary first). `optimize_for` governs "
+                "how the chosen model is treated across the session's turns."
+            ),
             "default": {"mode": "auto", "level": "medium", "optimize_for": "cost"},
             "oneOf": [
                 {
@@ -142,19 +148,35 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "properties": {
                         "mode": {"type": "string", "const": "auto"},
                         "level": {
+                            "description": (
+                                "Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning "
+                                "jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded "
+                                "work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a "
+                                "priority-ordered cross-provider list at session start."
+                            ),
                             "default": "medium",
                             "type": "string",
                             "enum": ["low", "medium", "high"],
                         },
                         "reasoning": {
+                            "description": (
+                                "Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … "
+                                "xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/"
+                                "spec default."
+                            ),
                             "type": "string",
                             "enum": ["minimal", "low", "medium", "high", "xhigh"],
                         },
-                        # Session model stability vs. resilience. cost (default):
-                        # pin the first served model for the whole session (warm
-                        # cache, no failover). availability: lead sticky but fail
-                        # over on failure. Mirrors `ModelOptimizeForSchema`.
                         "optimize_for": {
+                            "description": (
+                                "Session model stability vs. resilience. `cost` (default): the first turn picks a "
+                                "working model and PINS it for the whole session — keeps the provider's prompt cache "
+                                "warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if "
+                                "the pinned model is down the turn fails rather than re-reading the whole context cold "
+                                "on another provider. `availability`: fail over to the next model when the session's "
+                                "model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` "
+                                "for long/expensive sessions, `availability` where uptime matters more than spend."
+                            ),
                             "default": "cost",
                             "type": "string",
                             "enum": ["cost", "availability"],
@@ -168,13 +190,19 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "properties": {
                         "mode": {"type": "string", "const": "manual"},
                         "models": {
+                            "description": "Explicit priority-ordered fallback list — the runner tries entries in order (primary first).",
                             "minItems": 1,
                             "type": "array",
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "model": {"type": "string", "minLength": 1},
+                                    "model": {
+                                        "description": "Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).",
+                                        "type": "string",
+                                        "minLength": 1,
+                                    },
                                     "reasoning": {
+                                        "description": "Per-model reasoning effort override (else the spec default).",
                                         "type": "string",
                                         "enum": ["minimal", "low", "medium", "high", "xhigh"],
                                     },
@@ -184,6 +212,12 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             },
                         },
                         "optimize_for": {
+                            "description": (
+                                "Session model stability vs. resilience. `cost` (default): pin the first working model "
+                                "for the whole session (warm prompt cache, no mid-session failover). `availability`: "
+                                "fail over down this list when the session's model fails (survives outages, re-reads "
+                                "context cold)."
+                            ),
                             "default": "cost",
                             "type": "string",
                             "enum": ["cost", "availability"],
