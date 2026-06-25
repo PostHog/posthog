@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
 import orjson
 import stripe as stripe_lib
 import pyarrow as pa
+import requests
 from asgiref.sync import async_to_sync
 from stripe import ListObject, RequestsClient, StripeClient
 from stripe._base_address import BaseAddresses
@@ -57,6 +58,18 @@ LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
 
 
+def _is_retryable_connection_reset(error: stripe_lib.APIConnectionError) -> bool:
+    """A connection reset *mid-response* surfaces from ``requests`` as a ``ChunkedEncodingError``
+    (the body stream broke after the headers arrived). Stripe's ``_handle_request_error`` only
+    flags ``Timeout`` and ``ConnectionError`` as retryable, so it wraps this in an
+    ``APIConnectionError`` with ``should_retry=False`` and the SDK gives up — the error then
+    propagates straight out of ``auto_paging_iter`` and fails the whole import. The reset is
+    transient and our reads are idempotent list/GET calls, so it is safe to retry within the SDK's
+    bounded backoff. Matching ``ChunkedEncodingError`` (not ``SSLError`` or other
+    ``RequestException``\\ s the SDK also declines) keeps this scoped to the mid-stream drop."""
+    return isinstance(error.__cause__, requests.exceptions.ChunkedEncodingError)
+
+
 class _RateLimitRetryingRequestsClient(RequestsClient):
     """Stripe's SDK retries 409/5xx (and whatever ``Stripe-Should-Retry`` advises) but never
     retries 429s on its own — ``_should_retry`` excludes them. A rate limit during a large sync,
@@ -65,7 +78,9 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
 
     Opt 429 into the SDK's existing ``Retry-After``-aware exponential backoff so transient rate
     limits are absorbed in-process (bounded by ``max_network_retries``) instead of crashing the
-    run. Our Stripe reads are list/GET calls, so retrying them is idempotent."""
+    run. We also retry a connection reset that drops the response mid-body — the SDK declines it
+    (see ``_is_retryable_connection_reset``). Our Stripe reads are list/GET calls, so retrying them
+    is idempotent."""
 
     def _should_retry(
         self,
@@ -76,11 +91,14 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     ) -> bool:
         if super()._should_retry(response, api_connection_error, num_retries, max_network_retries):
             return True
-        # The base logic already enforced the retry budget and declined; the only retryable case
-        # it leaves on the table is a 429, which the SDK omits but which is safe to retry here.
+        # The base logic already enforced the retry budget and declined; the only retryable cases
+        # it leaves on the table are a 429 (the SDK omits it) and a connection reset mid-response
+        # body, both safe to retry on our idempotent list/GET calls.
         if num_retries >= (max_network_retries or 0):
             return False
-        return response is not None and response[1] == 429
+        if response is not None:
+            return response[1] == 429
+        return api_connection_error is not None and _is_retryable_connection_reset(api_connection_error)
 
 
 def _tracked_stripe_http_client() -> RequestsClient:
