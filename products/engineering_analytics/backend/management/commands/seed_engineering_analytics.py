@@ -113,11 +113,13 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         # Stagger jobs sequentially across the run's window so the job Gantt reads as a real timeline
         # (build → test → …) instead of identical full-width bars.
+        run_start: datetime | None = None
+        run_end: datetime | None = None
         try:
             run_start = datetime.strptime(run["run_started_at"], _TS_FMT)
             run_end = datetime.strptime(run["updated_at"], _TS_FMT)
         except (KeyError, TypeError, ValueError):
-            run_start = run_end = None
+            pass
         window = (run_end - run_start).total_seconds() if run_start and run_end and run_end > run_start else 0.0
         segment = window / count if window else 0.0
 
