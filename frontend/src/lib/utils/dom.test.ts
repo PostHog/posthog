@@ -1,4 +1,4 @@
-import { isWebKitBrowser } from './browser'
+import { isWebKitBrowser } from './dom'
 
 describe('isWebKitBrowser', () => {
     const cases: { name: string; nav: NonNullable<Parameters<typeof isWebKitBrowser>[0]>; expected: boolean }[] = [

@@ -9,7 +9,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { isWebKitBrowser } from 'lib/utils/browser'
+import { isWebKitBrowser } from 'lib/utils/dom'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { userLogic } from 'scenes/userLogic'
