@@ -22,16 +22,19 @@ import structlog
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
-from products.slack_app.backend.feature_flags import is_slack_app_home_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, slack_oauth_link_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
+from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
 
 logger = structlog.get_logger(__name__)
 
 HOME_CALLBACK_ID = "slack_app_home"
 
+ACTION_UNLINK_ACCOUNT = "slack_app_home:unlink_account"
 ACTION_SET_PROJECT_PERSONAL = "slack_app_home:set_project_personal"
 ACTION_SET_PROJECT_WORKSPACE = "slack_app_home:set_project_workspace"
 ACTION_RESET_PROJECT_PERSONAL = "slack_app_home:reset_project_personal"
@@ -64,9 +67,19 @@ class ProjectState:
         return bool(self.candidates) or self.workspace_team_label is not None
 
 
+@dataclass(frozen=True)
+class AccountState:
+    """Inputs the renderer needs to draw the optional account-link card."""
+
+    enabled: bool = False
+    linked_email: str | None = None
+    link_url: str | None = None
+
+
 def render_home_view(
     *,
     is_admin: bool,
+    account_state: AccountState | None = None,
     project_state: ProjectState | None = None,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
@@ -77,6 +90,10 @@ def render_home_view(
     if project_state and project_state.has_anything_to_show:
         blocks.append({"type": "divider"})
         blocks.extend(_project_section_blocks(project_state, is_admin=is_admin))
+
+    if account_state and account_state.enabled:
+        blocks.append({"type": "divider"})
+        blocks.extend(_account_section_blocks(account_state))
 
     blocks.append({"type": "divider"})
     blocks.extend(_footer_blocks())
@@ -173,6 +190,67 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
     return blocks
 
 
+def _account_section_blocks(account_state: AccountState) -> list[dict]:
+    """Render the Sign-in-with-Slack account card.
+
+    Visible only when `slack_oauth_link_enabled` returned True. Linked
+    state mirrors the Claude home pattern: ✅ + email, with a danger-styled
+    Disconnect button at the bottom.
+    """
+    if account_state.linked_email:
+        return [
+            _section_title("Linked PostHog account"),
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"✅ Connected as *{account_state.linked_email}*",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": ACTION_UNLINK_ACCOUNT,
+                        "style": "danger",
+                        "text": {"type": "plain_text", "text": "Disconnect", "emoji": True},
+                        "confirm": {
+                            "title": {"type": "plain_text", "text": "Disconnect your PostHog account?"},
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": "@PostHog will fall back to matching your Slack email against PostHog users until you link again.",
+                            },
+                            "confirm": {"type": "plain_text", "text": "Disconnect"},
+                            "deny": {"type": "plain_text", "text": "Cancel"},
+                        },
+                    }
+                ],
+            },
+        ]
+    blocks: list[dict] = [
+        _section_title(
+            "Connect your PostHog account",
+            "Link your Slack identity to a PostHog user so @PostHog knows it's you without falling back to email matching.",
+        ),
+    ]
+    if account_state.link_url:
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "url": account_state.link_url,
+                        "text": {"type": "plain_text", "text": "Connect to PostHog", "emoji": True},
+                        "style": "primary",
+                    }
+                ],
+            }
+        )
+    return blocks
+
+
 def _footer_blocks() -> list[dict]:
     return [
         {
@@ -210,9 +288,14 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
 
     slack = SlackIntegration(integration)
     is_admin = _is_admin(slack, integration, slack_user_id)
+    account_state = _resolve_account_state(integration, slack_user_id)
     project_state = _resolve_project_state(integration, slack_user_id)
 
-    view = render_home_view(is_admin=is_admin, project_state=project_state)
+    view = render_home_view(
+        is_admin=is_admin,
+        account_state=account_state,
+        project_state=project_state,
+    )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
     except Exception:
@@ -259,6 +342,15 @@ def handle_home_block_action(payload: dict, action: dict) -> HttpResponse:
         _republish_home(integration, slack_user_id)
         return HttpResponse(status=200)
 
+    if action_id == ACTION_UNLINK_ACCOUNT:
+        # Only act when the OAuth-link feature is on for this workspace —
+        # otherwise the button shouldn't have been rendered, and a stale
+        # cached view shouldn't be allowed to drive deletes.
+        if slack_oauth_link_enabled(integration, integration.integration_id):
+            _unlink_user_account(integration, slack_user_id)
+        _republish_home(integration, slack_user_id)
+        return HttpResponse(status=200)
+
     return HttpResponse(status=200)
 
 
@@ -300,12 +392,49 @@ def _clear_project_personal(integration: Integration, slack_user_id: str) -> Non
 def _republish_home(integration: Integration, slack_user_id: str) -> None:
     slack = SlackIntegration(integration)
     is_admin = _is_admin(slack, integration, slack_user_id)
+    account_state = _resolve_account_state(integration, slack_user_id)
     project_state = _resolve_project_state(integration, slack_user_id)
-    view = render_home_view(is_admin=is_admin, project_state=project_state)
+    view = render_home_view(
+        is_admin=is_admin,
+        account_state=account_state,
+        project_state=project_state,
+    )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
     except Exception:
         logger.exception("slack_app_home_republish_failed")
+
+
+def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
+    slack_team_id = integration.integration_id
+    if not slack_oauth_link_enabled(integration, slack_team_id):
+        return AccountState(enabled=False)
+
+    candidate_org_ids = _workspace_org_ids(slack_team_id)
+    linked_user = find_linked_posthog_user(
+        slack_user_id=slack_user_id,
+        slack_team_id=slack_team_id,
+        candidate_org_ids=candidate_org_ids,
+    )
+    if linked_user is not None:
+        return AccountState(enabled=True, linked_email=linked_user.email)
+
+    try:
+        link_url = build_invite_url(
+            slack_user_id=slack_user_id,
+            slack_team_id=slack_team_id,
+            posthog_team_id=integration.team_id,
+            channel=None,
+            thread_ts=None,
+        )
+    except Exception:
+        logger.exception(
+            "slack_app_home_build_invite_url_failed",
+            slack_user_id=slack_user_id,
+            slack_team_id=slack_team_id,
+        )
+        link_url = None
+    return AccountState(enabled=True, linked_email=None, link_url=link_url)
 
 
 def _resolve_project_state(integration: Integration, slack_user_id: str) -> ProjectState:
@@ -422,6 +551,34 @@ def _apply_project_pick(
         slack_user_id=slack_user_id,
         scope=scope,
         team_id=team_id,
+    )
+
+
+def _unlink_user_account(integration: Integration, slack_user_id: str) -> None:
+    # Scope across every org connected to this Slack workspace, not just the
+    # one for the integration the click happened to land on — for multi-org
+    # workspaces, the linked row may live in any of them.
+    slack_team_id = integration.integration_id
+    candidate_user_ids = set(
+        OrganizationMembership.objects.filter(
+            organization_id__in=_workspace_org_ids(slack_team_id),
+        ).values_list("user_id", flat=True)
+    )
+    if not candidate_user_ids:
+        return
+    UserIntegration.objects.filter(
+        kind=UserIntegration.IntegrationKind.SLACK,
+        integration_id=slack_user_id,
+        config__slack_team_id=slack_team_id,
+        user_id__in=candidate_user_ids,
+    ).delete()
+
+
+def _workspace_org_ids(slack_team_id: str) -> set:
+    return set(
+        Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list(
+            "team__organization_id", flat=True
+        )
     )
 
 

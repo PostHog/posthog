@@ -18,6 +18,8 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_RESET_PROJECT_PERSONAL,
     ACTION_SET_PROJECT_PERSONAL,
     ACTION_SET_PROJECT_WORKSPACE,
+    ACTION_UNLINK_ACCOUNT,
+    AccountState,
     ProjectChoice,
     ProjectState,
     handle_app_home_opened,
@@ -182,6 +184,26 @@ class TestRenderHomeView:
         view = render_home_view(is_admin=True, project_state=state)
         assert "no access" in _all_text(view)
         assert "Other Org · Secret" in _all_text(view)
+
+    def test_account_section_hidden_when_disabled(self):
+        view = render_home_view(is_admin=False, account_state=AccountState(enabled=False))
+        assert "Linked PostHog account" not in _all_text(view)
+        assert "Connect to PostHog" not in _all_text(view)
+
+    def test_account_section_linked_shows_email_and_disconnect(self):
+        view = render_home_view(
+            is_admin=False,
+            account_state=AccountState(enabled=True, linked_email="user@example.com"),
+        )
+        assert "user@example.com" in _all_text(view)
+        assert ACTION_UNLINK_ACCOUNT in _action_ids(view)
+
+    def test_account_section_unlinked_shows_connect_button(self):
+        view = render_home_view(
+            is_admin=False,
+            account_state=AccountState(enabled=True, linked_email=None, link_url="https://example/auth"),
+        )
+        assert "Connect to PostHog" in _all_text(view)
 
 
 # ---------------------------------------------------------------------------

@@ -103,6 +103,7 @@ features:
 oauth_config:
   redirect_urls:
     - https://<you>-posthog.ngrok.dev/integrations/slack/callback
+    - https://<you>-posthog.ngrok.dev/complete/slack-link/
   scopes:
     bot:
       - app_mentions:read
@@ -114,6 +115,9 @@ oauth_config:
       - reactions:write
       - users:read
       - users:read.email
+    user:
+      - identity.basic
+      - identity.email
 settings:
   event_subscriptions:
     request_url: https://<you>-posthog.ngrok.dev/slack/event-callback
@@ -135,8 +139,10 @@ Django must be up at that moment.
 > `link_shared` is left out on purpose — it needs the `links:read` scope (the manifest won't save
 > otherwise) and the coding agent doesn't use it.
 
-> The `app_home` block + `app_home_opened` bot event power the App Home tab. Drop them if you
-> don't want the Home tab locally — it's gated behind the `slack-app-home` flag.
+> The `app_home` block + `app_home_opened` bot event power the App Home tab; the
+> sign-in-with-Slack flow needs `user` scopes `identity.basic` + `identity.email` and the second
+> redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature locally —
+> they're behind the `slack-app-home` and `slack-app-oauth` flags.
 
 ## Step 3 — backend credentials and `SITE_URL`
 

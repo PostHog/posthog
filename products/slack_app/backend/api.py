@@ -66,6 +66,7 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_RESET_PROJECT_PERSONAL,
     ACTION_SET_PROJECT_PERSONAL,
     ACTION_SET_PROJECT_WORKSPACE,
+    ACTION_UNLINK_ACCOUNT,
     handle_app_home_opened as _handle_app_home_opened,
     handle_home_block_action as _handle_home_block_action,
 )
@@ -2568,6 +2569,7 @@ _HOME_TAB_ACTION_IDS = frozenset(
         ACTION_RESET_PROJECT_PERSONAL,
         ACTION_SET_PROJECT_PERSONAL,
         ACTION_SET_PROJECT_WORKSPACE,
+        ACTION_UNLINK_ACCOUNT,
     }
 )
 
