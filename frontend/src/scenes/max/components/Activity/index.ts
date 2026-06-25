@@ -7,6 +7,6 @@ export {
     ActivityToggleSection,
     RunActivity,
     ShimmeringContent,
-} from 'products/posthog_ai/frontend'
-export type { ActivityStatus } from 'products/posthog_ai/frontend'
+} from 'products/posthog_ai/frontend/api/primitives'
+export type { ActivityStatus } from 'products/posthog_ai/frontend/api/primitives'
 export { LangGraphActivity } from './LangGraphActivity'
