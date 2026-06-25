@@ -466,11 +466,7 @@ jobs:
         # merge_group) always run full, which build_django_matrix falls back to
         # when select-tests is skipped (empty MODE). The run-ci-backend label
         # forces the full matrices on a draft.
-        if: |
-            github.event_name == 'pull_request' &&
-            github.event.pull_request.draft == true &&
-            !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
-            needs.changes.outputs.backend == 'true'
+        if: false # THROWAWAY HARNESS: force select-tests to skip → empty MODE on the draft, to deterministically exercise the build_django_matrix draft-skip fallback. Do not merge.
         runs-on: ubuntu-latest
         timeout-minutes: 5
         outputs:
