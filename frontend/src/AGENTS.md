@@ -42,7 +42,7 @@ When touching `lib/api`, `api.get<`, `api.create<`, or any handwritten API inter
 
 ## Rule 3 — Business logic in kea, not React hooks
 
-If a scene/component has a `*Logic.ts`, put actions/reducers/selectors/listeners there. Avoid `useState`/`useEffect` for business logic. See `/writing-kea-logics` and `/using-kea-disposables`.
+Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
 
 ## Typecheck & typegen cadence (don't over-run these)
 
@@ -54,8 +54,7 @@ These are slow; run them at the right moment, not after every edit.
 
 ## Lint & format
 
-- `pnpm --filter=@posthog/frontend format` (oxlint `--fix` + oxfmt) before finishing. Config: root `.oxlintrc.json`.
-- Tailwind utility classes over inline styles; American English; Sentence casing for user-facing copy (`Save as view`, not `Save As View`).
+Run `pnpm --filter=@posthog/frontend format` (oxlint `--fix` + oxfmt) before finishing. Config: root `.oxlintrc.json`. CSS, spelling, and copy-casing rules live in the root `AGENTS.md` (Code Style).
 
 ## Deeper references
 
