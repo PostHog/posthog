@@ -107,11 +107,13 @@ pub fn get_release_for_maps<'a>(
     // forced release overriding
     let needs_release = release.name.is_some()
         || release.version.is_some()
+        || release.build.is_some()
         || maps.into_iter().any(|p| !p.has_release_id());
 
     let mut created_release = None;
     if needs_release {
-        let release_args_were_provided = release.name.is_some() || release.version.is_some();
+        let release_args_were_provided =
+            release.name.is_some() || release.version.is_some() || release.build.is_some();
         let mut builder: ReleaseBuilder = release.into();
 
         add_git_info_to_release_builder(directory, &mut builder, release_args_were_provided)?;
@@ -214,10 +216,18 @@ mod tests {
     }
 
     fn release_args(name: Option<&str>, version: Option<&str>) -> ReleaseArgs {
+        release_args_with_build(name, version, None)
+    }
+
+    fn release_args_with_build(
+        name: Option<&str>,
+        version: Option<&str>,
+        build: Option<&str>,
+    ) -> ReleaseArgs {
         ReleaseArgs {
             name: name.map(String::from),
             version: version.map(String::from),
-            build: None,
+            build: build.map(String::from),
             skip_release_on_fail: true,
         }
     }
@@ -280,6 +290,22 @@ mod tests {
 
         let error = add_git_info_to_release_builder(temp_root.path(), &mut builder, true)
             .expect_err("missing git should be fatal when release args are incomplete");
+
+        assert!(format!("{error:#}").contains("Release fields are incomplete"));
+    }
+
+    #[test]
+    fn build_only_release_args_need_git() {
+        let _env_lock = lock_env();
+        let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
+        let temp_root = tempfile::tempdir().expect("failed to create temporary directory");
+
+        let error = get_release_for_maps(
+            temp_root.path(),
+            release_args_with_build(None, None, Some("42")),
+            std::iter::empty::<&SourceMapFile>(),
+        )
+        .expect_err("build-only release args should need git to fill the release name");
 
         assert!(format!("{error:#}").contains("Release fields are incomplete"));
     }
