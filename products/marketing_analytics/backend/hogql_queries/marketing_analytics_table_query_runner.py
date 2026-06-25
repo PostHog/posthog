@@ -32,11 +32,6 @@ from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRu
 
 logger = structlog.get_logger(__name__)
 
-# Discriminator column tagging each row in the compare UNION ALL with its period.
-COMPARE_PERIOD_FIELD = "_period"
-COMPARE_PERIOD_CURRENT = "current"
-COMPARE_PERIOD_PREVIOUS = "previous"
-
 
 class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[MarketingAnalyticsTableQueryResponse]):
     query: MarketingAnalyticsTableQuery
@@ -214,90 +209,9 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         # Get column names for the compare query
         select_columns = self._get_filtered_select_columns(current_period_query)
 
-        return self._build_compare_pivot(current_period_query, previous_period_query, select_columns)
-
-    def _build_compare_pivot(
-        self,
-        current_period_query: ast.SelectQuery,
-        previous_period_query: ast.SelectQuery,
-        select_columns: list[ast.Expr],
-    ) -> ast.SelectQuery:
-        """Combine the two period queries with UNION ALL + a GROUP BY pivot instead of a LEFT JOIN.
-
-        ClickHouse runs a LEFT JOIN sequentially (build the right side, then probe the left); the
-        UNION ALL lets it run both period branches as concurrent pipelines. The pivot reproduces the
-        LEFT JOIN exactly:
-        - Each period query already emits one row per key, so `anyIf(col, _period=...)` picks that
-          single value.
-        - For a current row with no previous counterpart, `anyIf(col, _period='previous')` matches
-          no rows and returns the default of the column's type — '' / 0 for non-Nullable columns,
-          NULL for already-Nullable ones (CPC / CTR / ROAS). This is exactly what the LEFT JOIN
-          produces under ClickHouse's default `join_use_nulls = 0`, so reproducing it manually
-          (e.g. forcing NULL) would actually diverge from the join.
-        - `HAVING countIf(current) > 0` drops previous-only rows — matching the LEFT JOIN keeping
-          `current_period` as the left side.
-        The output tuples, aliases, order and limit are identical to the join form, so the ORDER BY
-        (over a current-period metric, expressed on the same tuple alias) and pagination are unchanged.
-        """
-        column_aliases = [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
-        key_columns = self._get_compare_pivot_keys()
-
-        def _labeled_period(period: str, period_query: ast.SelectQuery) -> ast.SelectQuery:
-            select: list[ast.Expr] = [
-                ast.Alias(alias=COMPARE_PERIOD_FIELD, expr=ast.Constant(value=period)),
-                *(ast.Field(chain=[alias]) for alias in column_aliases),
-            ]
-            return ast.SelectQuery(
-                select=select,
-                select_from=ast.JoinExpr(table=period_query),
-            )
-
-        union_query = ast.SelectSetQuery.create_from_queries(
-            [
-                _labeled_period(COMPARE_PERIOD_CURRENT, current_period_query),
-                _labeled_period(COMPARE_PERIOD_PREVIOUS, previous_period_query),
-            ],
-            "UNION ALL",
+        return self._build_compare_pivot(
+            current_period_query, previous_period_query, select_columns, self._get_compare_pivot_keys()
         )
-        union_alias = "combined"
-
-        def _period_eq(period: str) -> ast.Expr:
-            return ast.CompareOperation(
-                left=ast.Field(chain=[union_alias, COMPARE_PERIOD_FIELD]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=period),
-            )
-
-        def _any_if(alias: str, period: str) -> ast.Expr:
-            return ast.Call(
-                name="anyIf",
-                args=[ast.Field(chain=[union_alias, alias]), _period_eq(period)],
-            )
-
-        # Build the pivot columns in the same order/alias as the join form.
-        pivot_columns: list[ast.Expr] = [
-            ast.Alias(
-                alias=alias,
-                expr=ast.Call(
-                    name="tuple",
-                    args=[_any_if(alias, COMPARE_PERIOD_CURRENT), _any_if(alias, COMPARE_PERIOD_PREVIOUS)],
-                ),
-            )
-            for alias in column_aliases
-        ]
-
-        group_by: list[ast.Expr] = [ast.Field(chain=[union_alias, key]) for key in key_columns]
-        having = ast.CompareOperation(
-            left=ast.Call(name="countIf", args=[_period_eq(COMPARE_PERIOD_CURRENT)]),
-            op=ast.CompareOperationOp.Gt,
-            right=ast.Constant(value=0),
-        )
-
-        select_from = ast.JoinExpr(table=union_query, alias=union_alias)
-        paginated = self._build_paginated_query(pivot_columns, select_from)
-        paginated.group_by = group_by
-        paginated.having = having
-        return paginated
 
     def _build_select_columns_mapping(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None

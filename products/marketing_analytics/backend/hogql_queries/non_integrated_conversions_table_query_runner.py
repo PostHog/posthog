@@ -20,11 +20,6 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from .constants import DEFAULT_LIMIT, PAGINATION_EXTRA, UNIFIED_CONVERSION_GOALS_CTE_ALIAS, to_marketing_analytics_data
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRunner
-from .marketing_analytics_table_query_runner import (
-    COMPARE_PERIOD_CURRENT,
-    COMPARE_PERIOD_FIELD,
-    COMPARE_PERIOD_PREVIOUS,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -212,76 +207,12 @@ class NonIntegratedConversionsTableQueryRunner(
 
         select_columns = self._get_filtered_select_columns(current_period_query)
 
-        return self._build_compare_pivot(current_period_query, previous_period_query, select_columns)
-
-    def _build_compare_pivot(
-        self,
-        current_period_query: ast.SelectQuery,
-        previous_period_query: ast.SelectQuery,
-        select_columns: list[ast.Expr],
-    ) -> ast.SelectQuery:
-        """Combine the two period queries with UNION ALL + a GROUP BY pivot instead of a LEFT JOIN.
-
-        Mirrors MarketingAnalyticsTableQueryRunner._build_compare_pivot: the UNION ALL lets ClickHouse
-        run both period branches as concurrent pipelines (a LEFT JOIN is sequential — build right,
-        probe left). `anyIf(col, _period=...)` picks each period's single per-key value; for a current
-        row with no previous counterpart it returns the column type's default ('' / 0 for non-Nullable,
-        NULL for Nullable), exactly matching the LEFT JOIN under ClickHouse `join_use_nulls = 0`. The
-        `HAVING countIf(current) > 0` keeps only rows present in the current period. Keys are
-        (Campaign, Source) — the same pair the old LEFT JOIN matched on.
-        """
-        column_aliases = [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
+        # Keys are (Campaign, Source) — the same pair the old LEFT JOIN matched on.
         key_columns = [
             NonIntegratedConversionsColumnsSchemaNames.CAMPAIGN.value,
             NonIntegratedConversionsColumnsSchemaNames.SOURCE.value,
         ]
-
-        def _labeled_period(period: str, period_query: ast.SelectQuery) -> ast.SelectQuery:
-            select: list[ast.Expr] = [
-                ast.Alias(alias=COMPARE_PERIOD_FIELD, expr=ast.Constant(value=period)),
-                *(ast.Field(chain=[alias]) for alias in column_aliases),
-            ]
-            return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=period_query))
-
-        union_query = ast.SelectSetQuery.create_from_queries(
-            [
-                _labeled_period(COMPARE_PERIOD_CURRENT, current_period_query),
-                _labeled_period(COMPARE_PERIOD_PREVIOUS, previous_period_query),
-            ],
-            "UNION ALL",
-        )
-        union_alias = "combined"
-
-        def _period_eq(period: str) -> ast.Expr:
-            return ast.CompareOperation(
-                left=ast.Field(chain=[union_alias, COMPARE_PERIOD_FIELD]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=period),
-            )
-
-        def _any_if(alias: str, period: str) -> ast.Expr:
-            return ast.Call(name="anyIf", args=[ast.Field(chain=[union_alias, alias]), _period_eq(period)])
-
-        pivot_columns: list[ast.Expr] = [
-            ast.Alias(
-                alias=alias,
-                expr=ast.Call(
-                    name="tuple",
-                    args=[_any_if(alias, COMPARE_PERIOD_CURRENT), _any_if(alias, COMPARE_PERIOD_PREVIOUS)],
-                ),
-            )
-            for alias in column_aliases
-        ]
-
-        select_from = ast.JoinExpr(table=union_query, alias=union_alias)
-        paginated = self._build_paginated_query(pivot_columns, select_from)
-        paginated.group_by = [ast.Field(chain=[union_alias, key]) for key in key_columns]
-        paginated.having = ast.CompareOperation(
-            left=ast.Call(name="countIf", args=[_period_eq(COMPARE_PERIOD_CURRENT)]),
-            op=ast.CompareOperationOp.Gt,
-            right=ast.Constant(value=0),
-        )
-        return paginated
+        return self._build_compare_pivot(current_period_query, previous_period_query, select_columns, key_columns)
 
     def _build_select_query(self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None) -> ast.SelectQuery:
         """
