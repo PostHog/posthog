@@ -1584,7 +1584,7 @@ class TestPreviewSession(SimpleTestCase):
         response = Response()
         response.status_code = 200
         response.raw = MagicMock()
-        response.raw.read.return_value = b"{}"
+        response.raw.stream.return_value = iter([b"{}"])
 
         with patch.object(requests.Session, "send", return_value=response) as parent_send:
             _PreviewSession().send(prepared)
@@ -1800,19 +1800,39 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
 
     @staticmethod
     def _streamed_response(body_size: int) -> Response:
-        # `raw.read(amt)` returns at most `amt` bytes, like a real streamed body.
+        # raw.stream(amt) yields the decoded body in <=amt-byte chunks, like urllib3.
         response = Response()
         response.status_code = 200
         response.raw = MagicMock()
-        response.raw.read.side_effect = lambda amt, **kwargs: b"x" * min(amt, body_size)
+        payload = b"x" * body_size
+        response.raw.stream.side_effect = lambda amt, **kwargs: (
+            payload[i : i + amt] for i in range(0, len(payload), amt)
+        )
         return response
 
+    @patch("posthog.temporal.data_imports.sources.custom.source.PREVIEW_READ_CHUNK_BYTES", 16)
     @patch("posthog.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES", 100)
-    def test_preview_session_rejects_oversized_response_body(self):
-        with patch.object(requests.Session, "send", return_value=self._streamed_response(500)):
+    def test_preview_session_aborts_oversized_body_without_full_read(self):
+        # A body far over budget must raise AND stop mid-stream — never inflate the
+        # whole thing (the failure mode of a single decode-everything read).
+        yielded = {"chunks": 0}
+
+        def stream(amt, **kwargs):
+            for _ in range(100):
+                yielded["chunks"] += 1
+                yield b"x" * amt
+
+        response = Response()
+        response.status_code = 200
+        response.raw = MagicMock()
+        response.raw.stream.side_effect = stream
+        with patch.object(requests.Session, "send", return_value=response):
             with self.assertRaises(PreviewResponseTooLargeError):
                 _PreviewSession().send(MagicMock())
 
+        assert yielded["chunks"] <= 100 // 16 + 1
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.PREVIEW_READ_CHUNK_BYTES", 16)
     @patch("posthog.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES", 100)
     def test_preview_session_enforces_budget_across_requests(self):
         # Each response is under the budget on its own, but together they exceed it:
@@ -1825,10 +1845,11 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
                 session.send(MagicMock())
 
     def test_preview_session_returns_capped_body(self):
+        body = b'{"items": [{"id": 1}]}'
         within_cap = Response()
         within_cap.status_code = 200
         within_cap.raw = MagicMock()
-        within_cap.raw.read.side_effect = lambda amt, **kwargs: b'{"items": [{"id": 1}]}'[:amt]
+        within_cap.raw.stream.side_effect = lambda amt, **kwargs: (body[i : i + amt] for i in range(0, len(body), amt))
         with patch.object(requests.Session, "send", return_value=within_cap):
             response = _PreviewSession().send(MagicMock())
 

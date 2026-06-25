@@ -96,19 +96,15 @@ MAX_CUSTOM_SOURCES_PER_TEAM = 5
 # stops a preview from buffering a large page into worker memory.
 PREVIEW_DEFAULT_ROWS = 10
 PREVIEW_MAX_ROWS = 50
-# Upper bound on the parent-page items a fan-out preview drives the child over.
-# The engine issues one outbound child request per parent item, and the parent
-# page size is upstream-controlled — so the row cap alone doesn't bound requests
-# when the child returns few/zero rows per parent (exactly the misconfig this
-# preview helps debug). Cap the parents walked so one preview can't fan a single
-# inline call into an unbounded request burst; a handful is plenty to eyeball a child.
+# Cap the parent rows a fan-out preview walks: the engine fires one child request
+# per parent, and empty child pages slip past the row cap (see `preview_resource`).
 PREVIEW_MAX_FANOUT_PARENTS = 10
-# Total response bytes a single preview may buffer/parse, summed across every
-# request it makes. The engine parses each page whole before the row cap trims it,
-# and a fan-out preview makes one request per parent — so a per-response cap alone
-# still lets N requests parse N pages. This budget bounds the whole preview instead.
-# Generous for a real first page; a preview that exceeds it fails with a clear error.
+# Total decoded response bytes one preview may parse, across all its requests — a
+# per-response cap wouldn't bound a fan-out's many pages (see `_PreviewSession`).
 PREVIEW_MAX_TOTAL_BODY_BYTES = 20 * 1024 * 1024
+# Compressed bytes pulled per streamed read while enforcing that budget; small so a
+# bomb can inflate at most one chunk's worth past the budget before we abort.
+PREVIEW_READ_CHUNK_BYTES = 64 * 1024
 
 
 class ManifestValidationError(ValueError):
@@ -953,19 +949,12 @@ class PreviewResponseTooLargeError(Exception):
 
 
 class _PreviewSession(_NoRedirectSession):
-    """Timeout- and size-bounded variant of the no-redirect session for the inline preview read.
+    """No-redirect session for the inline preview read, bounded on time and size.
 
-    ``RESTClient.send()`` passes no per-request timeout, so it's pinned at the
-    session level — a stalled upstream can't hang the request thread. The
-    no-redirect credential pin is inherited from ``_NoRedirectSession``.
-
-    Each body is streamed and read against a budget shared across the whole preview
-    rather than buffered whole: the engine parses every page before the row cap trims
-    it, and a fan-out preview makes one request per parent, so a per-response cap
-    alone would still let N requests parse N pages. One session serves one preview, so
-    the budget carried here bounds the preview's total parse. ``decode_content=True``
-    with a bounded read also defuses a compression bomb — urllib3 stops once it has
-    that many decompressed bytes.
+    Pins a session-level timeout (``RESTClient.send()`` passes none, so a stalled
+    upstream can't hang the request thread) and caps the response bytes parsed via a
+    budget shared across the preview — one session serves one preview. See
+    ``_read_within_budget`` for the size enforcement.
     """
 
     def __init__(self) -> None:
@@ -977,17 +966,29 @@ class _PreviewSession(_NoRedirectSession):
         kwargs["stream"] = True
         response = super().send(request, **kwargs)
         try:
-            body = response.raw.read(self._body_budget + 1, decode_content=True)
+            body = self._read_within_budget(response)
         finally:
             response.close()
-        if len(body) > self._body_budget:
-            raise PreviewResponseTooLargeError(
-                f"Preview response bodies exceeded the {PREVIEW_MAX_TOTAL_BODY_BYTES}-byte budget"
-            )
-        self._body_budget -= len(body)
         response._content = body
         response._content_consumed = True
         return response
+
+    def _read_within_budget(self, response: Response) -> bytes:
+        # Stream *decoded* chunks and stop the instant the running total crosses the
+        # budget. A single read(decode_content=True) would inflate the whole compressed
+        # body at once — a gzipped page decompresses fully before any size check — so a
+        # bomb is bounded only by decoding incrementally and aborting early.
+        chunks: list[bytes] = []
+        decoded = 0
+        for chunk in response.raw.stream(PREVIEW_READ_CHUNK_BYTES, decode_content=True):
+            decoded += len(chunk)
+            if decoded > self._body_budget:
+                raise PreviewResponseTooLargeError(
+                    f"Preview response bodies exceeded the {PREVIEW_MAX_TOTAL_BODY_BYTES}-byte budget"
+                )
+            chunks.append(chunk)
+        self._body_budget -= decoded
+        return b"".join(chunks)
 
 
 def _build_preview_session(redact_values: tuple[str, ...]) -> _PreviewSession:
