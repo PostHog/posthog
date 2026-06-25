@@ -34,7 +34,8 @@ OPS_DIR = os.path.dirname(HERE)  # .../hcl/ops
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", "..", ".."))
 OPS_REL = os.path.relpath(OPS_DIR, REPO_ROOT)  # posthog/clickhouse/hcl/ops
 MANIFEST = os.path.join(OPS_DIR, "nodes")
-HCLEXP = os.path.join(OPS_REL, "bin", "hclexp")
+# absolute path to the wrapper (lives at hcl/bin/hclexp); subprocess won't resolve a relative exec via cwd
+HCLEXP = os.path.join(os.path.dirname(OPS_DIR), "bin", "hclexp")
 
 # Canonical role order for emitted node_roles (mirrors ALL_ROLES in migration 0273).
 ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "ops"]
@@ -75,17 +76,20 @@ def stack(root: str, layers: list[str]) -> str:
 
 
 def engine_map(working_root: str) -> dict[str, str]:
-    """table -> engine kind, by resolving the richest composition (prod-us/ops)."""
+    """table -> engine kind, from `hclexp load` of the richest composition (prod-us/ops).
+
+    `load` logs one line per table to stderr: `... name=<t> columns=<n> engine=<e>`.
+    """
     layers = next(ls for e, r, ls in read_manifest() if (e, r) == ("prod-us", "ops"))
-    resolved = run([HCLEXP, "load", "-layer", stack(working_root, layers)])
-    out, cur = {}, None
-    for line in resolved.splitlines():
-        m = re.match(r'^  table "([^"]+)"', line)
+    res = subprocess.run(
+        [HCLEXP, "load", "-layer", stack(working_root, layers)],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+    )
+    out = {}
+    for line in res.stderr.splitlines():
+        m = re.search(r"\bname=(\S+)\s+columns=\d+\s+engine=(\S+)", line)
         if m:
-            cur = m.group(1)
-        elif cur and (em := re.match(r'^    engine "([^"]+)"', line)):
-            out[cur] = em.group(1)
-            cur = None
+            out[m.group(1)] = m.group(2)
     return out
 
 
