@@ -1,9 +1,9 @@
-"""What this branch changed — the single source of truth for change detection.
+"""Changed-file detection shared by the hogli dev commands.
 
-A deep module behind a tiny interface. ``changed_files`` answers "what has the
-branch touched" for every consumer (``hogli build`` smart detection, ``ci:preflight``,
-``test --changed``); ``matches_globs`` is the shared fnmatch predicate. Callers stop
-re-deriving git plumbing and glob loops, so they can't drift apart.
+A thin wrapper over ``git diff`` + ``git status`` so ``hogli build``, ``ci:preflight``,
+and ``test --changed`` agree on "what changed" instead of each rolling its own.
+``matches_globs`` is the shared fnmatch predicate. CI computes affectedness its own
+way (Turbo, snob); this is just the local dev-CLI helper, not a repo-wide authority.
 """
 
 from __future__ import annotations
