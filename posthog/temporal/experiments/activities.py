@@ -27,6 +27,7 @@ from posthog.temporal.experiments.utils import (
     get_metric,
 )
 
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -181,7 +182,8 @@ def _calculate_experiment_regular_metric_sync(
         )
 
     query_from_utc = experiment.start_date
-    query_to_utc = datetime.now(ZoneInfo("UTC"))
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    query_to_utc = experiment_window_end(experiment, now_utc)
 
     try:
         experiment_query = ExperimentQuery(
@@ -452,7 +454,8 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     query_from_utc = experiment.start_date
-    query_to_utc = datetime.now(ZoneInfo("UTC"))
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    query_to_utc = experiment_window_end(experiment, now_utc)
 
     try:
         experiment_query = ExperimentQuery(
