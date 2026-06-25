@@ -137,6 +137,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     CustomSource,
     manifest_request_hosts,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,

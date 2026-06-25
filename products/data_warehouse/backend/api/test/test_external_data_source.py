@@ -9821,7 +9821,9 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
     def _url(self, action: str) -> str:
         return f"/api/environments/{self.team.pk}/external_data_sources/{action}/"
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.CustomSource.preview_resource")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.preview_resource"
+    )
     def test_preview_resource_happy_path(self, mock_preview):
         mock_preview.return_value = PreviewResult(
             rows=[{"id": 1, "name": "a"}],
@@ -9848,7 +9850,9 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         assert mock_preview.call_args.args[2] == "users"
         assert mock_preview.call_args.args[3] == PREVIEW_DEFAULT_ROWS
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.CustomSource.preview_resource")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.preview_resource"
+    )
     def test_preview_resource_forwards_explicit_limit(self, mock_preview):
         mock_preview.return_value = PreviewResult(rows=[], row_count=0, columns=[], error=None)
 
@@ -9865,7 +9869,9 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert mock_preview.call_args.args[3] == 25
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.CustomSource.preview_resource")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.preview_resource"
+    )
     def test_preview_resource_manifest_error_returns_400(self, mock_preview):
         mock_preview.side_effect = ManifestValidationError("resources[0].endpoint.path: must not be empty")
 
@@ -9881,7 +9887,9 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "must not be empty" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.CustomSource.preview_resource")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.preview_resource"
+    )
     def test_preview_resource_fetch_error_returns_200_with_error(self, mock_preview):
         mock_preview.return_value = PreviewResult(rows=[], row_count=0, columns=[], error="could not reach host")
 
@@ -9921,7 +9929,7 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @patch(
-        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),
     )
     def test_database_schema_accepts_custom_payload(self, _mock_validate):
@@ -9939,7 +9947,7 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
     @patch(
-        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),
     )
     def test_setup_accepts_custom_payload(self, _mock_validate, _mock_trigger):

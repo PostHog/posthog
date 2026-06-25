@@ -11,7 +11,7 @@ from requests.exceptions import (
     ChunkedEncodingError,
     JSONDecodeError as RequestsJSONDecodeError,
 )
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt
+from tenacity import RetryCallState, retry, retry_if_exception_type
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 

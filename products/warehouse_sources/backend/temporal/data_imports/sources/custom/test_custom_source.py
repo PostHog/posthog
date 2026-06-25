@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     PREVIEW_MAX_FANOUT_PARENTS,
     PREVIEW_MAX_ROWS,
     PROBE_CONNECT_TIMEOUT,
-    PROBE_ERROR_SNIPPET_BYTES,
     PROBE_MAX_RESOURCES,
     PROBE_READ_TIMEOUT,
     CustomSource,
@@ -1613,7 +1612,7 @@ class TestJsonTypeLabel(SimpleTestCase):
 
 
 class TestCustomSourcePreviewResource(SimpleTestCase):
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_returns_rows_and_inferred_columns(self, mock_resources):
         mock_resources.return_value = [
             _PageResource("users", [[{"id": 1, "name": "a", "active": True}, {"id": 2, "name": "b", "active": None}]])
@@ -1631,7 +1630,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
             "active": "boolean",
         }
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_column_type_uses_first_non_null_value(self, mock_resources):
         mock_resources.return_value = [_PageResource("users", [[{"score": None}, {"score": 7}]])]
         source = CustomSource()
@@ -1640,7 +1639,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
 
         assert {column["name"]: column["type"] for column in result.columns} == {"score": "integer"}
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_row_cap_stops_generator_early(self, mock_resources):
         resource = _CountingResource("users", total_rows=100)
         mock_resources.return_value = [resource]
@@ -1651,7 +1650,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         assert result.row_count == 5
         assert resource.produced == 5
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_max_rows_clamped_to_hard_cap(self, mock_resources):
         one_big_page = [[{"id": index} for index in range(PREVIEW_MAX_ROWS + 50)]]
         mock_resources.return_value = [_PageResource("users", one_big_page)]
@@ -1661,7 +1660,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
 
         assert result.row_count == PREVIEW_MAX_ROWS
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_engine_manifest_is_single_page_incremental_stripped_session_injected(self, mock_resources):
         mock_resources.return_value = [_PageResource("users", [[]])]
         manifest = _minimal_manifest()
@@ -1680,7 +1679,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] is None
 
     @patch(
-        "posthog.temporal.data_imports.sources.custom.source._is_host_safe",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
         return_value=(False, "blocked: internal host"),
     )
     def test_rejects_unsafe_host(self, _mock):
@@ -1701,7 +1700,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         with self.assertRaises(ManifestValidationError):
             source.preview_resource(config, team_id=999, resource_name="users")
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_fanout_child_runs_ancestors_full_scan(self, mock_resources):
         mock_resources.return_value = [
             _PageResource("forms", [[{"id": 1}]]),
@@ -1721,7 +1720,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
             assert resource["endpoint"]["paginator"] == {"type": "single_page"}
         assert result.rows == [{"token": "t1"}]
 
-    @patch("posthog.temporal.data_imports.sources.custom.source._build_preview_session")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._build_preview_session")
     def test_fanout_empty_child_caps_parent_requests_through_real_engine(self, mock_build_session):
         # End-to-end through the real engine: a parent page far larger than the cap,
         # every child resolving empty. Empty child pages are dropped before the row
@@ -1756,9 +1755,9 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         child_requests = [url for url in sent_urls if "/responses" in url]
         assert len(child_requests) == PREVIEW_MAX_FANOUT_PARENTS
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     @patch(
-        "posthog.temporal.data_imports.sources.custom.source._is_host_safe",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
         side_effect=lambda hostname, team_id: (hostname == "api.example.com", "blocked: internal host"),
     )
     def test_rejects_resource_resolving_to_new_internal_host(self, _mock_safe, mock_resources):
@@ -1771,7 +1770,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
 
         mock_resources.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_live_fetch_error_is_returned_and_secret_redacted(self, mock_resources):
         class _Boom:
             name = "users"
@@ -1810,8 +1809,13 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         )
         return response
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.PREVIEW_READ_CHUNK_BYTES", 16)
-    @patch("posthog.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES", 100)
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_READ_CHUNK_BYTES", 16
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES",
+        100,
+    )
     def test_preview_session_aborts_oversized_body_without_full_read(self):
         # A body far over budget must raise AND stop mid-stream — never inflate the
         # whole thing (the failure mode of a single decode-everything read).
@@ -1832,8 +1836,13 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
 
         assert yielded["chunks"] <= 100 // 16 + 1
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.PREVIEW_READ_CHUNK_BYTES", 16)
-    @patch("posthog.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES", 100)
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_READ_CHUNK_BYTES", 16
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES",
+        100,
+    )
     def test_preview_session_enforces_budget_across_requests(self):
         # Each response is under the budget on its own, but together they exceed it:
         # the budget is the whole preview's, not per response.
@@ -1855,7 +1864,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
 
         assert response.json() == {"items": [{"id": 1}]}
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_credential_never_appears_in_result(self, mock_resources):
         mock_resources.return_value = [_PageResource("users", [[{"id": 1}]])]
         source = CustomSource()

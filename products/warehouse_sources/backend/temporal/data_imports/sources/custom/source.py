@@ -970,7 +970,7 @@ class _PreviewSession(_NoRedirectSession):
         finally:
             response.close()
         response._content = body
-        response._content_consumed = True
+        response._content_consumed = True  # type: ignore[attr-defined]
         return response
 
     def _read_within_budget(self, response: Response) -> bytes:
