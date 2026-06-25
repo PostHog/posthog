@@ -2039,7 +2039,10 @@ class TestHogFlowAPI(APIBaseTest):
         mock_get_user_blast_radius_persons.assert_not_called()
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_update_batch_job_status_marks_completed(self):
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_marks_completed(self, _mock_dispatch):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
 
@@ -2057,7 +2060,10 @@ class TestHogFlowAPI(APIBaseTest):
         assert batch_job.status == "completed"
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_update_batch_job_status_is_idempotent_when_already_terminal(self):
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_is_idempotent_when_already_terminal(self, _mock_dispatch):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="completed")
 
@@ -2076,7 +2082,10 @@ class TestHogFlowAPI(APIBaseTest):
         assert batch_job.status == "completed"
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_update_batch_job_status_rejects_invalid_status(self):
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_rejects_invalid_status(self, _mock_dispatch):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
 
@@ -2114,7 +2123,10 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 404, response.json()
 
-    def test_internal_update_batch_job_status_requires_internal_api_secret(self):
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_requires_internal_api_secret(self, _mock_dispatch):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
 
