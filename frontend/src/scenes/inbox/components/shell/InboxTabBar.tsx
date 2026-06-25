@@ -48,9 +48,9 @@ type InboxTabBarKey = InboxTabKey | typeof WELCOME_TAB_KEY
 
 /**
  * Tab bar: Pull requests / Reports (everyone) + Not actionable and Runs (staff-only, each with a
- * "Staff-only" tag). Each report tab shows its own server-computed count. The Configuration tab is
- * only shown when `showConfigTab` is set – i.e. when the scene is too narrow for the setup rail; on
- * wide viewports the rail replaces it.
+ * "Staff" tag). Each report tab shows its own server-computed count. The Configuration tab is only
+ * shown when `showConfigTab` is set – i.e. when the scene is too narrow for the setup rail; on wide
+ * viewports the rail replaces it.
  *
  * In `onboarding` mode (self-driving not set up, empty inbox) a locked "Welcome" tab is shown and
  * selected, while the real tabs stay visible but disabled – the user can see what's coming, but the
@@ -77,7 +77,7 @@ export function InboxTabBar({
                 {isFlatListTabKey(key) && <FlatTabCount tabKey={key} />}
                 {isStaffOnlyTabKey(key) && (
                     <LemonTag type="completion" size="small">
-                        Staff-only
+                        Staff
                     </LemonTag>
                 )}
             </span>
