@@ -102,6 +102,11 @@ export function AISection(): JSX.Element {
                         For each channel and ticket type, choose whether the AI posts a private note (visible only to
                         your team) or sends a safety-reviewed reply directly to the customer.
                     </p>
+                    <p className="text-xs text-muted-alt mb-0">
+                        <strong>Diagnostic and Account/Billing</strong> replies may include data from your project.
+                        Setting these to "AI reply" is a team-level opt-in to send investigation results directly to the
+                        customer.
+                    </p>
                     <div className="overflow-x-auto">
                         <table className="w-full text-xs">
                             <thead>

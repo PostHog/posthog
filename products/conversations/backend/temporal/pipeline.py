@@ -1066,6 +1066,8 @@ def _persist_reply_sync(
 ) -> None:
     is_private = True
     if allow_bot_reply:
+        # NB: diagnostic/account_billing replies may contain project data — controlled by
+        # explicit team-level opt-in via ai_reply_modes settings.
         ticket = Ticket.objects.select_related("team").filter(team_id=team_id, id=ticket_id).first()
         if ticket:
             settings_dict = ticket.team.conversations_settings or {}

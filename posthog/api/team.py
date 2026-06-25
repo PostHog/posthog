@@ -1307,6 +1307,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     {"ai_resolution_channels": "Must be a list of channel names or null."}
                 )
         # AI reply modes: { channel: { ticket_type: mode } } or null
+        # NB: diagnostic/account_billing with bot_reply — controlled by this explicit team-level opt-in.
         VALID_REPLY_MODES = {"private_note", "bot_reply"}
         VALID_TICKET_TYPES = {"how_to", "diagnostic", "account_billing"}
         if "ai_reply_modes" in value:
