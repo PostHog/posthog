@@ -8,6 +8,7 @@ import gspread
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
+    _OAUTH_PERMISSION_DENIED_MESSAGE,
     _PERMISSION_DENIED_MESSAGE,
     _REQUEST_TIMEOUT_SECONDS,
     _get_worksheet,
@@ -198,21 +199,33 @@ def test_get_worksheet_caching():
         assert mock_google_sheets_client.call_count == 2
 
 
+# The re-raised message must match the auth path: a service-account source gets the "share with the
+# service account" message; an OAuth source (integration_id set) must NOT — sharing with the service
+# account wouldn't help it. Unique url/id per case avoids the module-level TTLCache.
 @pytest.mark.parametrize(
-    "call_site",
+    "call_site,expected",
     [
         pytest.param(
             lambda: get_schemas(
                 GoogleSheetsSourceConfig.from_dict({"spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake"}),
                 1,
             ),
-            id="get_schemas",
+            "Please share the spreadsheet with the PostHog service account",
+            id="get_schemas_service_account",
         ),
-        # Use a unique url/id to avoid the module-level TTLCache returning a prior result
-        pytest.param(lambda: _get_worksheet("permission-error-url", 999, None, 1), id="_get_worksheet"),
+        pytest.param(
+            lambda: _get_worksheet("permission-error-url", 999, None, 1),
+            "Please share the spreadsheet with the PostHog service account",
+            id="_get_worksheet_service_account",
+        ),
+        pytest.param(
+            lambda: _get_worksheet("permission-error-url-oauth", 998, 55, 2),
+            "connected Google account can't access this spreadsheet",
+            id="_get_worksheet_oauth",
+        ),
     ],
 )
-def test_reraises_permission_error_with_message(call_site):
+def test_reraises_permission_error_with_message(call_site, expected):
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
     ) as mock_google_sheets_client:
@@ -222,7 +235,7 @@ def test_reraises_permission_error_with_message(call_site):
         with pytest.raises(PermissionError) as exc_info:
             call_site()
 
-        assert "Spreadsheet access denied" in str(exc_info.value)
+        assert expected in str(exc_info.value)
 
 
 @pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
@@ -378,17 +391,24 @@ def test_google_sheets_source_reads_blank_cells_as_null():
     mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
 
 
-def test_permission_error_is_non_retryable():
-    """The message we re-raise from gspread's bare PermissionError must be a
-    substring match for one of the source's non-retryable error keys, otherwise
-    we'd retry a 403 forever."""
-    source = GoogleSheetsSource()
-    non_retryable_errors = source.get_non_retryable_errors()
+# Each permission-denied message must map to exactly one non-retryable key (otherwise a 403 retries
+# forever), and the two must not collide — an OAuth failure must never surface the service-account
+# advice, and vice versa.
+@pytest.mark.parametrize(
+    "raised_message,expected_advice,wrong_advice",
+    [
+        (_PERMISSION_DENIED_MESSAGE, "service account", "Reconnect the account"),
+        (_OAUTH_PERMISSION_DENIED_MESSAGE, "Reconnect the account", "service account"),
+    ],
+)
+def test_permission_denied_maps_to_auth_appropriate_message(raised_message, expected_advice, wrong_advice):
+    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
 
-    raised = PermissionError(_PERMISSION_DENIED_MESSAGE)
-    error_msg = str(raised)
+    matched = [message for key, message in non_retryable_errors.items() if key in raised_message]
 
-    assert any(key in error_msg for key in non_retryable_errors)
+    assert len(matched) == 1
+    assert expected_advice in matched[0]
+    assert wrong_advice not in matched[0]
 
 
 def test_not_found_api_error_is_non_retryable():

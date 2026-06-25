@@ -104,6 +104,15 @@ _RETRYABLE_API_ERROR_CODES = {429, 500, 502, 503, 504}
 # matcher (substring match over `str(e)`) has nothing to match on. Re-raise with a
 # stable, descriptive message so downstream matching can identify it.
 _PERMISSION_DENIED_MESSAGE = "Spreadsheet access denied. Please share the spreadsheet with the PostHog service account."
+# OAuth path: the connected account itself can't open the sheet, so sharing with the service account
+# wouldn't help. Distinct phrasing (no "Spreadsheet access denied" substring) so it maps to its own
+# non-retryable message instead of the service-account one.
+_OAUTH_PERMISSION_DENIED_MESSAGE = "The connected Google account can't access this spreadsheet."
+
+
+def _permission_denied_message(integration_id: int | None) -> str:
+    return _OAUTH_PERMISSION_DENIED_MESSAGE if integration_id else _PERMISSION_DENIED_MESSAGE
+
 
 T = TypeVar("T")
 
@@ -169,7 +178,7 @@ def _get_worksheet(
         try:
             spreadsheet = client.open_by_url(spreadsheet_url)
         except PermissionError as e:
-            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+            raise PermissionError(_permission_denied_message(integration_id)) from e
         return spreadsheet.get_worksheet_by_id(worksheet_id)
 
     return _retry_on_transient_api_error(execute)
@@ -186,7 +195,7 @@ def get_schemas(config: GoogleSheetsSourceConfig, team_id: int) -> list[tuple[st
         try:
             spreadsheet = client.open_by_url(config.spreadsheet_url)
         except PermissionError as e:
-            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+            raise PermissionError(_permission_denied_message(_integration_id(config))) from e
         return spreadsheet.worksheets()
 
     worksheets = _retry_on_transient_api_error(execute)
