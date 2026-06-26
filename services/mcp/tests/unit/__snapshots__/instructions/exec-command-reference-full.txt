@@ -38,6 +38,8 @@ Always run `info read-data-schema` first — the recipes below are common cases,
 - Properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
 - Values: `call read-data-schema {"query": {"kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>"}}`
 
+For **tables, columns, relationships, and types** (including data warehouse tables and their semantic descriptions), query the `system.information_schema` catalog with `execute-sql` instead — e.g. `call execute-sql {"query": "SELECT column_name, data_type, description FROM system.information_schema.columns WHERE table_name = 'events'"}`. `read-data-schema` stays the source for event property values.
+
 **CORRECT usage pattern:**
 
 <example>
@@ -321,6 +323,8 @@ renamed, or filtered per team.
 4. **Then construct the query** using the appropriate `query-*` tool.
 
 If the required events or properties don't exist, tell the user instead of running an empty query.
+
+To discover **tables, columns, relationships, and types** (including data warehouse tables and their semantic descriptions) rather than event taxonomy, query the `system.information_schema` catalog directly in SQL via `execute-sql` — e.g. `SELECT column_name, data_type, description FROM system.information_schema.columns WHERE table_name = 'events'`. `read-data-schema` above remains the way to discover events, properties, and property values.
 
 #### Insight query workflow
 
