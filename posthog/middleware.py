@@ -20,7 +20,7 @@ from django.db import (
     connections as db_connections,
 )
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.http.response import HttpResponseRedirectBase
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
@@ -786,7 +786,7 @@ def per_request_logging_context_middleware(
             # can be minutes for SSE endpoints (AI chat, dashboard tiles, etc.).
             # Endpoints that use sse_streaming_response() release connections
             # before returning, so this only fires for ones that don't.
-            if response is not None and isinstance(response, StreamingHttpResponse):
+            if response is not None and getattr(response, "streaming", False):
                 held = [
                     conn.alias
                     for conn in db_connections.all(initialized_only=True)
