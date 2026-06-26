@@ -375,8 +375,13 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             if new_count < 1:
                 messages.error(request, f"partition_count must be >= 1; got {new_count}.")
                 return redirect(_change_url(schema_id))
+            # Always stage partitioning_keys_override (None when no keys supplied) so a stale
+            # override from a prior change-mode action — e.g. the date column pinned by an earlier
+            # datetime attempt — is explicitly cleared rather than silently winning the
+            # `partitioning_keys_override or partitioning_keys or …` precedence chain and making md5
+            # hash the wrong column. md5 defaults to the table's primary keys when this is None.
+            staged["partitioning_keys_override"] = keys if keys else None
             if keys:
-                staged["partitioning_keys_override"] = keys
                 label_bits.append(f"keys={keys}")
             staged["partition_count_override"] = new_count
             label_bits.append(f"partition_count={new_count}")

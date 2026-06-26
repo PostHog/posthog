@@ -149,6 +149,34 @@ class TestExternalDataSchemaAdmin(BaseTest):
                     "partition_size_override": 1_000_000,
                 },
             ),
+            (
+                "to_md5_with_keys",
+                {"partition_mode": "datetime", "partition_format": "month", "partitioning_enabled": True},
+                {"partition_mode": "md5", "partition_count": "10", "partitioning_keys": "record_id,action_date"},
+                {
+                    "partition_mode_override": "md5",
+                    "partition_count_override": 10,
+                    "partitioning_keys_override": ["record_id", "action_date"],
+                },
+            ),
+            (
+                # md5 without keys must explicitly clear a stale partitioning_keys_override left by a
+                # prior datetime attempt — otherwise it survives the reset and md5 hashes the wrong
+                # column instead of falling back to the table's primary keys.
+                "to_md5_clears_stale_keys",
+                {
+                    "partition_mode": "datetime",
+                    "partitioning_keys_override": ["action_date"],
+                    "partition_format": "month",
+                    "partitioning_enabled": True,
+                },
+                {"partition_mode": "md5", "partition_count": "10"},
+                {
+                    "partition_mode_override": "md5",
+                    "partition_count_override": 10,
+                    "partitioning_keys_override": None,
+                },
+            ),
         ]
     )
     def test_change_partition_mode_writes_overrides(
