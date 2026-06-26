@@ -8,6 +8,8 @@ import {
     IntegrationsDestroyParams,
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubReposRetrieveQueryParams,
+    IntegrationsJiraProjectsRetrieveParams,
+    IntegrationsLinearTeamsRetrieveParams,
     IntegrationsListQueryParams,
     IntegrationsRetrieveParams,
 } from '@/generated/integrations/api'
@@ -102,6 +104,42 @@ const integrationsGithubReposRetrieve = (): ToolBase<
     },
 })
 
+const IntegrationsJiraProjectsRetrieveSchema = IntegrationsJiraProjectsRetrieveParams.omit({ project_id: true })
+
+const integrationsJiraProjectsRetrieve = (): ToolBase<
+    typeof IntegrationsJiraProjectsRetrieveSchema,
+    Schemas.JiraProjectsResponse
+> => ({
+    name: 'integrations-jira-projects-retrieve',
+    schema: IntegrationsJiraProjectsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof IntegrationsJiraProjectsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.JiraProjectsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/jira_projects/`,
+        })
+        return result
+    },
+})
+
+const IntegrationsLinearTeamsRetrieveSchema = IntegrationsLinearTeamsRetrieveParams.omit({ project_id: true })
+
+const integrationsLinearTeamsRetrieve = (): ToolBase<
+    typeof IntegrationsLinearTeamsRetrieveSchema,
+    Schemas.LinearTeamsResponse
+> => ({
+    name: 'integrations-linear-teams-retrieve',
+    schema: IntegrationsLinearTeamsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof IntegrationsLinearTeamsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LinearTeamsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/linear_teams/`,
+        })
+        return result
+    },
+})
+
 const IntegrationsListSchema = IntegrationsListQueryParams
 
 const integrationsList = (): ToolBase<
@@ -136,5 +174,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-get': integrationGet,
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
     'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
+    'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
+    'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,
     'integrations-list': integrationsList,
 }

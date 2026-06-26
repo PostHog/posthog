@@ -275,6 +275,11 @@ class ApolloSourceConfig(config.Config):
 
 
 @config.config
+class AppLovinSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AppcuesSourceConfig(config.Config):
     pass
 
@@ -384,6 +389,11 @@ class BambooHRSourceConfig(config.Config):
 
 @config.config
 class BasecampSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class BaserowSourceConfig(config.Config):
     pass
 
 
@@ -1510,6 +1520,11 @@ class IP2WhoisSourceConfig(config.Config):
 
 
 @config.config
+class IkasSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class IlluminaBasespaceSourceConfig(config.Config):
     pass
 
@@ -1720,6 +1735,11 @@ class LeexiSourceConfig(config.Config):
 @config.config
 class LemlistSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class LemonSqueezySourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -2047,6 +2067,11 @@ class NewsDataSourceConfig(config.Config):
 
 @config.config
 class NexiopaySourceConfig(config.Config):
+    pass
+
+
+@config.config
+class NextdoorAdsSourceConfig(config.Config):
     pass
 
 
@@ -3079,6 +3104,11 @@ class TaboolaSourceConfig(config.Config):
 
 
 @config.config
+class TalkwalkerSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class TavusSourceConfig(config.Config):
     pass
 
@@ -3583,6 +3613,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AMPLITUDE: AmplitudeSourceConfig,
         ExternalDataSourceType.APIFYDATASET: ApifyDatasetSourceConfig,
         ExternalDataSourceType.APOLLO: ApolloSourceConfig,
+        ExternalDataSourceType.APPLOVIN: AppLovinSourceConfig,
         ExternalDataSourceType.APPCUES: AppcuesSourceConfig,
         ExternalDataSourceType.APPFIGURES: AppfiguresSourceConfig,
         ExternalDataSourceType.APPFOLLOW: AppfollowSourceConfig,
@@ -3605,6 +3636,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BABELFORCE: BabelforceSourceConfig,
         ExternalDataSourceType.BAMBOOHR: BambooHRSourceConfig,
         ExternalDataSourceType.BASECAMP: BasecampSourceConfig,
+        ExternalDataSourceType.BASEROW: BaserowSourceConfig,
         ExternalDataSourceType.BEAMER: BeamerSourceConfig,
         ExternalDataSourceType.BIGCOMMERCE: BigCommerceSourceConfig,
         ExternalDataSourceType.BIGMAILER: BigMailerSourceConfig,
@@ -3815,6 +3847,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.HUMANITIX: HumanitixSourceConfig,
         ExternalDataSourceType.HUNTR: HuntrSourceConfig,
         ExternalDataSourceType.IP2WHOIS: IP2WhoisSourceConfig,
+        ExternalDataSourceType.IKAS: IkasSourceConfig,
         ExternalDataSourceType.ILLUMINABASESPACE: IlluminaBasespaceSourceConfig,
         ExternalDataSourceType.IMAGGA: ImaggaSourceConfig,
         ExternalDataSourceType.INCIDENTIO: IncidentIoSourceConfig,
@@ -3856,6 +3889,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.LEADFEEDER: LeadfeederSourceConfig,
         ExternalDataSourceType.LEEXI: LeexiSourceConfig,
         ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
+        ExternalDataSourceType.LEMONSQUEEZY: LemonSqueezySourceConfig,
         ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
         ExternalDataSourceType.LEVER: LeverSourceConfig,
         ExternalDataSourceType.LIANA: LianaSourceConfig,
@@ -3916,6 +3950,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
         ExternalDataSourceType.NEWSDATA: NewsDataSourceConfig,
         ExternalDataSourceType.NEXIOPAY: NexiopaySourceConfig,
+        ExternalDataSourceType.NEXTDOORADS: NextdoorAdsSourceConfig,
         ExternalDataSourceType.NINJAONERMM: NinjaOneRMMSourceConfig,
         ExternalDataSourceType.NOCRM: NoCRMSourceConfig,
         ExternalDataSourceType.NORTHPASSLMS: NorthpassLMSSourceConfig,
@@ -4109,6 +4144,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.TMDB: TMDbSourceConfig,
         ExternalDataSourceType.TVMAZE: TVMazeSourceConfig,
         ExternalDataSourceType.TABOOLA: TaboolaSourceConfig,
+        ExternalDataSourceType.TALKWALKER: TalkwalkerSourceConfig,
         ExternalDataSourceType.TAVUS: TavusSourceConfig,
         ExternalDataSourceType.TAWKTO: TawkToSourceConfig,
         ExternalDataSourceType.TEAMTAILOR: TeamtailorSourceConfig,

@@ -17,7 +17,6 @@ import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
-import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 import type {
     ChartConfig,
     ChartDrawArgs,
@@ -31,6 +30,7 @@ import type {
     Series,
     TooltipContext,
 } from './types'
+import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
@@ -128,10 +128,11 @@ export function Chart<Meta = unknown>({
         yAxes,
     } = config ?? {}
 
-    const { formatters: yAxisFormatters, positions: yAxisPositions, titles: yAxisTitles } = useYAxisMaps(
-        yAxes,
-        yAxisLabel
-    )
+    const {
+        formatters: yAxisFormatters,
+        positions: yAxisPositions,
+        titles: yAxisTitles,
+    } = useYAxisMaps(yAxes, yAxisLabel)
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
@@ -139,9 +140,11 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip = false,
         placement: tooltipPlacement = 'follow-data',
         valueFormatter: tooltipValueFormatter,
+        labelFormatter: tooltipLabelFormatter,
         showTotal: tooltipShowTotal,
         totalLabel: tooltipTotalLabel,
         totalFormatter: tooltipTotalFormatter,
+        sortedByValue: tooltipSortedByValue,
     } = tooltipConfig ?? {}
 
     // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
@@ -152,12 +155,22 @@ export function Chart<Meta = unknown>({
                 <DefaultTooltip
                     {...ctx}
                     valueFormatter={tooltipValueFormatter}
+                    labelFormatter={tooltipLabelFormatter}
                     showTotal={tooltipShowTotal}
                     totalLabel={tooltipTotalLabel}
                     totalFormatter={tooltipTotalFormatter}
+                    sortedByValue={tooltipSortedByValue}
                 />
             )),
-        [renderTooltipProp, tooltipValueFormatter, tooltipShowTotal, tooltipTotalLabel, tooltipTotalFormatter]
+        [
+            renderTooltipProp,
+            tooltipValueFormatter,
+            tooltipLabelFormatter,
+            tooltipShowTotal,
+            tooltipTotalLabel,
+            tooltipTotalFormatter,
+            tooltipSortedByValue,
+        ]
     )
 
     const margins = useChartMargins({

@@ -28,11 +28,12 @@ from rest_framework import status
 from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
-from posthog.models import Organization, Person, SessionRecording, User
+from posthog.models import Organization, SessionRecording, User
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.test.persons import create_person
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -122,7 +123,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # Create users and recordings based on config
         for config in user_configs:
-            user = Person.objects.create(
+            user = create_person(
                 team=self.team,
                 distinct_ids=config["distinct_ids"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -180,7 +181,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_get_session_recordings_includes_person_data(self) -> None:
         """Test that person data is properly included in recordings response"""
-        person = Person.objects.create(
+        person = create_person(
             team=self.team,
             distinct_ids=["test_user"],
             properties={"$some_prop": "something", "email": "test@example.com"},
@@ -266,12 +267,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # varies which makes the snapshot useless
         twelve_distinct_ids: list[str] = [f"user_one_{i}" for i in range(12)]
 
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=twelve_distinct_ids,  # that's too many! we should limit them
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user2"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -374,7 +375,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
     def _person_with_snapshots(self, base_time: datetime, distinct_id: str = "user", session_id: str = "1") -> None:
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=[distinct_id],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -385,12 +386,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_session_recordings_dont_leak_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
-        Person.objects.create(
+        create_person(
             team=another_team,
             distinct_ids=["user"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
-        home_team_person = Person.objects.create(
+        home_team_person = create_person(
             team=self.team,
             distinct_ids=["user"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -455,7 +456,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         except ImportError:
             pytest.skip("EE summary models are not available in this build")
 
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["d1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -499,7 +500,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_session_recording_for_user_with_multiple_distinct_ids(self) -> None:
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
-        p = Person.objects.create(
+        p = create_person(
             team=self.team,
             distinct_ids=["d1", "d2"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -520,7 +521,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         from posthog.personhog_client.fake_client import fake_personhog_client
 
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
-        p = Person.objects.create(
+        p = create_person(
             team=self.team,
             distinct_ids=["d1", "d2"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -550,7 +551,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert results_by_session["2"]["person"]["distinct_ids"] == ["d2"]
 
     def test_viewed_state_of_session_recording_version(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["u1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -653,7 +654,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert self._result_ids(response) == ["unviewed-mid", "unviewed-old"]
 
     def test_setting_viewed_state_of_session_recording(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["u1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -696,7 +697,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_update_session_recording_viewed(self, mock_capture: MagicMock):
         session_id = "test_update_viewed_state"
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["u1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -793,7 +794,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_single_session_recording_metadata(self):
-        p = Person.objects.create(
+        p = create_person(
             team=self.team,
             distinct_ids=["d1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -866,7 +867,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         except ImportError:
             pytest.skip("EE summary models are not available in this build")
 
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["d1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -899,7 +900,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         except ImportError:
             pytest.skip("EE summary models are not available in this build")
 
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["d1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -1053,7 +1054,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     def test_session_ids_filter(self, use_recording_events: bool, api_version: int):
         with freeze_time("2020-09-13T12:26:40.000Z"):
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=["user"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -1087,7 +1088,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_session_ids_filter_returns_recordings_outside_default_date_range(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=["user"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -1107,7 +1108,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_empty_list_session_ids_filter_returns_no_recordings(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=["user"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -1379,7 +1380,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_session_recordings(self, _mock_delete_via_recording_api):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1", "user2"],
             properties={"email": "test@example.com"},
@@ -1443,7 +1444,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_sends_all_accessible_recordings_to_recording_api(self, mock_delete_via_recording_api):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1490,7 +1491,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_mixed_existing_and_nonexistent(self, _mock_delete_via_recording_api):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1520,7 +1521,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_works_for_clickhouse_only_recordings(self, _mock_delete_via_recording_api):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1549,7 +1550,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @patch("posthog.session_recordings.session_recording_api.logger")
     def test_bulk_delete_logging(self, mock_logger, _mock_delete_via_recording_api):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1578,7 +1579,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_bulk_delete_doesnt_leak_teams(self):
         other_team = Team.objects.create(organization=self.organization)
-        Person.objects.create(
+        create_person(
             team=other_team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1604,7 +1605,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["total_requested"] == 1
 
     def test_bulk_viewed_session_recordings(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1", "user2"],
             properties={"email": "test@example.com"},
@@ -1636,7 +1637,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert viewed_record is not None
 
     def test_bulk_viewed_handles_duplicates(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1675,7 +1676,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert viewed_record is not None
 
     def test_bulk_not_viewed_session_recordings(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1719,7 +1720,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ).exists()
 
     def test_bulk_not_viewed_handles_already_not_viewed(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1859,7 +1860,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         _description: str,
         _mock_delete_via_recording_api,
     ):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -1901,7 +1902,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_with_date_from_parameter(self, _mock_delete_via_recording_api):
-        Person.objects.create(team=self.team, distinct_ids=["user1"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user1"], properties={"email": "bla"})
 
         # Set team retention to 90 days
         self.team.session_recording_retention_period = "90d"
@@ -2472,7 +2473,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=[],
     )
     def test_bulk_delete_with_recording_api_enabled(self, mock_bulk_delete):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},
@@ -2505,7 +2506,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=["bulk_partial_3"],
     )
     def test_bulk_delete_with_recording_api_partial_failure_logs_warning(self, mock_bulk_delete, mock_logger):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user1"],
             properties={"email": "test@example.com"},

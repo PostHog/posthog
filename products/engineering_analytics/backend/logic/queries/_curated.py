@@ -25,7 +25,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
-from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
+from products.engineering_analytics.backend.logic.views import pull_requests, workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
@@ -65,6 +65,12 @@ class CuratedGitHubSource:
     def run_source(self) -> str:
         """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery."""
         return f"({workflow_runs.build_query(self._tables.workflow_runs)})"
+
+    def jobs_source(self) -> str | None:
+        """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced."""
+        if not self._tables.workflow_jobs:
+            return None
+        return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
 
     def runs_cte(self) -> str:
         """CTE materializing the curated workflow-runs source once.

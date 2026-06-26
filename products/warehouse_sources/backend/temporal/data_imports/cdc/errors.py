@@ -31,6 +31,7 @@ class CDCErrorCategory(enum.StrEnum):
     SLOT_IN_USE = "slot_in_use"
     WAL_DECODE_ERROR = "wal_decode_error"
     TRANSACTION_TOO_LARGE = "transaction_too_large"
+    SCHEMA_MERGE_INCOMPATIBLE = "schema_merge_incompatible"
     UNKNOWN = "unknown"
 
 
@@ -47,6 +48,16 @@ class CDCTransactionTooLargeError(Exception):
     Non-retryable: re-decoding replays the same oversized transaction. The decoder guard
     that raises this lives in the source-specific decoder; the type is defined here so the
     shared classifier owns the mapping to ``TRANSACTION_TOO_LARGE``.
+    """
+
+
+class CDCSchemaMergeError(Exception):
+    """A column's values can't be reconciled into one Parquet type across micro-batches.
+
+    Non-retryable: the conflicting batches replay identically, so re-running re-fails. The
+    activity raises this when an Arrow schema merge rejects the data (e.g. a source column
+    that genuinely changed type mid-stream — int in one batch, text in another). Defined
+    here so the shared classifier owns the mapping to ``SCHEMA_MERGE_INCOMPATIBLE``.
     """
 
 
@@ -92,6 +103,12 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "once. Reduce the size of bulk operations on the source, then re-sync.",
         False,
     ),
+    CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE: (
+        "A source column changed type partway through the change stream (for example, numbers and text "
+        "in the same column), so the changes can no longer be combined into one table. Disable and "
+        "re-enable change data capture to re-sync from a fresh snapshot.",
+        False,
+    ),
     CDCErrorCategory.UNKNOWN: (
         "Change data capture hit an unexpected error. PostHog will retry automatically — if it "
         "persists, check the source's sync logs or contact support.",
@@ -126,6 +143,8 @@ def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> 
     for err in _iter_cause_chain(exc):
         if isinstance(err, CDCTransactionTooLargeError):
             return cdc_error_info(CDCErrorCategory.TRANSACTION_TOO_LARGE)
+        if isinstance(err, CDCSchemaMergeError):
+            return cdc_error_info(CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE)
         if adapter is not None:
             info = adapter.classify_error(err)
             if info is not None:
