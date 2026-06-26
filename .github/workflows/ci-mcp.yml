@@ -250,6 +250,8 @@ jobs:
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+            PERSONHOG_ADDR: 'localhost:50052'
+            POSTHOG_PERSONS_DB_NAME: 'posthog_persons'
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_SECURE: 'False'
@@ -495,6 +497,13 @@ jobs:
                       cat /tmp/rust-flags.log || true
                       exit 1
                   fi
+
+            - name: Start personhog services
+              shell: bash
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml
+                  COMPOSE_PROFILES: ingestion
+              run: bin/ci-wait-for-docker launch personhog-replica personhog-router
 
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list

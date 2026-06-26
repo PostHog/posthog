@@ -16,7 +16,6 @@ export interface AlertIntervalRowProps {
     creatingNewAlert: boolean
     alert: AlertType | null | undefined
     trendInterval: string | null | undefined
-    alerts15MinuteIntervalEnabled: boolean
     hasHighFrequencyAlertsEntitlement: boolean
     guardAvailableFeature: GuardAvailableFeatureFn
     nextPlannedEvaluationStale: boolean
@@ -27,7 +26,6 @@ export function AlertIntervalRow({
     creatingNewAlert,
     alert,
     trendInterval,
-    alerts15MinuteIntervalEnabled,
     hasHighFrequencyAlertsEntitlement,
     guardAvailableFeature,
     nextPlannedEvaluationStale,
@@ -50,10 +48,7 @@ export function AlertIntervalRow({
                             className="w-36 shrink-0 whitespace-nowrap"
                             data-attr="alertForm-calculation-interval"
                             value={value}
-                            options={getAlertIntervalOptions(
-                                alerts15MinuteIntervalEnabled,
-                                hasHighFrequencyAlertsEntitlement
-                            )}
+                            options={getAlertIntervalOptions(hasHighFrequencyAlertsEntitlement)}
                             onChange={(interval) => {
                                 selectAlertCalculationInterval(interval, {
                                     guardAvailableFeature,

@@ -96,6 +96,7 @@
           ExternalDataSourceType.BABELFORCE: BabelforceSourceConfig,
           ExternalDataSourceType.BAMBOOHR: BambooHRSourceConfig,
           ExternalDataSourceType.BASECAMP: BasecampSourceConfig,
+          ExternalDataSourceType.BASEROW: BaserowSourceConfig,
           ExternalDataSourceType.BEAMER: BeamerSourceConfig,
           ExternalDataSourceType.BIGCOMMERCE: BigCommerceSourceConfig,
           ExternalDataSourceType.BIGMAILER: BigMailerSourceConfig,

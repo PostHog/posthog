@@ -5,7 +5,9 @@ import { useActions, useValues } from 'kea'
 
 import type { RunStatus } from '../logics/runStreamLogic'
 import type { PermissionRequestRecord } from '../types/streamTypes'
-import { RunViewer } from './RunViewer'
+// The compound is exercised synchronously from the impl; the public lazy wrapper is covered separately below.
+import { RunViewer as LazyRunViewer } from './RunViewer'
+import { RunViewer } from './RunViewerImpl'
 
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
@@ -120,5 +122,14 @@ describe('RunViewer', () => {
         setValues({ currentRunStatus: 'in_progress' })
         render(<RunViewer taskId="task-1" runId="run-1" interaction="live" />)
         expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+    })
+
+    it('lazy-loads behind the run-log skeleton, then renders the thread', async () => {
+        setValues({ currentRunStatus: 'in_progress' })
+        render(<LazyRunViewer taskId="task-1" runId="run-1" interaction="read-only" />)
+        // The Suspense fallback shows the shared skeleton while the impl chunk resolves...
+        expect(screen.getByTestId('run-log-skeleton')).toBeInTheDocument()
+        // ...then the lazily-imported viewer mounts and the thread appears.
+        expect(await screen.findByTestId('thread')).toBeInTheDocument()
     })
 })

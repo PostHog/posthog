@@ -1899,9 +1899,25 @@ jobs:
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   DATA_IMPORT_SOURCES_ONLY: ${{ needs.changes.outputs.data_import_sources_only }}
+                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
+
+                  # A draft PR must never fall back to the full matrix. select-tests only
+                  # runs on drafts and sets MODE to "skip"/"selected"; an empty MODE on a
+                  # draft means it was cancelled or failed (typically ready_for_review
+                  # superseding it mid-flight). Without this, the draft builds the full
+                  # matrix and holds the per-branch concurrency slot for ~30 min, so the
+                  # ready-for-review run — the actual merge gate — queues behind it instead
+                  # of starting. Skip here and defer to that ready run. The run-ci-backend
+                  # label intentionally forces the full matrix on a draft, so honor it.
+                  if [[ -z "$MODE" && "$IS_DRAFT" == "true" && "$FORCE_FULL" != "true" ]]; then
+                      echo "::notice::Draft PR with no trusted Django selection — skipping heavy matrices; the ready-for-review run is the full gate"
+                      MODE="skip"
+                  fi
+
                   if [[ "$MODE" == "skip" ]]; then
                       # Draft PR where selection couldn't be trusted: skip the heavy
                       # matrices and defer to the full run on ready for review.
@@ -2320,6 +2336,26 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.compat }}
               shell: bash
               run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
+
+            - name: Warn (don't fail) on unused snapshots for sharded CHECK runs
+              # CHECK mode (fork PRs, the 'no-snapshot-update' label) runs without
+              # --snapshot-update, so the steps above don't fire and no snapshot flags
+              # are set. But pytest-split shards individual tests across runners, so each
+              # shard only exercises a subset of the snapshots in a given file — every
+              # snapshot owned by a test that landed on another shard is reported as
+              # "unused". Under sharding that signal is structurally unreliable, so without
+              # --snapshot-warn-unused a shard fails on those false positives even when
+              # every test that ran passed (the snapshot report's "N snapshots unused"
+              # line). Every non-fork run (UPDATE, poe, compat) already passes the flag;
+              # this just makes forks symmetric. Trade-off: it downgrades unused snapshots
+              # to a warning, so genuinely orphaned snapshots go uncaught here — but they
+              # already do everywhere else, and sharding makes per-shard orphan detection
+              # impossible regardless. Snapshot *mismatches* and missing snapshots still
+              # fail, so real value drift is still caught. Mutually exclusive with the
+              # steps above (mode != update, not poe, not compat).
+              if: ${{ needs.changes.outputs.backend == 'true' && needs.detect-snapshot-mode.outputs.mode != 'update' && !matrix.person-on-events && !matrix.compat }}
+              shell: bash
+              run: echo "PYTEST_ARGS=--snapshot-warn-unused" >> $GITHUB_ENV
 
             # Tests
             - name: Log test environment diagnostics
