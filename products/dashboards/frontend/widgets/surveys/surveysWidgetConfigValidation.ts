@@ -52,7 +52,9 @@ export function validateSurveyResultsWidgetConfigInput(input: {
     limit: number
     dateFrom: SurveyWidgetDateFrom
     baseConfig: SurveyResultsWidgetConfig
-}): { success: true; config: SurveyResultsWidgetConfig } | { success: false; fieldErrors: SurveyResultsWidgetFieldErrors } {
+}):
+    | { success: true; config: SurveyResultsWidgetConfig }
+    | { success: false; fieldErrors: SurveyResultsWidgetFieldErrors } {
     const parsed = surveyResultsWidgetFormSchema.safeParse({
         surveyId: input.surveyId,
         limit: input.limit,

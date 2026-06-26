@@ -9,7 +9,9 @@ export function SurveyResultsWidgetPreview(): JSX.Element {
         <div className="pointer-events-none flex flex-col gap-2 p-2 shadow-sm">
             <div className="flex items-center justify-between gap-2">
                 <span className="truncate font-semibold">{survey.name}</span>
-                <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-semibold text-success">Active</span>
+                <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-semibold text-success">
+                    Active
+                </span>
             </div>
             <div className="flex items-stretch rounded border bg-bg-light/40">
                 {[
