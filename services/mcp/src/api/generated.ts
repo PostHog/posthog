@@ -56476,6 +56476,11 @@ export namespace Schemas {
      */
     distinct_id?: string;
     /**
+     * Only return the asset for this specific workflow run — used to deep-link from a single log entry to the email it sent. Returns 0 rows when the send had no captured asset (text-only, kill-switch off, or standalone email).
+     * @minLength 1
+     */
+    invocation_id?: string;
+    /**
      * Maximum number of assets to return (1-500, default 50).
      * @minimum 1
      * @maximum 500
@@ -62992,6 +62997,11 @@ export namespace Schemas {
      * @minLength 1
      */
     distinct_id?: string;
+    /**
+     * Only return the asset for this specific workflow run — used to deep-link from a single log entry to the email it sent. Returns 0 rows when the send had no captured asset (text-only, kill-switch off, or standalone email).
+     * @minLength 1
+     */
+    invocation_id?: string;
     /**
      * Maximum number of assets to return (1-500, default 50).
      * @minimum 1

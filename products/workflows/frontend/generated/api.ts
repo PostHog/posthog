@@ -374,8 +374,8 @@ export const hogFlowsAssetContentRetrieve = async (
     id: string,
     params: HogFlowsAssetContentRetrieveParams,
     options?: RequestInit
-): Promise<unknown> => {
-    return apiMutator<unknown>(getHogFlowsAssetContentRetrieveUrl(projectId, id, params), {
+): Promise<string> => {
+    return apiMutator<string>(getHogFlowsAssetContentRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
