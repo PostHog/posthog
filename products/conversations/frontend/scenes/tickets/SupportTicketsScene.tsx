@@ -56,6 +56,7 @@ import {
     type TicketStatus,
     type TicketTagsMatch,
     aiTriageFilterOptions,
+    aiTriageProcessingLabel,
     aiTriageResultLabel,
     aiTriageResultTagType,
     aiTriageTicketTypeLabel,
@@ -451,8 +452,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
         setDateRange,
         loadTickets,
     } = useActions(logic)
-    const { currentTeam } = useValues(teamLogic)
-    const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
+    const { aiEnabled } = useValues(logic)
     const { tags: tagsAvailable } = useValues(tagsModel)
     const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
 

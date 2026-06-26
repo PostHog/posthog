@@ -293,7 +293,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.priorityFilter.length > 0) {
                 params.priority = values.priorityFilter.join(',')
             }
-            if (values.aiTriageResultFilter.length > 0) {
+            if (values.aiEnabled && values.aiTriageResultFilter.length > 0) {
                 params.ai_triage_result = values.aiTriageResultFilter.join(',')
             }
             if (values.channelFilter !== 'all') {
