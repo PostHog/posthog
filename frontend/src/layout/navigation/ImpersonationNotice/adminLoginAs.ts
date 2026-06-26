@@ -31,10 +31,14 @@ async function ensureAdminOAuth2(): Promise<void> {
     // fire the impersonation POST against a stale session, which silently fails and forces a retry.
     await new Promise<void>((resolve, reject) => {
         let checkClosed: ReturnType<typeof setInterval>
+        let gracePeriodTimeout: ReturnType<typeof setTimeout> | null = null
         let completed = false
 
         const cleanup = (): void => {
             clearInterval(checkClosed)
+            if (gracePeriodTimeout) {
+                clearTimeout(gracePeriodTimeout)
+            }
             window.removeEventListener('message', handleMessage)
         }
 
@@ -55,9 +59,9 @@ async function ensureAdminOAuth2(): Promise<void> {
                 clearInterval(checkClosed)
                 // The success message can land a tick after the popup closes — give it a brief
                 // grace period before deciding this was a cancellation.
-                setTimeout(() => {
-                    window.removeEventListener('message', handleMessage)
+                gracePeriodTimeout = setTimeout(() => {
                     if (!completed) {
+                        cleanup()
                         reject(new Error('Admin authentication was cancelled. Please try impersonating again.'))
                     }
                 }, 500)
