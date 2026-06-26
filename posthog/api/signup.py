@@ -41,8 +41,7 @@ from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, Si
 from posthog.utils import get_can_create_org, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
-from products.demo.backend.matrix import MatrixManager
-from products.demo.backend.products.hedgebox import HedgeboxMatrix
+from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
 
 logger = structlog.get_logger(__name__)
 

@@ -8,7 +8,7 @@ from django.utils import timezone
 from posthog.models import Team
 from posthog.models.event.util import create_event
 
-from products.demo.backend.products.hedgebox.taxonomy import (
+from products.demo.backend.facade.api import (
     SITE_URL,
     URL_FILES,
     URL_HOME,

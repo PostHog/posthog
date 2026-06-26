@@ -16,7 +16,7 @@ from posthog.api.capture import capture_batch_internal
 from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.models import Team
 
-from products.demo.backend.products.hedgebox import HedgeboxMatrix
+from products.demo.backend.facade.api import HedgeboxMatrix
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
 
