@@ -47,8 +47,7 @@ from posthog.temporal.utils import ExternalDataWorkflowInputs
 if TYPE_CHECKING:
     from posthog.models import Team
 
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 
@@ -381,7 +380,7 @@ async def cancel_workflow(temporal: TemporalClient, workflow_id: str):
 
 
 def is_any_external_data_schema_paused(team_id: int) -> bool:
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     return (
         ExternalDataSchema.objects.exclude(deleted=True)
@@ -402,6 +401,15 @@ def is_cdc_enabled_for_team(team: Team) -> bool:
 def is_xmin_enabled_for_team(team: Team) -> bool:
     return feature_enabled_or_false(
         "dwh-postgres-xmin",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+
+def is_custom_source_ai_builder_enabled_for_team(team: Team) -> bool:
+    return feature_enabled_or_false(
+        "dwh-custom-source-ai-builder",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
@@ -479,7 +487,7 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     Calculates the interval from the most frequent CDC schema. If no CDC
     schemas are active, deletes the schedule.
     """
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     # `source__deleted=True` is excluded so a deleted source (whose schemas may have been
     # left non-deleted by `soft_delete`) collapses to the "no active CDC schemas" branch below

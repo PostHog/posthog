@@ -6,7 +6,7 @@ import time
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
-from contextlib import _GeneratorContextManager, contextmanager
+from contextlib import ExitStack, _GeneratorContextManager, contextmanager
 from datetime import (
     UTC,
     date,
@@ -2461,6 +2461,33 @@ def _project_table_columns(
     return Table(name=table.name, parents=table.parents, columns=filtered, type=table.type, alias=table.alias)
 
 
+# paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
+# the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
+# bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it (it
+# only translates *auth* failures into BaseSSHTunnelForwarderError), so it escapes with an empty
+# `str()`, matching no non-retryable rule and retrying forever. `_tunnel_with_handshake_translation`
+# turns it into this stable, classifiable message (see `PostgresSource.get_non_retryable_errors`) —
+# same gateway-configuration class as a wrapped "Could not establish session to SSH gateway".
+_SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
+
+
+@contextmanager
+def _tunnel_with_handshake_translation(
+    tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
+) -> Iterator[tuple[str, int]]:
+    """Enter `tunnel()`, translating a bare paramiko handshake EOFError into a classifiable message.
+
+    The `yield` sits outside the `except` so a failure raised by the body can never be
+    misattributed to the tunnel handshake.
+    """
+    with ExitStack() as stack:
+        try:
+            host, port = stack.enter_context(tunnel())
+        except EOFError as e:
+            raise Exception(_SSH_HANDSHAKE_EOF_ERROR) from e
+        yield host, port
+
+
 def postgres_source(
     tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
     user: str,
@@ -2490,7 +2517,7 @@ def postgres_source(
 
     effective_sslmode = _get_sslmode(require_ssl)
 
-    with tunnel() as (host, port):
+    with _tunnel_with_handshake_translation(tunnel) as (host, port):
 
         def _open_setup_connection() -> psycopg.Connection:
             try:
@@ -2807,7 +2834,7 @@ def postgres_source(
             # The forced `_ph_xmin` projection isn't part of the discovered columns, so add it to
             # the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
             arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
-        with tunnel() as (host, port):
+        with _tunnel_with_handshake_translation(tunnel) as (host, port):
             cursor_factory = psycopg.ServerCursor if not using_read_replica else None
 
             def get_connection():
