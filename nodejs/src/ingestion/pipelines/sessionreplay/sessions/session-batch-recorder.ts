@@ -9,6 +9,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { RetentionLookupError } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { KeyStore, RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
@@ -309,29 +310,84 @@ export class SessionBatchRecorder {
                     featureRecorder,
                     sessionKey,
                 ] of sessions.values()) {
-                    let encryptedBuffer: Buffer
-                    let sessionData: Awaited<ReturnType<SnappySessionRecorder['end']>>
-                    let consoleLogData: ReturnType<SessionConsoleLogRecorder['end']>
-                    let features: ReturnType<SessionFeatureRecorder['end']>
-
-                    // Wrap compression/encryption in a try/catch — these are
-                    // in-memory operations that only fail on corrupt data and
-                    // won't succeed on retry, so drop just this session.
-                    // Storage writes are outside the catch so transient I/O
-                    // errors propagate and retry the whole batch.
                     try {
-                        sessionData = await sessionBlockRecorder.end()
-                        features = featureRecorder.end()
-                        consoleLogData = consoleLogRecorder.end()
+                        const {
+                            buffer,
+                            eventCount,
+                            startDateTime,
+                            endDateTime,
+                            firstUrl,
+                            urls,
+                            clickCount,
+                            keypressCount,
+                            mouseActivityCount,
+                            activeMilliseconds,
+                            size,
+                            messageCount,
+                            snapshotSource,
+                            snapshotLibrary,
+                            batchId,
+                        } = await sessionBlockRecorder.end()
 
-                        const encrypted = this.encryptor.encryptBlockWithKey(
+                        const features = featureRecorder.end()
+                        if (features) {
+                            featureBlocks.push({
+                                sessionId: sessionBlockRecorder.sessionId,
+                                teamId: sessionBlockRecorder.teamId,
+                                distinctId: sessionBlockRecorder.distinctId,
+                                batchId,
+                                features,
+                            })
+                        }
+
+                        const { consoleLogCount, consoleWarnCount, consoleErrorCount } = consoleLogRecorder.end()
+
+                        const { data: encryptedBuffer } = this.encryptor.encryptBlockWithKey(
                             sessionBlockRecorder.sessionId,
                             sessionBlockRecorder.teamId,
-                            sessionData.buffer,
+                            buffer,
                             sessionKey
                         )
-                        encryptedBuffer = encrypted.data
+
+                        const { bytesWritten, url, retentionPeriodDays } = await writer.writeSession({
+                            buffer: encryptedBuffer,
+                            teamId: sessionBlockRecorder.teamId,
+                            sessionId: sessionBlockRecorder.sessionId,
+                        })
+
+                        blockMetadata.push({
+                            sessionId: sessionBlockRecorder.sessionId,
+                            teamId: sessionBlockRecorder.teamId,
+                            distinctId: sessionBlockRecorder.distinctId,
+                            blockLength: bytesWritten,
+                            startDateTime,
+                            endDateTime,
+                            blockUrl: url,
+                            firstUrl,
+                            urls,
+                            clickCount,
+                            keypressCount,
+                            mouseActivityCount,
+                            activeMilliseconds,
+                            consoleLogCount,
+                            consoleWarnCount,
+                            consoleErrorCount,
+                            size,
+                            messageCount,
+                            snapshotSource,
+                            snapshotLibrary,
+                            batchId,
+                            eventCount,
+                            retentionPeriodDays,
+                            isDeleted: false,
+                        })
+
+                        totalEvents += eventCount
+                        totalBytes += bytesWritten
                     } catch (sessionError) {
+                        if (!(sessionError instanceof RetentionLookupError)) {
+                            throw sessionError
+                        }
                         droppedSessions++
                         SessionBatchMetrics.incrementSessionsDroppedDuringFlush()
                         logger.error('🔁', 'session_batch_recorder_session_flush_error', {
@@ -347,54 +403,7 @@ export class SessionBatchRecorder {
                                 batchId: this.batchId,
                             },
                         })
-                        continue
                     }
-
-                    if (features) {
-                        featureBlocks.push({
-                            sessionId: sessionBlockRecorder.sessionId,
-                            teamId: sessionBlockRecorder.teamId,
-                            distinctId: sessionBlockRecorder.distinctId,
-                            batchId: sessionData.batchId,
-                            features,
-                        })
-                    }
-
-                    const { bytesWritten, url, retentionPeriodDays } = await writer.writeSession({
-                        buffer: encryptedBuffer,
-                        teamId: sessionBlockRecorder.teamId,
-                        sessionId: sessionBlockRecorder.sessionId,
-                    })
-
-                    blockMetadata.push({
-                        sessionId: sessionBlockRecorder.sessionId,
-                        teamId: sessionBlockRecorder.teamId,
-                        distinctId: sessionBlockRecorder.distinctId,
-                        blockLength: bytesWritten,
-                        startDateTime: sessionData.startDateTime,
-                        endDateTime: sessionData.endDateTime,
-                        blockUrl: url,
-                        firstUrl: sessionData.firstUrl,
-                        urls: sessionData.urls,
-                        clickCount: sessionData.clickCount,
-                        keypressCount: sessionData.keypressCount,
-                        mouseActivityCount: sessionData.mouseActivityCount,
-                        activeMilliseconds: sessionData.activeMilliseconds,
-                        consoleLogCount: consoleLogData.consoleLogCount,
-                        consoleWarnCount: consoleLogData.consoleWarnCount,
-                        consoleErrorCount: consoleLogData.consoleErrorCount,
-                        size: sessionData.size,
-                        messageCount: sessionData.messageCount,
-                        snapshotSource: sessionData.snapshotSource,
-                        snapshotLibrary: sessionData.snapshotLibrary,
-                        batchId: sessionData.batchId,
-                        eventCount: sessionData.eventCount,
-                        retentionPeriodDays,
-                        isDeleted: false,
-                    })
-
-                    totalEvents += sessionData.eventCount
-                    totalBytes += bytesWritten
                 }
                 totalSessions += sessions.size
             }

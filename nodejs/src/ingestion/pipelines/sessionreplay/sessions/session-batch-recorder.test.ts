@@ -6,6 +6,7 @@ import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/of
 import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { RetentionLookupError } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { createMockEncryptor, createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
@@ -1662,6 +1663,22 @@ describe('SessionBatchRecorder', () => {
             )
 
             await recorder.record(createMessage('session', events))
+
+            const result = await recorder.flush()
+
+            expect(result).toEqual([])
+            expect(SessionBatchMetrics.incrementSessionsDroppedDuringFlush).toHaveBeenCalledTimes(1)
+            expect(mockWriter.finish).toHaveBeenCalled()
+            expect(mockOffsetManager.commit).toHaveBeenCalled()
+        })
+
+        it('should drop session and continue flush on RetentionLookupError', async () => {
+            mockWriter.writeSession.mockRejectedValueOnce(
+                new RetentionLookupError('Error during retention period lookup: Unknown team id 999')
+            )
+
+            const message = createMessage('session1', [{ type: 1, timestamp: 1, data: {} }])
+            await recorder.record(message)
 
             const result = await recorder.flush()
 

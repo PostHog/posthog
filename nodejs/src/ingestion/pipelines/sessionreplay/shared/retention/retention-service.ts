@@ -10,6 +10,13 @@ import { RedisPool, TeamId } from '~/types'
 
 import { RetentionServiceMetrics } from './metrics'
 
+export class RetentionLookupError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'RetentionLookupError'
+    }
+}
+
 function isValidRetentionPeriod(retentionPeriod: string): retentionPeriod is RetentionPeriod {
     return ValidRetentionPeriods.includes(retentionPeriod as RetentionPeriod)
 }
@@ -31,12 +38,12 @@ export class RetentionService {
 
         if (retentionPeriod === null) {
             RetentionServiceMetrics.incrementLookupErrors()
-            throw new Error(`Error during retention period lookup: Unknown team id ${teamId}`)
+            throw new RetentionLookupError(`Error during retention period lookup: Unknown team id ${teamId}`)
         }
 
         if (!isValidRetentionPeriod(retentionPeriod)) {
             RetentionServiceMetrics.incrementLookupErrors()
-            throw new Error(`Error during retention period lookup: Got invalid value ${retentionPeriod}`)
+            throw new RetentionLookupError(`Error during retention period lookup: Got invalid value ${retentionPeriod}`)
         }
 
         return retentionPeriod
