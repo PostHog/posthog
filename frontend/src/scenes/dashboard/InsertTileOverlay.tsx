@@ -105,7 +105,9 @@ function InsertionStrip({
         const rect = stripRef.current?.getBoundingClientRect()
         if (rect) {
             const x = Math.min(Math.max(clientX - rect.left, BUTTON_EDGE_PADDING), gridWidth - BUTTON_EDGE_PADDING)
-            buttonRef.current.style.left = `${x}px`
+            // Our Tailwind config sets `important: true`, so the `left-4` class is `left !important` and
+            // would beat a plain inline `left`. Write with priority so the follow position actually wins.
+            buttonRef.current.style.setProperty('left', `${x}px`, 'important')
         }
     }
 
