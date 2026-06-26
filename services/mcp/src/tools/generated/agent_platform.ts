@@ -190,27 +190,6 @@ const agentApplicationsModels = (): ToolBase<typeof AgentApplicationsModelsSchem
     },
 })
 
-const AgentApplicationsSpecSchemaSchema = AgentApplicationsSpecSchemaQueryParams
-
-const agentApplicationsSpecSchema = (): ToolBase<
-    typeof AgentApplicationsSpecSchemaSchema,
-    Schemas.AgentApplication
-> => ({
-    name: 'agent-applications-spec-schema',
-    schema: AgentApplicationsSpecSchemaSchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsSpecSchemaSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AgentApplication>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/spec_schema/`,
-            query: {
-                section: params.section,
-            },
-        })
-        return result
-    },
-})
-
 const AgentApplicationsPartialUpdateSchema = AgentApplicationsPartialUpdateParams.omit({ project_id: true }).extend(
     AgentApplicationsPartialUpdateBody.shape
 )
@@ -869,6 +848,27 @@ const agentApplicationsSessionsRetrieve = (): ToolBase<
     },
 })
 
+const AgentApplicationsSpecSchemaSchema = AgentApplicationsSpecSchemaQueryParams
+
+const agentApplicationsSpecSchema = (): ToolBase<
+    typeof AgentApplicationsSpecSchemaSchema,
+    Schemas.AgentApplication
+> => ({
+    name: 'agent-applications-spec-schema',
+    schema: AgentApplicationsSpecSchemaSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsSpecSchemaSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentApplication>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/spec_schema/`,
+            query: {
+                section: params.section,
+            },
+        })
+        return result
+    },
+})
+
 const AgentNativeToolsListSchema = z.object({})
 
 const agentNativeToolsList = (): ToolBase<
@@ -896,7 +896,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-env-keys-list': agentApplicationsEnvKeysList,
     'agent-applications-list': agentApplicationsList,
     'agent-applications-models': agentApplicationsModels,
-    'agent-applications-spec-schema': agentApplicationsSpecSchema,
     'agent-applications-partial-update': agentApplicationsPartialUpdate,
     'agent-applications-preview-proxy': agentApplicationsPreviewProxy,
     'agent-applications-retrieve': agentApplicationsRetrieve,
@@ -924,5 +923,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-session-logs': agentApplicationsSessionLogs,
     'agent-applications-sessions-list': agentApplicationsSessionsList,
     'agent-applications-sessions-retrieve': agentApplicationsSessionsRetrieve,
+    'agent-applications-spec-schema': agentApplicationsSpecSchema,
     'agent-native-tools-list': agentNativeToolsList,
 }
