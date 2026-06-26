@@ -4,13 +4,14 @@ import { Counter } from 'prom-client'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../types'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig, Team } from '../../types'
 import { logger, serializeError } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { UUIDT } from '../../utils/utils'
 import type { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Worker } from '../services/cyclotron-v2'
 import {
     BatchResolverState,
+    MAX_RESOLVER_ATTEMPTS,
     deserializeResolverState,
     serializeResolverState,
 } from '../services/hogflows/batch-resolver.types'
@@ -167,24 +168,56 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 )
             )
         } catch (err) {
+            counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'fetch_failure' }).inc()
+            const nextAttempts = state.attempts + 1
+            if (nextAttempts >= MAX_RESOLVER_ATTEMPTS) {
+                logger.error(
+                    '🔴',
+                    `${this.name} - page fetch failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`,
+                    {
+                        batchJobId: state.batchJobId,
+                        cursor: state.cursor,
+                        pagesProcessed: state.pagesProcessed,
+                        error: serializeError(err),
+                    }
+                )
+                await this.transitionToFailedTerminal(
+                    job,
+                    state,
+                    `Audience fetch failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`
+                )
+                return
+            }
             logger.warn('⚠️', `${this.name} - page fetch failed, will retry`, {
                 batchJobId: state.batchJobId,
                 cursor: state.cursor,
                 pagesProcessed: state.pagesProcessed,
+                attempts: nextAttempts,
                 error: serializeError(err),
             })
-            counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'fetch_failure' }).inc()
-            await job.reschedule({ scheduledAt: new Date(Date.now() + RETRY_BACKOFF_MS) })
+            const retryState: BatchResolverState = { ...state, attempts: nextAttempts }
+            await job.reschedule({
+                scheduledAt: new Date(Date.now() + RETRY_BACKOFF_MS),
+                state: serializeResolverState(retryState),
+            })
             return
         }
 
+        // Hard cap: truncate the crossing page so totalEnqueued never exceeds
+        // maxAudienceSize. Without this, a page can push us over the cap by
+        // up to one full page's worth of children before the next dequeue
+        // notices and stops.
+        const remainingBudget = Math.max(0, state.maxAudienceSize - state.totalEnqueued)
+        const eligibleUsers = page.users_affected.slice(0, remainingBudget)
+        const pageTruncated = eligibleUsers.length < page.users_affected.length
+
         const defaultVariables = mergeDefaultVariables(hogFlow.variables, state.variables)
-        const children: CyclotronV2JobInit[] = page.users_affected.map((personId) =>
+        const children: CyclotronV2JobInit[] = eligibleUsers.map((personId) =>
             invocationToV2JobInit(
                 buildHogFlowInvocation({
                     siteUrl: this.config.SITE_URL,
                     parentRunId: state.batchJobId,
-                    teamId: team.id,
+                    team,
                     hogFlowId: hogFlow.id,
                     personId,
                     defaultVariables,
@@ -197,8 +230,9 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             cursor: page.cursor,
             totalEnqueued: state.totalEnqueued + children.length,
             pagesProcessed: state.pagesProcessed + 1,
+            attempts: 0, // reset on successful page commit
         }
-        if (!page.has_more) {
+        if (!page.has_more || pageTruncated) {
             newState.pendingTerminal = 'completed'
         }
 
@@ -211,6 +245,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             },
         })
 
+        if (pageTruncated) {
+            this.emitTruncationLog(newState)
+        }
+
         counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'success' }).inc()
 
         logger.info(
@@ -219,16 +257,14 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         )
     }
 
-    private async transitionToTruncatedTerminal(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
+    private emitTruncationLog(state: BatchResolverState): void {
         counterBatchHogFlowAudienceTruncated.labels({ hog_flow_id: state.hogFlowId }).inc()
-
-        const message = `Audience exceeded the max cap of ${state.maxAudienceSize}, ${state.totalEnqueued} persons enqueued; the remainder did not receive this workflow.`
+        const message = `Audience reached the max cap of ${state.maxAudienceSize}, ${state.totalEnqueued} persons enqueued; the remainder did not receive this workflow.`
         logger.warn('⚠️', `${this.name} - audience truncated`, {
             batchJobId: state.batchJobId,
             totalEnqueued: state.totalEnqueued,
             maxAudienceSize: state.maxAudienceSize,
         })
-
         this.hogFunctionMonitoringService.queueLogs(
             [
                 {
@@ -241,10 +277,14 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             ],
             'hog_flow'
         )
+    }
 
+    private async transitionToTruncatedTerminal(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
+        this.emitTruncationLog(state)
         const newState: BatchResolverState = {
             ...state,
             pendingTerminal: 'completed',
+            attempts: 0, // give the terminal write a fresh retry budget
         }
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
     }
@@ -270,6 +310,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const newState: BatchResolverState = {
             ...state,
             pendingTerminal: 'failed',
+            attempts: 0, // give the terminal write a fresh retry budget
         }
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
     }
@@ -283,13 +324,32 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         try {
             await this.putBatchJobStatus(state.teamId, state.batchJobId, state.pendingTerminal)
         } catch (err) {
+            counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'terminal_write_failure' }).inc()
+            const nextAttempts = state.attempts + 1
+            if (nextAttempts >= MAX_RESOLVER_ATTEMPTS) {
+                logger.error(
+                    '🔴',
+                    `${this.name} - terminal status write failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts; failing job`,
+                    {
+                        batchJobId: state.batchJobId,
+                        pendingTerminal: state.pendingTerminal,
+                        error: serializeError(err),
+                    }
+                )
+                await job.fail()
+                return
+            }
             logger.warn('⚠️', `${this.name} - terminal status write failed, will retry`, {
                 batchJobId: state.batchJobId,
                 pendingTerminal: state.pendingTerminal,
+                attempts: nextAttempts,
                 error: serializeError(err),
             })
-            counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'terminal_write_failure' }).inc()
-            await job.reschedule({ scheduledAt: new Date(Date.now() + RETRY_BACKOFF_MS) })
+            const retryState: BatchResolverState = { ...state, attempts: nextAttempts }
+            await job.reschedule({
+                scheduledAt: new Date(Date.now() + RETRY_BACKOFF_MS),
+                state: serializeResolverState(retryState),
+            })
             return
         }
 
@@ -347,13 +407,13 @@ function mergeDefaultVariables(
 function buildHogFlowInvocation(params: {
     siteUrl: string
     parentRunId: string
-    teamId: number
+    team: Team
     hogFlowId: string
     personId: string
     defaultVariables: Record<string, unknown>
 }): CyclotronJobInvocation {
     const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
-        team: { id: params.teamId } as any,
+        team: params.team,
         personId: params.personId,
         siteUrl: params.siteUrl,
     })
@@ -368,7 +428,7 @@ function buildHogFlowInvocation(params: {
             actionStepCount: 0,
             variables: params.defaultVariables,
         } as any,
-        teamId: params.teamId,
+        teamId: params.team.id,
         functionId: params.hogFlowId,
         parentRunId: params.parentRunId,
         person: invocationGlobals.person as any,

@@ -127,6 +127,12 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
  * (reschedule for next page / ack / fail). Mirrors the SQL shapes used by
  * the wrapper's `ack`, `fail`, and `reschedule` methods, but runs in a
  * caller-provided transaction so it can be atomic with sibling inserts.
+ *
+ * Throws if the UPDATE doesn't match exactly one row. The `WHERE lock_id`
+ * filter can match zero rows if the janitor reassigns the lock between
+ * dequeue and commit (stall-recovery race) — without this guard the child
+ * inserts would commit while the self UPDATE silently no-ops, leaving the
+ * cursor un-advanced for the new lock-holder to replay.
  */
 async function updateSelfInTx(
     client: PoolClient,
@@ -135,23 +141,25 @@ async function updateSelfInTx(
     disposition: CyclotronV2BulkCreateAndCheckInInput['selfDisposition']
 ): Promise<void> {
     if (disposition.kind === 'ack') {
-        await client.query(
+        const result = await client.query(
             `UPDATE cyclotron_jobs
              SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
                  last_transition = NOW(), transition_count = transition_count + 1
              WHERE id = $1 AND lock_id = $2`,
             [jobId, lockId]
         )
+        assertSelfRowAffected(result.rowCount, jobId, 'ack')
         return
     }
     if (disposition.kind === 'fail') {
-        await client.query(
+        const result = await client.query(
             `UPDATE cyclotron_jobs
              SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
                  last_transition = NOW(), transition_count = transition_count + 1
              WHERE id = $1 AND lock_id = $2`,
             [jobId, lockId]
         )
+        assertSelfRowAffected(result.rowCount, jobId, 'fail')
         return
     }
     // reschedule
@@ -169,11 +177,20 @@ async function updateSelfInTx(
         params.push(disposition.state ?? null)
         setClauses.push(`state = $${params.length}`)
     }
-    await client.query(
+    const result = await client.query(
         `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}
          WHERE id = $1 AND lock_id = $2`,
         params
     )
+    assertSelfRowAffected(result.rowCount, jobId, 'reschedule')
+}
+
+function assertSelfRowAffected(rowCount: number | null, jobId: string, kind: string): void {
+    if (rowCount !== 1) {
+        throw new Error(
+            `bulkCreateAndCheckIn(${kind}) self UPDATE matched ${rowCount} rows for job ${jobId} — lock_id may have been reassigned`
+        )
+    }
 }
 
 export class CyclotronV2Worker {
