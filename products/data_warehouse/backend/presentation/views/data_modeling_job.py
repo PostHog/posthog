@@ -29,9 +29,9 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class DataModelingJobPagination(pagination.CursorPagination):
-    ordering = "-created_at"
-    page_size_query_param = "limit"
+class DataModelingJobPagination(pagination.LimitOffsetPagination):
+    default_limit = 10
+    max_limit = 100
 
 
 class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
@@ -72,7 +72,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
         qs = queryset.filter(team_id=self.team_id)
         if not self._is_duckgres_shadow_enabled():
             qs = qs.exclude(engine=DataModelingJobEngine.DUCKGRES)
-        return qs
+        return qs.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):

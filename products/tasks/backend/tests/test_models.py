@@ -1363,6 +1363,43 @@ class TestSandboxEnvironment(TestCase):
 
     @parameterized.expand(
         [
+            ("NODE_OPTIONS", True),
+            ("NODE_REPL_EXTERNAL_MODULE", True),
+            ("LD_PRELOAD", True),
+            ("LD_LIBRARY_PATH", True),
+            ("DYLD_INSERT_LIBRARIES", True),
+            ("BASH_ENV", True),
+            ("GIT_SSH_COMMAND", True),
+            ("GIT_CONFIG_KEY_0", True),
+            ("GIT_CONFIG_VALUE_0", True),
+            ("NODE_ENV", False),
+            ("node_options", False),
+            ("MY_API_KEY", False),
+            ("LDAP_URL", False),
+            ("GITHUB_ACTOR", False),
+        ]
+    )
+    def test_is_blocked_sandbox_env_key(self, key, expected_blocked):
+        from products.tasks.backend.constants import is_blocked_sandbox_env_key
+
+        self.assertEqual(is_blocked_sandbox_env_key(key), expected_blocked)
+
+    def test_filter_user_sandbox_env_vars_drops_reserved_and_blocked(self):
+        from products.tasks.backend.constants import filter_user_sandbox_env_vars
+
+        safe, skipped = filter_user_sandbox_env_vars(
+            {
+                "SAFE_VAR": "ok",
+                "NODE_OPTIONS": "--import=evil",
+                "LD_PRELOAD": "/tmp/evil.so",
+                "GITHUB_TOKEN": "stolen",
+            }
+        )
+        self.assertEqual(safe, {"SAFE_VAR": "ok"})
+        self.assertEqual(sorted(skipped), ["GITHUB_TOKEN", "LD_PRELOAD", "NODE_OPTIONS"])
+
+    @parameterized.expand(
+        [
             (SandboxEnvironment.NetworkAccessLevel.FULL, [], False, []),
             (SandboxEnvironment.NetworkAccessLevel.TRUSTED, [], False, ["github.com", "api.github.com"]),
             (SandboxEnvironment.NetworkAccessLevel.CUSTOM, ["custom.com"], False, ["custom.com"]),

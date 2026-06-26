@@ -3,7 +3,7 @@ import React from 'react'
 import type { BarChartPrivate } from '../../core/bar-layout'
 import { useChartLayout } from '../../core/chart-context'
 import type { BarScaleSet, StackedBand } from '../../core/scales'
-import type { Series, TooltipContext } from '../../core/types'
+import type { Series, TooltipConfig, TooltipContext } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
 import {
     type BarLayout,
@@ -22,6 +22,7 @@ export interface BarTooltipProps<Meta> {
     topStackedKeyByAxis: Map<string, string>
     layout: BarLayout
     isHorizontal: boolean
+    tooltipConfig?: TooltipConfig
 }
 
 export function BarTooltip<Meta>({
@@ -32,6 +33,7 @@ export function BarTooltip<Meta>({
     topStackedKeyByAxis,
     layout,
     isHorizontal,
+    tooltipConfig,
 }: BarTooltipProps<Meta>): React.ReactElement | null {
     const { scales, labels } = useChartLayout()
     const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
@@ -49,9 +51,9 @@ export function BarTooltip<Meta>({
         if (!narrowed) {
             return null
         }
-        return <>{userTooltip ? userTooltip(narrowed) : DefaultTooltip(narrowed)}</>
+        return <>{userTooltip ? userTooltip(narrowed) : <DefaultTooltip {...narrowed} {...tooltipConfig} />}</>
     }
-    return <>{userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx)}</>
+    return <>{userTooltip ? userTooltip(ctx) : <DefaultTooltip {...ctx} {...tooltipConfig} />}</>
 }
 
 /** Moves the cursor-resolved segment to seriesData[0] and (for sparse-stacked overlap)

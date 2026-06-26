@@ -27,6 +27,7 @@ from posthog.temporal.experiments.utils import (
     get_metric,
 )
 
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -181,7 +182,8 @@ def _calculate_experiment_regular_metric_sync(
         )
 
     query_from_utc = experiment.start_date
-    query_to_utc = datetime.now(ZoneInfo("UTC"))
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    query_to_utc = experiment_window_end(experiment, now_utc)
 
     try:
         experiment_query = ExperimentQuery(
@@ -192,6 +194,7 @@ def _calculate_experiment_regular_metric_sync(
         query_runner = ExperimentQueryRunner(
             query=experiment_query,
             team=experiment.team,
+            as_of=query_to_utc,
             workload=Workload.OFFLINE,
             # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
             # warehouse HogQL access control is enforced.
@@ -451,7 +454,8 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     query_from_utc = experiment.start_date
-    query_to_utc = datetime.now(ZoneInfo("UTC"))
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    query_to_utc = experiment_window_end(experiment, now_utc)
 
     try:
         experiment_query = ExperimentQuery(
@@ -462,6 +466,7 @@ def _calculate_experiment_saved_metric_sync(
         query_runner = ExperimentQueryRunner(
             query=experiment_query,
             team=experiment.team,
+            as_of=query_to_utc,
             workload=Workload.OFFLINE,
             # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
             # warehouse HogQL access control is enforced.
@@ -625,7 +630,7 @@ def _backfill_experiment_metric_sync(recalculation_id: str) -> dict[str, Any]:
                 query_runner = ExperimentQueryRunner(
                     query=experiment_query,
                     team=experiment.team,
-                    override_end_date=query_to_utc,
+                    as_of=query_to_utc,
                     workload=Workload.OFFLINE,
                     # Scheduled backfill has no request user. Attribute the query to the experiment's creator
                     # so warehouse HogQL access control is enforced.

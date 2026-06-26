@@ -22,6 +22,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
@@ -296,6 +297,51 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert captured["ai_stage"] == "scout"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "resolved, expected_model, expected_runtime_adapter",
+    [
+        (ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="codex"), "@cf/zai-org/glm-5.2", "codex"),
+        (ScoutModel(model=None, runtime_adapter=None), None, None),
+    ],
+)
+async def test_run_pins_sandbox_to_resolved_scout_model(
+    ateam, aerrors_skill, resolved, expected_model, expected_runtime_adapter
+):
+    # The `scouts-model-selection` gate resolves an agent-model override (glm-5.2 on the codex
+    # runtime) or the agent-server default (None/None); the runner must hand both straight to the
+    # sandbox via the context — the runtime travels with the model so the agent server can route it.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_model",
+            return_value=resolved,
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert captured["context"].model == expected_model
+    assert captured["context"].runtime_adapter == expected_runtime_adapter
 
 
 @pytest.mark.asyncio
