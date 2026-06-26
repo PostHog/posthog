@@ -3996,6 +3996,58 @@ class TestExternalDataSource(APIBaseTest):
             assert response.status_code == 400
             assert "Stripe credentials lack permissions for Account, Invoice" in response.json()["message"]
 
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_does_not_capture_expected_source_error(self, mock_get_source, mock_capture_exception):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+            BIGQUERY_DATASET_NOT_FOUND_ERROR,
+            BigQueryDatasetNotFoundError,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source import BigQuerySource
+
+        source = BigQuerySource()
+        mock_get_source.return_value = source
+
+        with (
+            patch.object(source, "validate_config", return_value=(True, [])),
+            patch.object(source, "parse_config", return_value=None),
+            patch.object(source, "validate_credentials", return_value=(True, None)),
+            patch.object(
+                source, "get_schemas", side_effect=BigQueryDatasetNotFoundError(BIGQUERY_DATASET_NOT_FOUND_ERROR)
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={"source_type": "BigQuery"},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == BIGQUERY_DATASET_NOT_FOUND_ERROR
+        mock_capture_exception.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_captures_unexpected_source_error(self, mock_get_source, mock_capture_exception):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source import BigQuerySource
+
+        source = BigQuerySource()
+        mock_get_source.return_value = source
+        error = RuntimeError("schema discovery exploded")
+
+        with (
+            patch.object(source, "validate_config", return_value=(True, [])),
+            patch.object(source, "parse_config", return_value=None),
+            patch.object(source, "validate_credentials", return_value=(True, None)),
+            patch.object(source, "get_schemas", side_effect=error),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={"source_type": "BigQuery"},
+            )
+
+        assert response.status_code == 400
+        mock_capture_exception.assert_called_once_with(error, {"source_type": "BigQuery", "team_id": self.team.pk})
+
     def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
         """Schema-selection step calls get_endpoint_permissions and merges the per-endpoint
         result into each schema row so the UI can disable tables the credentials can't reach."""
