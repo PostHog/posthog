@@ -380,11 +380,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
-        /** Record the grid slot (row + column) where the next added tile should be inserted (inline "+" affordance). */
-        setPendingInsertionY: (pendingInsertionY: number | null, pendingInsertionX: number = 0) => ({
-            pendingInsertionY,
-            pendingInsertionX,
-        }),
+        /** Record the grid row where the next added tile should be inserted (inline "+" affordance). */
+        setPendingInsertionY: (pendingInsertionY: number | null) => ({ pendingInsertionY }),
         /** Reposition a freshly-added tile to the pending insertion row, pushing tiles below it down. */
         applyPendingInsertion: true,
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
@@ -1125,13 +1122,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // stale target that later hijacks an unrelated tile. Safe because the insight flow never
                 // relies on the target surviving the modal — it appends after returning from the editor.
                 [addInsightToDashboardLogic.actionTypes.hideAddInsightToDashboardModal]: () => null,
-            },
-        ],
-        // Column for the pending insert; cleared alongside pendingInsertionY (which gates whether it's read).
-        pendingInsertionX: [
-            0 as number,
-            {
-                setPendingInsertionY: (_, { pendingInsertionX }) => pendingInsertionX,
             },
         ],
         urlSearchParamsAtEditModeEntry: [
@@ -2146,8 +2136,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         applyPendingInsertion: async () => {
             const targetY = values.pendingInsertionY
-            // Capture before setPendingInsertionY(null) below resets it to the default column.
-            const targetX = values.pendingInsertionX
             const previousTileIds = cache.tileIdsBeforeInsertion as Set<number> | undefined
             if (targetY == null || !previousTileIds) {
                 return
@@ -2170,14 +2158,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const w = newTileLayoutEntry?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
             const h = newTileLayoutEntry?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
 
-            const { newTileLayout, tilesToUpdate } = calculateInsertionLayout(
-                smLayout,
-                newTile.id,
-                targetY,
-                targetX,
-                w,
-                h
-            )
+            const { newTileLayout, tilesToUpdate } = calculateInsertionLayout(smLayout, newTile.id, targetY, w, h)
 
             // Apply optimistically so the grid reflows immediately.
             const shiftById = new Map(tilesToUpdate.map((t) => [t.id, t.layouts.sm]))
@@ -2731,7 +2712,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setPendingInsertionY(null)
                 }
                 const insertAtY = widgets.length === 1 ? values.pendingInsertionY : null
-                const insertAtX = values.pendingInsertionX
                 const widgetsPayload = widgets.map(({ widgetType, config }) => {
                     if (insertAtY == null) {
                         return { widget_type: widgetType, config }
@@ -2742,7 +2722,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             : undefined
                     const w = defaultLayout?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
                     const h = defaultLayout?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
-                    return { widget_type: widgetType, config, layouts: { sm: { x: insertAtX, y: insertAtY, w, h } } }
+                    return { widget_type: widgetType, config, layouts: { sm: { x: 0, y: insertAtY, w, h } } }
                 })
 
                 const response = await api.create(

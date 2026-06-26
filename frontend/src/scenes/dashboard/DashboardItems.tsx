@@ -209,7 +209,7 @@ export function DashboardItems(): JSX.Element {
     const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
 
     const getInsertMenuItems = useCallback(
-        (targetX: number, targetY: number): LemonMenuItem[] =>
+        (targetY: number): LemonMenuItem[] =>
             dashboard
                 ? getAddTileMenuItems({
                       dashboardId: dashboard.id,
@@ -217,7 +217,7 @@ export function DashboardItems(): JSX.Element {
                       showAddInsightToDashboardModal,
                       push,
                       setAddWidgetModalOpen,
-                      onBeforeSelect: () => setPendingInsertionY(targetY, targetX),
+                      onBeforeSelect: () => setPendingInsertionY(targetY),
                   })
                 : [],
         [
@@ -640,9 +640,7 @@ export function DashboardItems(): JSX.Element {
                         <InsertTileOverlay
                             layout={layouts['sm']}
                             gridWidth={gridWidth}
-                            cols={BREAKPOINT_COLUMN_COUNTS.sm}
                             rowHeight={rowHeight}
-                            marginX={margin[0]}
                             marginY={margin[1]}
                             canEditDashboard={canEditDashboard}
                             isMobileView={isMobileView}
