@@ -52,7 +52,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'isDurationMode',
             ],
             tracingFiltersLogic(),
-            ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs'],
+            ['filters', 'hasSpanFilters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs'],
         ],
         actions: [
             tracingDataLogic(),
@@ -379,7 +379,10 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             if (values.filters.compareMode) {
                 searchParams.compare = 'true'
             }
-            if (values.filters.hideNonMatchingSpans !== DEFAULT_HIDE_NON_MATCHING_SPANS) {
+            // Only serialize the toggle while a span filter is active — otherwise a stale `true` (set,
+            // then filters cleared) would travel in shared links and silently flip the recipient into
+            // root-only mode the moment they add a filter.
+            if (values.hasSpanFilters && values.filters.hideNonMatchingSpans !== DEFAULT_HIDE_NON_MATCHING_SPANS) {
                 searchParams.hideNonMatching = String(values.filters.hideNonMatchingSpans)
             }
 

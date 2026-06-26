@@ -86,7 +86,15 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     connect(() => ({
         values: [
             tracingFiltersLogic(),
-            ['filters', 'orderBy', 'hasSpanFilters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs'],
+            [
+                'filters',
+                'orderBy',
+                'hasSpanFilters',
+                'hideNonMatchingSpans',
+                'utcDateRange',
+                'currentWindowMs',
+                'previousWindowMs',
+            ],
         ],
     })),
 
@@ -592,9 +600,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         // a span filter we stay root-only: every span matches anyway, and the root-only subquery is
         // cheaper than grouping across all spans.
         rootSpansOnly: [
-            (s) => [s.hasSpanFilters, s.filters],
-            (hasSpanFilters: boolean, filters: TracingFilters): boolean =>
-                !hasSpanFilters || filters.hideNonMatchingSpans,
+            (s) => [s.hasSpanFilters, s.hideNonMatchingSpans],
+            (hasSpanFilters: boolean, hideNonMatchingSpans: boolean): boolean =>
+                !hasSpanFilters || hideNonMatchingSpans,
         ],
         // Memoized separately so visibleRowDurationRange (recomputed on every scroll tick) doesn't
         // re-allocate the durations array — this only changes when the loaded spans do.
