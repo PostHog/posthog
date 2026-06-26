@@ -72,8 +72,7 @@ describe('AgentSpecSchema', () => {
 
     describe('models.manual model id format', () => {
         // ModelIdSchema enforces `<provider>/<model-id>` so a bare id doesn't
-        // freeze fine and then 400 on the very first session. Mirrored by
-        // the Python schema in backend/logic/spec_schema.py.
+        // freeze fine and then 400 on the very first session.
         it('rejects a bare model id (no provider prefix)', () => {
             expect(() =>
                 AgentSpecSchema.parse({
@@ -607,6 +606,76 @@ describe('AgentSpecSchema', () => {
             const m = spec.mcps[0]
             expect(m.tools).toBeUndefined()
             expect((m as unknown as { allowlist?: string[] }).allowlist).toBeUndefined()
+        })
+    })
+
+    describe('mcps[] per-agent tool-permission model', () => {
+        it('parses a connection-backed MCP (shared credential via mcp_store install id)', () => {
+            const spec = AgentSpecSchema.parse({
+                mcps: [
+                    {
+                        id: 'incident',
+                        url: 'https://mcp.incident.io/mcp',
+                        connection: '019e7fb7-f4c0-75e2-9055-7c29a5cbb999',
+                        tools: ['list-incidents', { name: 'create-incident', requires_approval: true }],
+                    },
+                ],
+            })
+            expect(spec.mcps[0].connection).toBe('019e7fb7-f4c0-75e2-9055-7c29a5cbb999')
+        })
+
+        it('parses a connection-wide default level, per-tool level overrides, and an entry approval_policy', () => {
+            const spec = AgentSpecSchema.parse({
+                mcps: [
+                    {
+                        id: 'incident',
+                        url: 'https://mcp.incident.io/mcp',
+                        connection: '019e7fb7-f4c0-75e2-9055-7c29a5cbb999',
+                        default_tool_approval: 'approve',
+                        approval_policy: { type: 'agent', ttl_ms: 900_000 },
+                        tools: [
+                            { name: 'list-incidents', level: 'allow' },
+                            { name: 'delete-incident', level: 'deny' },
+                        ],
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            expect(m.default_tool_approval).toBe('approve')
+            expect(m.approval_policy?.type).toBe('agent')
+            expect(m.approval_policy?.ttl_ms).toBe(900_000)
+            const allow = m.tools?.[0]
+            const deny = m.tools?.[1]
+            if (typeof allow === 'string' || allow === undefined || typeof deny === 'string' || deny === undefined) {
+                throw new Error('expected object-form tool entries')
+            }
+            expect(allow.level).toBe('allow')
+            expect(deny.level).toBe('deny')
+        })
+
+        it('leaves default_tool_approval undefined under the legacy allowlist model', () => {
+            const spec = AgentSpecSchema.parse({
+                mcps: [{ id: 'linear', url: 'https://mcp.linear.app/sse', tools: ['create-issue'] }],
+            })
+            expect(spec.mcps[0].default_tool_approval).toBeUndefined()
+        })
+
+        it.each([
+            {
+                label: 'a bad connection-wide default_tool_approval',
+                mcp: { id: 'incident', url: 'https://mcp.incident.io/mcp', default_tool_approval: 'ask' },
+            },
+            {
+                label: 'a bad per-tool level override',
+                mcp: {
+                    id: 'incident',
+                    url: 'https://mcp.incident.io/mcp',
+                    default_tool_approval: 'allow',
+                    tools: [{ name: 'x', level: 'maybe' }],
+                },
+            },
+        ])('rejects $label', ({ mcp }) => {
+            expect(() => AgentSpecSchema.parse({ mcps: [mcp] })).toThrow()
         })
     })
 

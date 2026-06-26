@@ -26,6 +26,7 @@ import type {
     AgentApplicationsSessionLogsParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsRetrieveParams,
+    AgentApplicationsSpecSchemaParams,
     AgentApplicationsStatsParams,
     AgentApprovalsDecideResponseApi,
     AgentFleetApprovalsListParams,
@@ -1980,6 +1981,36 @@ export const agentApplicationsModels = async (
     options?: RequestInit
 ): Promise<AgentApplicationApi> => {
     return apiMutator<AgentApplicationApi>(getAgentApplicationsModelsUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsSpecSchemaUrl = (projectId: string, params?: AgentApplicationsSpecSchemaParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/spec_schema/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/spec_schema/`
+}
+
+/**
+ * The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same source the runner validates against (fields with a default are optional on write), so read it BEFORE composing a spec for create / revisions-spec-update instead of guessing the shape. Pass `section` to fetch just one part.
+ */
+export const agentApplicationsSpecSchema = async (
+    projectId: string,
+    params?: AgentApplicationsSpecSchemaParams,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsSpecSchemaUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
