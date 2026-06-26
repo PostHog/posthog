@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -7,8 +6,6 @@ from django.core.management.base import CommandError
 from posthog.management.commands.background_delete_model import Command
 from posthog.models.person.person import Person
 from posthog.test.persons import create_person
-
-pytestmark = pytest.mark.persons_db_direct
 
 
 class TestBackgroundDeleteModel(BaseTest):

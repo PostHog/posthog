@@ -23,8 +23,6 @@ from posthog.temporal.backfill_group_type_created_at.types import (
 from posthog.test.persons import create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-pytestmark = pytest.mark.persons_db_direct
-
 CREATED_AT = datetime(2026, 5, 31, 22, 33, tzinfo=UTC)
 EARLIER = datetime(2026, 5, 12, 0, 0, tzinfo=UTC)
 LATER = datetime(2026, 6, 6, 0, 0, tzinfo=UTC)

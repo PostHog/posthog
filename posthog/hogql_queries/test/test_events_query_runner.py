@@ -27,8 +27,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Element, Organization, OrganizationMembership, PropertyDefinition, Team
-from posthog.models.person.util import get_person_by_distinct_id
+from posthog.models import Element, Organization, OrganizationMembership, Person, PropertyDefinition, Team
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -139,9 +138,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["id1", "id2"],
         )
         flush_persons_and_events()
-        person = get_person_by_distinct_id(self.team.pk, "id1")
-        assert person is not None
-        query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk), orderBy=[])
+        person = Person.objects.filter(team_id=self.team.pk).first()
+        query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk), orderBy=[])  # type: ignore
 
         # matching team
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()

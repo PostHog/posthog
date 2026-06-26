@@ -8,11 +8,11 @@ from posthog.api.project import ProjectViewSet
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.person.util import get_person_by_uuid
+from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.persons import create_person, delete_person
+from posthog.test.persons import create_person
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
@@ -447,16 +447,16 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
         # Create a Person
         person = create_person(team=self.team)
+        person_id = person.id
 
         # Delete the team directly (not via API, bypassing manual delete)
         self.team.delete()
 
-        # Person should still exist (not CASCADE deleted). Read by the person's own
-        # team_id — self.team.pk is None after delete().
-        self.assertIsNotNone(get_person_by_uuid(person.team_id, str(person.uuid)))
+        # Person should still exist (not CASCADE deleted)
+        self.assertTrue(Person.objects.filter(id=person_id).exists())
 
-        # Clean up orphaned person
-        delete_person(person)
+        # Clean up orphaned person using raw delete to bypass signals
+        Person.objects.filter(id=person_id)._raw_delete(Person.objects.db)
 
     def test_complete_product_onboarding_requires_product_type(self):
         response = self.client.patch(

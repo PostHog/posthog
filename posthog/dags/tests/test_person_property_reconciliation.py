@@ -39,10 +39,6 @@ from posthog.dags.person_property_reconciliation import (
     update_person_with_version_check,
 )
 
-# Exercises the persons DB directly (raw reads + ORM person creation), so it must run against the
-# real persons DB rather than the personhog fake.
-pytestmark = pytest.mark.persons_db_direct
-
 
 class TestClickHouseResultParsing:
     """Test that ClickHouse query results are correctly parsed into PersonPropertyDiffs objects."""

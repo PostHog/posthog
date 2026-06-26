@@ -12,7 +12,8 @@ Usage in tests::
             assert len(result) == 1
 
 The fake uses real proto message classes so that converters / serialization
-boundaries are exercised end-to-end.
+boundaries are exercised end-to-end.  The gate is forced ON by default
+(override with ``gate_enabled=False``).
 """
 
 from __future__ import annotations
@@ -91,7 +92,6 @@ class FakePersonHogClient:
         is_user_id: bool | None = None,
         distinct_ids: list[str] | None = None,
         distinct_id_versions: dict[str, int] | None = None,
-        last_seen_at: int = 0,
     ) -> person_pb2.Person:
         person = person_pb2.Person(
             id=person_id,
@@ -101,7 +101,6 @@ class FakePersonHogClient:
             created_at=created_at,
             version=version,
             is_identified=is_identified,
-            last_seen_at=last_seen_at,
         )
         if is_user_id is not None:
             person.is_user_id = is_user_id
@@ -714,11 +713,12 @@ class FakePersonHogClient:
 
 
 @contextmanager
-def fake_personhog_client():
-    """Context manager that patches the personhog client singleton.
+def fake_personhog_client(*, gate_enabled: bool = True):
+    """Context manager that patches the personhog client singleton and gate.
 
-    Yields a ``FakePersonHogClient`` that is pre-seeded as empty. personhog is
-    the sole read path, so patching ``get_personhog_client`` is all that's needed.
+    Yields a ``FakePersonHogClient`` that is pre-seeded as empty.
+    The gate (``use_personhog()``) returns ``gate_enabled`` for
+    every call — no randomness.
 
     Example::
 
@@ -727,41 +727,8 @@ def fake_personhog_client():
             result = some_function_that_uses_personhog(1)
     """
     fake = FakePersonHogClient()
-    with patch("posthog.personhog_client.client.get_personhog_client", return_value=fake):
+    with (
+        patch("posthog.personhog_client.client.get_personhog_client", return_value=fake),
+        patch("posthog.personhog_client.gate.use_personhog", return_value=gate_enabled),
+    ):
         yield fake
-
-
-# ── Global singleton for conftest integration ───────────────────────
-
-_active_fake: FakePersonHogClient | None = None
-
-
-def set_active_fake(fake: FakePersonHogClient | None) -> None:
-    global _active_fake
-    _active_fake = fake
-
-
-def get_active_fake() -> FakePersonHogClient:
-    assert _active_fake is not None, "get_active_fake() called outside activate_personhog_fake() context"
-    return _active_fake
-
-
-@contextmanager
-def activate_personhog_fake():
-    """Activate a FakePersonHogClient for the duration of a test.
-
-    Patches get_personhog_client so all reads route through the fake and blocks
-    persons-DB ORM access so a stray Person.objects.* call fails loudly.  Test
-    helpers in posthog.test.persons seed the fake explicitly when creating data.
-    """
-    from posthog.person_db_router import block_persons_orm, unblock_persons_orm  # noqa: PLC0415
-
-    fake = FakePersonHogClient()
-    set_active_fake(fake)
-    block_persons_orm()
-    with patch("posthog.personhog_client.client.get_personhog_client", return_value=fake):
-        try:
-            yield fake
-        finally:
-            unblock_persons_orm()
-            set_active_fake(None)

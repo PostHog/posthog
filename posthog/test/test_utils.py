@@ -2,7 +2,7 @@ import os
 import json
 import base64
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -20,12 +20,8 @@ from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, Organization, Team, User
+from posthog.models import EventDefinition, GroupTypeMapping, Organization, Team, User
 from posthog.settings.utils import get_from_env
-
-if TYPE_CHECKING:
-    from posthog.models.group_type_mapping import GroupTypeMapping
-
 from posthog.utils import (
     PotentialSecurityProblemException,
     _build_flag_provider,
@@ -855,21 +851,13 @@ class TestFlatten(TestCase):
 
 
 def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping":
-    from posthog.person_db_router import PERSONS_DB_FOR_WRITE, persons_orm_blocked  # noqa: PLC0415
-    from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping  # noqa: PLC0415
+    from posthog.test.persons import create_group_type_mapping  # noqa: PLC0415
 
     instance = create_group_type_mapping(**kwargs)
-    instance.created_at = None
-    # Mirror create_group_type_mapping's own branch: when the fake is off (persons-DB-direct tests),
-    # it wrote a real row whose GroupTypeMapping.save() auto-stamped created_at=now(). Null the
-    # column with a direct UPDATE (which skips that auto-stamp) so the persons DB genuinely holds
-    # a null created_at — making this helper's name true to form for the fake-off path too.
-    if not persons_orm_blocked():
-        from posthog.models.group_type_mapping import GroupTypeMapping  # noqa: PLC0415
+    GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)
+    instance.refresh_from_db()
+    from posthog.test.persons import _seed_group_type_mapping_into_fake  # noqa: PLC0415
 
-        GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(  # nosemgrep: no-direct-persons-db-orm
-            pk=instance.pk
-        ).update(created_at=None)
     _seed_group_type_mapping_into_fake(instance)
     return instance
 
