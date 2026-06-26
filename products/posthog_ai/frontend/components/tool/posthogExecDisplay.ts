@@ -131,7 +131,7 @@ export function getPostHogExecDisplay(toolInput: unknown): PostHogExecDisplay | 
             }
         case 'info':
             return rest.length > 0
-                ? { label: `Read ${rest}`, input: undefined }
+                ? { label: `Read tool ${rest}`, input: undefined }
                 : { label: 'Read tool', input: undefined }
         case 'schema': {
             const { head: subTool, rest: fieldPath } = splitFirstToken(rest)
@@ -140,7 +140,7 @@ export function getPostHogExecDisplay(toolInput: unknown): PostHogExecDisplay | 
             }
             const path = explicitInput ?? (fieldPath.length > 0 ? fieldPath : undefined)
             return {
-                label: path ? `Inspect ${subTool}.${path}` : `Inspect ${subTool} fields`,
+                label: path ? `Inspect tool ${subTool}.${path}` : `Inspect tool ${subTool} fields`,
                 input: undefined,
             }
         }

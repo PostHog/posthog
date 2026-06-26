@@ -52,8 +52,8 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                 <div className="flex-1 min-h-0">
                     <RunSurface.Thread listClassName="pt-4" rowClassName="pr-4" />
                 </div>
-                <RunSurface.Resources />
                 <RunSurface.Composer>
+                    <RunSurface.Resources />
                     <Composer.Root value={draft} onChange={setDraft} onSubmit={submit} loading={isSubmitting}>
                         {queuedMessages.length > 0 && (
                             <Composer.Banner>
@@ -75,7 +75,6 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                         <Composer.Submit data-attr="sandbox-composer-send" />
                     </Composer.Root>
                 </RunSurface.Composer>
-                <RunSurface.ContextUsage />
             </div>
         </RunSurface.Root>
     )

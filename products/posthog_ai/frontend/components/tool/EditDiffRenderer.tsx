@@ -8,6 +8,7 @@ import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { EditorSkeleton } from './EditorSkeleton'
 import { FilePath } from './FilePath'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
 import { ToolActivity } from './ToolActivity'
@@ -59,6 +60,7 @@ function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }
                     language={languageFromPath(path)}
                     theme={isDarkModeOn ? 'vs-dark' : 'vs'}
                     options={DIFF_EDITOR_OPTIONS}
+                    loading={<EditorSkeleton />}
                 />
             ) : (
                 <div className="h-24 rounded border border-border-secondary" />
