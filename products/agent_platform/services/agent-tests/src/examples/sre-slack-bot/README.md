@@ -23,7 +23,7 @@ doesn't exist yet; see [Gaps](#gaps-that-constrain-this-version) below.
 | **DM the bot directly**                    | `slack` trigger, `allow_direct_messages: true` — on-call asks it privately; one rolling session per DM, idle-reset by the sweep                                                                                                                 |
 | Chattable from the agent console           | `chat` trigger — open the agent in the console and use the playground dock                                                                                                                                                                      |
 | Calls the Slack Web API directly           | `@posthog/http-request` + `SLACK_BOT_TOKEN` secret (bring-your-own bot, no integration)                                                                                                                                                         |
-| **Reads + writes incident.io directly**    | `@posthog/http-request` + `INCIDENT_IO_TOKEN` secret — lists active incidents, posts triage updates onto the timeline.                                                                                                                          |
+| **Reads + writes incident.io via its MCP** | `mcps[incident-io]` tools (`incident_list` / `incident_show` / `incident_update` / `incident_create`) — lists active incidents, posts triage updates onto the timeline. See [MCP servers](#mcp-servers--two-auth-models).                       |
 | Queries PostHog event data **and logs**    | `@posthog/query` (HogQL against `events` + the `logs` table — schema documented in `agent.md`)                                                                                                                                                  |
 | Fetches runbook URLs                       | `@posthog/http-request`                                                                                                                                                                                                                         |
 | Remembers prior incident outcomes          | `@posthog/table-query`, `@posthog/table-append` on the `incidents` table (now with optional `incident_io_id` column)                                                                                                                            |
@@ -54,7 +54,7 @@ sre-slack-bot/
 └── skills/
     ├── triage-playbook/SKILL.md           # how to investigate
     ├── slack-thread-protocol/SKILL.md     # how to reply in Slack
-    ├── incident-io-playbook/SKILL.md      # how to query + update incident.io
+    ├── incident-io-playbook/SKILL.md      # how to work incident.io through its MCP
     └── runbook-memory/SKILL.md            # the runbook corpus: taxonomy, quality bar, approval-gated writes
 ```
 
@@ -118,9 +118,11 @@ as a single team/service identity.
 - **Tool permissions are per agent, right here:** a connection-wide default
   (`default_tool_approval`, here `approve` = ask before every call) plus
   per-tool overrides (allow / approve / deny). The runner loads the shared
-  bearer from the connection row and applies these. This realises the
-  "incident.io as a typed runtime MCP" gap that older versions deferred — the
-  raw `@posthog/http-request` + `INCIDENT_IO_TOKEN` path is the v0 fallback.
+  bearer from the connection row and applies these. This is the **only** way
+  the bot touches incident.io — `incident_list` / `incident_show` /
+  `incident_update` / `incident_create` are the typed runtime tools, so e.g.
+  "open new incident" (`incident_create`) can be marked `approve` (or `deny`)
+  right on the agent.
 
 ### `posthog` — principal-level (per-asker identity)
 
@@ -143,10 +145,10 @@ the person asking — querying PostHog as the requesting user.
 
 ## Prerequisites for deploying
 
-Three secrets, two webhooks. The recommended way to set the secrets
-is the **Agent Builder walkthrough** below, which uses the console's
-`set_secret` punch-out so the values never transit the model's
-tool-call history. The list:
+Two secrets, one MCP connection, two webhooks. The recommended way to
+set the secrets is the **Agent Builder walkthrough** below, which uses
+the console's `set_secret` punch-out so the values never transit the
+model's tool-call history. The list:
 
 1. **Your own Slack app** registered at api.slack.com — see "Slack
    setup" below. Two values flow from this:
@@ -155,11 +157,14 @@ Bearer ${SLACK_BOT_TOKEN}` on every Slack Web API call.
    - `SLACK_SIGNING_SECRET` — the signing secret from your Slack
      app's "Basic Information" page. Required by the slack trigger
      to verify event payloads.
-2. **incident.io API token** as `INCIDENT_IO_TOKEN`. Generate from
-   incident.io settings → API keys. Scope to whatever subset of
-   "read incidents" + "write timeline updates" your org allows; the
-   bot does not need permission to declare incidents in the default
-   flow.
+2. **Connect the incident.io MCP once.** Open the `incident-io` MCP in
+   the agent config UI and pick (or "Connect new") a connection — OAuth
+   or an API key. This is an agent-level connection: connect it once and
+   every asker reuses it; the MCP carries its own auth, so there's no
+   per-deploy incident.io secret to set. The shipped spec points at a
+   placeholder connection id, so a fresh project shows _"Referenced
+   connection isn't in this project"_ until you connect. See
+   [MCP servers](#mcp-servers--two-auth-models).
 3. **`spec.triggers[].slack.trusted_workspaces`** updated from the
    placeholder `T0XXXXXXX` to your actual Slack team id.
 4. **A webhook shared secret.** The bundle's `spec.auth.modes`
@@ -185,18 +190,19 @@ fresh PostHog org:
 2. **Ask the Agent Builder to clone this bundle.** Something like:
    _"Build me an SRE triage bot — clone from the sre-slack-bot
    reference, replace the placeholder Slack workspace id with
-   `<T0YOUR>`, and walk me through setting the three secrets."_
+   `<T0YOUR>`, and walk me through setting the secrets."_
    The Agent Builder resolves to `agent-applications-revisions-clone-from-create`
    pointing at this bundle, edits `spec.triggers[].slack.trusted_workspaces`
    via `agent-applications-revisions-partial-update`, and freezes the
    draft.
 3. **Punch out for each secret.** The Agent Builder calls
-   [`set_secret`](../agent-builder/spec.json) three times — once
-   for `SLACK_BOT_TOKEN`, once for `SLACK_SIGNING_SECRET`, once for
-   `INCIDENT_IO_TOKEN`. Each call renders an inline form in the
-   console; paste the value, hit save. Values are encrypted via the
-   `agent-applications-set-env-create` API; the Agent Builder sees only
-   `{ key, action: "set" }`.
+   [`set_secret`](../agent-builder/spec.json) twice — once
+   for `SLACK_BOT_TOKEN`, once for `SLACK_SIGNING_SECRET`. Each call
+   renders an inline form in the console; paste the value, hit save.
+   Values are encrypted via the `agent-applications-set-env-create`
+   API; the Agent Builder sees only `{ key, action: "set" }`. (incident.io
+   has no secret here — connect its MCP once in the config UI, per the
+   prerequisites above.)
 4. **Promote.** The Agent Builder calls
    `agent-applications-revisions-promote-create`. Promote is
    approval-gated (see the Agent Builder's spec) so you approve it
@@ -296,12 +302,12 @@ Each one is a follow-up that would make the bot meaningfully more
 useful:
 
 - ~~**incident.io as a typed runtime MCP** rather than raw HTTP calls.~~
-  **Now wired** — see [MCP servers](#mcp-servers--two-auth-models). The
+  **Done** — see [MCP servers](#mcp-servers--two-auth-models). The
   `incident-io` MCP is an agent-level shared connection with per-tool
-  approval (`default_tool_approval` + overrides), so "open new incident" can
-  be marked `approve` (or `deny`) right on the agent. The raw
-  `@posthog/http-request` + `INCIDENT_IO_TOKEN` path remains the v0 fallback
-  for orgs that haven't connected the MCP yet.
+  approval (`default_tool_approval` + overrides), so "open new incident"
+  (`incident_create`) can be marked `approve` (or `deny`) right on the agent.
+  This is the only path the bot uses to reach incident.io — there is no raw
+  HTTP fallback.
 - **Private-network MCP support (Grafana / k8s).** Public MCPs work
   today via the `kind: 'external'` McpRef;
   Grafana and Kubernetes typically aren't publicly reachable.
