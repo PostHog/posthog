@@ -1488,6 +1488,16 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(oldest["previous_observation_id"], str(mid.id))
         self.assertIsNone(oldest["next_observation_id"])
 
+    def test_retrieve_neighbors_break_ties_on_id_for_same_timestamp(self) -> None:
+        ts = timezone.now()
+        trio = [self._create_observation(self.scanner_a, f"s-tie-{i}") for i in range(3)]
+        ReplayObservation.objects.filter(pk__in=[o.id for o in trio]).update(created_at=ts)
+        # Identical created_at falls back to id ASC (the list's tiebreak), so the middle id's neighbors are its siblings.
+        lo, mid, hi = sorted(trio, key=lambda o: o.id)
+        body = self.client.get(f"{self.session_observations_url}{mid.id}/").json()
+        self.assertEqual(body["previous_observation_id"], str(lo.id))
+        self.assertEqual(body["next_observation_id"], str(hi.id))
+
 
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     @property

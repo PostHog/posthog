@@ -379,9 +379,9 @@ class ReplayObservationFilter(django_filters.FilterSet):
     )
     order_by = _ObservationOrderByFilter(
         help_text=(
-            "Sort observations by created_at, started_at, completed_at, status, result_score, result_verdict, "
-            "or scanner_version. Prefix with `-` for descending. JSONB-backed keys (result_*, scanner_version) "
-            "sort nulls last regardless of direction."
+            "Sort observations by created_at, started_at, completed_at, status, recording_subject_email, "
+            "result_score, result_verdict, or scanner_version. Prefix with `-` for descending. Keys that can be "
+            "null (recording_subject_email, result_*, scanner_version) sort nulls last regardless of direction."
         ),
     )
 
@@ -430,8 +430,9 @@ class ReplayObservationFilter(django_filters.FilterSet):
                 required=False,
                 enum=ordering_enum(_ALL_ORDER_KEYS),
                 description=(
-                    "Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: "
-                    "result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending."
+                    "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
+                    "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
+                    "scanner_version. Prefix with `-` for descending."
                 ),
             )
         ]
@@ -568,9 +569,18 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         siblings = ReplayObservation.objects.filter(
             team_id=observation.team_id, scanner_id=observation.scanner_id
         ).values_list("id", flat=True)
+        # Tie-break on id to mirror the list's (-created_at, id) order, so same-timestamp siblings aren't skipped.
         return {
-            "previous": siblings.filter(created_at__gt=observation.created_at).order_by("created_at").first(),
-            "next": siblings.filter(created_at__lt=observation.created_at).order_by("-created_at").first(),
+            "previous": siblings.filter(
+                Q(created_at__gt=observation.created_at) | Q(created_at=observation.created_at, id__lt=observation.id)
+            )
+            .order_by("created_at", "-id")
+            .first(),
+            "next": siblings.filter(
+                Q(created_at__lt=observation.created_at) | Q(created_at=observation.created_at, id__gt=observation.id)
+            )
+            .order_by("-created_at", "id")
+            .first(),
         }
 
     # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.

@@ -12,10 +12,9 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="replayobservation",
             name="recording_subject_email",
-            field=models.CharField(
+            field=models.TextField(
                 blank=True,
                 help_text="Email of the recording subject at scan time; denormalized so the list can filter and sort on it.",
-                max_length=255,
                 null=True,
             ),
         ),

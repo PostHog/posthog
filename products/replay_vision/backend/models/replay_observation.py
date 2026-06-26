@@ -30,8 +30,7 @@ class ReplayObservation(UUIDModel):
         blank=True,
         help_text="Distinct id of the person in the recorded session (the subject), resolved from session metadata.",
     )
-    recording_subject_email = models.CharField(
-        max_length=255,
+    recording_subject_email = models.TextField(
         null=True,
         blank=True,
         help_text="Email of the recording subject at scan time; denormalized so the list can filter and sort on it.",

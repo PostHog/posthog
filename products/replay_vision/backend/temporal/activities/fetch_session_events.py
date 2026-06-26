@@ -89,7 +89,9 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
             person = get_person_by_distinct_id(payload.team_id, payload.distinct_id)
             email = person.properties.get("email") if person is not None else None
         except Exception:
-            logger.warning("replay_vision.fetch.subject_email_lookup_failed", observation_id=str(observation_id))
+            logger.warning(
+                "replay_vision.fetch.subject_email_lookup_failed", observation_id=str(observation_id), exc_info=True
+            )
     ReplayObservation.objects.filter(pk=observation_id).update(
         distinct_id=payload.distinct_id,
         recording_subject_email=email,
