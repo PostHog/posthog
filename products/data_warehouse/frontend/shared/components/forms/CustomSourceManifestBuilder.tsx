@@ -7,6 +7,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import {
     API_KEY_LOCATIONS,
@@ -90,9 +91,12 @@ export function CustomSourceManifestBuilder({
     const { manifestState, manifestJson, manifestPreviewOpen, docsUrl, sourceName, draftResultLoading, showBuilder } =
         useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    // The AI draft intro is gated separately from the Custom REST source itself; when it's off the
-    // builder is purely manual and the intro screen never appears.
-    const aiBuilderEnabled = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER]
+    const { currentOrganization } = useValues(organizationLogic)
+    // The AI draft intro needs both the feature flag and the org's AI-data-processing consent — the
+    // backend rejects drafting without consent, so skip straight to the manual builder when it's off.
+    const aiBuilderEnabled =
+        !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER] &&
+        !!currentOrganization?.is_ai_data_processing_approved
     const {
         updateState,
         updateTable,

@@ -22,6 +22,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 
@@ -699,6 +700,7 @@ export function SourceFormComponent({
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const setSourceConnectionDetailsValue =
         setSourceConnectionDetailsValueOverride ??
         (sourceWizardLogicProps
@@ -721,6 +723,7 @@ export function SourceFormComponent({
     const customAiIntroActive =
         sourceConfig.name === 'Custom' &&
         !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER] &&
+        !!currentOrganization?.is_ai_data_processing_approved &&
         !customManifestShowBuilder
 
     // Default showDescription to same as showPrefix for backward compatibility
