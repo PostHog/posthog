@@ -500,6 +500,11 @@ jobs:
                   sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
 
                   python manage.py migrate_clickhouse 2>&1
+
+                  # Person/group reads go through personhog (no ORM fallback), so the replica
+                  # and router must be running before setup_dev creates demo persons.
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
+
                   python manage.py setup_dev
 
             - name: Source celery queues
