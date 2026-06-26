@@ -1699,7 +1699,6 @@ class ExperimentService:
         completed_metadata = experiment.get_analytics_metadata()
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
         completed_metadata["parameters"] = experiment.parameters
-        completed_metadata["saved_metrics_count"] = experiment.saved_metrics.count()
         completed_metadata["stats_method"] = (experiment.stats_config or {}).get("method", "bayesian")
         if experiment.start_date and experiment.end_date:
             completed_metadata["duration"] = int((experiment.end_date - experiment.start_date).total_seconds())
