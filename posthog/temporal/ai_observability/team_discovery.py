@@ -109,6 +109,30 @@ def _get_ai_observability_workflow_config() -> AIObservabilityWorkflowConfig:
         )
 
 
+def get_min_traces_override(team_id: int) -> int | None:
+    """Per-team override for the clustering minimum-item threshold, from the flag payload.
+
+    Lets low-volume teams (e.g. staging projects) opt into clustering below the global
+    minimum. Returns None when the team has no override, so callers keep the default.
+    """
+    try:
+        payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+            FEATURE_FLAG_KEY, "internal_llma_team_discovery"
+        )
+        if not isinstance(payload, dict):
+            return None
+        overrides = payload.get("min_traces_overrides", {})
+        if not isinstance(overrides, dict):
+            return None
+        override = overrides.get(str(team_id))
+        if not isinstance(override, int) or isinstance(override, bool) or override <= 0:
+            return None
+        return override
+    except Exception:
+        logger.warning("Failed to read min_traces override from feature flag", exc_info=True)
+        return None
+
+
 # Activity timeout for team discovery. Must exceed the underlying ClickHouse
 # query's max_execution_time (5 min in CH_AI_OBSERVABILITY_SETTINGS) plus retry
 # overhead so the activity doesn't get killed before the fallback path runs.

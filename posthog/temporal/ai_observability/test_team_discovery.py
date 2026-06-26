@@ -12,6 +12,7 @@ from posthog.temporal.ai_observability.team_discovery import (
     DEFAULT_SAMPLE_PERCENTAGE,
     TeamDiscoveryInput,
     _get_ai_observability_workflow_config,
+    get_min_traces_override,
     get_team_ids_for_ai_observability,
 )
 
@@ -122,6 +123,34 @@ class TestGetLlmaWorkflowConfig:
 
         assert config.sample_percentage == 1.0
         assert isinstance(config.sample_percentage, float)
+
+
+class TestGetMinTracesOverride:
+    @parameterized.expand(
+        [
+            ("no_payload", None, None),
+            ("non_dict_payload", "nope", None),
+            ("no_overrides_key", {"guaranteed_team_ids": [1]}, None),
+            ("overrides_not_dict", {"min_traces_overrides": [1, 2]}, None),
+            ("team_present", {"min_traces_overrides": {"370629": 20}}, 20),
+            ("team_absent", {"min_traces_overrides": {"111": 20}}, None),
+            ("zero_value", {"min_traces_overrides": {"370629": 0}}, None),
+            ("negative_value", {"min_traces_overrides": {"370629": -5}}, None),
+            ("bool_value", {"min_traces_overrides": {"370629": True}}, None),
+            ("string_value", {"min_traces_overrides": {"370629": "20"}}, None),
+        ]
+    )
+    @patch(FF_PAYLOAD_PATH)
+    def test_override_resolution(self, _name, payload, expected, mock_ff):
+        mock_ff.return_value = payload
+
+        assert get_min_traces_override(370629) == expected
+
+    @patch(FF_PAYLOAD_PATH)
+    def test_exception_returns_none(self, mock_ff):
+        mock_ff.side_effect = Exception("network error")
+
+        assert get_min_traces_override(370629) is None
 
 
 @patch(FF_PAYLOAD_PATH, return_value=None)
