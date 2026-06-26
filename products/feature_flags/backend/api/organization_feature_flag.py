@@ -528,6 +528,10 @@ class OrganizationFeatureFlagView(
         """
         warnings: list[str] = []
         for group in filters.get("groups", []) or []:
+            # Leave groups without a properties key untouched so we don't change the filter shape
+            # (an injected empty list would otherwise alter every copied flag's serialized filters).
+            if not group.get("properties"):
+                continue
             kept_properties = []
             for prop in group.get("properties", []) or []:
                 if not (isinstance(prop, dict) and prop.get("type") == "flag"):
