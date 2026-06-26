@@ -41294,9 +41294,12 @@ export namespace Schemas {
        *
        * * `claude` - claude
        * * `codex` - codex */
-      runtime_adapter?: RuntimeAdapterEnum;
-      /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
-      model?: string;
+      runtime_adapter?: RuntimeAdapterEnum | null;
+      /**
+         * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+         * @nullable
+         */
+      model?: string | null;
       /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
        *
        * * `low` - low
@@ -41304,7 +41307,7 @@ export namespace Schemas {
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max */
-      reasoning_effort?: ReasoningEffortEnum;
+      reasoning_effort?: ReasoningEffortEnum | null;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -51538,9 +51541,12 @@ export namespace Schemas {
        *
        * * `claude` - claude
        * * `codex` - codex */
-      runtime_adapter?: RuntimeAdapterEnum;
-      /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
-      model?: string;
+      runtime_adapter?: RuntimeAdapterEnum | null;
+      /**
+         * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+         * @nullable
+         */
+      model?: string | null;
       /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
        *
        * * `low` - low
@@ -51548,7 +51554,7 @@ export namespace Schemas {
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max */
-      reasoning_effort?: ReasoningEffortEnum;
+      reasoning_effort?: ReasoningEffortEnum | null;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
@@ -52475,9 +52481,12 @@ export namespace Schemas {
        *
        * * `claude` - claude
        * * `codex` - codex */
-      runtime_adapter?: RuntimeAdapterEnum;
-      /** LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run. */
-      model?: string;
+      runtime_adapter?: RuntimeAdapterEnum | null;
+      /**
+         * LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.
+         * @nullable
+         */
+      model?: string | null;
       /** Reasoning effort to warm the sandbox on for models that expose an effort control.
        *
        * * `low` - low
@@ -52485,7 +52494,7 @@ export namespace Schemas {
        * * `high` - high
        * * `xhigh` - xhigh
        * * `max` - max */
-      reasoning_effort?: ReasoningEffortEnum;
+      reasoning_effort?: ReasoningEffortEnum | null;
     }
 
     /**
