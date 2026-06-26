@@ -37,6 +37,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         appliedBranch,
         sourceId,
         fleetSummary,
+        fleetTruncated,
     } = useValues(engineeringAnalyticsLogic)
     const { setWorkflowDateRange, setBranchFilter, applyBranchFilter, refresh } = useActions(engineeringAnalyticsLogic)
 
@@ -88,7 +89,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     </LemonButton>
                 ))}
             </div>
-            {workflowHealth.length > 0 && <WorkflowsHealthHeader summary={fleetSummary} />}
+            {workflowHealth.length > 0 && <WorkflowsHealthHeader summary={fleetSummary} truncated={fleetTruncated} />}
             <WorkflowHealthTable
                 rows={workflowHealth}
                 loading={workflowHealthLoading}

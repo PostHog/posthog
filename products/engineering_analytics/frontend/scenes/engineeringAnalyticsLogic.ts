@@ -23,6 +23,10 @@ import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicT
 // in copy when hit so a truncated list is never mistaken for the whole picture.
 export const PR_TABLE_LIMIT = 1000
 
+// The workflow-health endpoint returns the top workflows by run count (`workflow_health.py` `_LIMIT`).
+// When hit, the fleet header labels its totals as "top N" so they're never read as the whole fleet.
+export const WORKFLOW_HEALTH_LIMIT = 100
+
 // The endpoints are project-scoped; the generated client takes the id as a string.
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -671,6 +675,12 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             fleetSummary: [
                 (s) => [s.workflowHealth],
                 (workflowHealth): FleetSummary => computeFleetSummary(workflowHealth),
+            ],
+            // The endpoint caps at the top workflows by run count; when hit, the header's totals cover only
+            // those, so it labels them as "top N" rather than fleet-wide.
+            fleetTruncated: [
+                (s) => [s.workflowHealth],
+                (workflowHealth): boolean => workflowHealth.length >= WORKFLOW_HEALTH_LIMIT,
             ],
             filters: [
                 (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search, s.stuckOnly],

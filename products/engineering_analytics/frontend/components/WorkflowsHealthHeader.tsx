@@ -1,3 +1,5 @@
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { cn } from 'lib/utils/css-classes'
 import { percentage } from 'lib/utils/numbers'
 
@@ -7,6 +9,8 @@ import { formatCost } from './runTables'
 
 interface WorkflowsHealthHeaderProps {
     summary: FleetSummary
+    /** Workflow list was capped server-side — totals cover the top N by run count, not the whole fleet. */
+    truncated?: boolean
     className?: string
 }
 
@@ -16,7 +20,7 @@ interface WorkflowsHealthHeaderProps {
  * right now, total runs, and total CI spend. The duration scatter has no place here (no single run
  * list), so this strip is the at-a-glance answer for the whole page.
  */
-export function WorkflowsHealthHeader({ summary, className }: WorkflowsHealthHeaderProps): JSX.Element {
+export function WorkflowsHealthHeader({ summary, truncated, className }: WorkflowsHealthHeaderProps): JSX.Element {
     const meta = STATE_META[summary.state]
     const greenNow = summary.settledWorkflows - summary.failingNow
     const greenRateLabel = summary.settledWorkflows > 0 ? percentage(greenNow / summary.settledWorkflows, 0) : '—'
@@ -48,7 +52,9 @@ export function WorkflowsHealthHeader({ summary, className }: WorkflowsHealthHea
                               ? `${summary.flakyNow} flaky · below 90% pass rate`
                               : summary.settledWorkflows < summary.workflowCount
                                 ? `${summary.settledWorkflows} of ${summary.workflowCount} settled · all green`
-                                : `All ${summary.workflowCount} workflows healthy`}
+                                : truncated
+                                  ? `Top ${summary.workflowCount} by runs · all green`
+                                  : `All ${summary.workflowCount} workflows healthy`}
                 </span>
             </div>
 
@@ -60,7 +66,20 @@ export function WorkflowsHealthHeader({ summary, className }: WorkflowsHealthHea
             <div className="flex-1" />
 
             <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-                <HealthKpi label="Workflows" value={summary.workflowCount.toLocaleString()} />
+                <HealthKpi
+                    label="Workflows"
+                    value={
+                        truncated ? (
+                            <Tooltip
+                                title={`Showing the top ${summary.workflowCount} workflows by run count. Total runs, CI cost, and the verdict cover these — lower-volume workflows beyond the cap aren't included.`}
+                            >
+                                <span>{summary.workflowCount.toLocaleString()}+</span>
+                            </Tooltip>
+                        ) : (
+                            summary.workflowCount.toLocaleString()
+                        )
+                    }
+                />
                 <HealthKpi
                     label="Failing now"
                     value={summary.failingNow.toLocaleString()}
