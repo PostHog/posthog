@@ -23552,6 +23552,10 @@ class MCPHarnessBreakdownQuery(BaseModel):
     ) = None
     response: MCPHarnessBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None
+    toolName: str | None = Field(
+        default=None,
+        description=('When set, scope to a single effective tool\'s new-SDK calls (the per-tool "By harness" table).'),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

@@ -2567,6 +2567,8 @@ export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQu
     dateRange?: DateRange
     properties?: AnyPropertyFilter[]
     filterTestAccounts?: boolean
+    /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
+    toolName?: string
 }
 
 export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
