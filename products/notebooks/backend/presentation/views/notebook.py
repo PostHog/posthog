@@ -29,6 +29,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.streaming import _release_request_connections
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
 from posthog.models import User
@@ -823,6 +824,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 payload_json = renderer.render(payload).decode()
                 yield f"event: error\ndata: {payload_json}\n\n".encode()
 
+        _release_request_connections()
         streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
         response = StreamingHttpResponse(
             streaming_content=streaming_content, content_type=ServerSentEventRenderer.media_type
@@ -1096,6 +1098,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         # On ASGI (Granian in prod) the async generator runs as one cheap task per connection.
         # On WSGI (tests, fallback) async_to_sync bridges it via a worker thread + queue.
+        _release_request_connections()
         response = StreamingHttpResponse(
             streaming_content=(
                 collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)

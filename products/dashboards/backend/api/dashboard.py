@@ -54,6 +54,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
+from posthog.api.streaming import _release_request_connections
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
@@ -2387,6 +2388,7 @@ class DashboardsViewSet(
                 error_json = renderer.render({"type": "error", "error": str(e)}).decode()
                 yield f"data: {error_json}\n\n".encode()
 
+        _release_request_connections()
         response = StreamingHttpResponse(
             streaming_content=(
                 async_tile_stream_generator()
