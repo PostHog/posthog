@@ -261,6 +261,11 @@ class Team(UUIDTClassicModel):
     class Meta:
         verbose_name = "environment (aka team)"
         verbose_name_plural = "environments (aka teams)"
+        # Route forward-FK / related-object loads (e.g. `request.user.current_team`) through the
+        # `objects` manager so they inherit its `.defer(*DEPRECATED_ATTRS)`. Without this, Django
+        # falls back to a bare `Manager()` for related access and re-loads the fat deprecated
+        # taxonomy columns on every such fetch — on the hot path that's every authenticated request.
+        base_manager_name = "objects"
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",

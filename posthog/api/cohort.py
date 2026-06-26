@@ -3,7 +3,6 @@ import json
 import time
 import uuid
 import hashlib
-from collections import defaultdict
 from collections.abc import Iterator
 from copy import deepcopy
 from typing import Annotated, Any, Literal, Optional, Union, cast
@@ -79,6 +78,7 @@ from products.cohorts.backend.models.cohort import (
     CohortOrEmpty,
     CohortType,
 )
+from products.cohorts.backend.models.dependencies import get_flag_excluded_behavioral_cohort_ids
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
     cohort_filters_have_values,
@@ -1438,16 +1438,11 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
 
                 allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
-                # Lists every column read by _find_behavioral_cohorts (is_static, filters)
-                # and Cohort.is_flag_compatible (cohort_type, last_backfill_person_properties_at);
-                # dropping one triggers a per-cohort deferred query (an N+1 that only bites a
-                # team with thousands of cohorts). Deferring the rest keeps the graph scan cheap.
-                graph_source = queryset.only(
-                    "id", "is_static", "filters", "cohort_type", "last_backfill_person_properties_at"
-                )
-                all_cohorts = {cohort.id: cohort for cohort in graph_source.all()}
-                behavioral_cohort_ids = self._find_behavioral_cohorts(
-                    all_cohorts, allow_realtime_backfilled=allow_realtime_backfilled
+                # The flag's cohort typeahead hits this endpoint on every keystroke, so the
+                # behavioral set is computed once per team and cached (invalidated on cohort
+                # writes); see get_flag_excluded_behavioral_cohort_ids.
+                behavioral_cohort_ids = get_flag_excluded_behavioral_cohort_ids(
+                    self.team_id, allow_realtime_backfilled=allow_realtime_backfilled
                 )
                 queryset = queryset.exclude(id__in=behavioral_cohort_ids)
 
@@ -1478,86 +1473,6 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             .prefetch_related("experiment_set")
             .order_by("-created_at")
         )
-
-    def _find_behavioral_cohorts(
-        self, all_cohorts: dict[int, Cohort], *, allow_realtime_backfilled: bool = False
-    ) -> set[int]:
-        """Find cohorts that are behavioral, or reference (transitively) a behavioral cohort.
-
-        A cohort is affected if it's a behavioral seed, or references one through the
-        dependency graph. We walk the *reverse* graph once from the seeds (O(V+E)) —
-        every node that can reach a seed via forward edges is affected.
-
-        When allow_realtime_backfilled is True, realtime cohorts that have been backfilled
-        are not seeds: they can be evaluated via the cohort_membership table during flag
-        evaluation. (They can still be pulled in if they reference another seed.)
-        """
-        graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
-
-        flag_compatible: set[int] = set()
-        if allow_realtime_backfilled:
-            flag_compatible = {
-                cid for cid in behavioral_cohorts if (cohort := all_cohorts.get(cid)) and cohort.is_flag_compatible
-            }
-        seeds = behavioral_cohorts - flag_compatible
-
-        # Reverse adjacency: target -> sources that reference it.
-        reverse: dict[int, set[int]] = defaultdict(set)
-        for source_id, targets in graph.items():
-            for target_id in targets:
-                reverse[target_id].add(source_id)
-
-        affected = set(seeds)
-        stack = list(seeds)
-        while stack:
-            node = stack.pop()
-            for source_id in reverse.get(node, ()):
-                if source_id not in affected:
-                    affected.add(source_id)
-                    stack.append(source_id)
-
-        return affected
-
-    def _build_cohort_dependency_graph(self, all_cohorts: dict[int, Cohort]) -> tuple[dict[int, set[int]], set[int]]:
-        """
-        Builds a directed graph of cohort dependencies and identifies behavioral cohorts.
-        Returns (adjacency_list, behavioral_cohort_ids).
-        """
-        graph = defaultdict(set)
-        behavioral_cohorts = set()
-
-        def check_property_values(values: Any, source_id: int) -> None:
-            """Process property values to build graph edges and identify behavioral cohorts."""
-            if not isinstance(values, list):
-                return
-
-            for value in values:
-                if not isinstance(value, dict):
-                    continue
-
-                if value.get("type") == "behavioral":
-                    behavioral_cohorts.add(source_id)
-                elif value.get("type") == "cohort":
-                    try:
-                        target_id = int(value.get("value", "0"))
-                        if target_id in all_cohorts:
-                            graph[source_id].add(target_id)
-                    except ValueError:
-                        continue
-                elif value.get("type") in ("AND", "OR") and value.get("values"):
-                    check_property_values(value["values"], source_id)
-
-        for cohort_id, cohort in all_cohorts.items():
-            # Static cohorts have pre-computed membership and don't re-evaluate
-            # their filters, so they're always safe to use regardless of filter type.
-            if cohort.is_static:
-                continue
-            if cohort.filters:
-                properties = cohort.filters.get("properties", {})
-                if isinstance(properties, dict):
-                    check_property_values(properties.get("values", []), cohort_id)
-
-        return graph, behavioral_cohorts
 
     @extend_schema(
         parameters=[
