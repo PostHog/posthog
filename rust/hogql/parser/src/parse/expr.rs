@@ -1330,26 +1330,42 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     str_tok.end,
                 ));
             }
-            // Reaching here means the string has no internal space (the split
-            // failed) and — per the branch guard — no trailing unit keyword:
-            // cpp's `ColumnExprIntervalString`, which `visitColumnExprIntervalString`
-            // rejects (it isn't `<count> <unit>`). The unvisited-clause case
-            // (`{x} order by interval 'p'`) was already handled by the
-            // suppress short-circuit above, so a strict reject is all that's
-            // left — fall through to the expr+unit form: parse the string as
-            // the value expression and let the trailing unit keyword
-            // close the INTERVAL.
+            // The string has no internal space (the split failed) and — per the
+            // branch guard — no trailing unit keyword. cpp's ALL(*) still prefers
+            // `ColumnExprInterval` (expr+unit) when the no-space string is only the
+            // HEAD of a longer unit-terminated value (`interval 'a' || 'b' hour`),
+            // so try that form first. If it fails (no unit keyword closes the
+            // value, e.g. bare `interval ''` / `interval 'x' + 1`), cpp falls back
+            // to `ColumnExprIntervalString`, whose visitor rejects a string that
+            // isn't `<count> <unit>`. Reproduce that rejection rather than leaking
+            // the expr+unit form's "expected interval unit keyword" syntax error.
+            // A fatal error from the value parse (a committed nested rejection)
+            // surfaces as-is, matching cpp.
+            let cp = self.checkpoint();
+            return match self.parse_interval_value_unit_form() {
+                Ok(v) => Ok(v),
+                Err(e) if e.fatal => Err(e),
+                Err(_) => {
+                    self.restore(cp)?;
+                    self.bump()?;
+                    Err(ParseError::not_implemented_fatal(
+                        "Unsupported interval type: must be in the format '<count> <unit>'",
+                        str_tok.start,
+                        str_tok.end,
+                    ))
+                }
+            };
         }
-        // `INTERVAL <expr> <unit>` — the grammar admits a full
-        // columnExpr for the value, so we parse at BP=0 (greedy).
-        // The unit-keyword tokens (SECOND/MINUTE/…/YEAR) aren't binary
-        // or postfix operators, so the Pratt loop naturally halts
-        // before them. AND/OR/BETWEEN that surround the INTERVAL in
-        // an outer expression bind correctly because the SECOND
-        // keyword terminates the interval value before they're seen
-        // — the outer call gets to those operators after parse_interval_expr
-        // returns.
-        //
+        self.parse_interval_value_unit_form()
+    }
+
+    /// `INTERVAL <expr> <unit>` (cpp's `ColumnExprInterval`): parse a full
+    /// columnExpr value at BP=0 (greedy), then require one of the eight singular
+    /// unit keywords. The unit-keyword tokens (`SECOND`/`MINUTE`/…/`YEAR`) aren't
+    /// binary or postfix operators, so the Pratt loop halts before them; AND / OR
+    /// / BETWEEN that surround the INTERVAL in an outer expression bind correctly
+    /// because the unit keyword terminates the value before they're seen.
+    fn parse_interval_value_unit_form(&mut self) -> Result<E::Value, ParseError> {
         // Flag the value's leading primary so a nested INTERVAL there yields
         // the unit to us rather than eating it (see `parse_primary`). One-shot:
         // `parse_primary` takes it, so only that first primary is affected.
@@ -1369,7 +1385,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // identifier / quoted identifier is never a unit — cpp rejects
         // all of those (`INTERVAL 1 hours`, `INTERVAL 1 "hour"`). The
         // plural-tolerant `INTERVAL '5 days'` form is the *string*
-        // branch above, handled before this point.
+        // branch in `parse_interval_expr`, handled before this point.
         let unit_tok = self.bump()?;
         let unit_name = match unit_tok.kind {
             TokenKind::Keyword(

@@ -6460,6 +6460,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 # `stoi`'s `out_of_range::what()` differs by stdlib (libc++ adds `: out of range`, libstdc++ doesn't); match the platform-independent prefix only.
                 ("INTERVAL '99999999999999999999 day'", "Unknown error: stoi"),
                 ("INTERVAL '1 SECOND'", "Unsupported interval unit: SECOND"),
+                # A string with no internal space can't be `<count> <unit>`: cpp commits to ColumnExprIntervalString and its visitor rejects with this message. rust used to fall through to the expr+unit form and raise a "expected interval unit keyword" SyntaxError instead — same base class, so only the message asserts the divergence.
+                ("INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                ("INTERVAL 'x'", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                ("now() - INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
             )
             for src, expected_msg in cases:
                 with self.assertRaises(ExposedHogQLError, msg=src) as cpp_cm:
@@ -6471,6 +6475,13 @@ def parser_test_factory(backend: HogQLParserBackend):
             # Guard: valid combined-string and expr+unit forms still parse.
             for src in ("INTERVAL '1 day'", "INTERVAL '5 days'", "INTERVAL 1 day", "INTERVAL 1 DAY"):
                 self._assert_ast(src, "expr")
+            # Guard: a no-space string that is only the HEAD of a longer
+            # unit-terminated value still parses as `ColumnExprInterval` (expr+unit)
+            # on both backends — the fall-back to the string-form rejection must not
+            # pre-empt these. `interval 'x' day` takes the same path with the unit
+            # immediately after the string.
+            for src in ("INTERVAL 'a' || 'b' hour", "INTERVAL 'x' day"):
+                self.assertEqual(parse_expr(src, backend="cpp-json"), parse_expr(src, backend=backend), msg=src)
 
         def test_in_cohort_falls_back_to_identifier_when_rhs_missing(self):
             # `IN COHORT` only commits when a columnExpr follows; otherwise `cohort` is the IN rhs identifier (`a IN cohort` → Compare(a, "in", Field('cohort'))).
