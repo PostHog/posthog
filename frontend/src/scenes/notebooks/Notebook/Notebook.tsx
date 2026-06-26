@@ -134,6 +134,7 @@ export function Notebook({
                     className={clsx(
                         'Notebook',
                         !isExpanded && 'Notebook--compact',
+                        isExpanded && 'Notebook--expanded',
                         mode && `Notebook--${mode}`,
                         size === 'small' && `Notebook--single-column`,
                         isEditable && 'Notebook--editable',
