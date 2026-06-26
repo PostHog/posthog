@@ -1,6 +1,4 @@
-import { GenericMcpToolRenderer } from 'products/posthog_ai/frontend/sandbox/components/tool/GenericMcpToolRenderer'
-import { SandboxDataToolRow } from 'products/posthog_ai/frontend/sandbox/components/tool/SandboxDataToolRow'
-import type { SandboxToolRendererProps } from 'products/posthog_ai/frontend/sandbox/sandboxToolRegistry'
+import { GenericMcpToolRenderer, DataToolRow, type ToolRendererProps } from 'products/posthog_ai/frontend/api/tools'
 
 import { VisualizationWidget } from '../VisualizationWidget'
 import { extractQueryResult } from './extractors'
@@ -10,7 +8,7 @@ import { extractQueryResult } from './extractors'
  * `VisualizationWidget` as inline ephemeral visualizations. Pending calls and outputs without an
  * inline renderer fall back to the generic card.
  */
-export function QueryWidget(props: SandboxToolRendererProps): JSX.Element {
+export function QueryWidget(props: ToolRendererProps): JSX.Element {
     const { message } = props
     const result = message.status === 'completed' ? extractQueryResult(message) : null
 
@@ -19,8 +17,8 @@ export function QueryWidget(props: SandboxToolRendererProps): JSX.Element {
     }
 
     return (
-        <SandboxDataToolRow {...props}>
+        <DataToolRow {...props}>
             <VisualizationWidget content={result.content} openUrl={result.url} openTooltip="Open as insight" embedded />
-        </SandboxDataToolRow>
+        </DataToolRow>
     )
 }

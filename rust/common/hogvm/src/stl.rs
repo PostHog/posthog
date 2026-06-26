@@ -187,22 +187,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 match array {
                     HogLiteral::Array(arr) => {
-                        let (vals, errs): (Vec<_>, Vec<_>) = arr
-                            .iter()
-                            .map(|v| v.deref(&vm.heap).and_then(|v| v.try_as::<Num>()).cloned())
-                            .partition(Result::is_ok);
-                        if errs.is_empty() {
-                            let mut vals = vals.into_iter().map(|v| v.unwrap()).collect::<Vec<_>>();
-                            vals.sort_unstable_by(|a, b| a.compare(b));
-                            Ok(
-                                HogLiteral::Array(vals.into_iter().map(|v| v.into()).collect())
-                                    .into(),
-                            )
-                        } else {
-                            Err(VmError::NativeCallFailed(
-                                "arraySort() only supports arrays of numbers".to_string(),
-                            ))
-                        }
+                        let nums = collect_sorted_nums(&vm.heap, arr, "arraySort")?;
+                        Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
                     _ => Err(VmError::NativeCallFailed(
                         "arraySort() only supports arrays".to_string(),
@@ -234,23 +220,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 match array {
                     HogLiteral::Array(arr) => {
-                        let (vals, errs): (Vec<_>, Vec<_>) = arr
-                            .iter()
-                            .map(|v| v.deref(&vm.heap).and_then(|v| v.try_as::<Num>()).cloned())
-                            .partition(Result::is_ok);
-                        if errs.is_empty() {
-                            let mut vals = vals.into_iter().map(|v| v.unwrap()).collect::<Vec<_>>();
-                            vals.sort_unstable_by(|a, b| a.compare(b));
-                            vals.reverse();
-                            Ok(
-                                HogLiteral::Array(vals.into_iter().map(|v| v.into()).collect())
-                                    .into(),
-                            )
-                        } else {
-                            Err(VmError::NativeCallFailed(
-                                "arrayReverseSort() only supports arrays of numbers".to_string(),
-                            ))
-                        }
+                        let mut nums = collect_sorted_nums(&vm.heap, arr, "arrayReverseSort")?;
+                        nums.reverse();
+                        Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
                     _ => Err(VmError::NativeCallFailed(
                         "arrayReverseSort() only supports arrays".to_string(),
@@ -588,6 +560,21 @@ fn naive_to_seconds(naive: NaiveDateTime, zone: Option<&str>) -> Result<f64, VmE
 /// `f64` epoch seconds with sub-second precision, matching Python's `datetime.timestamp()`.
 fn datetime_to_seconds<Tz: TimeZone>(dt: DateTime<Tz>) -> f64 {
     dt.timestamp() as f64 + f64::from(dt.timestamp_subsec_nanos()) / 1_000_000_000.0
+}
+
+// Extract every element as a Num and return them sorted ascending. Single allocation + early error,
+// rather than partitioning into (oks, errs) Vecs and unwrapping — the old path allocated several
+// intermediate Vecs per call, which showed up under profiling for sort-heavy workloads.
+fn collect_sorted_nums(heap: &VmHeap, arr: &[HogValue], name: &str) -> Result<Vec<Num>, VmError> {
+    let mut nums = Vec::with_capacity(arr.len());
+    for v in arr {
+        let n = v.deref(heap)?.try_as::<Num>().map_err(|_| {
+            VmError::NativeCallFailed(format!("{name}() only supports arrays of numbers"))
+        })?;
+        nums.push(n.clone());
+    }
+    nums.sort_unstable_by(|a, b| a.compare(b));
+    Ok(nums)
 }
 
 fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {

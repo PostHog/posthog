@@ -57,7 +57,8 @@ def _activate_personhog_fake(request):
     (create_person, create_group, etc.) — no signals are used.  Tests in
     personhog_client/ manage their own client and are excluded.
     """
-    if "personhog_client" in str(request.node.path):
+    node_path = str(request.node.path)
+    if "personhog_client" in node_path or ".github" in node_path:
         yield
         return
     from posthog.test.personhog_fake import activate_personhog_fake  # noqa: PLC0415, I001 — lazy import avoids connecting signals before Django is ready
