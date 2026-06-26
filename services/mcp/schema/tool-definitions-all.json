@@ -336,6 +336,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-models": {
+        "description": "Read-only model catalog for `spec.models`. Returns every model the gateway serves (id, provider, display name, per-Mtok input/output cost) plus `levels` — the concrete, priority-ordered model list each `auto` level (`low` / `medium` / `high`) currently resolves to. Use this to answer \"what will auto/medium actually run?\" and to pick ids for a `manual` policy instead of guessing. The level membership is resolved live against the catalog, so it reflects what the runner picks today, not a hardcoded list.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "List models + what each auto level resolves to",
+        "title": "List models + what each auto level resolves to",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-partial-update": {
         "description": "Edit `name` / `description`. The env block is managed separately (raw secret entry goes through the agent console's secret editor, not MCP), and `live_revision` is set by promoting a revision.",
         "category": "Agent stack",
