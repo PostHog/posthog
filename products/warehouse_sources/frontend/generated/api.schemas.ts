@@ -1017,6 +1017,12 @@ export const CreatedViaEnumApi = {
  * * `Liana` - Liana
  * * `TawkTo` - TawkTo
  * * `Hightouch` - Hightouch
+ * * `LemonSqueezy` - LemonSqueezy
+ * * `Ikas` - Ikas
+ * * `Talkwalker` - Talkwalker
+ * * `NextdoorAds` - NextdoorAds
+ * * `AppLovin` - AppLovin
+ * * `Baserow` - Baserow
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1665,6 +1671,12 @@ export const ExternalDataSourceTypeEnumApi = {
     Liana: 'Liana',
     TawkTo: 'TawkTo',
     Hightouch: 'Hightouch',
+    LemonSqueezy: 'LemonSqueezy',
+    Ikas: 'Ikas',
+    Talkwalker: 'Talkwalker',
+    NextdoorAds: 'NextdoorAds',
+    AppLovin: 'AppLovin',
+    Baserow: 'Baserow',
 } as const
 
 /**
@@ -2411,7 +2423,13 @@ export interface ExternalDataSourceCreateApi {
      * * `Superwall` - Superwall
      * * `Liana` - Liana
      * * `TawkTo` - TawkTo
-     * * `Hightouch` - Hightouch */
+     * * `Hightouch` - Hightouch
+     * * `LemonSqueezy` - LemonSqueezy
+     * * `Ikas` - Ikas
+     * * `Talkwalker` - Talkwalker
+     * * `NextdoorAds` - NextdoorAds
+     * * `AppLovin` - AppLovin
+     * * `Baserow` - Baserow */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -3268,8 +3286,59 @@ export interface DatabaseSchemaRequestApi {
      * * `Superwall` - Superwall
      * * `Liana` - Liana
      * * `TawkTo` - TawkTo
-     * * `Hightouch` - Hightouch */
+     * * `Hightouch` - Hightouch
+     * * `LemonSqueezy` - LemonSqueezy
+     * * `Ikas` - Ikas
+     * * `Talkwalker` - Talkwalker
+     * * `NextdoorAds` - NextdoorAds
+     * * `AppLovin` - AppLovin
+     * * `Baserow` - Baserow */
     source_type: ExternalDataSourceTypeEnumApi
+}
+
+export interface DraftCustomManifestRequestApi {
+    /** Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model. */
+    source_name?: string
+    /** URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy. */
+    docs_url?: string
+    /** Raw API documentation or an OpenAPI/Swagger spec, pasted directly. Provide this or docs_url. */
+    docs_text?: string
+}
+
+/**
+ * * `ok` - ok
+ * * `invalid` - invalid
+ * * `model_error` - model_error
+ */
+export type DraftStatusEnumApi = (typeof DraftStatusEnumApi)[keyof typeof DraftStatusEnumApi]
+
+export const DraftStatusEnumApi = {
+    Ok: 'ok',
+    Invalid: 'invalid',
+    ModelError: 'model_error',
+} as const
+
+export interface DraftCustomManifestResponseApi {
+    /** 'ok' = a manifest validated; 'invalid' = a manifest was drafted but never validated within the budget (see error; manifest_json holds the last attempt to fix by hand); 'model_error' = the model returned no usable JSON.
+     *
+     * * `ok` - ok
+     * * `invalid` - invalid
+     * * `model_error` - model_error */
+    draft_status: DraftStatusEnumApi
+    /**
+     * The drafted RESTAPIConfig manifest as a JSON string (non-secret), or null if none was produced.
+     * @nullable
+     */
+    manifest_json: string | null
+    /** Names of the resources (tables) the validated manifest exposes. Empty unless draft_status is 'ok'. */
+    resource_names: string[]
+    /** How many draft→validate→repair rounds were run. */
+    attempts: number
+    /**
+     * The last validation error when draft_status is not 'ok'; null on success.
+     * @nullable
+     */
+    error: string | null
 }
 
 /**
@@ -3922,7 +3991,13 @@ export interface SourcePreviewRequestApi {
      * * `Superwall` - Superwall
      * * `Liana` - Liana
      * * `TawkTo` - TawkTo
-     * * `Hightouch` - Hightouch */
+     * * `Hightouch` - Hightouch
+     * * `LemonSqueezy` - LemonSqueezy
+     * * `Ikas` - Ikas
+     * * `Talkwalker` - Talkwalker
+     * * `NextdoorAds` - NextdoorAds
+     * * `AppLovin` - AppLovin
+     * * `Baserow` - Baserow */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -4609,7 +4684,13 @@ export interface SourceSetupApi {
      * * `Superwall` - Superwall
      * * `Liana` - Liana
      * * `TawkTo` - TawkTo
-     * * `Hightouch` - Hightouch */
+     * * `Hightouch` - Hightouch
+     * * `LemonSqueezy` - LemonSqueezy
+     * * `Ikas` - Ikas
+     * * `Talkwalker` - Talkwalker
+     * * `NextdoorAds` - NextdoorAds
+     * * `AppLovin` - AppLovin
+     * * `Baserow` - Baserow */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -5303,7 +5384,13 @@ export interface SourceCredentialCreateApi {
      * * `Superwall` - Superwall
      * * `Liana` - Liana
      * * `TawkTo` - TawkTo
-     * * `Hightouch` - Hightouch */
+     * * `Hightouch` - Hightouch
+     * * `LemonSqueezy` - LemonSqueezy
+     * * `Ikas` - Ikas
+     * * `Talkwalker` - Talkwalker
+     * * `NextdoorAds` - NextdoorAds
+     * * `AppLovin` - AppLovin
+     * * `Baserow` - Baserow */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload

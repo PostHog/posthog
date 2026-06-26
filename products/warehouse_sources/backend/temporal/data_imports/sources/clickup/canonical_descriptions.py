@@ -39,6 +39,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "id": "Unique identifier for the folder.",
             "name": "The folder's name.",
+            "orderindex": "Position of the folder within its space's ordering.",
+            "statuses": "Task statuses configured for the folder when it overrides the space defaults.",
             "space": "The space the folder belongs to.",
             "task_count": "Number of tasks contained in the folder.",
             "lists": "Lists contained in the folder.",
@@ -77,6 +79,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "start_date": "Start date of the task, as a Unix timestamp in milliseconds.",
             "creator": "The user who created the task.",
             "assignees": "List of users assigned to the task.",
+            "group_assignees": "User groups assigned to the task.",
+            "top_level_parent": "Identifier of the top-level parent task, for subtasks.",
             "priority": "The task's priority level.",
             "list": "The list the task belongs to.",
             "folder": "The folder the task belongs to.",

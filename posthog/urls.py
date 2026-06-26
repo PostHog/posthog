@@ -548,6 +548,8 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
+    # Public bridge for desktop-app canvas share links — deep-links into PostHog Code.
+    r"code/canvas/[^/]+/[^/]+",
     "verify_email",
     r"agentic/account-mismatch",
     # OAuth redirect target when logging the local frontend into a remote cloud region;

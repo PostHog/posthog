@@ -4,5 +4,6 @@
 
 pub mod assignment;
 pub mod grouping;
+pub mod rate_limit;
 pub mod spike;
 pub mod suppression;

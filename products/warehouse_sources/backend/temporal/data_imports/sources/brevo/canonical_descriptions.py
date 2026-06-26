@@ -81,6 +81,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "status": "Status of the campaign (e.g. draft, sent, queued, suspended).",
             "content": "Text content of the SMS message.",
             "sender": "Sender name displayed for the SMS.",
+            "unsubscribe_instruction": "Opt-out instruction text appended to the SMS, containing the STOP keyword.",
             "createdAt": "Time at which the campaign was created.",
             "modifiedAt": "Time at which the campaign was last modified.",
             "scheduledAt": "Time at which the campaign is scheduled to send.",

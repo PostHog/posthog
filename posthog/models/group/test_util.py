@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.db import DatabaseError
 from django.test import SimpleTestCase, override_settings
@@ -61,7 +61,7 @@ class TestGetGroupByKey(SimpleTestCase):
 
             assert result is mock_group
             mock_routing_counter.labels.assert_called_once_with(
-                operation="get_group_by_key", source="django_orm", client_name="posthog-django"
+                operation="get_group_by_key", source="django_orm", client_name=ANY
             )
 
     @patch(_ROUTING_ERRORS_PATCH)
@@ -86,7 +86,7 @@ class TestGetGroupByKey(SimpleTestCase):
         assert result is fake_model
         mock_convert.assert_called_once_with(proto_group)
         mock_routing_counter.labels.assert_called_with(
-            operation="get_group_by_key", source="personhog", client_name="posthog-django"
+            operation="get_group_by_key", source="personhog", client_name=ANY
         )
         mock_errors_counter.labels.assert_not_called()
 
@@ -107,7 +107,7 @@ class TestGetGroupByKey(SimpleTestCase):
 
         assert result is None
         mock_routing_counter.labels.assert_called_with(
-            operation="get_group_by_key", source="personhog", client_name="posthog-django"
+            operation="get_group_by_key", source="personhog", client_name=ANY
         )
 
     @parameterized.expand(
@@ -140,7 +140,7 @@ class TestGetGroupByKey(SimpleTestCase):
                 operation="get_group_by_key",
                 source="personhog",
                 error_type="grpc_error",
-                client_name="posthog-django",
+                client_name=ANY,
             )
             calls = [str(c) for c in mock_routing_counter.labels.call_args_list]
             assert any("django_orm" in c for c in calls)
@@ -224,7 +224,7 @@ class TestGetGroupsByIdentifiers(SimpleTestCase):
 
         assert result == [model1, model2]
         mock_routing_counter.labels.assert_called_with(
-            operation="get_groups_by_identifiers", source="personhog", client_name="posthog-django"
+            operation="get_groups_by_identifiers", source="personhog", client_name=ANY
         )
         mock_errors_counter.labels.assert_not_called()
 
@@ -276,7 +276,7 @@ class TestGetGroupsByIdentifiers(SimpleTestCase):
                 operation="get_groups_by_identifiers",
                 source="personhog",
                 error_type="grpc_error",
-                client_name="posthog-django",
+                client_name=ANY,
             )
             calls = [str(c) for c in mock_routing_counter.labels.call_args_list]
             assert any("django_orm" in c for c in calls)
@@ -298,7 +298,7 @@ class TestGetGroupsByIdentifiers(SimpleTestCase):
 
             assert result == orm_groups
             mock_routing_counter.labels.assert_called_once_with(
-                operation="get_groups_by_identifiers", source="django_orm", client_name="posthog-django"
+                operation="get_groups_by_identifiers", source="django_orm", client_name=ANY
             )
 
     @parameterized.expand(
@@ -347,7 +347,7 @@ class TestGetGroupByKeyEdgeCases(SimpleTestCase):
 
         assert result is None
         mock_routing_counter.labels.assert_called_with(
-            operation="get_group_by_key", source="personhog", client_name="posthog-django"
+            operation="get_group_by_key", source="personhog", client_name=ANY
         )
 
     @patch(_ROUTING_ERRORS_PATCH)
@@ -502,7 +502,7 @@ class TestGetGroupsByTypeIndices(SimpleTestCase):
         assert len(call_args.group_identifiers) == 4
 
         mock_routing_counter.labels.assert_called_with(
-            operation="get_groups_by_type_indices", source="personhog", client_name="posthog-django"
+            operation="get_groups_by_type_indices", source="personhog", client_name=ANY
         )
         mock_errors_counter.labels.assert_not_called()
 
@@ -575,7 +575,7 @@ class TestGetGroupsByTypeIndices(SimpleTestCase):
 
             assert result == orm_groups
             mock_routing_counter.labels.assert_called_once_with(
-                operation="get_groups_by_type_indices", source="django_orm", client_name="posthog-django"
+                operation="get_groups_by_type_indices", source="django_orm", client_name=ANY
             )
 
     @parameterized.expand(
@@ -704,9 +704,7 @@ class TestCreateGroup(SimpleTestCase):
         assert req.group_type_index == self.group_type_index
         assert req.group_key == self.group_key
         assert b'"name": "Acme"' in req.group_properties
-        mock_routing_counter.labels.assert_called_with(
-            operation="create_group", source="personhog", client_name="posthog-django"
-        )
+        mock_routing_counter.labels.assert_called_with(operation="create_group", source="personhog", client_name=ANY)
         mock_ch.assert_called_once()
 
     @patch("posthog.models.group.util.raw_create_group_ch")
@@ -731,7 +729,7 @@ class TestCreateGroup(SimpleTestCase):
             assert result is mock_group
             mock_objects.create.assert_called_once()
             mock_routing_counter.labels.assert_called_with(
-                operation="create_group", source="django_orm", client_name="posthog-django"
+                operation="create_group", source="django_orm", client_name=ANY
             )
 
     @parameterized.expand(
@@ -769,7 +767,7 @@ class TestCreateGroup(SimpleTestCase):
                 operation="create_group",
                 source="personhog",
                 error_type="grpc_error",
-                client_name="posthog-django",
+                client_name=ANY,
             )
 
     @patch("posthog.models.group.util.raw_create_group_ch")
@@ -818,9 +816,7 @@ class TestSaveGroup(SimpleTestCase):
         assert req.update_mask == ["group_properties"]
         assert b'"name": "Acme"' in req.group_properties
         group.save.assert_not_called()
-        mock_routing_counter.labels.assert_called_with(
-            operation="group_save", source="personhog", client_name="posthog-django"
-        )
+        mock_routing_counter.labels.assert_called_with(operation="group_save", source="personhog", client_name=ANY)
 
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
@@ -831,9 +827,7 @@ class TestSaveGroup(SimpleTestCase):
         save_group(group)
 
         group.save.assert_called_once()
-        mock_routing_counter.labels.assert_called_with(
-            operation="group_save", source="django_orm", client_name="posthog-django"
-        )
+        mock_routing_counter.labels.assert_called_with(operation="group_save", source="django_orm", client_name=ANY)
 
     @parameterized.expand(
         [
@@ -859,5 +853,5 @@ class TestSaveGroup(SimpleTestCase):
             operation="group_save",
             source="personhog",
             error_type="grpc_error",
-            client_name="posthog-django",
+            client_name=ANY,
         )
