@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 
-import { LemonButton, LemonSkeleton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -11,7 +11,7 @@ import { SceneExport } from '~/scenes/sceneTypes'
 
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
-import { MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
+import { MCPAnalyticsLoading, MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
@@ -76,7 +76,7 @@ export function MCPAnalyticsScene(): JSX.Element {
                 query failure. Hold the skeleton rather than falling through to the empty
                 dashboard (the very state this onboarding exists to avoid); the 20s poll retries. */}
             {signals === null ? (
-                <LemonSkeleton className="h-64 w-full" />
+                <MCPAnalyticsLoading />
             ) : onboardingState && onboardingState !== 'onboarded' ? (
                 <MCPAnalyticsOnboarding state={onboardingState} />
             ) : (
