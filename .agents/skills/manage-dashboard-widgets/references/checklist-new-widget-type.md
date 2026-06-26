@@ -86,6 +86,7 @@ Use when the product area already has a widget and you need another visualizatio
 Use when introducing a new **`groupId`**, not just another variant in an existing group.
 
 - [ ] Add **`groupId`** to `DASHBOARD_WIDGET_GROUP_LABELS` in `catalog.ts`; matching `group_id`/`group_label` on BE **`WidgetSpec`**
+- [ ] Add the product's icon to **`DASHBOARD_WIDGET_GROUP_ICONS`** in `catalog.ts` (use the canonical product icon from `defaultTree.tsx` `iconTypes`) — shown next to the group heading in the Add widget picker
 - [ ] Storybook title path: `'Dashboards/Dashboard Widgets/Widget types/<groupLabel>/<label>'`
 - [ ] **UI + query reuse** — pick one pattern (do not fork query paths):
 
@@ -98,6 +99,7 @@ Use when introducing a new **`groupId`**, not just another variant in an existin
 - [ ] RBAC: extend `DashboardWidgetProductAccess`, `WIDGET_PRODUCT_ACCESS_CHECKS`, BE `WidgetSpec.required_product_access` (+ optional `product_access_denied_message`)
 - [ ] Availability: new `WidgetAvailabilityRequirementId` in `widgetAvailability.ts` + BE `WidgetSpec.availability_requirements` when catalog uses `availability`; optional branch in `WidgetAvailabilitySetupPrompt`
 - [ ] Optional **`titleHref`** on catalog — product scene route for header "View" link (`urls.*` or scene path)
+- [ ] Optional **`DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO`** entry in `catalog.ts` (`{ productKey, requirement, valueProp, ctaLabel, docsHref }`) — surfaces a group-level nudge in the Add widget picker (value-prop one-liner + explore CTA). The `requirement` (a `WidgetAvailabilityRequirementId`) gates it directly: shown only while that requirement is unmet, so it's only meaningful for products that gate on a project setting (skip for areas with no requirement, e.g. `experiments`, `activity`)
 - [ ] Net-new product: see [`products/README.md`](../../../products/README.md) for product bootstrap before wiring the widget
 
 ## 5. Frontend widget component

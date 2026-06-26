@@ -3,6 +3,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isUUIDLike } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -120,17 +121,6 @@ export interface AccountsViewUrlState {
     tileFilter?: TileFilter
 }
 
-// One-shot directive to open a specific account on load (`#open=...`). Used by
-// deep links from elsewhere (e.g. usage-spike notifications) to land directly on
-// an account's expanded row and tab. Distinct from the persistent `#view=` state:
-// it's consumed once and dropped from the URL when the reveal rewrites the hash.
-export interface AccountsOpenUrlState {
-    id: string
-    externalId?: string | null
-    name?: string
-    tab?: AccountExpansionTab
-}
-
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
     connect(() => ({
@@ -183,6 +173,9 @@ export const accountsLogic = kea<accountsLogicType>([
             name,
             tab,
         }),
+        // Restrict the list to a single account by id — drives the `/accounts/:accountId/:tab`
+        // path route. null clears it (back to the full list).
+        setAccountIdFilter: (accountId: string | null) => ({ accountId }),
     }),
     reducers({
         searchInput: [
@@ -214,6 +207,12 @@ export const accountsLogic = kea<accountsLogicType>([
             [] as RoleFilterValue,
             {
                 setAssignedToFilter: (_, { value }) => value,
+            },
+        ],
+        accountIdFilter: [
+            null as string | null,
+            {
+                setAccountIdFilter: (_, { accountId }) => accountId,
             },
         ],
         sortOrder: [
@@ -322,6 +321,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.tagsFilter,
                 s.allRolesUnassigned,
                 s.assignedToFilter,
+                s.accountIdFilter,
                 s.tileFilter,
                 s.overviewMetrics,
                 s.sortOrder,
@@ -332,6 +332,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 tagsFilter: string[],
                 allRolesUnassigned: boolean,
                 assignedToFilter: RoleFilterValue,
+                accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 overviewMetrics: string[],
                 sortOrder: AccountSortOrder,
@@ -358,8 +359,18 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (assignedToFilter.length > 0) {
                     source.assignedToUserIds = assignedToFilter
                 }
+                // Combine the overview-tile filter with the single-account filter (path route). The
+                // id is the account PK; compare it stringified, matching how the name-cell id is built.
+                // accountIdFilter is only ever a validated UUID (set from the route), so it's injection-safe.
+                const filterExpressions: string[] = []
                 if (tileFilter) {
-                    source.filterExpression = tileFilter.expression
+                    filterExpressions.push(tileFilter.expression)
+                }
+                if (accountIdFilter) {
+                    filterExpressions.push(`toString(id) = '${accountIdFilter}'`)
+                }
+                if (filterExpressions.length > 0) {
+                    source.filterExpression = filterExpressions.map((expr) => `(${expr})`).join(' AND ')
                 }
                 if (sortOrder) {
                     const expr = deriveAccountsOrderByExpr(sortOrder.column)
@@ -574,64 +585,78 @@ export const accountsLogic = kea<accountsLogicType>([
             setTileFilter: toUrl,
         }
     }),
-    urlToAction(({ actions, values }) => ({
-        [urls.customerAnalyticsAccounts()]: (_, __, hashParams): void => {
-            const view: AccountsViewUrlState =
-                hashParams?.view && typeof hashParams.view === 'object' ? hashParams.view : {}
-
-            const search = view.search ?? ''
-            if (search !== values.searchQuery) {
-                actions.setSearchQuery(search)
+    urlToAction(({ actions, values }) => {
+        // Path route `/accounts/:accountId/:tab`: filter the list to one account and open the tab.
+        // Neither setter is wired into actionToUrl, so the URL stays on the path (no navigate-away).
+        const openAccountByPath = (accountId: string | undefined, rawTab?: string): void => {
+            // Guard the path param before it's interpolated into the HogQL id filter.
+            if (!accountId || !isUUIDLike(accountId)) {
+                return
             }
-
-            const tags = view.tags ?? []
-            if (!objectsEqual(tags, values.tagsFilter)) {
-                actions.setTagsFilter(tags)
+            const tab =
+                rawTab && ACCOUNT_EXPANSION_TABS.includes(rawTab as AccountExpansionTab)
+                    ? (rawTab as AccountExpansionTab)
+                    : DEFAULT_ACCOUNT_TAB
+            if (values.accountIdFilter !== accountId) {
+                actions.setAccountIdFilter(accountId)
             }
+            actions.openAccountTab(accountId, tab)
+        }
+        return {
+            [urls.customerAnalyticsAccounts()]: (_, __, hashParams): void => {
+                const view: AccountsViewUrlState =
+                    hashParams?.view && typeof hashParams.view === 'object' ? hashParams.view : {}
 
-            const unassigned = view.unassigned ?? false
-            if (unassigned !== values.allRolesUnassigned) {
-                actions.setAllRolesUnassigned(unassigned)
-            }
+                const search = view.search ?? ''
+                if (search !== values.searchQuery) {
+                    actions.setSearchQuery(search)
+                }
 
-            const assignedTo = normalizeRoleFilter(view.assignedTo)
-            // Back-compat: legacy links encoded the viewer-relative `mine: true`;
-            // resolve it to the opener's own id so old shared links still work.
-            const legacyMine =
-                !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
-            const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine
-            if (!objectsEqual(nextAssignedTo, values.assignedToFilter)) {
-                actions.setAssignedToFilter(nextAssignedTo)
-            }
+                const tags = view.tags ?? []
+                if (!objectsEqual(tags, values.tagsFilter)) {
+                    actions.setTagsFilter(tags)
+                }
 
-            const sort = view.sort ?? null
-            if (!objectsEqual(sort, values.sortOrder)) {
-                actions.setSortOrder(sort)
-            }
+                const unassigned = view.unassigned ?? false
+                if (unassigned !== values.allRolesUnassigned) {
+                    actions.setAllRolesUnassigned(unassigned)
+                }
 
-            // A shared link's columns win over the per-user saved column config;
-            // accountsColumnConfigLogic enforces this by reading the URL when its
-            // async saved-config load resolves.
-            if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
-                actions.setSelectColumns(view.columns)
-            }
+                const assignedTo = normalizeRoleFilter(view.assignedTo)
+                // Back-compat: legacy links encoded the viewer-relative `mine: true`;
+                // resolve it to the opener's own id so old shared links still work.
+                const legacyMine =
+                    !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
+                const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine
+                if (!objectsEqual(nextAssignedTo, values.assignedToFilter)) {
+                    actions.setAssignedToFilter(nextAssignedTo)
+                }
 
-            const tileFilter = view.tileFilter ?? null
-            if (!objectsEqual(tileFilter, values.tileFilter)) {
-                actions.setTileFilter(tileFilter)
-            }
+                const sort = view.sort ?? null
+                if (!objectsEqual(sort, values.sortOrder)) {
+                    actions.setSortOrder(sort)
+                }
 
-            // Deep link: open (reveal + expand + tab + scroll) a specific account.
-            // openAccount's reveal rewrites the hash to `#view=` only, so `open`
-            // self-clears and never re-triggers.
-            const open: AccountsOpenUrlState | null =
-                hashParams?.open && typeof hashParams.open === 'object' && typeof hashParams.open.id === 'string'
-                    ? hashParams.open
-                    : null
-            if (open) {
-                const tab = open.tab && ACCOUNT_EXPANSION_TABS.includes(open.tab) ? open.tab : DEFAULT_ACCOUNT_TAB
-                actions.openAccount(open.id, open.externalId ?? null, open.name ?? '', tab)
-            }
-        },
-    })),
+                // A shared link's columns win over the per-user saved column config;
+                // accountsColumnConfigLogic enforces this by reading the URL when its
+                // async saved-config load resolves.
+                if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
+                    actions.setSelectColumns(view.columns)
+                }
+
+                const tileFilter = view.tileFilter ?? null
+                if (!objectsEqual(tileFilter, values.tileFilter)) {
+                    actions.setTileFilter(tileFilter)
+                }
+
+                // Back on the bare list — drop any single-account path filter.
+                if (values.accountIdFilter !== null) {
+                    actions.setAccountIdFilter(null)
+                }
+            },
+            [urls.customerAnalyticsAccount(':accountId')]: ({ accountId }): void => openAccountByPath(accountId),
+            [urls.customerAnalyticsAccount(':accountId', ':tab')]: ({ accountId, tab }): void =>
+                openAccountByPath(accountId, tab),
+        }
+    }),
 ])

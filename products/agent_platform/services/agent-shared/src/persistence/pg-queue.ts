@@ -10,6 +10,8 @@
 
 import type { Pool, PoolClient } from 'pg'
 
+import { createLogger } from '../runtime/logger'
+import { parseTriggerMetadata } from '../runtime/trigger-metadata'
 import {
     AgentSession,
     ConversationMessage,
@@ -32,6 +34,8 @@ const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
                      conversation, pending_inputs, principal, retry_count,
                      usage_total, acl, pending_elevation_requests,
                      created_at, updated_at`
+
+const log = createLogger('pg-queue')
 
 export class PgSessionQueue implements SessionQueue {
     constructor(private readonly pool: Pool) {}
@@ -118,6 +122,19 @@ export class PgSessionQueue implements SessionQueue {
         } finally {
             client.release()
         }
+    }
+
+    async countByState(): Promise<Partial<Record<AgentSession['state'], number>>> {
+        // Cheap GROUP BY over the queue's partial-state index. Sampled by the
+        // janitor singleton once per sweep, not on any hot path.
+        const res = await this.pool.query<{ state: AgentSession['state']; count: string }>(
+            `SELECT state, count(*)::bigint AS count FROM agent_session GROUP BY state`
+        )
+        const out: Partial<Record<AgentSession['state'], number>> = {}
+        for (const row of res.rows) {
+            out[row.state] = Number(row.count)
+        }
+        return out
     }
 
     async update(sessionId: string, patch: Partial<AgentSession>): Promise<void> {
@@ -365,14 +382,26 @@ export class PgSessionQueue implements SessionQueue {
         return r.rowCount ?? 0
     }
 
-    async findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null> {
+    async findByExternalKey(
+        applicationId: string,
+        externalKey: string,
+        revisionId: string
+    ): Promise<AgentSession | null> {
+        // The revision scope lives in SQL, not in JS post-filtering — the
+        // `ORDER BY updated_at DESC LIMIT 1` would otherwise return the most
+        // recent row regardless of revision, and a JS-side reject would strand
+        // any older same-revision row. Filtering in the WHERE clause guarantees
+        // the lookup never reaches a session on a different revision. See the
+        // interface docs.
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
              FROM agent_session
-             WHERE application_id = $1 AND external_key = $2
+             WHERE application_id = $1
+               AND external_key = $2
+               AND revision_id = $3
              ORDER BY updated_at DESC
              LIMIT 1`,
-            [applicationId, externalKey]
+            [applicationId, externalKey, revisionId]
         )
         if (r.rowCount === 0) {
             return null
@@ -563,6 +592,12 @@ function buildSessionFilter(
         params.push(opts.revisionId)
         where.push(`revision_id = $${params.length}`)
     }
+    if (opts.agentUserId) {
+        // Match the agent_user_id stamped on the principal JSON. Only slack
+        // sessions carry it today; other kinds simply won't match.
+        params.push(opts.agentUserId)
+        where.push(`principal->>'agent_user_id' = $${params.length}`)
+    }
     if (opts.createdAfter) {
         params.push(opts.createdAfter)
         where.push(`created_at >= $${params.length}`)
@@ -571,10 +606,34 @@ function buildSessionFilter(
         params.push(opts.createdBefore)
         where.push(`created_at <= $${params.length}`)
     }
+    if (opts.search?.trim()) {
+        // id + external_key only — transcript search would scan/detoast every
+        // session's JSONB; it lands on a persisted, indexed column instead.
+        // LIKE wildcards escaped so the term matches literally.
+        const term = `%${opts.search.trim().replace(/[\\%_]/g, '\\$&')}%`
+        params.push(term)
+        const idx = params.length
+        where.push(`(id::text ILIKE $${idx} OR external_key ILIKE $${idx})`)
+    }
     return { where, params }
 }
 
 function rowToSession(row: DbRow): AgentSession {
+    const triggerMetadata = parseTriggerMetadata(row.trigger_metadata)
+    // Surface schema drift: a non-null JSONB blob that the discriminated union
+    // can't validate becomes `null` here, which silently disables every kind-
+    // gated reader (slack reply relay, failure notifier, etc.). Log so an
+    // operator can see drift instead of hunting it through user reports.
+    if (row.trigger_metadata !== null && triggerMetadata === null) {
+        log.warn(
+            {
+                session_id: row.id,
+                raw_kind:
+                    typeof row.trigger_metadata === 'object' ? (row.trigger_metadata as { kind?: unknown }).kind : null,
+            },
+            'trigger_metadata_parse_failed'
+        )
+    }
     return {
         id: row.id,
         application_id: row.application_id,
@@ -583,10 +642,7 @@ function rowToSession(row: DbRow): AgentSession {
         principal: (row.principal as AgentSession['principal']) ?? null,
         external_key: row.external_key,
         idempotency_key: row.idempotency_key,
-        trigger_metadata:
-            row.trigger_metadata && typeof row.trigger_metadata === 'object'
-                ? (row.trigger_metadata as Record<string, unknown>)
-                : null,
+        trigger_metadata: triggerMetadata,
         state: row.state as AgentSession['state'],
         conversation: Array.isArray(row.conversation) ? (row.conversation as AgentSession['conversation']) : [],
         pending_inputs: Array.isArray(row.pending_inputs) ? (row.pending_inputs as AgentSession['pending_inputs']) : [],

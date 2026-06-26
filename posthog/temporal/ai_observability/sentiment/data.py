@@ -39,13 +39,13 @@ def fetch_generations(
     from posthog.hogql.constants import LimitContext
     from posthog.hogql.parser import parse_select
 
-    from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+    from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
     from posthog.models.team import Team
 
     team = Team.objects.get(id=team_id)
     query = parse_select(GENERATIONS_QUERY)
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
-        result = execute_with_ai_events_fallback(
+        result = query_ai_events(
             query=query,
             placeholders={
                 "date_from": ast.Constant(value=date_from),
@@ -56,6 +56,7 @@ def fetch_generations(
             },
             team=team,
             query_type="SentimentOnDemand",
+            fall_back_to_events=True,
             limit_context=LimitContext.QUERY_ASYNC,
         )
 
@@ -100,7 +101,7 @@ def fetch_generations_by_uuid(
     from posthog.hogql.constants import LimitContext
     from posthog.hogql.parser import parse_select
 
-    from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+    from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
     from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
     from posthog.models.team import Team
 
@@ -125,7 +126,7 @@ def fetch_generations_by_uuid(
 
     query = parse_select(GENERATIONS_BY_UUID_QUERY)
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
-        result = execute_with_ai_events_fallback(
+        result = query_ai_events(
             query=query,
             placeholders={
                 "date_from": ast.Constant(value=date_from),
@@ -135,6 +136,7 @@ def fetch_generations_by_uuid(
             },
             team=team,
             query_type="SentimentOnDemandGeneration",
+            fall_back_to_events=True,
             limit_context=LimitContext.QUERY_ASYNC,
         )
 

@@ -1,3 +1,7 @@
+import type { ReactNode } from 'react'
+
+import type { LegendItem } from '../components/Legend/Legend'
+
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
     colors: string[]
@@ -21,6 +25,12 @@ export const DEFAULT_Y_AXIS_ID = 'left'
  *  with color either supplied or omitted (chart picks one) and let the chart resolve it. */
 export type ResolvedSeries<Meta = unknown> = Series<Meta> & { color: string }
 
+/** How a series is rendered in a mixed-type chart. */
+export type SeriesType = 'line' | 'bar' | 'area'
+
+/** Series type assumed when a `Series` sets no explicit `type`. */
+export const DEFAULT_SERIES_TYPE: SeriesType = 'line'
+
 export interface Series<Meta = unknown> {
     /** Unique identifier used to key React elements and look up stacked data. */
     key: string
@@ -38,6 +48,10 @@ export interface Series<Meta = unknown> {
     bars?: { color?: string; label?: string; meta?: Meta }[]
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
+    /** Mixed-type charts ({@link ComboChart}) read this to draw the series as a bar, line, or
+     *  area. Falls back to the chart's `defaultSeriesType` when omitted. Ignored by single-type
+     *  charts. */
+    type?: SeriesType
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
      *  so custom tooltip components can access domain-specific information (e.g. breakdown
      *  values, comparison labels, anomaly scores) without the library needing to know about them.
@@ -76,8 +90,9 @@ export interface Series<Meta = unknown> {
          *  filling down to the x-axis baseline. */
         lowerData?: number[]
         /** Fade the fill vertically from the series color at the top of the plot to transparent
-         *  at the baseline. Ignored whenever the area has a bottom edge — stacking, `lowerData`,
-         *  or dashed `stroke.partial` (those branches need a solid fill / hatch). */
+         *  at the baseline. Ignored when the area has a bottom edge — stacking or `lowerData`
+         *  (those need a solid fill). With a dashed `stroke.partial` the gradient is kept and only
+         *  the stroke dashes; non-gradient area fills instead hatch the dashed range. */
         gradient?: boolean
     }
     /** Auxiliary overlay derived from primary data — trend lines and moving averages.
@@ -220,6 +235,27 @@ export interface ChartConfig {
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
      *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
     maxCategoryLabelWidth?: number
+    /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
+     *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
+     *  the scalar `yScaleType`/`yTickFormatter`/`yAxisLabel` then describe the primary (left) axis.
+     *  Omit for single-axis charts. */
+    yAxes?: YAxis[]
+}
+
+/** A resolved y-axis for a multi-axis (dual y-axis) chart. One entry per distinct
+ *  {@link Series.yAxisId}; series resolve to their axis by id. Drives each axis's scale type,
+ *  tick formatting, side, and label independently. */
+export interface YAxis {
+    /** Axis id — matches {@link Series.yAxisId}. The default-axis id is {@link DEFAULT_Y_AXIS_ID}. */
+    id: string
+    /** Which side this axis renders on. */
+    position: 'left' | 'right'
+    /** Scale type for this axis. Defaults to 'linear'. */
+    scaleType?: 'linear' | 'log'
+    /** Resolved tick formatter for this axis. When omitted, ticks auto-format against their values. */
+    tickFormatter?: (value: number) => string
+    /** Axis title. */
+    label?: string
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
@@ -246,10 +282,14 @@ export interface ChartLegendConfig {
     defaultHiddenKeys?: string[]
     /** Called whenever a series is toggled, with its key and resulting hidden state. */
     onToggleSeries?: (key: string, hidden: boolean) => void
+    /** Wrap each rendered legend row — receives the default row node and its item, returns the
+     *  node to render. Lets consumers augment rows (e.g. a right-click context menu) while keeping
+     *  the default swatch/label/toggle rendering. Return `defaultNode` to leave a row untouched. */
+    renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
 }
 
 export interface TooltipConfig {
-    /** Show a tooltip on hover. Defaults to true. Use the `tooltip` render prop on Chart to customize content. */
+    /** Show a tooltip on hover. Defaults to true. */
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
     pinnable?: boolean
@@ -258,6 +298,13 @@ export interface TooltipConfig {
      *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
      *  beside the cursor and the hovered bar (chart.js-style) rather than at a fixed anchor. */
     placement?: 'follow-data' | 'top' | 'cursor'
+    // Built-in DefaultTooltip content, applied only when no `tooltip` render prop is given. See
+    // DefaultTooltipProps for semantics — these mirror it.
+    /** Second arg is the row's `seriesData` entry, for per-series formatting. */
+    valueFormatter?: (value: number, entry: TooltipContext['seriesData'][number]) => string
+    showTotal?: boolean
+    totalLabel?: string
+    totalFormatter?: (value: number) => string
 }
 
 /** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
@@ -340,8 +387,28 @@ export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start
+     *  at zero = off"). Applied to the primary axis only; ignored on a log scale. Defaults to false. */
+    floatBaseline?: boolean
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
+}
+
+/** Config for {@link ComboChart}, which draws bar, line, and area series together. `axisOrientation`
+ *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. Percent
+ *  layout is also unsupported: stack-as-percent is only meaningful when every series participates,
+ *  but lines/areas draw unstacked. */
+export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
+    /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
+    defaultSeriesType?: SeriesType
+    /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
+     *  `'stacked'`. */
+    barLayout?: 'stacked' | 'grouped'
+    /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
+    barCornerRadius?: number
+    /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
+     *  to keep off-scale goal lines on-plot (`{ include }`). See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 /** Arguments passed to a chart type's canvas draw function. */

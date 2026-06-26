@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
@@ -5,9 +7,14 @@ from parameterized import parameterized
 
 from posthog.models.comment import Comment
 
+from products.conversations.backend.cache import slack_ticket_create_lock
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import Channel
-from products.conversations.backend.slack import _backfill_thread_replies, handle_support_reaction
+from products.conversations.backend.models.constants import Channel, ChannelDetail
+from products.conversations.backend.slack import (
+    _backfill_thread_replies,
+    create_or_update_slack_ticket,
+    handle_support_reaction,
+)
 
 
 def _make_slack_reply(ts: str, user: str = "U_REPLY", text: str = "reply text", **extra) -> dict:
@@ -445,3 +452,116 @@ class TestHandleSupportReactionBackfill(BaseTest):
         mock_client.assert_not_called()
         mock_create.assert_not_called()
         mock_backfill.assert_not_called()
+
+
+class TestSlackTicketCreateLockDedup(BaseTest):
+    """Verify that the Redis lock in create_or_update_slack_ticket prevents duplicate tickets."""
+
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": "a@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_second_call_returns_none_when_first_already_created(self, _files, _user, mock_client):
+        mock_client.return_value = MagicMock()
+        mock_client.return_value.chat_postMessage = MagicMock()
+
+        kwargs: dict[str, Any] = {
+            "team": self.team,
+            "slack_channel_id": CHANNEL,
+            "thread_ts": PARENT_TS,
+            "slack_user_id": "U_SOMEONE",
+            "text": "Help me please",
+            "is_thread_reply": False,
+            "slack_team_id": SLACK_TEAM,
+            "channel_detail": ChannelDetail.SLACK_EMOJI_REACTION,
+        }
+
+        # First call creates the ticket
+        ticket1 = create_or_update_slack_ticket(**kwargs)
+        # Second call hits the re-check inside the lock and returns None (not the existing
+        # ticket) so callers don't re-run backfill side effects.
+        ticket2 = create_or_update_slack_ticket(**kwargs)
+
+        tickets = Ticket.objects.filter(team=self.team, slack_channel_id=CHANNEL, slack_thread_ts=PARENT_TS)
+        assert tickets.count() == 1
+        assert ticket1 is not None
+        assert ticket2 is None
+        # Only one confirmation message posted (second call short-circuits)
+        assert mock_client.return_value.chat_postMessage.call_count == 1
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Bob", "email": "b@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_lock_held_returns_without_creating_duplicate(self, _files, _user, mock_client):
+        mock_client.return_value = MagicMock()
+
+        # Pre-acquire the lock via production code to simulate a concurrent worker holding it
+        with slack_ticket_create_lock(self.team.id, CHANNEL, PARENT_TS) as acquired:
+            assert acquired
+
+            result = create_or_update_slack_ticket(
+                team=self.team,
+                slack_channel_id=CHANNEL,
+                thread_ts=PARENT_TS,
+                slack_user_id="U_SOMEONE",
+                text="Help!",
+                is_thread_reply=False,
+                slack_team_id=SLACK_TEAM,
+                channel_detail=ChannelDetail.SLACK_EMOJI_REACTION,
+            )
+
+            # No ticket created — lock was held
+            assert (
+                Ticket.objects.filter(team=self.team, slack_channel_id=CHANNEL, slack_thread_ts=PARENT_TS).count() == 0
+            )
+            assert result is None
+            # No confirmation posted
+            mock_client.return_value.chat_postMessage.assert_not_called()
+
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Cara", "email": "c@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_dedup_create_returns_none_so_caller_skips_backfill(self, _files, _user, mock_client, _bot):
+        # Reproduces the race where two reaction events both pass handle_support_reaction's
+        # .exists() fast-path, then both reach create. The caller backfills only when create
+        # returns a ticket — so the loser must get None or the backfill duplicates comments.
+        reply_ts = "1700000000.000500"
+        client = MagicMock()
+        client.conversations_replies.return_value = {
+            "messages": [
+                {"user": "U_ROOT", "text": "Help me please", "ts": PARENT_TS},
+                {"user": "U_CUSTOMER", "text": "more context", "ts": reply_ts, "thread_ts": PARENT_TS},
+            ]
+        }
+        mock_client.return_value = client
+
+        kwargs: dict[str, Any] = {
+            "team": self.team,
+            "slack_channel_id": CHANNEL,
+            "thread_ts": PARENT_TS,
+            "slack_user_id": "U_ROOT",
+            "text": "Help me please",
+            "is_thread_reply": False,
+            "slack_team_id": SLACK_TEAM,
+            "channel_detail": ChannelDetail.SLACK_EMOJI_REACTION,
+        }
+
+        # Mirror handle_support_reaction: create, then backfill iff a ticket came back.
+        for _ in range(2):
+            ticket = create_or_update_slack_ticket(**kwargs)
+            if ticket:
+                _backfill_thread_replies(client, self.team, ticket, CHANNEL, PARENT_TS, after_ts=PARENT_TS)
+
+        tickets = Ticket.objects.filter(team=self.team, slack_channel_id=CHANNEL, slack_thread_ts=PARENT_TS)
+        assert tickets.count() == 1
+        created_ticket = tickets.first()
+        assert created_ticket is not None
+        # One seed comment + one backfilled reply. The duplicate call returns None, so backfill
+        # runs only once and comments aren't doubled.
+        comments = Comment.objects.filter(scope="conversations_ticket", item_id=str(created_ticket.id))
+        assert comments.count() == 2

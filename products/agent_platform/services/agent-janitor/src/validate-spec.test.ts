@@ -52,6 +52,7 @@ function mkRev(spec: Partial<z.input<typeof AgentSpecSchema>> = {}): AgentRevisi
             ],
             ...spec,
         }),
+        encrypted_env: null,
     }
 }
 
@@ -395,6 +396,97 @@ describe('validateRevisionBundle', () => {
                 bundles
             )
             expect(report.ok).toBe(true)
+        })
+    })
+
+    describe('required client tool + non-chat trigger', () => {
+        const chatAuth = { type: 'public' as const, acknowledge_public_exposure: true as const }
+        const requiredClientTool = {
+            kind: 'client' as const,
+            id: 'connect_mcp',
+            description: 'connect an mcp',
+            args_schema: { type: 'object' },
+            required: true,
+        }
+        const optionalClientTool = {
+            kind: 'client' as const,
+            id: 'focus',
+            description: 'focus a panel',
+            args_schema: { type: 'object' },
+            required: false,
+        }
+
+        it('accepts a required client tool when only chat triggers are configured', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    triggers: [{ type: 'chat', config: {}, auth: { modes: [chatAuth] } }],
+                    tools: [requiredClientTool],
+                }),
+                bundles
+            )
+            expect(report.ok).toBe(true)
+        })
+
+        it('rejects a required client tool when a webhook trigger is also configured', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    triggers: [
+                        { type: 'chat', config: {}, auth: { modes: [chatAuth] } },
+                        { type: 'webhook', config: { path: '/w' }, auth: { modes: [chatAuth] } },
+                    ],
+                    tools: [requiredClientTool],
+                }),
+                bundles
+            )
+            expect(report.ok).toBe(false)
+            expect(report.errors).toEqual([
+                {
+                    code: 'required_client_tool_with_non_chat_trigger',
+                    message: expect.stringContaining('connect_mcp'),
+                    pointer: 'spec.tools[0].required',
+                },
+            ])
+            expect(report.errors[0].message).toContain('webhook')
+        })
+
+        it('accepts a non-required client tool alongside non-chat triggers', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    triggers: [
+                        { type: 'chat', config: {}, auth: { modes: [chatAuth] } },
+                        { type: 'webhook', config: { path: '/w' }, auth: { modes: [chatAuth] } },
+                    ],
+                    tools: [optionalClientTool],
+                }),
+                bundles
+            )
+            expect(report.ok).toBe(true)
+        })
+
+        it('emits one error per required client tool, listing every non-chat trigger kind', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    triggers: [
+                        { type: 'webhook', config: { path: '/w' }, auth: { modes: [chatAuth] } },
+                        { type: 'mcp', config: {}, auth: { modes: [chatAuth] } },
+                    ],
+                    tools: [requiredClientTool, { ...optionalClientTool, required: true }],
+                }),
+                bundles
+            )
+            expect(report.errors).toHaveLength(2)
+            for (const err of report.errors) {
+                expect(err.code).toBe('required_client_tool_with_non_chat_trigger')
+                expect(err.message).toMatch(/webhook.*mcp|mcp.*webhook/)
+            }
         })
     })
 })

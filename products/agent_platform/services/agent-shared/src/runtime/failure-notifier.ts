@@ -20,18 +20,27 @@
  * per category. Owner-facing debug stays in log_entries.
  */
 
-import { AgentApplication, AgentSession } from '../spec/spec'
+import { AgentApplication, AgentRevision, AgentSession } from '../spec/spec'
 
 /**
  * Coarse, user-facing buckets the notifier maps every failure to. The bus
  * `failed` event and the session conversation's synthetic assistant turn
  * also reuse this — single source of truth for "what does the user see."
  */
-export type FailureCategory = 'transient_infra' | 'configuration' | 'quota_exhausted' | 'tool_error' | 'unknown'
+export type FailureCategory =
+    | 'transient_infra'
+    | 'configuration'
+    | 'quota_exhausted'
+    | 'tool_error'
+    | 'capability_mismatch'
+    | 'unknown'
 
 export interface FailureNotifierInput {
     session: AgentSession
     application: AgentApplication
+    /** The resolved/hit revision this session ran. Carries the `encrypted_env`
+     *  the notifier resolves its outbound secret (e.g. Slack bot token) from. */
+    revision: AgentRevision
     /** Raw reason — owner-facing only. Never reaches the notifier's output channel. */
     reason: string
     category: FailureCategory
@@ -54,8 +63,8 @@ export class NoopFailureNotifier implements FailureNotifier {
 }
 
 /**
- * Dispatch by `trigger_metadata.type`. The runner wires this with one or
- * more per-trigger sub-notifiers; types without a registered sub-notifier
+ * Dispatch by `trigger_metadata.kind`. The runner wires this with one or
+ * more per-trigger sub-notifiers; kinds without a registered sub-notifier
  * fall through silently. Sub-notifier failures are caught and logged here
  * so a single misbehaving channel can't crash the dispatcher.
  */
@@ -67,14 +76,10 @@ export class TriggerAwareFailureNotifier implements FailureNotifier {
 
     async notify(input: FailureNotifierInput): Promise<void> {
         const meta = input.session.trigger_metadata
-        if (!meta || typeof meta !== 'object') {
+        if (!meta) {
             return
         }
-        const type = (meta as { type?: unknown }).type
-        if (typeof type !== 'string') {
-            return
-        }
-        const sub = this.registry[type]
+        const sub = this.registry[meta.kind]
         if (!sub) {
             return
         }
@@ -84,7 +89,7 @@ export class TriggerAwareFailureNotifier implements FailureNotifier {
             this.logger?.warn(
                 {
                     session_id: input.session.id,
-                    trigger_type: type,
+                    trigger_kind: meta.kind,
                     err: err instanceof Error ? err.message : String(err),
                 },
                 'failure_notifier_dispatch_threw'
@@ -130,7 +135,8 @@ export function categorize(reason: string): FailureCategory {
         r.includes('bundle_missing') ||
         r.includes('revision_missing') ||
         r.includes('integration_host_validator') ||
-        r.includes('encryption')
+        r.includes('encryption') ||
+        r.includes('client_tool_dispatcher_unavailable')
     ) {
         return 'configuration'
     }
@@ -147,6 +153,13 @@ export function categorize(reason: string): FailureCategory {
     if (r.includes('tool threw') || r.includes('tool_call_failed') || r.includes('sandbox timeout')) {
         return 'tool_error'
     }
+    // `client_tool_unsupported:<id>` is thrown by build-agent-tools.ts when a
+    // chat caller did not declare a `required:true` client tool. The user's
+    // client is out of date or doesn't support the tool — neither a
+    // misconfiguration nor an infra issue.
+    if (r.includes('client_tool_unsupported')) {
+        return 'capability_mismatch'
+    }
     return 'unknown'
 }
 
@@ -155,6 +168,8 @@ const MESSAGES: Record<FailureCategory, string> = {
     configuration: "This agent isn't configured correctly. The agent owner has been notified.",
     quota_exhausted: "I've hit a usage limit on this conversation. Please try again later.",
     tool_error: 'I ran into an error while using one of my tools. The agent owner can see details.',
+    capability_mismatch:
+        "This agent needs a tool your client doesn't support. Please update your client or contact the agent owner.",
     unknown: "I wasn't able to respond to that. The agent owner has been notified.",
 }
 

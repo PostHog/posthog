@@ -2,9 +2,8 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
-import { drawArea, drawAxes, drawGrid, drawLine, drawLineHoverPoints, drawPoints } from '../../core/canvas-renderer'
+import { drawAxes, drawGrid, drawLineHoverPoints, drawLineSeriesLayer } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
-import { withVerticalClip } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
@@ -80,6 +79,8 @@ function LineChartInner<Meta = unknown>({
         showGrid = false,
         showAxisLines = false,
         valueDomain,
+        floatBaseline = false,
+        yAxes,
     } = config ?? {}
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
@@ -128,11 +129,13 @@ function LineChartInner<Meta = unknown>({
                 scaleType: yScaleType,
                 percentStack: percentStackView,
                 valueDomain,
+                floatBaseline,
+                axes: yAxes,
             })
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
 
-            const yAxes = d3Scales.yAxes ? toYAxisScales(d3Scales.yAxes, yTickCount) : undefined
+            const yAxisScales = d3Scales.yAxes ? toYAxisScales(d3Scales.yAxes, yTickCount) : undefined
 
             // Stash raw d3 scales in the private slot so drawStatic can read them without
             // a side-channel ref — every render gets a self-contained ChartScales object,
@@ -146,11 +149,11 @@ function LineChartInner<Meta = unknown>({
                 x: (label: string) => d3Scales.x(label),
                 y: (value: number) => d3Scales.y(value),
                 yTicks: () => d3Scales.y.ticks?.(yTickCount) ?? [],
-                yAxes,
+                yAxes: yAxisScales,
                 _private: lineChartPrivate,
             }
         },
-        [yScaleType, percentStackView, stackedData, valueDomain]
+        [yScaleType, percentStackView, stackedData, valueDomain, floatBaseline, yAxes]
     )
 
     const drawStatic = useCallback(
@@ -179,29 +182,19 @@ function LineChartInner<Meta = unknown>({
                 drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
             }
 
-            // Clip vertically only: keep out-of-domain values (e.g. a trendline below 0) out of the
-            // axis-label gutters, but span the full width so edge point markers/line caps render whole.
-            withVerticalClip(ctx, dimensions, () => {
-                for (const s of coloredSeries) {
-                    if (s.visibility?.excluded) {
-                        continue
-                    }
-
-                    const drawCtx: DrawContext = {
-                        ...baseDrawCtx,
-                        yScale: resolveYScale(s),
-                    }
-                    const band = stackedData?.get(s.key)
-                    const yValues = band?.top
-
-                    if (s.fill) {
-                        drawArea(drawCtx, s, yValues, s.fill.lowerData ?? band?.bottom)
-                    }
-                    if (!s.fill?.lowerData) {
-                        drawLine(drawCtx, s, yValues)
-                        drawPoints(drawCtx, s, yValues)
-                    }
-                }
+            // Area then line+points per series, clipped vertically (shared with ComboChart). Areas use
+            // the stacked top as the line value and the stacked bottom (or `fill.lowerData`) as the floor.
+            drawLineSeriesLayer({
+                ctx,
+                dimensions,
+                labels: drawLabels,
+                series: coloredSeries,
+                xScale: d3Scales.x,
+                resolveYScale,
+                yValuesFor: (s) => stackedData?.get(s.key)?.top,
+                bottomFor: (s) => s.fill?.lowerData ?? stackedData?.get(s.key)?.bottom,
+                shouldFill: (s) => !!s.fill,
+                zOrder: 'per-series',
             })
         },
         [showGrid, showAxisLines, stackedData]

@@ -1,11 +1,10 @@
+import os
 import datetime as dt
 
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
-
-from ee.billing.salesforce_enrichment.duckgres_client import DuckgresNotConfiguredError
+from ee.billing.salesforce_enrichment.duckgres_client import DuckgresNotConfiguredError, duckgres_cursor
 from ee.billing.salesforce_enrichment.stripe_signals import _FETCH_QUERY, StripeSignals, fetch_stripe_signals
 
 
@@ -79,12 +78,19 @@ class TestStripeSignalsDataClass(TestCase):
 
 
 class TestFetchStripeSignals(TestCase):
-    @patch.object(settings, "DUCKGRES_PG_URL", None, create=True)
+    @patch.dict(os.environ, {"DUCKGRES_PG_URL": ""})
     def test_raises_when_not_configured(self):
         with self.assertRaises(DuckgresNotConfiguredError):
             fetch_stripe_signals(limit=100)
 
-    @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
+    @patch.dict(os.environ, {"DUCKGRES_PG_URL": "postgresql://user:pass@host/db"})
+    @patch("ee.billing.salesforce_enrichment.duckgres_client.psycopg.connect")
+    def test_duckgres_cursor_connects_with_env_url(self, mock_connect):
+        with duckgres_cursor():
+            pass
+
+        assert mock_connect.call_args[0][0] == "postgresql://user:pass@host/db"
+
     @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
     def test_full_backfill_passes_none_cursor(self, mock_cursor_ctx):
         mock_cursor = MagicMock()
@@ -102,7 +108,6 @@ class TestFetchStripeSignals(TestCase):
         assert executed_params["cursor_org_id"] is None
         assert executed_params["limit"] == 500
 
-    @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
     @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
     def test_keyset_cursor_passed_through(self, mock_cursor_ctx):
         mock_cursor = MagicMock()
@@ -116,7 +121,6 @@ class TestFetchStripeSignals(TestCase):
         assert executed_params["cursor_ts"] == cursor_ts
         assert executed_params["cursor_org_id"] == "org-42"
 
-    @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
     @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
     def test_returns_empty_list_when_no_rows(self, mock_cursor_ctx):
         mock_cursor = MagicMock()
@@ -125,7 +129,6 @@ class TestFetchStripeSignals(TestCase):
 
         assert fetch_stripe_signals(limit=100) == []
 
-    @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
     @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
     def test_maps_all_address_fields(self, mock_cursor_ctx):
         mock_cursor = MagicMock()

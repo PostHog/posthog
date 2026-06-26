@@ -3,16 +3,17 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
-import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
+import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 
 class ThrottlingException extends Error {
     constructor(message: string) {
@@ -92,7 +93,8 @@ describe('EmailService', () => {
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         mockFetch.mockClear()
     })
@@ -106,7 +108,8 @@ describe('EmailService', () => {
                 hub.integrationManager,
                 new TeamWorkflowsConfigService(hub.postgres),
                 hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
+                hub.SITE_URL,
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
             )
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 
@@ -329,7 +332,7 @@ describe('EmailService', () => {
         let invocation: CyclotronJobInvocationHogFunction
         const mailDevAPI = new MailDevAPI()
         beforeEach(async () => {
-            const actualFetch = jest.requireActual('~/utils/request').fetch as jest.Mock
+            const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
                 return actualFetch(...args) as any
             })
@@ -385,7 +388,7 @@ describe('EmailService', () => {
         let invocation: CyclotronJobInvocationHogFunction
         let sendEmailSpy: jest.SpyInstance
         beforeEach(async () => {
-            const actualFetch = jest.requireActual('~/utils/request').fetch as jest.Mock
+            const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
                 return actualFetch(...args) as any
             })

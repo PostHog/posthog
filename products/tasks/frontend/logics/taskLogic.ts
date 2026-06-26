@@ -1,10 +1,10 @@
-import { kea, key, listeners, path, props } from 'kea'
+import { kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 
 import { phDebugQueryParams } from '../lib/ph-debug'
 import { Task, type TaskUpsertProps } from '../types'
@@ -15,16 +15,38 @@ export interface TaskLogicProps {
     taskId: string
 }
 
+function isApiNotFound(errorObject: unknown): boolean {
+    return errorObject instanceof ApiError && errorObject.status === 404
+}
+
+function loadErrorMessage(error: string, errorObject: unknown): string {
+    if (error) {
+        return error
+    }
+    if (errorObject instanceof ApiError && (errorObject.detail || errorObject.statusText)) {
+        return errorObject.detail || errorObject.statusText || 'Something went wrong.'
+    }
+    if (errorObject instanceof Error && errorObject.message) {
+        return errorObject.message
+    }
+    return 'Something went wrong.'
+}
+
 export const taskLogic = kea<taskLogicType>([
     path(['products', 'tasks', 'taskLogic']),
     props({} as TaskLogicProps),
     key((props) => props.taskId),
-    loaders(({ props }) => ({
+    loaders(({ props, values, actions }) => ({
         task: [
             null as Task | null,
             {
                 loadTask: async () => {
-                    return await api.tasks.get(props.taskId, phDebugQueryParams())
+                    try {
+                        return await api.tasks.get(props.taskId, phDebugQueryParams())
+                    } catch (errorObject) {
+                        actions.loadTaskFailure(loadErrorMessage('', errorObject), errorObject)
+                        return isApiNotFound(errorObject) ? null : values.task
+                    }
                 },
                 runTask: async () => {
                     const response = await api.tasks.run(props.taskId)
@@ -47,6 +69,23 @@ export const taskLogic = kea<taskLogicType>([
             },
         ],
     })),
+    reducers({
+        taskNotFound: [
+            false,
+            {
+                loadTask: () => false,
+                loadTaskFailure: (_, { errorObject }) => isApiNotFound(errorObject),
+            },
+        ],
+        taskError: [
+            null as string | null,
+            {
+                loadTask: () => null,
+                loadTaskFailure: (_, { error, errorObject }) =>
+                    isApiNotFound(errorObject) ? null : loadErrorMessage(error, errorObject),
+            },
+        ],
+    }),
     listeners(({ values }) => ({
         loadTaskSuccess: () => {
             if (values.task) {
