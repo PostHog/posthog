@@ -374,6 +374,21 @@ def resolve_cte_database_table(
     select_query_type: ast.SelectQueryType | ast.SelectSetQueryType,
     context: HogQLContext,
 ) -> Table:
+    # Memoize per resolution — a CTE referenced N times would otherwise rebuild its table N times.
+    cache = context.cte_database_table_cache
+    key = id(select_query_type)
+    cached = cache.get(key)
+    if cached is not None and cached[0] is select_query_type:
+        return cached[1]
+    table = _build_cte_database_table(select_query_type, context)
+    cache[key] = (select_query_type, table)
+    return table
+
+
+def _build_cte_database_table(
+    select_query_type: ast.SelectQueryType | ast.SelectSetQueryType,
+    context: HogQLContext,
+) -> Table:
     if isinstance(select_query_type, ast.SelectQueryType):
         columns = select_query_type.columns
     else:
