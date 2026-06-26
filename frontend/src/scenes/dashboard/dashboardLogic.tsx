@@ -1118,14 +1118,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as PendingInsertion | null,
             {
                 setPendingInsertion: (_, { pendingInsertion }) => pendingInsertion,
-                // Abandon a pending insert when the user switches into a real mode (Edit/Sharing/Fullscreen).
-                // Not on `mode === null`: the text/button add flow navigates through a route that sets the
-                // mode back to null, and clearing there would drop the target before the tile is created.
+                // Clear on a real mode switch, but not on mode === null — the text/button add flow routes through it.
                 setDashboardMode: (state, { mode }) => (mode != null ? null : state),
-                // Don't clear on hideAddInsightToDashboardModal: closing the modal fires it right as the
-                // chosen insight is added, and clearing there dropped the target before applyPendingInsertion
-                // could place the tile (so insights appended at the bottom). A cancel leaves the target set,
-                // but the next header add clears it (setPendingInsertion(null)) and entering a mode clears it.
+                // No hideAddInsightToDashboardModal handler on purpose: it fires as the insight is added, so
+                // clearing there would drop the target before the tile lands.
             },
         ],
         urlSearchParamsAtEditModeEntry: [
