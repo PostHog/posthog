@@ -21,6 +21,10 @@ PDI_VERSION = 3
 TEAM_ID = 7
 DUMMY_OVERRIDE_UUID = "00000000-0000-0000-0000-000000000001"
 
+# The integration class writes persons to the persons DB directly, so it must run against the real
+# persons DB rather than the personhog fake.
+pytestmark = pytest.mark.persons_db_direct
+
 
 def _make_cursor(fetchone_values: list | None = None) -> MagicMock:
     cursor = MagicMock()
