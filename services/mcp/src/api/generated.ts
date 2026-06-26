@@ -53138,6 +53138,25 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface _LogPattern {
+      /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
+      pattern: string;
+      /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — scale by `total_count / scanned_count` to estimate. */
+      count: number;
+      /** Share of the sampled log volume this pattern represents (0–100). */
+      volume_share_pct: number;
+      /** Sampled occurrences at severity "error" or "fatal". */
+      error_count: number;
+      /** ISO 8601 timestamp of the earliest sampled occurrence. */
+      first_seen: string;
+      /** ISO 8601 timestamp of the latest sampled occurrence. */
+      last_seen: string;
+      /** Up to 3 distinct raw log bodies (truncated) that produced this pattern. */
+      examples: string[];
+      /** Up to 4 distinct service names this pattern was observed in. */
+      services: string[];
+    }
+
     /**
      * * `log` - log
      * * `log_attribute` - log_attribute
@@ -53318,6 +53337,35 @@ export namespace Schemas {
     export interface _LogsFacetValuesResponse {
       /** Facet values with cross-filtered counts, ordered by count descending. */
       results: _LogFacetValue[];
+    }
+
+    export interface _LogsPatternsBody {
+      /** Date range to mine patterns from. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels before mining. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Restrict mining to these service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies before mining. */
+      searchTerm?: string;
+      /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsPatternsRequest {
+      /** The patterns query to execute. */
+      query: _LogsPatternsBody;
+    }
+
+    export interface _LogsPatternsResponse {
+      /** Mined patterns ordered by `count` descending. */
+      patterns: _LogPattern[];
+      /** Number of log rows fed to the miner (the sample size, capped at the sample limit). */
+      scanned_count: number;
+      /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
+      total_count: number;
+      /** True when the window held more rows than the sample cap, so patterns were mined from an evenly-distributed random sample rather than every matching row. */
+      sampled: boolean;
     }
 
     export interface _LogsQueryBody {
