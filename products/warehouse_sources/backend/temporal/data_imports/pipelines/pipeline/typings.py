@@ -61,6 +61,11 @@ class SourceResponse:
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
+    version_keys: Optional[list[str]] = None
+    """Ordered columns (compared newest-first, NULLs last) that rank rows sharing a primary key, so the
+    load merge keeps the latest state per key instead of whichever row happened to land last in the batch.
+    None preserves the legacy unordered upsert. Set by sources whose rows are mutable and arrive as an
+    event stream — e.g. GitHub webhook runs/jobs that emit queued -> in_progress -> completed for one id."""
     xmin_ceiling_xid: Optional[int] = None
     """xmin syncs: bare 32-bit ceiling captured this run, persisted as the next run's lower bound."""
     xmin_ceiling_xid8: Optional[int] = None

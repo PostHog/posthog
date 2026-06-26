@@ -1,14 +1,23 @@
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, Mock, patch
+
+import duckdb
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor import (
     DuckgresColumn,
     _ensure_duckgres_apply_table,
     _insert_batch,
     _mark_duckgres_batch_applied,
+    _merge_batch,
+    _plan_batch_operation,
     _process_batch,
+    _version_keys,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PendingBatch,
@@ -449,3 +458,160 @@ def test_duckgres_apply_marker_is_scoped_by_schema_id() -> None:
         2,
         "00000000-0000-0000-0000-000000000001",
     ]
+
+
+# --- version-aware merge (webhook latest-state-wins fix) ---
+#
+# Event-streamed sources emit several rows per id (queued -> in_progress -> completed). Without a
+# version key the merge keeps whichever event landed last in batch/file order, which froze rows
+# pre-completion. These run the real SQL `_merge_batch` builds against DuckDB (the duckgres dialect)
+# to prove the latest state wins regardless of arrival order.
+
+_JOB_COLUMNS = ["id", "status", "completed_at", "started_at", "created_at"]
+_JOB_VERSION_KEYS = ["completed_at", "started_at", "created_at"]
+# Pin the schema so an all-NULL timestamp column doesn't get inferred as INT and break the
+# string merge — the real warehouse rows store these GitHub timestamps as strings.
+_JOB_ARROW_SCHEMA = pa.schema(
+    [
+        ("id", pa.int64()),
+        ("status", pa.string()),
+        ("completed_at", pa.string()),
+        ("started_at", pa.string()),
+        ("created_at", pa.string()),
+    ]
+)
+
+
+class _QueryCapturingConn:
+    """Captures the query `_merge_batch` composes so the test can run it on a real DuckDB session."""
+
+    def __init__(self) -> None:
+        self.query: Any = None
+
+    def execute(self, query: Any, params: Any = None) -> None:
+        self.query = query
+
+
+def _write_parquet(rows: list[dict[str, Any]], columns: list[str], path: Path) -> None:
+    table = pa.table({col: [row.get(col) for row in rows] for col in columns}, schema=_JOB_ARROW_SCHEMA)
+    pq.write_table(table, path)
+
+
+def _run_merge_on_duckdb(
+    target_rows: list[dict[str, Any]],
+    source_rows: list[dict[str, Any]],
+    *,
+    version_keys: list[str] | None,
+) -> dict[int, dict[str, Any]]:
+    # `target_rows` model the rows a prior batch already merged in; `source_rows` are the incoming
+    # batch — so the same helper exercises both within-batch dedup and cross-batch overwrite/guard.
+    with tempfile.TemporaryDirectory() as tmp:
+        target_parquet = Path(tmp) / "target.parquet"
+        source_parquet = Path(tmp) / "source.parquet"
+        _write_parquet(target_rows, _JOB_COLUMNS, target_parquet)
+        _write_parquet(source_rows, _JOB_COLUMNS, source_parquet)
+
+        duck = duckdb.connect()
+        duck.execute(f"CREATE TABLE main.jobs AS SELECT * FROM read_parquet('{target_parquet}')")
+
+        capturing = _QueryCapturingConn()
+        _merge_batch(capturing, "main", "jobs", str(source_parquet), _JOB_COLUMNS, ["id"], version_keys)
+        # `_merge_batch` leaves the parquet path as a `%s` bind param; inline it to run on DuckDB.
+        rendered = capturing.query.as_string(None).replace("%s", f"'{source_parquet}'")
+        duck.execute(rendered)
+
+        rows = duck.execute(f"SELECT {', '.join(_JOB_COLUMNS)} FROM main.jobs").fetchall()
+        return {int(row[0]): dict(zip(_JOB_COLUMNS, row)) for row in rows}
+
+
+def _status(result: dict[int, dict[str, Any]]) -> dict[int, str]:
+    return {id: row["status"] for id, row in result.items()}
+
+
+def _job(
+    id: int, status: str, *, created: str, started: str | None = None, completed: str | None = None
+) -> dict[str, Any]:
+    return {"id": id, "status": status, "created_at": created, "started_at": started, "completed_at": completed}
+
+
+@pytest.mark.parametrize(
+    "target_rows, source_rows, expected",
+    [
+        # Whole lifecycle in one batch, deliberately not completed-last: QUALIFY must still keep completed.
+        (
+            [_job(1, "in_progress", created="t0", started="t1")],
+            [
+                _job(1, "queued", created="t0"),
+                _job(1, "completed", created="t0", started="t1", completed="t2"),
+                _job(1, "in_progress", created="t0", started="t1"),
+            ],
+            {1: "completed"},
+        ),
+        # A late/out-of-order in_progress event must not roll a completed row back.
+        (
+            [_job(1, "completed", created="t0", started="t1", completed="t2")],
+            [_job(1, "in_progress", created="t0", started="t3")],
+            {1: "completed"},
+        ),
+        # Unseen id is inserted, existing rows untouched.
+        (
+            [_job(1, "completed", created="t0", started="t1", completed="t2")],
+            [_job(2, "completed", created="u0", started="u1", completed="u2")],
+            {1: "completed", 2: "completed"},
+        ),
+    ],
+    ids=["completed_wins_within_batch", "no_rollback_to_stale", "new_id_inserted"],
+)
+def test_version_aware_merge_keeps_latest_state(
+    target_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]], expected: dict[int, str]
+) -> None:
+    result = _run_merge_on_duckdb(target_rows, source_rows, version_keys=_JOB_VERSION_KEYS)
+    assert _status(result) == expected
+
+
+@pytest.mark.parametrize(
+    "incoming_started, expected_started",
+    [
+        ("t3", "t5"),  # stale event arriving in a later batch must NOT roll started_at back
+        ("t9", "t9"),  # genuinely newer in_progress event advances the row
+    ],
+    ids=["stale_intermediate_ignored", "newer_intermediate_applies"],
+)
+def test_version_guard_protects_intermediate_fields_across_batches(
+    incoming_started: str, expected_started: str
+) -> None:
+    # Both rows are pre-completion (completed_at NULL), so a terminal-only guard would let either
+    # win — the full version-tuple comparison is what keeps the newer started_at.
+    result = _run_merge_on_duckdb(
+        [_job(1, "in_progress", created="t0", started="t5")],
+        [_job(1, "in_progress", created="t0", started=incoming_started)],
+        version_keys=_JOB_VERSION_KEYS,
+    )
+    assert result[1]["started_at"] == expected_started
+
+
+def test_merge_without_version_keys_still_upserts() -> None:
+    # Sources that declare no version key keep the legacy unconditional upsert.
+    result = _run_merge_on_duckdb(
+        [_job(1, "old", created="t0")],
+        [_job(1, "new", created="t0", completed="t2")],
+        version_keys=None,
+    )
+    assert _status(result) == {1: "new"}
+
+
+def test_version_keys_reads_batch_metadata() -> None:
+    assert _version_keys(_make_batch(metadata={"version_keys": ["updated_at"]})) == ["updated_at"]
+    assert _version_keys(_make_batch(metadata={})) is None
+
+
+def test_plan_batch_operation_threads_version_keys_into_merge() -> None:
+    batch = _make_batch(metadata={"primary_keys": ["id"], "version_keys": ["completed_at"]})
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._table_exists",
+        return_value=True,
+    ):
+        operation = _plan_batch_operation(_make_conn(), batch, duckgres_schema="s", duckgres_table="t")
+    assert operation.kind == "merge"
+    assert operation.primary_keys == ["id"]
+    assert operation.version_keys == ["completed_at"]

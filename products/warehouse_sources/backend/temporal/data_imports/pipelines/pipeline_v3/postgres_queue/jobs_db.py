@@ -108,6 +108,7 @@ class PendingBatch:
             "data_folder": self.metadata.get("data_folder"),
             "schema_path": self.metadata.get("schema_path"),
             "primary_keys": self.metadata.get("primary_keys"),
+            "version_keys": self.metadata.get("version_keys"),
             "partition_count": self.metadata.get("partition_count"),
             "partition_size": self.metadata.get("partition_size"),
             "partition_keys": self.metadata.get("partition_keys"),

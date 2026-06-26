@@ -69,9 +69,13 @@ class WebhookSourceManager:
             try:
                 ls_res = await s3._ls(prefix, detail=True)
                 ls_values = ls_res.values() if isinstance(ls_res, dict) else ls_res
-                files = [
-                    f"s3://{f['Key']}" for f in ls_values if f["type"] != "directory" and f["Key"].endswith(".parquet")
-                ]
+                entries = [f for f in ls_values if f["type"] != "directory" and f["Key"].endswith(".parquet")]
+                # Read oldest-first (by S3 mtime, Key as a stable tiebreak) so a key's events reach
+                # the load merge in arrival order. This only reduces churn — the merge's version
+                # guard is the real correctness backstop. The leading `is None` flag sends entries
+                # without a LastModified to the end without ever comparing None to a timestamp.
+                entries.sort(key=lambda f: (f.get("LastModified") is None, f.get("LastModified"), f["Key"]))
+                files = [f"s3://{f['Key']}" for f in entries]
 
                 await self._logger.adebug("list_webhook_parquet_files", prefix=prefix, file_count=len(files))
 

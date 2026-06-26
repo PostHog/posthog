@@ -170,6 +170,7 @@ class PipelineV3(Generic[ResumableData]):
             run_uuid=self._s3_batch_writer.get_run_uuid(),
             logger=self._logger,
             primary_keys=self._resource.primary_keys,
+            version_keys=self._resource.version_keys,
             is_resume=is_resume,
             partition_count=partition_count,
             partition_size=partition_size,

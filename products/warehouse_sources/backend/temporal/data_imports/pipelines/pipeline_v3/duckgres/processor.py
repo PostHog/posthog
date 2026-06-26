@@ -47,6 +47,7 @@ class BatchApplyOperation:
     kind: Literal["replace", "create", "insert", "merge"]
     ensure_target_columns: bool = False
     primary_keys: list[str] | None = None
+    version_keys: list[str] | None = None
 
 
 def process_batch(batch: PendingBatch) -> None:
@@ -261,7 +262,12 @@ def _plan_batch_operation(
         primary_keys = _primary_keys(batch)
         if not primary_keys:
             raise ValueError("Duckgres incremental batches require primary keys")
-        return BatchApplyOperation(kind="merge", ensure_target_columns=True, primary_keys=primary_keys)
+        return BatchApplyOperation(
+            kind="merge",
+            ensure_target_columns=True,
+            primary_keys=primary_keys,
+            version_keys=_version_keys(batch),
+        )
 
     if batch.sync_type in ("full_refresh", "append"):
         return BatchApplyOperation(kind="insert", ensure_target_columns=True)
@@ -449,7 +455,15 @@ def _apply_batch_operation(
     if operation.kind == "merge":
         if operation.primary_keys is None:
             raise ValueError("Duckgres merge operation requires primary keys")
-        _merge_batch(conn, duckgres_schema, duckgres_table, s3_path, columns, operation.primary_keys)
+        _merge_batch(
+            conn,
+            duckgres_schema,
+            duckgres_table,
+            s3_path,
+            columns,
+            operation.primary_keys,
+            operation.version_keys,
+        )
         return
     raise ValueError(f"Unsupported Duckgres apply operation: {operation.kind}")
 
@@ -474,6 +488,37 @@ def _insert_batch(
     )
 
 
+def _version_guard_clause(version_keys: list[str]) -> sql.Composed:
+    """Predicate that's TRUE when the source row is at least as new as the target under the same
+    `<key> DESC NULLS LAST` ordering the QUALIFY uses — i.e. a lexicographic compare of the version
+    tuple. This is what keeps the no-rollback guarantee across batches (QUALIFY only acts within a
+    batch), and it covers every version key, not just the terminal one, so a stale event can't
+    regress an intermediate field either. Equal tuples pass through so idempotent re-delivery is a
+    harmless no-op rewrite.
+    """
+
+    def newer(key: str) -> sql.Composed:
+        # source.key ranks strictly ahead of target.key: a present value beats NULL (NULLS LAST),
+        # and among present values a larger one is newer.
+        col = sql.Identifier(key)
+        return sql.SQL(
+            "((target.{c} IS NULL AND source.{c} IS NOT NULL) "
+            "OR (source.{c} IS NOT NULL AND target.{c} IS NOT NULL AND source.{c} > target.{c}))"
+        ).format(c=col)
+
+    def equal(key: str) -> sql.Composed:
+        col = sql.Identifier(key)
+        return sql.SQL("((source.{c} IS NULL AND target.{c} IS NULL) OR (source.{c} = target.{c}))").format(c=col)
+
+    terms: list[sql.Composed] = []
+    equal_prefix: list[sql.Composed] = []
+    for key in version_keys:
+        terms.append(sql.SQL("({})").format(sql.SQL(" AND ").join([*equal_prefix, newer(key)])))
+        equal_prefix.append(equal(key))
+    terms.append(sql.SQL("({})").format(sql.SQL(" AND ").join(equal_prefix)))
+    return sql.SQL("({})").format(sql.SQL(" OR ").join(terms))
+
+
 def _merge_batch(
     conn: psycopg.Connection[Any],
     duckgres_schema: str,
@@ -481,11 +526,30 @@ def _merge_batch(
     s3_path: str,
     columns: list[str],
     primary_keys: list[str],
+    version_keys: list[str] | None = None,
 ) -> None:
     normalized_primary_keys = [NamingConvention.normalize_identifier(key) for key in primary_keys]
     missing_keys = [key for key in normalized_primary_keys if key not in columns]
     if missing_keys:
         raise ValueError(f"Duckgres incremental batch missing primary keys: {missing_keys}")
+
+    # A source can declare version keys an endpoint doesn't actually emit, so keep only the ones
+    # present in this batch. If none survive, fall back to the legacy unordered upsert below so
+    # the batch still loads rather than erroring.
+    normalized_version_keys = [
+        normalized
+        for key in (version_keys or [])
+        if (normalized := NamingConvention.normalize_identifier(key)) in columns
+    ]
+    if version_keys and not normalized_version_keys:
+        # Declared but none present — a renamed/dropped column would silently disable the
+        # no-rollback guard, so make the regression observable instead of mysterious.
+        logger.warning(
+            "duckgres_merge_version_keys_absent",
+            duckgres_schema=duckgres_schema,
+            duckgres_table=duckgres_table,
+            declared_version_keys=version_keys,
+        )
 
     update_columns = [column for column in columns if column not in normalized_primary_keys]
     if not update_columns:
@@ -500,12 +564,34 @@ def _merge_batch(
     insert_columns = sql.SQL(", ").join(sql.Identifier(column) for column in columns)
     insert_values = sql.SQL(", ").join(sql.SQL("source.{}").format(sql.Identifier(column)) for column in columns)
 
-    matched_clause = sql.SQL("WHEN MATCHED THEN UPDATE SET {}").format(update_clause)
+    if normalized_version_keys:
+        # Event-streamed sources (e.g. GitHub webhook runs/jobs) emit several rows per key —
+        # queued, then in_progress, then completed. Two guards make the latest state win
+        # deterministically instead of leaving it to batch/file order:
+        #   1. collapse the source to the newest row per key (QUALIFY row_number), and
+        #   2. only overwrite when the source row is at least as new as the target under that
+        #      same ordering, so a late or out-of-order event can't roll a row back — neither
+        #      its terminal field nor an intermediate one (QUALIFY only dedupes within a batch;
+        #      this guard is what holds across batches).
+        order_clause = sql.SQL(", ").join(
+            sql.SQL("{} DESC NULLS LAST").format(sql.Identifier(key)) for key in normalized_version_keys
+        )
+        partition_clause = sql.SQL(", ").join(sql.Identifier(key) for key in normalized_primary_keys)
+        source_relation = sql.SQL(
+            "(SELECT * FROM read_parquet(%s) QUALIFY row_number() OVER (PARTITION BY {} ORDER BY {}) = 1)"
+        ).format(partition_clause, order_clause)
+
+        matched_clause = sql.SQL("WHEN MATCHED AND {guard} THEN UPDATE SET {updates}").format(
+            guard=_version_guard_clause(normalized_version_keys), updates=update_clause
+        )
+    else:
+        source_relation = sql.SQL("read_parquet(%s)")
+        matched_clause = sql.SQL("WHEN MATCHED THEN UPDATE SET {}").format(update_clause)
 
     query = sql.SQL(
         """
         MERGE INTO {}.{} AS target
-        USING read_parquet(%s) AS source
+        USING {} AS source
         ON {}
         {}
         WHEN NOT MATCHED THEN INSERT ({}) VALUES ({})
@@ -513,6 +599,7 @@ def _merge_batch(
     ).format(
         sql.Identifier(duckgres_schema),
         sql.Identifier(duckgres_table),
+        source_relation,
         on_clause,
         matched_clause,
         insert_columns,
@@ -525,4 +612,11 @@ def _primary_keys(batch: PendingBatch) -> list[str]:
     raw = batch.metadata.get("primary_keys")
     if not isinstance(raw, list):
         return []
+    return [str(key) for key in raw]
+
+
+def _version_keys(batch: PendingBatch) -> list[str] | None:
+    raw = batch.metadata.get("version_keys")
+    if not isinstance(raw, list):
+        return None
     return [str(key) for key in raw]

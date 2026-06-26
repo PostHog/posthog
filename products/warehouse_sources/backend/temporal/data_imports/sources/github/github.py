@@ -673,6 +673,7 @@ def github_source(
         name=endpoint,
         items=items,
         primary_keys=[endpoint_config.primary_key],
+        version_keys=endpoint_config.version_keys,
         sort_mode=actual_sort_mode,
         partition_count=1,
         partition_size=1,

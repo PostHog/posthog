@@ -44,6 +44,7 @@ class PostgresProducer:
         run_uuid: str,
         logger: FilteringBoundLogger,
         primary_keys: list[str] | None = None,
+        version_keys: list[str] | None = None,
         is_resume: bool = False,
         partition_count: int | None = None,
         partition_size: int | None = None,
@@ -64,6 +65,7 @@ class PostgresProducer:
         self._sync_type = sync_type
         self._run_uuid = run_uuid
         self._primary_keys = primary_keys
+        self._version_keys = version_keys
         self._is_resume = is_resume
         self._logger = logger
         self._partition_count = partition_count
@@ -110,6 +112,8 @@ class PostgresProducer:
             metadata["schema_path"] = schema_path
         if self._primary_keys is not None:
             metadata["primary_keys"] = self._primary_keys
+        if self._version_keys is not None:
+            metadata["version_keys"] = self._version_keys
         if self._partition_count is not None:
             metadata["partition_count"] = self._partition_count
         if self._partition_size is not None:

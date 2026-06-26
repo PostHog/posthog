@@ -14,6 +14,12 @@ class GithubEndpointConfig:
     page_size: int = 100  # GitHub default, max is 100
     sort_mode: Literal["asc", "desc"] = "asc"
     primary_key: str = "id"  # Primary key for upsert operations
+    # Ordered columns (compared newest-first, NULLs last) that rank rows sharing a
+    # primary key so the load merge keeps the latest state. GitHub webhook rows are
+    # mutable — one run/job emits queued -> in_progress -> completed as separate events
+    # — and without an ordering key the merge keeps whichever event landed last in the
+    # batch, which froze ~1 in 5 jobs pre-completion. None = legacy unordered upsert.
+    version_keys: Optional[list[str]] = None
     # Body key to drill into when the API wraps results in an envelope
     # (e.g. /actions/runs returns {"total_count": N, "workflow_runs": [...]}).
     # None means the response body is itself the list.
@@ -132,6 +138,9 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         ],
         default_incremental_field="created_at",
         sort_mode="desc",  # API always returns newest-first; sort/direction are ignored
+        # workflow_run carries updated_at, which GitHub bumps on every status change — the
+        # natural recency key so a completed run is never clobbered by a stale earlier event.
+        version_keys=["updated_at"],
         response_data_path="workflow_runs",
     ),
     "workflow_jobs": GithubEndpointConfig(
@@ -174,6 +183,10 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # window since the latest job. Repos that genuinely want history should run a
         # deliberate one-off backfill, not pay for it on every connect.
         initial_lookback_days=0,
+        # workflow_job has no updated_at, so rank by how far the job progressed:
+        # completed_at (terminal) outranks started_at (running) outranks created_at (queued).
+        # Each is NULL until the job reaches that stage, so NULLs-last keeps the latest state.
+        version_keys=["completed_at", "started_at", "created_at"],
     ),
 }
 
