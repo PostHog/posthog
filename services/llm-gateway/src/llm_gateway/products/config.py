@@ -166,6 +166,14 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         billable=False,
     ),
+    # Drafts a Custom REST source manifest from API docs. Low volume, high stakes, long context —
+    # pinned to Opus rather than the cheap per-row model the enrichment context layer uses.
+    "warehouse_custom_source_builder": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-opus-4-8"}),
+        allow_api_keys=True,
+        billable=False,
+    ),
     "posthog_ai": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_AI_US_APP_ID, POSTHOG_AI_EU_APP_ID, POSTHOG_AI_DEV_APP_ID}),
         allowed_models=None,  # any model
