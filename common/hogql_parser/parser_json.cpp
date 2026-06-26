@@ -1826,7 +1826,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         throw NotImplementedError(("Unsupported interval count: " + count_str).c_str());
       }
     }
-    int countInt = std::stoi(count_str);
+    // ClickHouse stores intervals as Int64, so accept the full Int64 range (stoll), not just int32 (stoi).
+    int64_t countInt = std::stoll(count_str);
 
     std::string name;
     if (unit_str == "second" || unit_str == "seconds") {

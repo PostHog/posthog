@@ -1410,13 +1410,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// top-level combined-string branch of `parse_interval_expr` and the nested
     /// `parse_interval_string_only`.
     ///
-    /// Emulates cpp's `std::stoi` over the count: cpp digit-checks each char (an
-    /// empty count vacuously passes that loop), then converts. `std::stoi`
-    /// returns `int`, so an empty string is an `invalid_argument` ("no
-    /// conversion") and a value past `INT_MAX` is `out_of_range` — parsing the
-    /// count as `i64` would silently accept `interval '3000000000 day'`, which
-    /// cpp rejects. The unit is matched case-sensitively against cpp's
-    /// literal-lowercase singular / plural set (so `SECOND` rejects).
+    /// Emulates cpp's `std::stoll` over the count: cpp digit-checks each char (an
+    /// empty count vacuously passes that loop), then converts. ClickHouse stores
+    /// intervals as Int64, so the count is accepted across the full Int64 range;
+    /// an empty string is an `invalid_argument` ("no conversion") and a value past
+    /// Int64 max is `out_of_range`. The unit is matched case-sensitively against
+    /// cpp's literal-lowercase singular / plural set (so `SECOND` rejects).
     fn emit_interval_combined_string(
         &mut self,
         count_str: &str,
@@ -1431,18 +1430,18 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 str_tok.end,
             ));
         }
-        let count: i32 = if count_str.is_empty() {
+        let count: i64 = if count_str.is_empty() {
             return Err(ParseError::not_implemented_fatal(
-                "Unknown error: stoi: no conversion",
+                "Unknown error: stoll: no conversion",
                 str_tok.start,
                 str_tok.end,
             ));
         } else {
-            match count_str.parse::<i32>() {
+            match count_str.parse::<i64>() {
                 Ok(n) => n,
                 Err(_) => {
                     return Err(ParseError::not_implemented_fatal(
-                        "Unknown error: stoi: out of range",
+                        "Unknown error: stoll: out of range",
                         str_tok.start,
                         str_tok.end,
                     ));
@@ -1456,10 +1455,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 str_tok.end,
             ));
         };
-        Ok(self.emit.call(
-            unit_name,
-            vec![self.emit.constant(self.emit.int(count as i64))],
-        ))
+        Ok(self
+            .emit
+            .call(unit_name, vec![self.emit.constant(self.emit.int(count))]))
     }
 
     /// For a nested string-valued INTERVAL (`peek0 == interval`, `peek1 ==

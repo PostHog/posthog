@@ -6457,13 +6457,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("INTERVAL 'twenty days'", "Unsupported interval count: twenty"),
                 ("INTERVAL '-1 day'", "Unsupported interval count: -1"),
                 ("INTERVAL '1.5 days'", "Unsupported interval count: 1.5"),
-                # `stoi`'s `what()` text differs by stdlib (libc++ adds the `: out of range` / `: no conversion` suffix, libstdc++ doesn't); match the platform-independent prefix only.
-                ("INTERVAL '99999999999999999999 day'", "Unknown error: stoi"),
-                # A space-but-empty count (`' '`, `' day'`) isn't a digit-check failure — cpp's per-char isdigit loop is vacuous, then `std::stoi("")` throws. rust used to reject the empty count with "Unsupported interval count:" before reaching the stoi step.
-                ("INTERVAL ' '", "Unknown error: stoi"),
-                ("INTERVAL ' day'", "Unknown error: stoi"),
-                # `std::stoi` returns `int`, so a count past INT_MAX (2147483647) is out_of_range. rust used to parse the count as i64 and silently accept these.
-                ("INTERVAL '2147483648 day'", "Unknown error: stoi"),
+                # ClickHouse stores intervals as Int64, so both parsers convert the count with `std::stoll` (i64). A value past Int64 max is out_of_range. `stoll`'s `what()` text differs by stdlib (libc++ adds the `: out of range` / `: no conversion` suffix, libstdc++ doesn't); match the platform-independent prefix only.
+                ("INTERVAL '9223372036854775808 day'", "Unknown error: stoll"),
+                ("INTERVAL '99999999999999999999 day'", "Unknown error: stoll"),
+                # A space-but-empty count (`' '`, `' day'`) isn't a digit-check failure — cpp's per-char isdigit loop is vacuous, then `std::stoll("")` throws. rust used to reject the empty count with "Unsupported interval count:" before reaching the stoll step.
+                ("INTERVAL ' '", "Unknown error: stoll"),
+                ("INTERVAL ' day'", "Unknown error: stoll"),
                 ("INTERVAL '1 SECOND'", "Unsupported interval unit: SECOND"),
                 # cpp accepts only the singular or single-`s` plural unit; a doubled plural is rejected. rust used to strip every trailing `s` and silently accept `dayss` as `day`.
                 ("INTERVAL '1 dayss'", "Unsupported interval unit: dayss"),
@@ -6488,8 +6487,13 @@ def parser_test_factory(backend: HogQLParserBackend):
             # on both backends — the fall-back to the string-form rejection must not
             # pre-empt these. `interval 'x' day` takes the same path with the unit
             # immediately after the string.
-            # `INTERVAL '2147483647 day'` is the largest count `std::stoi` accepts (INT_MAX) — it must still parse, guarding the boundary against the out_of_range reject case above.
-            for src in ("INTERVAL 'a' || 'b' hour", "INTERVAL 'x' day", "INTERVAL '2147483647 day'"):
+            # Counts past int32 (`2147483648`) up to Int64 max (`9223372036854775807`) must parse — ClickHouse stores intervals as Int64, so `std::stoll` accepts the whole range. This guards the boundary against the out_of_range reject case above.
+            for src in (
+                "INTERVAL 'a' || 'b' hour",
+                "INTERVAL 'x' day",
+                "INTERVAL '2147483648 day'",
+                "INTERVAL '9223372036854775807 day'",
+            ):
                 self.assertEqual(parse_expr(src, backend="cpp-json"), parse_expr(src, backend=backend), msg=src)
 
         def test_in_cohort_falls_back_to_identifier_when_rhs_missing(self):
