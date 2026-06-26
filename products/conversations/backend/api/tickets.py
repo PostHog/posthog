@@ -14,7 +14,6 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
-from loginas.utils import is_impersonated_session
 from rest_framework import (
     pagination,
     serializers,
@@ -771,7 +770,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 self.organization,
                 request.user,
                 self.team_id,
-                is_impersonated_session(request),
+                is_impersonated(request),
             )
             # Refresh instance to get updated assignment
             instance.refresh_from_db()
