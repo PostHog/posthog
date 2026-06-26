@@ -125,6 +125,7 @@ export class HogFunctionHandler implements ActionHandler {
                 metrics: [],
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                emailAssets: [],
             }
         }
 

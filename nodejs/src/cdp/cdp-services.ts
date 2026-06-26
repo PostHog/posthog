@@ -103,6 +103,8 @@ export interface CdpCoreServices {
     /** Resolved outputs shared across every CDP service/consumer. */
     outputs: CdpOutputs
     emailService: EmailService
+    /** Buffers rendered-email asset rows and bulk-flushes them at the batch boundary. */
+    messageAssetsService: MessageAssetsService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -158,12 +160,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'MESSAGE_ASSETS_TOPIC'
         | 'MESSAGE_ASSETS_PRODUCER'
         | 'MESSAGE_ASSETS_CAPTURE_ENABLED'
-        | 'MESSAGE_ASSETS_OBJECT_STORAGE_ENDPOINT'
-        | 'MESSAGE_ASSETS_OBJECT_STORAGE_REGION'
-        | 'MESSAGE_ASSETS_OBJECT_STORAGE_BUCKET'
-        | 'MESSAGE_ASSETS_OBJECT_STORAGE_ACCESS_KEY_ID'
-        | 'MESSAGE_ASSETS_OBJECT_STORAGE_SECRET_ACCESS_KEY'
-        | 'MESSAGE_ASSETS_OBJECT_STORAGE_FOLDER'
         | 'CDP_PREFILTERED_EVENTS_TOPIC'
         | 'CDP_PREFILTERED_EVENTS_PRODUCER'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
@@ -450,7 +446,8 @@ export function createCdpCoreServices(
         hogFunctionMonitoringService,
         hogInvocationResultsService,
         warehouseWebhooksService,
-        capturedEventsService
+        capturedEventsService,
+        messageAssetsService
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
@@ -480,5 +477,6 @@ export function createCdpCoreServices(
         recipientTokensService,
         outputs,
         emailService,
+        messageAssetsService,
     }
 }

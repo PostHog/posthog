@@ -292,6 +292,16 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
+    /**
+     * Rendered email snapshots to persist into the `message_assets` ClickHouse table.
+     * Populated by the email service during execution; drained at the batch boundary by
+     * `InvocationResultsService → MessageAssetsService.queueInvocationResults`, then
+     * bulk-produced to Kafka by `MessageAssetsService.flush()` *before* the consumer
+     * commits its offset. That gating means a broker outage stalls the consumer rather
+     * than silently dropping asset rows — assets are load-bearing for the workflow
+     * Assets tab so we trade availability for durability here, unlike logs/metrics.
+     */
+    emailAssets: MessageAssetRow[]
     execResult?: unknown
 }
 
@@ -520,6 +530,34 @@ export type WarehouseWebhookPayload = {
     team_id: number
     schema_id: string
     payload: Record<string, any>
+}
+
+/**
+ * Row written to the `message_assets` ClickHouse table via Kafka. The rendered
+ * HTML body lives inline in the `html` column — ClickHouse's columnar storage
+ * means the listing query never reads it, only the click-to-view path does.
+ *
+ * Defined here (rather than alongside `MessageAssetsService`) so it can be
+ * carried on `CyclotronJobInvocationResult.emailAssets` without creating a
+ * cycle between `types.ts` and the messaging service module.
+ */
+export type MessageAssetRow = {
+    team_id: number
+    function_kind: 'hog_flow' | 'hog_function'
+    function_id: string
+    parent_run_id: string
+    invocation_id: string
+    action_id: string
+    kind: 'email'
+    distinct_id: string
+    person_id: string
+    recipient: string
+    subject: string
+    status: 'sent'
+    sent_at: string // ISO microsecond DateTime64
+    version: string // microsecond-precision UInt64, serialized as string to dodge JS's 53-bit cap
+    is_deleted: 0 | 1
+    html: string
 }
 
 export type Response = {

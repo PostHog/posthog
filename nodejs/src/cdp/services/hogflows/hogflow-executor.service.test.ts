@@ -203,6 +203,7 @@ describe('Hogflow Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                emailAssets: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,

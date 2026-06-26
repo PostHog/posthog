@@ -1,60 +1,35 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
-import { Counter } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { MESSAGE_ASSETS_OUTPUT, MessageAssetsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { safeClickhouseString } from '~/common/utils/db/utils'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
-import { CyclotronInvocationQueueParametersEmailType } from '../../../schema/cyclotron'
-import { safeClickhouseString } from '../../../utils/db/utils'
-import { logger } from '../../../utils/logger'
-import { captureException } from '../../../utils/posthog'
-import { CyclotronJobInvocationHogFunction } from '../../types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, MessageAssetRow } from '../../types'
 import { resolveEmailEngagementDistinctId } from './email-tracking.service'
+
+export type { MessageAssetRow } from '../../types'
 
 const counterMessageAssetsCaptured = new Counter({
     name: 'cdp_message_assets_captured',
-    help: 'Sent-email assets snapshotted to object storage and recorded in ClickHouse.',
+    help: 'Sent-email assets produced to the message_assets Kafka topic (ClickHouse-backed).',
     labelNames: ['kind'],
 })
 
 const counterMessageAssetsFailed = new Counter({
     name: 'cdp_message_assets_failed',
-    help: 'Asset captures that failed (object-storage write or Kafka produce). Best-effort — never disrupts the send.',
-    labelNames: ['stage'],
+    help: 'Asset captures that failed at Kafka produce. Unlike logs/metrics this is load-bearing data: a failed flush throws so the consumer does not commit, the batch is redelivered, and the dedup via ReplacingMergeTree(version) absorbs the resulting duplicate produce.',
+})
+
+const messageAssetsPendingRows = new Gauge({
+    name: 'cdp_message_assets_pending_rows',
+    help: 'Message-asset rows queued in-memory waiting for the next flush. Resets to 0 after each flush.',
 })
 
 export interface MessageAssetsServiceConfig {
     MESSAGE_ASSETS_CAPTURE_ENABLED: boolean
-    MESSAGE_ASSETS_OBJECT_STORAGE_ENDPOINT: string
-    MESSAGE_ASSETS_OBJECT_STORAGE_REGION: string
-    MESSAGE_ASSETS_OBJECT_STORAGE_BUCKET: string
-    MESSAGE_ASSETS_OBJECT_STORAGE_ACCESS_KEY_ID: string
-    MESSAGE_ASSETS_OBJECT_STORAGE_SECRET_ACCESS_KEY: string
-    MESSAGE_ASSETS_OBJECT_STORAGE_FOLDER: string
-}
-
-/**
- * Metadata row written to the `message_assets` ClickHouse table via Kafka. The
- * rendered HTML body itself lives in object storage at `s3_key` — this row holds
- * only what the workflow "Assets" tab needs to list and locate the asset.
- */
-export interface MessageAssetRow {
-    team_id: number
-    function_kind: 'hog_flow' | 'hog_function'
-    function_id: string
-    parent_run_id: string
-    invocation_id: string
-    action_id: string
-    kind: 'email'
-    distinct_id: string
-    person_id: string
-    recipient: string
-    subject: string
-    s3_key: string
-    status: 'sent'
-    sent_at: string // ISO microsecond DateTime64
-    version: string // microsecond-precision UInt64, serialized as string to dodge JS's 53-bit cap
-    is_deleted: 0 | 1
 }
 
 const microsecondsSinceEpoch = (): string => {
@@ -69,121 +44,55 @@ const isoMicroseconds = (date: Date): string => {
 }
 
 /**
- * Captures a snapshot of every successfully sent workflow email: the rendered
- * HTML is written to object storage and a compact metadata row is produced to
- * the `message_assets` ClickHouse table.
+ * Buffers rendered-email snapshots and flushes them as a single bulk Kafka produce
+ * at the batch boundary — so a workflow batch that sends N emails costs one
+ * produce round-trip per partition, not N.
  *
- * Capture is strictly best-effort — `captureSentEmail` never throws, so a
- * storage or Kafka hiccup can never fail an email that already went out. Gated
- * by the global `MESSAGE_ASSETS_CAPTURE_ENABLED` kill-switch.
+ * Durability: email assets are load-bearing for the workflow Assets tab, so unlike
+ * the logs/metrics services this one rethrows on flush failure. The consumer's
+ * `runBackgroundTasks` awaits the flush before the Postgres job-queue commits
+ * offsets, so a broker outage stalls progress rather than silently dropping rows.
+ * On crash mid-flush the batch is redelivered, the emails re-send (the same
+ * pre-existing duplicate-email risk we had with the fire-and-forget produce), and
+ * the assets re-produce with the same `invocation_id` partition key — the
+ * ReplacingMergeTree on the destination collapses them to one row.
+ *
+ * Gated by the global `MESSAGE_ASSETS_CAPTURE_ENABLED` kill-switch.
  */
 export class MessageAssetsService {
-    private s3Client: S3Client | null
+    private queuedRows: MessageAssetRow[] = []
 
     constructor(
         private outputs: IngestionOutputs<MessageAssetsOutput>,
         private config: MessageAssetsServiceConfig
-    ) {
-        this.s3Client = this.config.MESSAGE_ASSETS_OBJECT_STORAGE_ENDPOINT
-            ? new S3Client({
-                  region: this.config.MESSAGE_ASSETS_OBJECT_STORAGE_REGION,
-                  endpoint: this.config.MESSAGE_ASSETS_OBJECT_STORAGE_ENDPOINT,
-                  forcePathStyle: true,
-                  credentials: this.config.MESSAGE_ASSETS_OBJECT_STORAGE_ACCESS_KEY_ID
-                      ? {
-                            accessKeyId: this.config.MESSAGE_ASSETS_OBJECT_STORAGE_ACCESS_KEY_ID,
-                            secretAccessKey: this.config.MESSAGE_ASSETS_OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                        }
-                      : undefined,
-              })
-            : null
-    }
+    ) {}
 
-    // `message_assets/team-{teamId}/{functionId}/{invocationId}/{actionId}.html`.
-    // The Django assets API derives the same key from the row's metadata to serve
-    // the content, so the shape must stay in lockstep with `assets_storage.py`.
-    private objectKey(row: MessageAssetRow): string {
-        const action = row.action_id || 'default'
-        return `${this.config.MESSAGE_ASSETS_OBJECT_STORAGE_FOLDER}/team-${row.team_id}/${row.function_id}/${row.invocation_id}/${action}.html`
-    }
-
-    async captureSentEmail(
+    /**
+     * Builds the row from a successful email send. Returns null when the asset is
+     * intentionally skipped (capture disabled, text-only email, or a standalone
+     * email-destination send with no action id — the Assets API queries by
+     * `function_kind='hog_flow'` keyed off the action node id, so capturing a row
+     * with no action id would write data nothing can ever surface).
+     *
+     * Pure-ish builder so the email service can append the row directly onto
+     * `result.emailAssets` without coupling to this service's buffer.
+     */
+    buildRowForEmail(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
-    ): Promise<void> {
+    ): MessageAssetRow | null {
         if (!this.config.MESSAGE_ASSETS_CAPTURE_ENABLED) {
-            return
+            return null
         }
         if (!params.html) {
-            // Text-only email — nothing to snapshot. Metrics still record the send.
-            return
+            return null
         }
-        // Only emails sent as a workflow step are retrievable: the Assets API queries
-        // function_kind='hog_flow' keyed by the action node id. A standalone email-
-        // destination send has no action id, so capturing it would write a ClickHouse
-        // row + S3 object that nothing can ever surface — skip it.
         if (!invocation.state.actionId) {
-            return
+            return null
         }
-
-        const row = this.buildRow(invocation, params)
-
-        if (!this.s3Client) {
-            counterMessageAssetsFailed.inc({ stage: 'storage' })
-            return
-        }
-
-        try {
-            await this.s3Client.send(
-                new PutObjectCommand({
-                    Bucket: this.config.MESSAGE_ASSETS_OBJECT_STORAGE_BUCKET,
-                    Key: row.s3_key,
-                    Body: params.html,
-                    ContentType: 'text/html; charset=utf-8',
-                })
-            )
-        } catch (error) {
-            // Nothing stored — don't produce a row that would point at a missing object.
-            counterMessageAssetsFailed.inc({ stage: 'storage' })
-            logger.error('⚠️', `failed to write message asset to object storage: ${error}`, {
-                error: String(error),
-                invocation_id: invocation.id,
-            })
-            captureException(error)
-            return
-        }
-
-        try {
-            await this.outputs.produce(MESSAGE_ASSETS_OUTPUT, {
-                // Partition by invocation_id so retried produces for the same
-                // asset land on the same partition and collapse cleanly via the
-                // ReplacingMergeTree.
-                key: Buffer.from(row.invocation_id),
-                value: Buffer.from(safeClickhouseString(JSON.stringify(row))),
-            })
-        } catch (error) {
-            // The HTML is in object storage but the metadata row didn't land — the
-            // object is orphaned (unservable) until the lifecycle policy purges it.
-            // Distinct 'kafka' stage so operators can tell this apart from a storage miss.
-            counterMessageAssetsFailed.inc({ stage: 'kafka' })
-            logger.error('⚠️', `failed to produce message asset row: ${error}`, {
-                error: String(error),
-                invocation_id: invocation.id,
-            })
-            captureException(error)
-            return
-        }
-
-        counterMessageAssetsCaptured.inc({ kind: row.kind })
-    }
-
-    private buildRow(
-        invocation: CyclotronJobInvocationHogFunction,
-        params: CyclotronInvocationQueueParametersEmailType
-    ): MessageAssetRow {
-        const row: MessageAssetRow = {
+        return {
             team_id: invocation.teamId,
-            // captureSentEmail only reaches buildRow for in-workflow email steps (an
+            // buildRowForEmail only returns a row for in-workflow email steps (an
             // action id is present), so these always attribute to the workflow.
             function_kind: 'hog_flow',
             function_id: invocation.functionId,
@@ -195,13 +104,70 @@ export class MessageAssetsService {
             person_id: invocation.state.globals.person?.id ?? '',
             recipient: params.to.email,
             subject: params.subject,
-            s3_key: '',
             status: 'sent',
             sent_at: isoMicroseconds(new Date()),
             version: microsecondsSinceEpoch(),
             is_deleted: 0,
+            html: params.html,
         }
-        row.s3_key = this.objectKey(row)
-        return row
+    }
+
+    /**
+     * Drains `result.emailAssets` from each invocation result into the internal
+     * buffer. Mirrors `HogFunctionMonitoringService.queueInvocationResults` so the
+     * fan-out in `InvocationResultsService` looks the same across sinks.
+     */
+    queueInvocationResults(results: CyclotronJobInvocationResult[]): void {
+        for (const result of results) {
+            if (!result.emailAssets || result.emailAssets.length === 0) {
+                continue
+            }
+            for (const row of result.emailAssets) {
+                this.queuedRows.push(row)
+            }
+        }
+        messageAssetsPendingRows.set(this.queuedRows.length)
+    }
+
+    /**
+     * Bulk-produces every queued row in parallel and awaits broker acks. Throws on
+     * the first failure: callers (the consumer's `runBackgroundTasks`) MUST NOT
+     * commit offsets if this throws, otherwise a broker outage would silently drop
+     * load-bearing asset rows.
+     */
+    async flush(): Promise<void> {
+        if (this.queuedRows.length === 0) {
+            return
+        }
+        const rows = this.queuedRows
+        this.queuedRows = []
+        messageAssetsPendingRows.set(0)
+
+        try {
+            await Promise.all(
+                rows.map((row) =>
+                    this.outputs.produce(MESSAGE_ASSETS_OUTPUT, {
+                        // Partition by invocation_id so retried produces for the
+                        // same asset land on the same partition and collapse
+                        // cleanly via the ReplacingMergeTree.
+                        key: Buffer.from(row.invocation_id),
+                        value: Buffer.from(safeClickhouseString(JSON.stringify(row))),
+                    })
+                )
+            )
+            counterMessageAssetsCaptured.inc({ kind: 'email' }, rows.length)
+        } catch (error) {
+            counterMessageAssetsFailed.inc(rows.length)
+            logger.error('⚠️', `failed to flush message assets — stalling consumer to preserve durability: ${error}`, {
+                error: String(error),
+                queued: rows.length,
+            })
+            captureException(error)
+            // Rethrow so the consumer does not commit offsets — the batch is
+            // redelivered, emails re-send, assets re-produce, ReplacingMergeTree
+            // dedupes on `invocation_id` + `version`. Better duplicate emails on
+            // crash than lost asset rows.
+            throw error
+        }
     }
 }

@@ -107,6 +107,7 @@ describe('Hog Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                emailAssets: [],
                 invocation: {
                     state: {
                         globals: invocation.state.globals,

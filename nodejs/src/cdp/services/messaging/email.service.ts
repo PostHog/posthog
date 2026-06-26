@@ -217,10 +217,16 @@ export class EmailService {
             })
 
             // Snapshot the rendered email so it shows up in the workflow Assets tab.
-            // Best-effort and only for real, successful sends — captureSentEmail
-            // never throws, so it can't disrupt an email that already went out.
+            // We append the row to `result.emailAssets` and let `MessageAssetsService`
+            // drain the per-result lists into a single bulk produce at the batch
+            // boundary — one Kafka round-trip per partition for the whole batch
+            // instead of one per email. `buildRowForEmail` handles the skip cases
+            // internally (capture disabled, text-only email, no action id).
             if (success && this.messageAssetsService) {
-                await this.messageAssetsService.captureSentEmail(invocation, params)
+                const assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
+                if (assetRow) {
+                    result.emailAssets.push(assetRow)
+                }
             }
         }
 
