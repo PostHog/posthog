@@ -4966,6 +4966,14 @@ class ExperimentApiExposureCriteria(BaseModel):
     )
     exposure_config: ExperimentApiExposureConfig | None = None
     filterTestAccounts: bool | None = None
+    multiple_variant_handling: MultipleVariantHandling | None = Field(
+        default=None,
+        description=(
+            "How to handle entities exposed to multiple variants. 'exclude' (default)"
+            " drops them from the analysis; 'first_seen' assigns them to the variant"
+            " from their earliest exposure."
+        ),
+    )
 
 
 class ExperimentApiMetric(BaseModel):

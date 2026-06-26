@@ -21066,6 +21066,8 @@ export namespace Schemas {
     export interface ExperimentApiExposureCriteria {
       exposure_config?: ExperimentApiExposureConfig | null;
       filterTestAccounts?: boolean | null;
+      /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
+      multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
     export type Kind = typeof Kind[keyof typeof Kind];

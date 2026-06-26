@@ -4119,6 +4119,9 @@ export interface ExperimentApiExposureConfig {
 export interface ExperimentApiExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentApiExposureConfig
+    /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from
+     *  the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
+    multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
 export const enum ExperimentMetricType {
