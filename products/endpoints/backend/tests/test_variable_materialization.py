@@ -2,6 +2,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest import mock
 
 from parameterized import parameterized
 
@@ -17,14 +18,44 @@ from products.endpoints.backend.materialization_transforms import (
     _downstream_ctes,
     _topological_order,
     analyze_variables_for_materialization,
+    build_endpoint_hogql,
     transform_query_for_materialization,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
 
 
 class TestVariableAnalysis(APIBaseTest):
     """Test variable analysis for materialization eligibility."""
+
+    def test_materialization_transform_compiles_warehouse_table_without_user_context(self):
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="web_vitals_mv",
+            columns={"page": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/web-vitals/*.parquet",
+        )
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM web_vitals_mv WHERE page = {variables.page}",
+            "variables": {
+                "page-variable": {
+                    "variableId": "page-variable",
+                    "code_name": "page",
+                    "value": "/pricing",
+                }
+            },
+        }
+
+        with mock.patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=True):
+            materialized_query = build_endpoint_hogql(query, self.team)
+
+        assert materialized_query["variables"] == {}
+        assert "{variables" not in materialized_query["query"]
+        assert "web_vitals_mv" in materialized_query["query"]
+        assert "page" in materialized_query["query"]
 
     def test_simple_variable_detection(self):
         query = {
