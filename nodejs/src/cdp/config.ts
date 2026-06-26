@@ -253,7 +253,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         // Global kill-switch. Dev-on so the feature works locally; graduates to
         // true in prod once the ClickHouse table is provisioned.
-        MESSAGE_ASSETS_CAPTURE_ENABLED: isDevEnv() ? true : false,
+        MESSAGE_ASSETS_CAPTURE_ENABLED: true,
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
