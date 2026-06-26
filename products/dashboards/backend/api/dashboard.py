@@ -36,7 +36,6 @@ from django.utils.timezone import now
 import structlog
 import pydantic_core
 import posthoganalytics
-from asgiref.sync import sync_to_async
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
@@ -77,6 +76,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
+from posthog.sync import database_sync_to_async
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
@@ -2346,7 +2346,7 @@ class DashboardsViewSet(
                 for order in range(initial_tile_count):
                     tile = sorted_tiles[order]
                     try:
-                        order_result, tile_data = await sync_to_async(
+                        order_result, tile_data = await database_sync_to_async(
                             serialize_tile_with_context, thread_sensitive=True
                         )(tile, order, context)
                         initial_tiles.append(tile_data)
@@ -2369,7 +2369,7 @@ class DashboardsViewSet(
                 for order in range(initial_tile_count, len(sorted_tiles)):
                     tile = sorted_tiles[order]
                     try:
-                        order_result, tile_data = await sync_to_async(
+                        order_result, tile_data = await database_sync_to_async(
                             serialize_tile_with_context, thread_sensitive=True
                         )(tile, order, context)
                         tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
