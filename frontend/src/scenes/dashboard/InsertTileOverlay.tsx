@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 
 import { IconPlusSmall } from '@posthog/icons'
@@ -33,6 +33,14 @@ interface LineSegment {
     width: number
 }
 
+/** A rendered tile's box in overlay-local px, used to clip the line so it passes behind cards. */
+interface TileRect {
+    top: number
+    bottom: number
+    left: number
+    right: number
+}
+
 /**
  * Overlays thin hover strips in the gaps between dashboard grid rows. Hovering a strip reveals a
  * "+" that opens the same add-tile menu as the header — but the new tile is inserted at that row
@@ -50,6 +58,11 @@ export function InsertTileOverlay({
     disabled,
     getMenuItems,
 }: InsertTileOverlayProps): JSX.Element | null {
+    const containerRef = useRef<HTMLDivElement>(null)
+    const [tileRects, setTileRects] = useState<TileRect[]>([])
+
+    const active = canEditDashboard && !isMobileView && !disabled
+
     // Row boundaries: the top (0), the start of every tile, and the bottom of the grid. We offer a line
     // at any row that lines up with a tile edge — even one that runs through a taller tile in another
     // column — so insertion is available next to every row on the board, not just clean full-width cuts.
@@ -64,26 +77,64 @@ export function InsertTileOverlay({
         return Array.from(rows).sort((a, b) => a - b)
     }, [layout])
 
-    // For each boundary, the visible runs of the line: the full width minus any tile the row cuts
-    // through. Drawing only in the gaps makes the line read as passing *behind* tiles instead of
-    // slicing across them, while the hover strip + "+" still span the whole row.
-    const segmentsByRow = useMemo(() => {
-        const colWidth = (gridWidth - marginX * (cols - 1)) / cols
-        const leftPx = (x: number): number => x * (colWidth + marginX)
-        const widthPx = (w: number): number => w * colWidth + (w - 1) * marginX
+    const rowTopPx = useCallback(
+        (targetY: number): number => Math.max(marginY / 2, targetY * (rowHeight + marginY) - marginY / 2),
+        [rowHeight, marginY]
+    )
 
+    // Measure the rendered tile boxes so we can clip the line behind them. Reading the real DOM rects
+    // (not grid coords) keeps the clip exact regardless of zoom, padding, or content sizing.
+    useLayoutEffect(() => {
+        if (!active) {
+            return
+        }
+        const measure = (): void => {
+            const container = containerRef.current
+            const parent = container?.parentElement
+            if (!container || !parent) {
+                return
+            }
+            const base = container.getBoundingClientRect()
+            const rects: TileRect[] = []
+            parent.querySelectorAll('.react-grid-item').forEach((el) => {
+                if (el.classList.contains('react-grid-placeholder')) {
+                    return
+                }
+                const r = el.getBoundingClientRect()
+                rects.push({
+                    top: r.top - base.top,
+                    bottom: r.bottom - base.top,
+                    left: r.left - base.left,
+                    right: r.right - base.left,
+                })
+            })
+            setTileRects(rects)
+        }
+        measure()
+        const observer = new ResizeObserver(measure)
+        observer.observe(containerRef.current!.parentElement!)
+        window.addEventListener('resize', measure)
+        return () => {
+            observer.disconnect()
+            window.removeEventListener('resize', measure)
+        }
+    }, [active, layout, gridWidth, rowHeight, marginY])
+
+    // For each boundary, the visible runs of the line: the full width minus any rendered tile the row's
+    // pixel passes through. Drawing only in the gaps makes the line read as passing *behind* the cards
+    // instead of slicing across them, while the hover strip + "+" still span the whole row.
+    const segmentsByRow = useMemo(() => {
         const byRow = new Map<number, LineSegment[]>()
         for (const targetY of boundaryRows) {
-            // Tiles whose body crosses this row, padded into the column gutter so the line doesn't peek
-            // through the margin right next to a covered tile.
-            const covered = (layout || [])
-                .filter((item) => item.y < targetY && item.y + item.h > targetY)
+            const top = rowTopPx(targetY)
+            const covered = tileRects
+                .filter((rect) => rect.top < top && rect.bottom > top)
                 .map(
-                    (item) =>
-                        [
-                            Math.max(0, leftPx(item.x) - marginX / 2),
-                            Math.min(gridWidth, leftPx(item.x) + widthPx(item.w) + marginX / 2),
-                        ] as [number, number]
+                    (rect) =>
+                        [Math.max(0, rect.left - marginX / 2), Math.min(gridWidth, rect.right + marginX / 2)] as [
+                            number,
+                            number,
+                        ]
                 )
                 .sort((a, b) => a[0] - b[0])
 
@@ -111,7 +162,7 @@ export function InsertTileOverlay({
             byRow.set(targetY, segments)
         }
         return byRow
-    }, [boundaryRows, layout, gridWidth, cols, marginX])
+    }, [boundaryRows, tileRects, gridWidth, marginX, rowTopPx])
 
     // Resolve which grid column the cursor (px from the grid's left edge) sits over at a given row, so
     // the inserted tile lands under the "+" rather than always full-left. Prefer the column of the tile
@@ -133,20 +184,20 @@ export function InsertTileOverlay({
         [layout, gridWidth, cols, marginX]
     )
 
-    if (!canEditDashboard || isMobileView || disabled) {
+    if (!active) {
         return null
     }
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 6 }}>
+        <div ref={containerRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 6 }}>
             {boundaryRows.map((targetY) => (
                 <InsertionStrip
                     key={targetY}
                     targetY={targetY}
                     // Center the strip on the gap above the tiles that start at this row. The lower bound
                     // keeps the targetY=0 strip inside the top gap rather than clipped above the container.
-                    topPx={Math.max(marginY / 2, targetY * (rowHeight + marginY) - marginY / 2)}
+                    topPx={rowTopPx(targetY)}
                     gridWidth={gridWidth}
                     segments={segmentsByRow.get(targetY) ?? [{ left: 0, width: gridWidth }]}
                     resolveTargetX={resolveTargetX}
@@ -211,9 +262,10 @@ function InsertionStrip({
 
     // Build items when the menu opens, resolving the column from the frozen "+" position. Stable
     // otherwise so the dropdown overlay isn't rebuilt under the pointer on unrelated re-renders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     const menuItems = useMemo(
         () => getMenuItems(resolveTargetX(targetY, lastXRef.current), targetY),
+        // menuOpen forces a rebuild on open so lastXRef (frozen there) picks the column under the cursor.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [getMenuItems, resolveTargetX, targetY, menuOpen]
     )
 
