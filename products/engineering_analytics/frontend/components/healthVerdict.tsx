@@ -6,18 +6,43 @@ import { cn } from 'lib/utils/css-classes'
 
 import type { WorkflowState } from '../lib/runHealth'
 
-// Verdict word + accent color (a real PostHog CSS var, so it tracks the theme) + tag type + the matching
-// left-border accent class per state, matching the run tables' StatusDot palette: green healthy, amber
-// degraded, red failing. Shared by the single-workflow and all-workflows (fleet) headers so both read
-// identically. `borderClass` is a literal token class (not built from a string) so Tailwind keeps it.
+// Verdict word + tag type + the matching accent classes per state, matching the run tables' StatusDot
+// palette: green healthy, amber degraded, red failing. Shared by the single-workflow and all-workflows
+// (fleet) headers so both read identically. Classes are literal token utilities (not built from a string)
+// so Tailwind keeps them and the theme tracks automatically — border-l for the strip edge, bg for the
+// status dot, text for the state word.
 export const STATE_META: Record<
     WorkflowState,
-    { word: string; color: string; tag: LemonTagType; borderClass: string }
+    { word: string; tag: LemonTagType; borderClass: string; dotClass: string; wordClass: string }
 > = {
-    healthy: { word: 'Healthy', color: 'var(--success)', tag: 'success', borderClass: 'border-l-success' },
-    degraded: { word: 'Degraded', color: 'var(--warning)', tag: 'warning', borderClass: 'border-l-warning' },
-    failing: { word: 'Failing', color: 'var(--danger)', tag: 'danger', borderClass: 'border-l-danger' },
-    unknown: { word: 'No data', color: 'var(--muted)', tag: 'muted', borderClass: 'border-l-muted' },
+    healthy: {
+        word: 'Healthy',
+        tag: 'success',
+        borderClass: 'border-l-success',
+        dotClass: 'bg-success',
+        wordClass: 'text-success',
+    },
+    degraded: {
+        word: 'Degraded',
+        tag: 'warning',
+        borderClass: 'border-l-warning',
+        dotClass: 'bg-warning',
+        wordClass: 'text-warning',
+    },
+    failing: {
+        word: 'Failing',
+        tag: 'danger',
+        borderClass: 'border-l-danger',
+        dotClass: 'bg-danger',
+        wordClass: 'text-danger',
+    },
+    unknown: {
+        word: 'No data',
+        tag: 'muted',
+        borderClass: 'border-l-muted',
+        dotClass: 'bg-muted',
+        wordClass: 'text-muted',
+    },
 }
 
 /** One headline rollup in a verdict strip: small label over a big tabular number. */

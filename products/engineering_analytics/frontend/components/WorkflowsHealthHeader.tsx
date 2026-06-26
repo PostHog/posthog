@@ -39,10 +39,8 @@ export function WorkflowsHealthHeader({ summary, truncated, className }: Workflo
         >
             <div className="flex flex-col">
                 <div className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: meta.color }} />
-                    <span className="text-xl font-semibold leading-none" style={{ color: meta.color }}>
-                        {meta.word}
-                    </span>
+                    <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', meta.dotClass)} />
+                    <span className={cn('text-xl font-semibold leading-none', meta.wordClass)}>{meta.word}</span>
                 </div>
                 <span className="mt-1.5 text-xs text-secondary">
                     {summary.workflowCount === 0
