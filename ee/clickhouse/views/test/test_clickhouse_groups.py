@@ -21,13 +21,15 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import GroupTypeMapping, GroupUsageMetric, PropertyDefinition
+from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.group import Group
 from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    get_group_type_mapping_instance,
+    get_group_types_for_project,
     update_group_type_mapping_fields,
 )
 from posthog.models.organization import Organization
@@ -1508,7 +1510,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_create_detail_dashboard_success(self):
-        group_type_mapping = create_group_type_mapping_without_created_at(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -1518,7 +1520,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
 
-        group_type_mapping.refresh_from_db()
+        group_type_mapping = get_group_type_mapping_instance(project_id=self.team.project_id, group_type_index=0)
         self.assertIsNotNone(group_type_mapping.detail_dashboard_id)
 
     def test_create_detail_dashboard_duplicate(self):
@@ -1544,7 +1546,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json().get("detail"), "Group type not found")
 
     def test_set_default_columns_success(self):
-        group_type_mapping = create_group_type_mapping_without_created_at(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -1554,7 +1556,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
 
-        group_type_mapping.refresh_from_db()
+        group_type_mapping = get_group_type_mapping_instance(project_id=self.team.project_id, group_type_index=0)
         self.assertEqual(group_type_mapping.default_columns, ["$group_0", "$group_1"])
 
     def test_set_default_columns_not_found(self):
@@ -1649,7 +1651,8 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         delete_response = self.client.delete(delete_url)
 
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(GroupTypeMapping.objects.filter(**group_type_data).exists())
+        remaining_indices = [m["group_type_index"] for m in get_group_types_for_project(self.team.project_id)]
+        self.assertNotIn(group_type.group_type_index, remaining_indices)
 
         list_response = self.client.get(self.url)
 
@@ -1830,7 +1833,9 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        group_type.refresh_from_db()
+        group_type = get_group_type_mapping_instance(
+            project_id=self.team.project_id, group_type_index=group_type.group_type_index
+        )
         self.assertIsNone(group_type.name_singular)
         self.assertIsNone(group_type.name_plural)
 
@@ -1850,7 +1855,9 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        group_type.refresh_from_db()
+        group_type = get_group_type_mapping_instance(
+            project_id=self.team.project_id, group_type_index=group_type.group_type_index
+        )
         self.assertEqual(group_type.name_singular, "Org")
         self.assertEqual(group_type.name_plural, "Orgs")
 
