@@ -3275,12 +3275,6 @@ export interface DraftCustomManifestRequestApi {
     docs_url?: string
     /** Raw API documentation or an OpenAPI/Swagger spec, pasted directly. Provide this or docs_url. */
     docs_text?: string
-    /** Optional bearer token, used only to live-validate the drafted manifest. Never written into the manifest. */
-    auth_token?: string
-    /** Optional API key (api_key auth), used only to live-validate the drafted manifest. Never written into the manifest. */
-    auth_api_key?: string
-    /** Optional HTTP basic password, used only to live-validate the drafted manifest. Never written into the manifest. */
-    auth_password?: string
 }
 
 /**

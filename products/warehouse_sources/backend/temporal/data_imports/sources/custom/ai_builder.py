@@ -262,36 +262,26 @@ def _bounded_docs(docs_text: str) -> str:
     return text if len(text) <= MAX_DOCS_CHARS else text[:MAX_DOCS_CHARS]
 
 
-def _validate_manifest(
-    manifest: dict,
-    *,
-    team_id: int,
-    auth_token: str | None,
-    auth_api_key: str | None,
-    auth_password: str | None,
-) -> tuple[list[str], str | None]:
-    """Run the create-path validations and return ``(resource_names, error)``.
+def _validate_manifest(manifest: dict, *, team_id: int) -> tuple[list[str], str | None]:
+    """Run the create-path *structural* validations and return ``(resource_names, error)``.
 
-    Mirrors what `validate_credentials` does for a builder-authored manifest: structure, fan-out
-    graph, then resource extraction (which also enforces SSRF host rules). Any failure comes back as
-    a plain-English message suitable for feeding to the model to repair.
+    Runs the same offline checks the create path does — structure, fan-out graph, incremental
+    config, and resource extraction (which also enforces SSRF host rules). It deliberately does NOT
+    run `validate_credentials`' live probe: drafting happens from docs before the user has supplied
+    credentials, so there is nothing to probe with — credentials are added later in the builder.
+    Any failure comes back as a plain-English message suitable for feeding to the model to repair.
     """
     try:
         validate_manifest_structure(manifest)
         _validate_resource_graph(manifest)
-        # Mirror the create path (validate_credentials): structural checks miss a non-string
-        # datetime_format, which get_schemas ignores but create-time validation rejects — so a draft
-        # that skips this would be a false "ok" the user can't actually create.
+        # Structural checks miss a non-string datetime_format, which get_schemas ignores but
+        # create-time validation rejects — so a draft that skips this would be a false "ok" the user
+        # can't actually create.
         _validate_incremental_configs(manifest)
     except (ManifestValidationError, ValueError) as exc:
         return [], str(exc)
 
-    config = CustomSourceConfig(
-        manifest_json=json.dumps(manifest),
-        auth_token=auth_token,
-        auth_api_key=auth_api_key,
-        auth_password=auth_password,
-    )
+    config = CustomSourceConfig(manifest_json=json.dumps(manifest))
     try:
         schemas = CustomSource().get_schemas(config, team_id)
     except (ManifestValidationError, ValueError) as exc:
@@ -324,9 +314,6 @@ def draft_manifest_sync(
     team_id: int,
     source_name: str,
     docs_text: str,
-    auth_token: str | None = None,
-    auth_api_key: str | None = None,
-    auth_password: str | None = None,
     max_attempts: int = MAX_DRAFT_ATTEMPTS,
     client: OpenAI | None = None,
     reference_text: str | None = None,
@@ -361,13 +348,7 @@ def draft_manifest_sync(
             continue
 
         ever_parsed = True
-        resource_names, error = _validate_manifest(
-            manifest,
-            team_id=team_id,
-            auth_token=auth_token,
-            auth_api_key=auth_api_key,
-            auth_password=auth_password,
-        )
+        resource_names, error = _validate_manifest(manifest, team_id=team_id)
         if error is None:
             return ManifestDraftResult(
                 status="ok",

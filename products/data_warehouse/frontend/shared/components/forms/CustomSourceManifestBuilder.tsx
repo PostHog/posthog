@@ -124,6 +124,7 @@ export function CustomSourceManifestBuilder({
                 </div>
                 <LemonField.Pure label="Source name">
                     <LemonInput
+                        data-attr="custom-source-ai-source-name"
                         placeholder="Acme CRM"
                         value={sourceName}
                         onChange={setSourceName}
@@ -133,6 +134,7 @@ export function CustomSourceManifestBuilder({
                 </LemonField.Pure>
                 <LemonField.Pure label="Documentation URL">
                     <LemonInput
+                        data-attr="custom-source-ai-docs-url"
                         placeholder="https://docs.example.com/api"
                         value={docsUrl}
                         onChange={setDocsUrl}
@@ -142,6 +144,7 @@ export function CustomSourceManifestBuilder({
                 </LemonField.Pure>
                 <div className="flex items-center gap-2">
                     <LemonButton
+                        data-attr="custom-source-ai-generate"
                         type="primary"
                         icon={<IconSparkles />}
                         loading={draftResultLoading}
@@ -151,6 +154,7 @@ export function CustomSourceManifestBuilder({
                         Generate
                     </LemonButton>
                     <LemonButton
+                        data-attr="custom-source-ai-configure-manually"
                         type="secondary"
                         onClick={() => setShowBuilder(true)}
                         disabledReason={draftResultLoading ? 'Generating…' : undefined}
@@ -165,7 +169,12 @@ export function CustomSourceManifestBuilder({
     return (
         <div className="space-y-6">
             {aiBuilderEnabled && !initialManifestJson && (
-                <LemonButton size="small" type="tertiary" onClick={() => setShowBuilder(false)}>
+                <LemonButton
+                    data-attr="custom-source-ai-back-to-intro"
+                    size="small"
+                    type="tertiary"
+                    onClick={() => setShowBuilder(false)}
+                >
                     ← Back to AI setup
                 </LemonButton>
             )}

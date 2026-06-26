@@ -881,8 +881,9 @@ export const getExternalDataSourcesDraftCustomManifestCreateUrl = (projectId: st
  * Reads the docs (a URL fetched server-side, or pasted text / OpenAPI spec), asks the model to
  * author a RESTAPIConfig manifest, and validates it against the create-path checks — repairing
  * against validation errors up to a small budget. Returns the manifest for the user to review
- * and tweak in the builder before creating the source; it does NOT create anything. Requires
- * the org to have approved AI data processing, since the docs are sent to the LLM gateway.
+ * and tweak in the builder before creating the source; it does NOT create anything. Gated by the
+ * `dwh-custom-source-ai-builder` flag, and requires the org to have approved AI data processing,
+ * since the docs are sent to the LLM gateway.
  */
 export const externalDataSourcesDraftCustomManifestCreate = async (
     projectId: string,

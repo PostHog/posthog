@@ -2716,6 +2716,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         data = serializer.validated_data
 
         docs_text = (data.get("docs_text") or "").strip()
+        docs_source = "pasted_text" if docs_text else "fetched_url"
         if not docs_text:
             try:
                 docs_text = fetch_docs_text(data["docs_url"])
@@ -2742,6 +2743,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_502_BAD_GATEWAY,
                 data={"message": "The manifest drafting service failed. Try again, or author the manifest manually."},
             )
+
+        # Success-path telemetry: this is a paid, unbilled-to-customer Opus path, so capture how it
+        # performed (status, repair rounds, tables, where the docs came from) to drive a funnel from
+        # draft → source created. No docs content or credentials — none are accepted here anymore.
+        report_user_action(
+            cast(User, request.user),
+            "data warehouse custom source manifest drafted",
+            {
+                "draft_status": result.status,
+                "attempts": result.attempts,
+                "table_count": len(result.resource_names),
+                "docs_source": docs_source,
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(
             status=status.HTTP_200_OK,
