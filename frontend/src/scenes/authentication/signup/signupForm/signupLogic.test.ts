@@ -13,10 +13,7 @@ describe('signupLogic — email error surfacing', () => {
         useMocks({
             post: {
                 '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
-                '/api/signup/': () => [
-                    400,
-                    { email: ['There is already an account with this email address.'] },
-                ],
+                '/api/signup/': () => [400, { email: ['There is already an account with this email address.'] }],
             },
         })
         initKeaTests()
@@ -36,7 +33,8 @@ describe('signupLogic — email error surfacing', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.panel).toBe(1)
 
-        // Advance through auth panel
+        // Advance through auth panel (a valid password is required to pass form validation)
+        logic.actions.setSignupPanelAuthValue('password', 'Str0ng-Test-Pass!')
         logic.actions.submitSignupPanelAuth()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.panel).toBe(2)
