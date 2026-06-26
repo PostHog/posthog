@@ -43,17 +43,28 @@ _MAX_RESULT_CHARS_FOR_JUDGE = 12_000
 
 
 def extract_last_execute_sql_call(output: dict[str, Any] | None) -> dict[str, str] | None:
-    """Return the query and result from the most recent successful ``execute-sql`` call.
+    """Return the query and result from the most recent successful *answer* ``execute-sql`` call.
 
-    Returns ``None`` when the agent never ran the tool successfully — scorers
-    should short-circuit in that case rather than count it as an incorrect
-    answer.
+    Schema discovery runs through ``execute-sql`` against
+    ``system.information_schema.*`` (the ``mcp-sql-schema-discovery`` regime,
+    forced on in the sandbox), so those discovery queries land in the same
+    ``execute-sql`` call list as the real answer query. They are skipped here so
+    the judge grades the question's answer, not a column lookup the agent ran
+    afterward.
+
+    Returns ``None`` when the agent never ran an answer query successfully —
+    scorers should short-circuit in that case rather than count it as an
+    incorrect answer.
     """
     parser = parser_for(output)
     if parser is None:
         return None
 
-    successful = [call for call in parser.get_tool_calls(QUERY_SQL_TOOL_NAME) if not call.is_error]
+    successful = [
+        call
+        for call in parser.get_tool_calls(QUERY_SQL_TOOL_NAME)
+        if not call.is_error and not _is_schema_discovery_query(call.input.get("query"))
+    ]
     if not successful:
         return None
 
@@ -62,6 +73,11 @@ def extract_last_execute_sql_call(output: dict[str, Any] | None) -> dict[str, st
     if not isinstance(query, str) or not query.strip():
         return None
     return {"query": query, "result": call.output}
+
+
+def _is_schema_discovery_query(query: Any) -> bool:
+    """True when the query is an ``information_schema`` schema-discovery lookup, not an answer."""
+    return isinstance(query, str) and "information_schema" in query.lower()
 
 
 def extract_last_execute_sql_query(output: dict[str, Any] | None) -> str | None:
