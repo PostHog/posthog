@@ -1,24 +1,29 @@
-import { existsSync } from 'node:fs'
+import { isBuiltin } from 'node:module'
 import * as path from 'path'
 import type { Plugin } from 'vite'
 
-// The app's runtime deps are hoisted to frontend/node_modules, not the repo root.
-// Webpack reached them via resolve.modules: [frontend/node_modules]; Vite/Rollup
-// has no equivalent. The dev server tolerates the miss, but the production rollup
-// build fails to resolve bare imports (e.g. "@posthog/icons") from product files
-// whose node_modules chain never reaches frontend/node_modules.
+// The app's runtime deps are hoisted to frontend/node_modules (and the repo root),
+// not into every workspace that Storybook bundles. The old webpack config reached
+// them with `resolve.modules: [frontend/node_modules, <repo root>/node_modules,
+// 'node_modules']` — searching the frontend/root chain BEFORE the importer's own
+// node_modules. Vite/Rollup has no equivalent: it resolves bare imports relative to
+// the importer, so a package like `lucide-react` imported from `services/mcp` source
+// (aliased in via `@posthog/mcp-ui`) fails in CI, where `services/mcp` itself isn't
+// installed but the dep is present up the frontend chain.
 //
-// This resolves bare specifiers that exist in frontend/node_modules from there, by
-// handing rollup a synthetic importer inside frontend/ so its node resolution walks
-// that tree (and its .pnpm symlinks). Specifiers covered by explicit aliases never
-// reach this plugin — Vite's alias plugin runs first — and specifiers absent from
-// frontend/node_modules fall through to normal resolution.
+// This ports that behavior: resolve every bare specifier from a real file in
+// frontend/src first (Node resolution walks frontend/node_modules then the repo
+// root). If found, use it — matching webpack's frontend-first ordering. If not (the
+// dep only exists in the importer's own node_modules, as in a full local install),
+// return null and let Vite's normal importer-relative resolution handle it.
+//
+// Source packages aliased to their checkout (e.g. `@posthog/quill`, `@posthog/mcp-ui`)
+// never reach this plugin — Vite's alias plugin runs first.
 export function frontendResolvePlugin(frontendDir: string): Plugin {
-    const nodeModules = path.resolve(frontendDir, 'node_modules')
-    // A real file inside frontend/src so the resolver searches frontend/node_modules.
-    // It must exist on disk — Vite's resolver falls back to the wrong root for a
-    // non-existent importer, which silently resolves nothing.
-    const synthetic = path.join(frontendDir, 'src', 'index.tsx')
+    // A real file inside frontend/src so resolution searches frontend/node_modules and
+    // up to the repo root. It must exist on disk — Vite's resolver falls back to the
+    // wrong root for a non-existent importer and silently resolves nothing.
+    const base = path.join(frontendDir, 'src', 'index.tsx')
 
     return {
         name: 'frontend-node-modules-resolve',
@@ -28,17 +33,13 @@ export function frontendResolvePlugin(frontendDir: string): Plugin {
                 !source ||
                 source[0] === '.' ||
                 source[0] === '\0' ||
-                importer === synthetic ||
-                path.isAbsolute(source)
+                importer === base ||
+                path.isAbsolute(source) ||
+                isBuiltin(source)
             ) {
                 return null
             }
-            const parts = source.split('/')
-            const pkgDir = source[0] === '@' ? `${parts[0]}/${parts[1]}` : parts[0]
-            if (!existsSync(path.join(nodeModules, pkgDir))) {
-                return null
-            }
-            return this.resolve(source, synthetic, { ...options, skipSelf: true })
+            return this.resolve(source, base, { ...options, skipSelf: true })
         },
     }
 }
