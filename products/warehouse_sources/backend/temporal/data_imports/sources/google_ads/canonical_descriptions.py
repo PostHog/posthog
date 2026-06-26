@@ -84,6 +84,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             metrics_active_view_measurability="Share of impressions that were measurable by Active View.",
         ),
     },
+    "ad_overview_stats": {
+        "description": "Daily ad (ad_group_ad) performance without click-type segmentation, so cost totals reconcile to the Google Ads UI. Segmented by date, device, and network.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group_ad",
+        "columns": _stats_columns(
+            ad_group_ad_ad_id="Unique ID of the ad the metrics belong to.",
+            metrics_active_view_measurability="Share of impressions that were measurable by Active View.",
+        ),
+    },
     "ad_group": {
         "description": "An ad group — a set of ads and keywords sharing bids and targeting within a campaign.",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group",
@@ -100,6 +108,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "ad_group_stats": {
         "description": "Daily performance metrics for ad groups, segmented by date, device, and network.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group",
+        "columns": _stats_columns(),
+    },
+    "ad_group_overview_stats": {
+        "description": "Daily ad group performance without click-type segmentation, so cost totals reconcile to the Google Ads UI. Segmented by date, device, and network.",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group",
         "columns": _stats_columns(),
     },
