@@ -116,6 +116,8 @@ def _extract_patches(source, schemas, events):
     reader = MagicMock()
     reader.read_changes.return_value = iter(events)
     reader.truncated_tables = []
+    # Below CDC_MAX_CHANGES_PER_READ so the bounded read loop treats this as a single drained pass.
+    reader.last_rows_consumed = len(events)
     reader.get_decoder_key_columns.return_value = []
 
     adapter = MagicMock()

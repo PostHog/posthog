@@ -32,10 +32,17 @@ from typing import Any
 
 import pyarrow as pa
 
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCTransactionTooLargeError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 
 logger = logging.getLogger(__name__)
+
+# A transaction is buffered entirely in memory until its COMMIT, when every event is yielded
+# at once. Cap the buffer so a single pathologically large transaction can't OOM the worker;
+# the orchestration layer classifies CDCTransactionTooLargeError as a non-retryable failure.
+# Spill-to-disk is out of scope.
+MAX_TX_BUFFER_EVENTS = 500_000
 
 # PostgreSQL epoch: 2000-01-01 00:00:00 UTC
 # Timestamps in pgoutput are microseconds since this epoch
@@ -241,7 +248,7 @@ class PgOutputDecoder:
 
         columns = _decode_tuple(tuple_data, relation)
 
-        self._tx_buffer.append(
+        self._buffer_event(
             ChangeEvent(
                 operation="I",
                 table_name=relation.qualified_name,
@@ -279,7 +286,7 @@ class PgOutputDecoder:
 
         columns = _decode_tuple(payload[offset:], relation)
 
-        self._tx_buffer.append(
+        self._buffer_event(
             ChangeEvent(
                 operation="U",
                 table_name=relation.qualified_name,
@@ -310,7 +317,7 @@ class PgOutputDecoder:
 
         columns = _decode_tuple(payload[offset:], relation)
 
-        self._tx_buffer.append(
+        self._buffer_event(
             ChangeEvent(
                 operation="D",
                 table_name=relation.qualified_name,
@@ -353,6 +360,14 @@ class PgOutputDecoder:
         if relation is None:
             logger.warning("Received event for unknown relation_id %d — missing R message?", relation_id)
         return relation
+
+    def _buffer_event(self, event: ChangeEvent) -> None:
+        """Buffer a decoded change until COMMIT, guarding against an unbounded transaction."""
+        self._tx_buffer.append(event)
+        if len(self._tx_buffer) > MAX_TX_BUFFER_EVENTS:
+            raise CDCTransactionTooLargeError(
+                f"Transaction buffered more than {MAX_TX_BUFFER_EVENTS} changes before COMMIT"
+            )
 
 
 def _read_cstring(data: bytes, offset: int) -> tuple[str, int]:

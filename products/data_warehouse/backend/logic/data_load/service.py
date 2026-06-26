@@ -552,6 +552,23 @@ def delete_cdc_extraction_schedule(source_id: str) -> None:
         pass
 
 
+def pause_cdc_extraction_schedule(source_id: str) -> None:
+    """Pause the CDC extraction schedule for a source so it stops firing.
+
+    Used when CDC is marked broken (e.g. the safety net dropped the slot): leaving the
+    schedule running would retry forever against a slot that no longer exists. A missing
+    schedule is treated as a no-op.
+    """
+    schedule_id = _get_cdc_extraction_schedule_id(source_id)
+    temporal = sync_connect()
+    try:
+        pause_schedule(temporal, schedule_id=schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
+
+
 @async_to_sync
 async def bulk_sync_cdc_extraction_schedules(
     source_intervals: list[tuple[ExternalDataSource, timedelta]],
