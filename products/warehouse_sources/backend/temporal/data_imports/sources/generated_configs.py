@@ -275,6 +275,11 @@ class ApolloSourceConfig(config.Config):
 
 
 @config.config
+class AppLovinSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AppcuesSourceConfig(config.Config):
     pass
 
@@ -384,6 +389,11 @@ class BambooHRSourceConfig(config.Config):
 
 @config.config
 class BasecampSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class BaserowSourceConfig(config.Config):
     pass
 
 
@@ -2061,6 +2071,11 @@ class NexiopaySourceConfig(config.Config):
 
 
 @config.config
+class NextdoorAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class NinjaOneRMMSourceConfig(config.Config):
     pass
 
@@ -3598,6 +3613,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AMPLITUDE: AmplitudeSourceConfig,
         ExternalDataSourceType.APIFYDATASET: ApifyDatasetSourceConfig,
         ExternalDataSourceType.APOLLO: ApolloSourceConfig,
+        ExternalDataSourceType.APPLOVIN: AppLovinSourceConfig,
         ExternalDataSourceType.APPCUES: AppcuesSourceConfig,
         ExternalDataSourceType.APPFIGURES: AppfiguresSourceConfig,
         ExternalDataSourceType.APPFOLLOW: AppfollowSourceConfig,
@@ -3620,6 +3636,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BABELFORCE: BabelforceSourceConfig,
         ExternalDataSourceType.BAMBOOHR: BambooHRSourceConfig,
         ExternalDataSourceType.BASECAMP: BasecampSourceConfig,
+        ExternalDataSourceType.BASEROW: BaserowSourceConfig,
         ExternalDataSourceType.BEAMER: BeamerSourceConfig,
         ExternalDataSourceType.BIGCOMMERCE: BigCommerceSourceConfig,
         ExternalDataSourceType.BIGMAILER: BigMailerSourceConfig,
@@ -3933,6 +3950,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
         ExternalDataSourceType.NEWSDATA: NewsDataSourceConfig,
         ExternalDataSourceType.NEXIOPAY: NexiopaySourceConfig,
+        ExternalDataSourceType.NEXTDOORADS: NextdoorAdsSourceConfig,
         ExternalDataSourceType.NINJAONERMM: NinjaOneRMMSourceConfig,
         ExternalDataSourceType.NOCRM: NoCRMSourceConfig,
         ExternalDataSourceType.NORTHPASSLMS: NorthpassLMSSourceConfig,

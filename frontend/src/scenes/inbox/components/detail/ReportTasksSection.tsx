@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconChevronRight, IconTerminal } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { isTerminalRunStatus, SandboxRunViewer } from 'products/posthog_ai/frontend'
-import { TaskRunStatus } from 'products/tasks/frontend/types'
+import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
+import { RunViewer } from 'products/posthog_ai/frontend/api/run'
+import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
@@ -13,7 +14,7 @@ import { TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * Renders the report's linked tasks inline (latest status + purpose). Each row expands in place to
- * the task's run transcript via the shared `SandboxRunViewer` — live for an in-progress run, static
+ * the task's run transcript via the shared `RunViewer` — live for an in-progress run, static
  * replay once terminal — mirroring the Code experience instead of navigating away to a separate run
  * page. The purpose label is derived from each task's `task_run` artefact; `repo_selection` runs are
  * filtered out.
@@ -85,7 +86,7 @@ function TaskRow({
                 <div className="mt-1.5 mb-1 ml-1.5">
                     {runId ? (
                         <div className="h-[420px] overflow-y-auto rounded border border-primary bg-surface-primary">
-                            <SandboxRunViewer
+                            <RunViewer
                                 taskId={task.id}
                                 runId={runId}
                                 interaction={replayOnly ? 'read-only' : 'live'}
