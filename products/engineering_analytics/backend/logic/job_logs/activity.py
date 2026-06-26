@@ -25,8 +25,8 @@ from posthog.rate_limiting.github import acquire_github_installation
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.engineering_analytics.backend.job_logs.emitter import JobLogsEmitter
-from products.engineering_analytics.backend.job_logs.fetcher import fetch_job_log
+from products.engineering_analytics.backend.logic.job_logs.emitter import JobLogsEmitter
+from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_job_log
 
 logger = structlog.get_logger(__name__)
 

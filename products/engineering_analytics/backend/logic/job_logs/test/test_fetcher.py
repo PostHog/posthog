@@ -4,7 +4,7 @@ import requests
 
 from posthog.models.integration import GitHubRateLimitError
 
-from products.engineering_analytics.backend.job_logs.fetcher import fetch_job_log
+from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_job_log
 
 _URL = "https://api.github.com/repos/PostHog/posthog/actions/jobs/123/logs"
 

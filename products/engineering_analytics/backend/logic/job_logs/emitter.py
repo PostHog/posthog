@@ -73,17 +73,17 @@ class JobLogsEmitter:
         self, *, endpoint: str | None = None, token: str | None = None, exporter: LogExporter | None = None
     ) -> None:
         self._provider = LoggerProvider(resource=Resource.create({"service.name": _SERVICE_NAME}))
-        self._enabled = exporter is not None or bool(endpoint and token)
-        if exporter is None and self._enabled:
+        if exporter is None and endpoint and token:
             # Target the internal capture-logs endpoint; the project token routes to the team's Logs.
             exporter = OTLPLogExporter(endpoint=endpoint, headers={"authorization": f"Bearer {token}"})
-        if self._enabled:
+        self._enabled = exporter is not None
+        if exporter is not None:
             self._provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
         else:
             logger.warning("github_ci_logs_emit_disabled", detail="no endpoint/token configured; skipping export")
         self._logger = self._provider.get_logger(_SERVICE_NAME)
 
-    def emit_log_archive(self, archive_text: str, *, attributes: Mapping[str, str | int]) -> int:
+    def emit_log_archive(self, archive_text: str, *, attributes: Mapping[str, object]) -> int:
         """Emit one Logs record per non-empty line. Returns the number of records emitted."""
         if not self._enabled:
             return 0

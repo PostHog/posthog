@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from opentelemetry.sdk._logs.export import InMemoryLogExporter
 
-from products.engineering_analytics.backend.job_logs.emitter import JobLogsEmitter
+from products.engineering_analytics.backend.logic.job_logs.emitter import JobLogsEmitter
 
 _ATTRS = {"job_id": 42, "run_id": 7, "branch": "main", "conclusion": "failure"}
 

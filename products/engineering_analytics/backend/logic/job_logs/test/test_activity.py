@@ -2,8 +2,11 @@ import pytest
 
 from temporalio.exceptions import ApplicationError
 
-import products.engineering_analytics.backend.job_logs.activity as activity_module
-from products.engineering_analytics.backend.job_logs.activity import FetchJobLogInputs, fetch_and_emit_job_log_activity
+import products.engineering_analytics.backend.logic.job_logs.activity as activity_module
+from products.engineering_analytics.backend.logic.job_logs.activity import (
+    FetchJobLogInputs,
+    fetch_and_emit_job_log_activity,
+)
 
 _INPUTS = FetchJobLogInputs(
     team_id=1, integration_id=2, repo="PostHog/posthog", job_id=3, run_id=4, branch="main", conclusion="failure"

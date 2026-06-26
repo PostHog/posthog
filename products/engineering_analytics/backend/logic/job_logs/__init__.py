@@ -4,6 +4,6 @@ A scheduled coordinator finds recently-failed CI jobs, and a per-job workflow fe
 log from GitHub (under the shared egress limiter) and emits it line-by-line into the Logs product.
 """
 
-from products.engineering_analytics.backend.job_logs.emitter import JobLogsEmitter
+from products.engineering_analytics.backend.logic.job_logs.emitter import JobLogsEmitter
 
 __all__ = ["JobLogsEmitter"]

@@ -5,11 +5,11 @@ To wire it live, register these on ``settings.GENERAL_PURPOSE_TASK_QUEUE`` (the 
 targets).
 """
 
-from products.engineering_analytics.backend.job_logs.activity import (
+from products.engineering_analytics.backend.logic.job_logs.activity import (
     FetchGithubJobLogWorkflow,
     fetch_and_emit_job_log_activity,
 )
-from products.engineering_analytics.backend.job_logs.coordinator import (
+from products.engineering_analytics.backend.logic.job_logs.coordinator import (
     GithubJobLogsCoordinatorWorkflow,
     discover_failed_jobs_activity,
 )
