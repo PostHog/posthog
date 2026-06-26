@@ -92,6 +92,46 @@ describe('monitor-github-rate-limit', () => {
         assert.ok(calledWith(core.setOutput, 'emitted', '2'))
     })
 
+    it('records the x-github-request-id of the /rate_limit call on each sample', async () => {
+        process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN = 'devex-key'
+        const captured = []
+        const fetchMock = recordingFn((_url, opts) => {
+            captured.push(JSON.parse(opts.body))
+            return fetchOk()
+        })
+        const github = {
+            rest: {
+                rateLimit: {
+                    get: () =>
+                        Promise.resolve({
+                            data: { resources: { core: snapshot({ remaining: 3000, limit: 15000 }) } },
+                            headers: { 'x-github-request-id': 'ABCD:1234:5678:90AB:DEADBEEF' },
+                        }),
+                },
+            },
+        }
+        const core = createCore()
+
+        await monitor({ github, context, core }, { now: () => T_BASE, fetch: fetchMock })
+
+        assert.equal(captured[0].properties.request_id, 'ABCD:1234:5678:90AB:DEADBEEF')
+    })
+
+    it('emits request_id null when the response carries no request-id header', async () => {
+        process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN = 'devex-key'
+        const captured = []
+        const fetchMock = recordingFn((_url, opts) => {
+            captured.push(JSON.parse(opts.body))
+            return fetchOk()
+        })
+        const github = createGithubMock({ core: snapshot({ remaining: 3000, limit: 15000 }) })
+        const core = createCore()
+
+        await monitor({ github, context, core }, { now: () => T_BASE, fetch: fetchMock })
+
+        assert.equal(captured[0].properties.request_id, null)
+    })
+
     it('tags emissions with the offload bucket source when overridden', async () => {
         process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN = 'devex-key'
         const captured = []

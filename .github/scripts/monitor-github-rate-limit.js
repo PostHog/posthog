@@ -57,7 +57,7 @@ function buildTrigger(context) {
 // per-repo default GITHUB_TOKEN, or a dedicated GitHub App installation bucket
 // (e.g. posthog-devex-general, the setup-action offload bucket). The two are
 // separate 15k buckets, so downstream they're a per-bucket time series.
-function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source = DEFAULT_SOURCE }) {
+function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source = DEFAULT_SOURCE, requestId = null }) {
     const used = typeof snapshot.used === 'number' ? snapshot.used : snapshot.limit - snapshot.remaining
     const utilization = snapshot.limit > 0 ? used / snapshot.limit : 0
     return {
@@ -72,6 +72,9 @@ function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, re
         source,
         observed_at: observedAt,
         workflow_run_id: runId || null,
+        // x-github-request-id of the /rate_limit call: lets GitHub Support trace
+        // the exact request and confirm which bucket enforced the limit.
+        request_id: requestId,
         ...trigger,
     }
 }
@@ -94,15 +97,17 @@ module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, s
         return
     }
 
-    const { data } = await github.rest.rateLimit.get()
+    const response = await github.rest.rateLimit.get()
+    const data = response.data
+    const requestId = response.headers?.['x-github-request-id'] ?? null
     const resources = data?.resources || {}
 
     let emitted = 0
     let failures = 0
     for (const [resource, snapshot] of Object.entries(resources)) {
         if (!snapshot || typeof snapshot.limit !== 'number' || typeof snapshot.remaining !== 'number') continue
-        const properties = buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source })
-        core.info(`[${source}] ${resource}: ${properties.remaining}/${properties.limit} remaining (resets ${properties.reset_at})`)
+        const properties = buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source, requestId })
+        core.info(`[${source}] ${resource}: ${properties.remaining}/${properties.limit} remaining (resets ${properties.reset_at}, req ${requestId})`)
         try {
             await captureEvent({
                 fetchImpl,
