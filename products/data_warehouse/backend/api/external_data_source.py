@@ -1363,21 +1363,6 @@ class DraftCustomManifestRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Raw API documentation or an OpenAPI/Swagger spec, pasted directly. Provide this or docs_url.",
     )
-    auth_token = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Optional bearer token, used only to live-validate the drafted manifest. Never written into the manifest.",
-    )
-    auth_api_key = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Optional API key (api_key auth), used only to live-validate the drafted manifest. Never written into the manifest.",
-    )
-    auth_password = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Optional HTTP basic password, used only to live-validate the drafted manifest. Never written into the manifest.",
-    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Strip first: a whitespace-only docs_text is truthy but useless (it'd fetch an empty URL).
@@ -2742,9 +2727,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 team_id=self.team_id,
                 source_name=data.get("source_name") or "",
                 docs_text=docs_text,
-                auth_token=data.get("auth_token") or None,
-                auth_api_key=data.get("auth_api_key") or None,
-                auth_password=data.get("auth_password") or None,
             )
         except APIConnectionError as e:
             capture_exception(e, {"team_id": self.team_id})
