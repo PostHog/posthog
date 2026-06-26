@@ -1,29 +1,33 @@
 #!/usr/bin/env python3
 """Generate a ClickHouse migration from a declarative-HCL change.
 
-Placement comes from **composition**, not a side-table: for every (env, role) node
-in the manifest (`../nodes`) this diffs the committed layer stack against the working
-tree with `hclexp diff -format json` and collects the structured, dependency-ordered
-operations. Each operation already carries everything we need — no text parsing:
+Uses `hclexp plan` to diff the **committed goldens** (current managed state) against
+the **working-tree composition** (desired) for every role at once, per env. Because
+goldens hold only the managed set, a DROP here is a real removal — there is no live
+cluster and nothing unmanaged to prune. `plan` unions roles and orders statements by
+cross-role dependency, so each operation already carries everything we need — no text
+parsing:
 
-  kind / object / sql           the DDL statement and what it does
+  sql / kind / object           the DDL statement and what it does
+  roles                         which node roles surfaced it (union across the env)
   engine / replicated           used to derive the targeting below
-  order                         hclexp's per-node dependency order (preserved)
+  order                         hclexp's cross-role dependency order
   unsafe / unsafe_reason        recreate-only changes, surfaced as review notes
 
-Targeting is then derived per statement:
+For each env in the manifest we feed plan a -dump built from that env's committed
+goldens (tagged with hostClusterRole) and resolve the desired side from the working
+layers. Results are merged across envs to derive:
 
-  node_roles                    = the roles whose composition surfaced the statement
-                                  (shared objects -> every role; OPS-only -> [OPS])
+  node_roles                    = roles, ordered by ROLE_ORDER
   is_alter_on_replicated_table  = ALTER on a Replicated* MergeTree (from `replicated`)
   sharded                       = replicated AND on the multi-shard DATA cluster
-  env-specific statements       = flagged for settings.CLOUD_DEPLOYMENT gating
+  env-specific statements       = present in only some envs -> CLOUD_DEPLOYMENT gating
 
 Output is the `operations = [...]` body for a numbered migration.
 
 Usage (from the repo root):
   python posthog/clickhouse/hcl/codegen/gen_migration.py --name add_foo
-  # --ref <git-ref> (default HEAD), --out <path|-> (default stdout), --auto
+  # --ref <git-ref> (default HEAD, the golden baseline), --out <path|->, --auto
 """
 
 from __future__ import annotations
@@ -35,11 +39,12 @@ import json
 import argparse
 import tempfile
 import subprocess
+from collections import OrderedDict
 
 HERE = os.path.dirname(os.path.abspath(__file__))  # .../posthog/clickhouse/hcl/codegen
 HCL_DIR = os.path.dirname(HERE)  # .../posthog/clickhouse/hcl
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
-HCL_REL = os.path.relpath(HCL_DIR, REPO_ROOT)  # posthog/clickhouse/hcl
+HCL_REL = os.path.relpath(HCL_DIR, REPO_ROOT)  # posthog/clickhouse/hcl (relative: resolves inside the wrapper)
 MANIFEST = os.path.join(HCL_DIR, "nodes")
 # absolute path to the wrapper (lives at hcl/bin/hclexp); subprocess won't resolve a relative exec via cwd
 HCLEXP = os.path.join(HCL_DIR, "bin", "hclexp")
@@ -65,8 +70,29 @@ def run(cmd: list[str]) -> str:
     return subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, check=True).stdout
 
 
-def stack(root: str, layers: list[str]) -> str:
-    return ",".join(os.path.join(root, HCL_REL, layer) for layer in layers)
+def write_manifest_hcl(manifest: list[tuple[str, str, list[str]]], path: str) -> None:
+    """Render the `nodes` text manifest as the HCL manifest `plan` expects (role-first)."""
+    roles: OrderedDict[str, list[tuple[str, list[str]]]] = OrderedDict()
+    for env, role, layers in manifest:
+        roles.setdefault(role, []).append((env, layers))
+    lines = []
+    for role, envs in roles.items():
+        lines.append(f'role "{role}" {{')
+        for env, layers in envs:
+            lst = ", ".join(f'"{layer}"' for layer in layers)
+            lines.append(f'  env "{env}" {{ layers = [{lst}] }}')
+        lines.append("}")
+    open(path, "w").write("\n".join(lines) + "\n")
+
+
+def write_dump(env: str, roles: list[str], ref: str, dump_dir: str) -> None:
+    """Build plan's -dump for one env from the committed goldens, tagged by role."""
+    os.makedirs(dump_dir)
+    for role in roles:
+        golden = run(["git", "show", f"{ref}:{HCL_REL}/golden/{env}-{role}.hcl"])
+        with open(os.path.join(dump_dir, f"{role}.hcl"), "w") as f:
+            f.write(f'node "{role}" {{\n  macros = {{ hostClusterRole = "{role}" }}\n}}\n')
+            f.write(golden)
 
 
 def main() -> None:
@@ -83,39 +109,55 @@ def main() -> None:
 
     manifest = read_manifest()
     envs_for_role: dict[str, set[str]] = {}
+    env_roles: OrderedDict[str, list[str]] = OrderedDict()  # env -> roles, in manifest order
     for env, role, _ in manifest:
         envs_for_role.setdefault(role, set()).add(env)
+        env_roles.setdefault(env, [])
+        if role not in env_roles[env]:
+            env_roles[env].append(role)
+
+    # stmt -> {op, roles, envs}; identical SQL across envs/roles dedupes to one op.
+    merged: dict[str, dict] = {}
+    # stmt -> (env_index, plan order): first-seen global order. plan orders across roles
+    # by dependency within an env; across envs we keep manifest order.
+    order_key: dict[str, tuple[int, int]] = {}
+    unsafe_notes: dict[str, str] = {}  # object -> reason (recreate-only changes)
 
     with tempfile.TemporaryDirectory() as tmp:
-        # Materialize the committed tree so the left side resolves the reference layers.
-        tar = subprocess.run(
-            ["git", "archive", args.ref, HCL_REL], cwd=REPO_ROOT, capture_output=True, check=True
-        ).stdout
-        subprocess.run(["tar", "-x", "-C", tmp], input=tar, check=True)
-
-        # stmt -> {op, roles, envs}; identical SQL across nodes dedupes to one op.
-        merged: dict[str, dict] = {}
-        # stmt -> (manifest_index, per-node order): first-seen global order. Within a
-        # node hclexp orders by dependency; across nodes we keep manifest order. (True
-        # cross-role ordering would need hclexp's dump-based `plan`, which doesn't apply
-        # to a committed-vs-working diff — our managed roles are independent anyway.)
-        order_key: dict[str, tuple[int, int]] = {}
-        unsafe_notes: dict[str, str] = {}  # object -> reason (recreate-only changes)
-        for idx, (env, role, layers) in enumerate(manifest):
-            left = stack(tmp, layers)
-            right = stack(REPO_ROOT, layers)
-            data = json.loads(run([HCLEXP, "diff", "-left", left, "-right", right, "-format", "json"]))
+        manifest_hcl = os.path.join(tmp, "manifest.hcl")
+        write_manifest_hcl(manifest, manifest_hcl)
+        for env_idx, (env, roles_in_env) in enumerate(env_roles.items()):
+            dump_dir = os.path.join(tmp, f"dump-{env}")
+            write_dump(env, roles_in_env, args.ref, dump_dir)
+            data = json.loads(
+                run(
+                    [
+                        HCLEXP,
+                        "plan",
+                        "-manifest",
+                        manifest_hcl,
+                        "-env",
+                        env,
+                        "-dump",
+                        dump_dir,
+                        "-layer-root",
+                        HCL_REL,
+                        "-format",
+                        "json",
+                    ]
+                )
+            )
             for op in data.get("operations") or []:
                 sql = op["sql"]
                 entry = merged.setdefault(sql, {"op": op, "roles": set(), "envs": set()})
-                entry["roles"].add(role)
+                entry["roles"].update(op.get("roles") or [])
                 entry["envs"].add(env)
-                order_key.setdefault(sql, (idx, op["order"]))
-            for u in data.get("unsafe") or []:
-                unsafe_notes.setdefault(u["object"], u["reason"])
+                order_key.setdefault(sql, (env_idx, op["order"]))
+                if op.get("unsafe"):
+                    unsafe_notes.setdefault(op["object"], op.get("unsafe_reason") or "recreate required")
 
     if not merged:
-        raise SystemExit("No DDL generated — the HCL has no changes vs the ref.")
+        raise SystemExit("No DDL generated — the HCL has no changes vs the goldens.")
 
     notes = [f"# UNSAFE (review/recreate by hand): {obj} — {reason}" for obj, reason in sorted(unsafe_notes.items())]
     operations = []

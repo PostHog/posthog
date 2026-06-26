@@ -9,12 +9,17 @@ side-table.
 ## How it works
 
 ```
-edit OPS HCL ─▶ for each (env, role) node in ../nodes: hclexp diff -sql (committed → working)
-            ─▶ gen_migration.py: collect statements, derive targeting
+edit OPS HCL ─▶ for each env in ../nodes: hclexp plan (committed goldens ─▶ working composition)
+            ─▶ gen_migration.py: merge across envs, derive targeting
             ─▶ operations = [run_sql_with_exceptions(...), ...]
 ```
 
-A node's schema = `compose(its layers)` (see `../nodes`). Placement falls out of it:
+`plan` diffs the **committed goldens** (current managed state) against the working-tree
+composition for every role of an env at once. Goldens hold only the managed set, so a
+`DROP` is a real removal — nothing unmanaged to prune — and `plan` unions roles and
+orders statements by cross-role dependency, so each operation arrives with its `roles`,
+engine, and order already resolved (no text parsing). A node's schema =
+`compose(its layers)` (see `../nodes`); placement falls out of it:
 
 - **`node_roles`** = the roles whose composition surfaced a statement. A change to a
   `shared/` object appears in every managed role's node → `node_roles` = those roles
@@ -35,7 +40,7 @@ Runs `hclexp` via `bin/hclexp` (the pinned ghcr.io image) — just have Docker r
 ```bash
 python posthog/clickhouse/hcl/codegen/gen_migration.py --name add_foo_column --auto
 #   --auto            write the next posthog/clickhouse/migrations/NNNN_<name>.py and bump max_migration.txt
-#   --ref <git-ref>   diff the working tree against this ref (default HEAD)
+#   --ref <git-ref>   the golden baseline to diff the working tree against (default HEAD)
 #   --out <path|->    without --auto: write here, or stdout (default)
 # (optional: export HCLEXP_BIN=…/hclexp to use a local binary instead of Docker)
 ```
