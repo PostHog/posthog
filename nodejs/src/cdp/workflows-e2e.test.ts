@@ -51,7 +51,11 @@ import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-e
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
-import { HOGFLOW_BATCH_RESOLVE_QUEUE, serializeResolverState } from './services/hogflows/batch-resolver.types'
+import {
+    HOGFLOW_BATCH_RESOLVE_QUEUE,
+    MAX_RESOLVER_ATTEMPTS,
+    serializeResolverState,
+} from './services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
@@ -3146,6 +3150,196 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(0)
+    })
+
+    it('persistent fetch failure exhausts MAX_RESOLVER_ATTEMPTS → flips to pendingTerminal=failed and writes status=failed', async () => {
+        // Pre-populate a resolver job already one retry below the cap so we
+        // only need to drive a single more fetch failure to cross the
+        // threshold — avoids burning 5x backoff windows in CI.
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        const statusPuts: Array<{ status: string }> = []
+        let fetchAttempts = 0
+
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                fetchAttempts += 1
+                return Promise.reject(new Error('ClickHouse permanently rejecting the audience query'))
+            }
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        })
+
+        const seededState = serializeResolverState({
+            batchJobId: parentRunId,
+            teamId: team.id,
+            hogFlowId: flow.id,
+            filters: { properties: [], filter_test_accounts: false },
+            variables: {},
+            maxAudienceSize: 1000,
+            cursor: null,
+            totalEnqueued: 0,
+            pagesProcessed: 0,
+            attempts: MAX_RESOLVER_ATTEMPTS - 1,
+            startedAt: new Date().toISOString(),
+        })
+        await batchResolverProducer.createJob({
+            teamId: team.id,
+            queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
+            parentRunId,
+            functionId: flow.id,
+            state: seededState,
+        })
+
+        resolverWorker = buildResolverConsumer()
+        await resolverWorker.start()
+
+        await waitForExpect(() => {
+            expect(statusPuts).toHaveLength(1)
+        }, 20000)
+
+        expect(statusPuts[0]).toEqual({ status: 'failed' })
+        expect(fetchAttempts).toBe(1) // one more retry consumed the last attempt budget
+
+        // No children enqueued — the resolver bailed before ever returning a page
+        const children = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(children.rows).toHaveLength(0)
+    })
+
+    it('persistent Django 4xx on terminal write exhausts MAX_RESOLVER_ATTEMPTS → job.fail()', async () => {
+        // Pre-populate a job already in the terminal-write phase with attempts
+        // one below the cap. The 404 response is a permanent failure — no
+        // amount of retrying will make Django accept it (the row is gone) —
+        // so the resolver should give up and fail the cyclotron job instead
+        // of looping forever.
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        let putAttempts = 0
+
+        mockInternalFetch.mockImplementation((url: string) => {
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                putAttempts += 1
+                return Promise.resolve({
+                    status: 404,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('Not Found'),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        })
+
+        const pendingState = serializeResolverState({
+            batchJobId: parentRunId,
+            teamId: team.id,
+            hogFlowId: flow.id,
+            filters: { properties: [], filter_test_accounts: false },
+            variables: {},
+            maxAudienceSize: 1000,
+            cursor: 'last-cursor',
+            totalEnqueued: 5,
+            pagesProcessed: 1,
+            attempts: MAX_RESOLVER_ATTEMPTS - 1,
+            startedAt: new Date().toISOString(),
+            pendingTerminal: 'completed',
+        })
+        await batchResolverProducer.createJob({
+            teamId: team.id,
+            queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
+            parentRunId,
+            functionId: flow.id,
+            state: pendingState,
+        })
+
+        resolverWorker = buildResolverConsumer()
+        await resolverWorker.start()
+
+        await waitForExpect(async () => {
+            const r = await cyclotronPool.query<{ status: string }>(
+                `SELECT status::text AS status FROM cyclotron_jobs
+                 WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
+                [parentRunId]
+            )
+            expect(r.rows[0]?.status).toBe('failed')
+        }, 20000)
+
+        // One more attempt consumed the budget, then the job failed
+        expect(putAttempts).toBe(1)
+    })
+
+    it('hard cap: page that would cross maxAudienceSize is truncated before enqueue', async () => {
+        // maxAudienceSize=4 with pages of 3. Without the hard cap the resolver
+        // would enqueue 6 children (overshoot by 2) then notice and truncate.
+        // With the hard cap the second page is truncated to 1 row so the
+        // total never exceeds 4.
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        const personIds = Array.from({ length: 6 }, () => new UUIDT().toString())
+        const statusPuts: Array<{ status: string }> = []
+        let personPageCalls = 0
+
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                personPageCalls += 1
+                const pages = [
+                    { users_affected: personIds.slice(0, 3), cursor: 'c1', has_more: true },
+                    { users_affected: personIds.slice(3, 6), cursor: 'c2', has_more: true },
+                ]
+                const page = pages[Math.min(personPageCalls - 1, pages.length - 1)]
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(JSON.stringify(page)),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        })
+
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 4 })
+            .expect(200)
+
+        resolverWorker = buildResolverConsumer()
+        await resolverWorker.start()
+
+        await waitForExpect(() => {
+            expect(statusPuts).toHaveLength(1)
+        }, 20000)
+
+        expect(statusPuts[0]).toEqual({ status: 'completed' })
+
+        const children = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        // Hard cap: exactly 4 children, never 6
+        expect(children.rows).toHaveLength(4)
     })
 
     it('invalid resolver state: garbage bytes → job.fail() (not retry)', async () => {

@@ -582,6 +582,66 @@ describe('Cyclotron V2', () => {
                 expect(parent.lock_id).not.toBeNull()
             })
 
+            it('rolls back the self update when a child insert fails inside the TX', async () => {
+                // Real DB-level rollback path (vs the Zod pre-check above): two
+                // children with the same explicit id → second INSERT violates
+                // the PK constraint mid-TX → the self UPDATE must roll back too.
+                const { id: parentId, job } = await seedAndDequeue()
+                const duplicateId = '00000000-0000-0000-0000-000000000001'
+
+                await expect(
+                    job.bulkCreateAndCheckIn({
+                        newJobs: [
+                            { id: duplicateId, teamId: 1, queueName: 'hogflow' },
+                            { id: duplicateId, teamId: 1, queueName: 'hogflow' },
+                        ],
+                        selfDisposition: { kind: 'reschedule' },
+                    })
+                ).rejects.toThrow()
+
+                // Self row untouched — still locked and running
+                const parent = await queryJob(parentId)
+                expect(parent.status).toBe('running')
+                expect(parent.lock_id).not.toBeNull()
+
+                // No children persisted
+                const children = await assertPool.query(
+                    `SELECT id FROM cyclotron_jobs WHERE parent_run_id IS NOT NULL OR id = $1`,
+                    [duplicateId]
+                )
+                expect(children.rows).toHaveLength(0)
+            })
+
+            it('rolls back when the lock_id has been reassigned between dequeue and commit (janitor race)', async () => {
+                // Simulates the janitor's stall-recovery: the worker holds the
+                // dequeued job, but while it's mid-page the janitor decides the
+                // job stalled and reassigns the lock to another worker. The
+                // current TX's self UPDATE then matches zero rows because the
+                // WHERE lock_id = $2 filter fails. Without a rowCount guard,
+                // the child inserts would commit silently while the cursor
+                // doesn't advance — up to ~500 duplicate sends per page on
+                // replay by the other worker.
+                const { id: parentId, job } = await seedAndDequeue()
+
+                // Forcibly change the lock_id from underneath the worker.
+                await assertPool.query(`UPDATE cyclotron_jobs SET lock_id = gen_random_uuid() WHERE id = $1`, [
+                    parentId,
+                ])
+
+                await expect(
+                    job.bulkCreateAndCheckIn({
+                        newJobs: [{ teamId: 1, queueName: 'hogflow', parentRunId: parentId }],
+                        selfDisposition: { kind: 'reschedule' },
+                    })
+                ).rejects.toThrow()
+
+                // No child rows leaked through
+                const children = await assertPool.query(`SELECT id FROM cyclotron_jobs WHERE parent_run_id = $1`, [
+                    parentId,
+                ])
+                expect(children.rows).toHaveLength(0)
+            })
+
             it('throws if the job was already released', async () => {
                 const { job } = await seedAndDequeue()
                 await job.ack()
