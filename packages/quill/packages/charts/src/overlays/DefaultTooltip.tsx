@@ -99,10 +99,13 @@ export function DefaultTooltip<Meta = unknown>({
         const elRect = el.getBoundingClientRect()
         const elTopInView = elRect.top - containerRect.top
         const elBottomInView = elRect.bottom - containerRect.top
-        if (elBottomInView > container.clientHeight) {
-            container.scrollTop += elBottomInView - container.clientHeight
-        } else if (elTopInView < 0) {
-            container.scrollTop += elTopInView
+        // Scroll before the row enters the mask fade zone (top/bottom 20%), not just when it's
+        // fully off-screen — otherwise the highlighted row can sit in the faded region.
+        const fadeZone = container.clientHeight * 0.2
+        if (elBottomInView > container.clientHeight - fadeZone) {
+            container.scrollTop += elBottomInView - (container.clientHeight - fadeZone)
+        } else if (elTopInView < fadeZone) {
+            container.scrollTop += elTopInView - fadeZone
         }
     }, [closestKey])
 
