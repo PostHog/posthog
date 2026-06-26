@@ -73,6 +73,26 @@ hogli devbox:sync --terminate                        # tear down when done
 
 `devbox:open --vscode` / `--cursor` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
 
+**Cloning a devbox** —
+Duplicate a running devbox with its full disk state — uncommitted work, local databases, installed tooling — not just what dotfiles and user secrets replicate:
+
+```bash
+hogli devbox:clone --as my-clone        # clone your default devbox
+hogli devbox:clone my-box --as backup   # clone a specific devbox by name
+```
+
+The command captures the source box's root volume into a private AMI (via its instance profile — no human AWS credentials), waits for it to become available, then boots a new devbox from the captured image. The duplicate inherits the source's parameters (disk size, region, git identity).
+
+Requirements:
+
+- Source devbox must be running
+- You can only clone your own devbox
+- `us-east-1` region only (AMIs are region-scoped)
+- `posthog-linux` template only
+- Target name must not already exist
+
+A confirmation prompt warns that the image contains on-disk secrets. Pass `-y` to skip it. The capture AMI is private and auto-expires (reaped by the clone reaper).
+
 ## Prerequisites
 
 - Access to the PostHog Tailscale tailnet (on macOS, the Tailscale app bundle CLI is detected automatically if `tailscale` isn't on PATH)
