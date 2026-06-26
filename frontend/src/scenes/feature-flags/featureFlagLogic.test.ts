@@ -689,6 +689,68 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('default release conditions on new flags', () => {
+        const groupDefault = {
+            properties: [
+                {
+                    key: 'is_dev',
+                    type: PropertyFilterType.Group,
+                    value: ['true'],
+                    operator: PropertyOperator.Exact,
+                    group_type_index: 1,
+                },
+            ],
+            rollout_percentage: 100,
+            variant: null,
+            aggregation_group_type_index: 1,
+        }
+
+        async function mountNewFlag(): Promise<ReturnType<typeof featureFlagLogic.build>> {
+            // Park at a non-matching path so the `new`-keyed logic doesn't prefetch off stale params.
+            router.actions.push('/')
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toFinishAllListeners()
+            return newLogic
+        }
+
+        it('applies an enabled group-targeted default and mirrors the aggregation onto the new flag', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/default_release_conditions/': () => [
+                        200,
+                        { enabled: true, default_groups: [groupDefault] },
+                    ],
+                },
+            })
+
+            const newLogic = await mountNewFlag()
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual([groupDefault])
+            expect(newLogic.values.featureFlag.filters.aggregation_group_type_index).toBe(1)
+            newLogic.unmount()
+        })
+
+        it('leaves a new flag on user targeting when the default config is disabled', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/default_release_conditions/': () => [
+                        200,
+                        { enabled: false, default_groups: [groupDefault] },
+                    ],
+                },
+            })
+
+            const newLogic = await mountNewFlag()
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual([
+                { properties: [], rollout_percentage: 0, variant: null },
+            ])
+            expect(newLogic.values.featureFlag.filters.aggregation_group_type_index).toBeUndefined()
+            newLogic.unmount()
+        })
+    })
+
     describe('experiment loading', () => {
         it('loads experiment data when feature flag has an experiment linked', async () => {
             const flagWithExperiment = {
