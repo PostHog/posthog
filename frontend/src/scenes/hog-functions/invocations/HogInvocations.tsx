@@ -453,6 +453,7 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
                 <div className="flex items-center gap-2 flex-1 min-w-100">
                     <LemonInput
                         type="search"
+                        size="small"
                         placeholder="Search by invocation, event, distinct, or person ID…"
                         fullWidth
                         value={filters.search ?? ''}
