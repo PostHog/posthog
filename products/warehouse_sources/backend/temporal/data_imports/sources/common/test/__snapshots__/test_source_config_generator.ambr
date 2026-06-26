@@ -601,6 +601,7 @@
           ExternalDataSourceType.TMDB: TMDbSourceConfig,
           ExternalDataSourceType.TVMAZE: TVMazeSourceConfig,
           ExternalDataSourceType.TABOOLA: TaboolaSourceConfig,
+          ExternalDataSourceType.TALKWALKER: TalkwalkerSourceConfig,
           ExternalDataSourceType.TAVUS: TavusSourceConfig,
           ExternalDataSourceType.TAWKTO: TawkToSourceConfig,
           ExternalDataSourceType.TEAMTAILOR: TeamtailorSourceConfig,
