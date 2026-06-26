@@ -1,8 +1,11 @@
+from typing import Any, cast
+
 import pytest
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
 import stripe as stripe_lib
+from stripe import ListObject
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
     StripeAuthMethodConfig,
@@ -11,14 +14,33 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
+    RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
     StripeNestedResource,
     StripeResource,
+    _all_known_webhook_events,
+    _coerce_incremental_cursor,
+    _is_truncated_stripe_list_response,
+    _RateLimitRetryingRequestsClient,
     get_rows,
+)
+
+_COMPLETE_LIST_BODY = b'{\n  "object": "list",\n  "data": [],\n  "has_more": false\n}'
+# A list page cut off mid-string — what Stripe later fails to decode as "Invalid response body".
+_TRUNCATED_LIST_BODY = (
+    b'{\n  "object": "list",\n  "data": [\n    {\n      "id": "in_1",\n      "description": "a value that got cut'
+)
+# Webhook write responses are single objects, not lists — must never trigger the read-only retry.
+_TRUNCATED_WEBHOOK_BODY = b'{\n  "object": "webhook_endpoint",\n  "id": "we_1",\n  "url": "https://example.com/cut'
+# A truncated single object whose head contains the tokens "object" and "list" without being a
+# list response (here `"type": "list.updated"`) — must not be mistaken for a truncated list.
+_TRUNCATED_NON_LIST_WITH_LIST_TOKEN = (
+    b'{\n  "object": "event",\n  "type": "list.updated",\n  "data": {\n    "id": "evt_1'
 )
 
 
@@ -26,6 +48,62 @@ def _list_object(items):
     obj = MagicMock()
     obj.auto_paging_iter.return_value = iter(items)
     return obj
+
+
+class _FakeStripeList:
+    def __init__(self, objects):
+        self._objects = objects
+
+    def auto_paging_iter(self):
+        return iter(self._objects)
+
+
+class TestStripeGetRowsIncrementalCursor:
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (1700000000, 1700000000),
+            (1700000000.0, 1700000000),
+            # The persisted watermark is read back from JSON config as a numeric string.
+            ("1700000000", 1700000000),
+            (None, None),
+            ("not-a-timestamp", None),
+            (True, None),
+        ],
+    )
+    def test_coerce_incremental_cursor(self, value, expected):
+        assert _coerce_incremental_cursor(value) == expected
+
+    def test_get_rows_handles_string_incremental_watermark(self):
+        # Stripe object timestamps are ints, but the stored watermark can come back as a numeric
+        # string. The cursor comparison must not crash with `'<=' not supported between instances
+        # of 'int' and 'str'`, and must still stop once it reaches an object at/under the watermark.
+        objects = [
+            {"id": "ch_2", "created": 1700000100},
+            {"id": "ch_1", "created": 1700000040},
+        ]
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
+        resumable_source_manager = mock.MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe._build_resources",
+            return_value={"charge": resource},
+        ):
+            rows = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value="1700000050",
+                    db_incremental_field_earliest_value=None,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    should_use_incremental_field=True,
+                )
+            )
+
+        assert [obj["id"] for obj in rows] == ["ch_2"]
 
 
 class TestStripeSource:
@@ -108,17 +186,56 @@ class TestStripeSource:
         assert pasted_secret not in message
         assert message.startswith("Stripe rejected the API key.")
 
-
-def _run_nested_get_rows(nested_method):
-    parent = StripeResource(
-        method=lambda **kwargs: _list_object([{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}])
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            (_TRUNCATED_LIST_BODY, True),
+            (_TRUNCATED_LIST_BODY.decode(), True),  # str bodies behave the same as bytes
+            (_COMPLETE_LIST_BODY, False),  # complete responses always close with "}"
+            (_TRUNCATED_WEBHOOK_BODY, False),  # truncated, but a single object — not a list read
+            # truncated non-list whose head still contains the "object" and "list" tokens
+            (_TRUNCATED_NON_LIST_WITH_LIST_TOKEN, False),
+            (b'{\n  "object": "webhook_endpoint",\n  "id": "we_1"\n}', False),
+            (b"", False),
+            (None, False),
+        ],
     )
+    def test_is_truncated_stripe_list_response(self, body, expected):
+        assert _is_truncated_stripe_list_response(body) is expected
+
+    @pytest.mark.parametrize(
+        "response,num_retries,expected",
+        [
+            # 2xx with a truncated list body is retried while budget remains...
+            ((_TRUNCATED_LIST_BODY, 200, {}), 0, True),
+            # ...but not once the network-retry budget is exhausted.
+            ((_TRUNCATED_LIST_BODY, 200, {}), 2, False),
+            # A complete 2xx list body is not retried.
+            ((_COMPLETE_LIST_BODY, 200, {}), 0, False),
+            # A truncated single-object (webhook write) body is not retried.
+            ((_TRUNCATED_WEBHOOK_BODY, 200, {}), 0, False),
+            # A truncated non-list body that merely mentions "list" is not retried.
+            ((_TRUNCATED_NON_LIST_WITH_LIST_TOKEN, 200, {}), 0, False),
+            # 429s stay retryable (regression guard for the existing rate-limit handling).
+            ((b'{\n  "error": {}\n}', 429, {}), 0, True),
+        ],
+    )
+    def test_rate_limit_client_should_retry(self, response, num_retries, expected):
+        client = _RateLimitRetryingRequestsClient()
+        assert client._should_retry(response, None, num_retries=num_retries, max_network_retries=2) is expected
+
+
+def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None):
+    if parent_objects is None:
+        parent_objects = [{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}]
+    parent = StripeResource(method=lambda **kwargs: _list_object(parent_objects))
     resource = StripeNestedResource(
         method=nested_method,
         nested_parent_param="customer",
         parent_id="id",
         parent=parent,
         parent_name=CUSTOMER_RESOURCE_NAME,
+        parent_has_nested=parent_has_nested,
     )
 
     resumable_source_manager = MagicMock()
@@ -165,3 +282,74 @@ class TestStripeNestedResourceGetRows:
 
         with pytest.raises(stripe_lib.InvalidRequestError):
             _run_nested_get_rows(nested_method)
+
+    def test_parent_has_nested_skips_filtered_parents_without_calling(self):
+        called_for: list[str] = []
+
+        def nested_method(customer=None, params=None):
+            called_for.append(customer)
+            return _list_object([{"id": f"cbt_{customer}", "amount": 100}])
+
+        # Only customers with a non-zero balance should trigger the nested call.
+        rows = _run_nested_get_rows(
+            nested_method,
+            parent_objects=[
+                {"id": "cus_zero", "balance": 0},
+                {"id": "cus_credit", "balance": -500},
+                {"id": "cus_owed", "balance": 1500},
+            ],
+            parent_has_nested=stripe_module._customer_might_have_balance_transactions,
+        )
+
+        # cus_zero is skipped entirely — no API call, no rows.
+        assert called_for == ["cus_credit", "cus_owed"]
+        assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
+
+
+class TestCustomerMightHaveBalanceTransactions:
+    @pytest.mark.parametrize(
+        "customer,expected",
+        [
+            ({"balance": 0}, False),
+            ({"balance": -500}, True),
+            ({"balance": 1500}, True),
+            # Missing balance is an unexpected payload shape — fetch rather than silently drop data.
+            ({}, True),
+            ({"balance": None}, True),
+        ],
+    )
+    def test_predicate(self, customer, expected):
+        assert stripe_module._customer_might_have_balance_transactions(customer) is expected
+
+
+class TestWebhookEventMapping:
+    def test_customer_balance_transaction_has_no_webhook_event(self):
+        # Customer balance transactions have no Stripe webhook event, so the resource must not be in
+        # the event map — otherwise we'd subscribe the source webhook to unrelated events.
+        assert CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME not in RESOURCE_TO_STRIPE_WEBHOOK_EVENT
+
+    def test_no_billing_events_subscribed(self):
+        # The removed "billing" mapping was the only thing pulling in billing.* events (credit
+        # grants, meters, alerts) — none of which can populate any table we sync.
+        assert not any(e.startswith("billing.") or e.startswith("billing_") for e in _all_known_webhook_events())
+
+    def test_payment_method_events_still_subscribed(self):
+        # CustomerPaymentMethod keeps its mapping, so payment_method.* events stay subscribed.
+        assert RESOURCE_TO_STRIPE_WEBHOOK_EVENT[CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME] == "payment_method"
+        assert any(e.startswith("payment_method.") for e in _all_known_webhook_events())
+
+
+class TestSchemaWebhookCapability:
+    def setup_method(self):
+        self.source = StripeSource()
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test_123")
+        )
+        self.by_name = {s.name: s for s in self.source.get_schemas(config, team_id=1)}
+
+    def test_webhook_capability_matches_event_map(self):
+        # supports_webhooks must track the webhook-event map exactly (plus webhook-only tables),
+        # so the capability and the actual event subscription never drift apart.
+        for name, schema in self.by_name.items():
+            expected = name in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or schema.webhook_only
+            assert schema.supports_webhooks is expected, name

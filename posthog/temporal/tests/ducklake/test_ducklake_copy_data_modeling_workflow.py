@@ -357,8 +357,8 @@ async def test_ducklake_copy_workflow_skips_when_feature_flag_disabled(monkeypat
         call_counts["copy"] += 1
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         lambda *args, **kwargs: False,
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_modeling_ducklake_metadata_activity", metadata_stub)
@@ -843,8 +843,8 @@ async def test_ducklake_copy_workflow_runs_when_feature_flag_enabled(monkeypatch
         return []
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         lambda *args, **kwargs: True,
     )
 
@@ -926,8 +926,8 @@ async def test_ducklake_copy_workflow_calls_cleanup_after_verify(monkeypatch, at
         call_counts["cleanup"] += 1
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_modeling_ducklake_metadata_activity", metadata_stub)

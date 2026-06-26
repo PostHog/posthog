@@ -65,11 +65,11 @@ import {
 } from '~/types'
 
 import {
-    SANDBOX_INITIAL_PERMISSION_MODE,
+    getRandomThinkingMessage,
     isTerminalRunStatus,
+    SANDBOX_INITIAL_PERMISSION_MODE,
     sandboxStreamLogic,
-} from 'products/posthog_ai/frontend/sandbox/sandboxStreamLogic'
-import { getRandomThinkingMessage } from 'products/posthog_ai/frontend/sandbox/utils/thinkingMessages'
+} from 'products/posthog_ai/frontend'
 import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'

@@ -8,7 +8,6 @@ from django.conf import settings
 
 import duckdb
 import deltalake
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -18,11 +17,11 @@ from posthog.ducklake.common import (
     _get_org_id_for_team,
     attach_catalog,
     duckgres_data_imports_schema,
+    duckgres_data_imports_table_name,
     get_config,
     get_duckgres_server_by_team_org,
     get_duckgres_server_for_organization,
     is_dev_mode,
-    sanitize_ducklake_identifier,
 )
 from posthog.ducklake.storage import (
     cleanup_staged_files,
@@ -41,6 +40,7 @@ from posthog.ducklake.verification import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -50,7 +50,7 @@ from posthog.temporal.ducklake.metrics import (
     get_ducklake_copy_data_imports_verification_metric,
 )
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
     DUCKGRES_BATCH_SINK_FLAG,
 )
@@ -162,7 +162,7 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
     # same posthog_data_imports_team_{id} tables with zero coordination, so a
     # team must never have both enabled. The sink wins.
     try:
-        if posthoganalytics.feature_enabled(
+        if feature_enabled_or_false(
             DUCKGRES_BATCH_SINK_FLAG,
             str(team.uuid),
             groups={
@@ -181,7 +181,7 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
         capture_exception(error)
 
     try:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "ducklake-data-imports-copy-workflow",
             str(team.uuid),
             groups={
@@ -252,12 +252,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
                 ducklake_schema_name=ducklake_schema_name,
-                ducklake_table_name=sanitize_ducklake_identifier(
-                    f"{source_type}_{schema.source.prefix}_{normalized_name}"
-                    if schema.source.prefix
-                    else f"{source_type}_{normalized_name}",
-                    default_prefix="data_import",
-                ),
+                ducklake_table_name=duckgres_data_imports_table_name(schema),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
                 staging_uri=staging_uri,

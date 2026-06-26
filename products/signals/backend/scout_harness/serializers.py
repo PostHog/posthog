@@ -330,7 +330,12 @@ class RememberRequestSerializer(serializers.Serializer):
 
     key = serializers.CharField(
         max_length=300,
-        help_text="Agent-chosen semantic key. Re-using a key updates the existing entry in place.",
+        help_text=(
+            "Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. "
+            "Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run "
+            "id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key "
+            "and keep the timestamp in `content`."
+        ),
     )
     content = serializers.CharField(
         max_length=MAX_SCRATCHPAD_CONTENT_LENGTH,
@@ -1054,9 +1059,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     )
     run_interval_minutes = serializers.IntegerField(
         required=False,
-        min_value=10,
+        min_value=30,
         max_value=43200,
-        help_text="Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.",
+        help_text="Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
     )
     last_run_at = serializers.DateTimeField(
         read_only=True,
@@ -1121,9 +1126,9 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
     )
     run_interval_minutes = serializers.IntegerField(
         required=False,
-        min_value=10,
+        min_value=30,
         max_value=43200,
-        help_text="Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).",
+        help_text="Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
     )
 
     def validate_skill_name(self, value: str) -> str:

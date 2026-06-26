@@ -128,6 +128,7 @@ export interface Ticket {
     cc_participants?: string[]
     github_repo?: string | null
     github_issue_number?: number | null
+    organization_id?: string | null
     person?: TicketPerson | null
     tags?: string[]
     ai_triage?: AITriage

@@ -81,6 +81,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group_ad",
         "columns": _stats_columns(
             ad_group_ad_ad_id="Unique ID of the ad the metrics belong to.",
+            metrics_active_view_measurability="Share of impressions that were measurable by Active View.",
         ),
     },
     "ad_group": {
@@ -93,6 +94,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ad_group_type": "Type of the ad group (e.g. search standard, display standard).",
             "ad_group_cpc_bid_micros": "Maximum cost-per-click bid for the ad group, in micros.",
             "ad_group_cpm_bid_micros": "Maximum cost-per-thousand-impressions bid, in micros.",
+            "ad_group_tracking_url_template": "URL template for constructing tracking URLs for the ad group.",
             "campaign_bidding_strategy_type": "Bidding strategy type of the parent campaign.",
         },
     },
@@ -148,6 +150,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ad_group_criterion_status": "Status of the keyword (enabled, paused, or removed).",
             "ad_group_criterion_negative": "Whether the keyword is a negative (exclusion) keyword.",
             "ad_group_criterion_quality_info_quality_score": "Google's 1-10 quality score for the keyword.",
+            "ad_group_criterion_system_serving_status": "System-determined serving status of the keyword (e.g. eligible or rare searches).",
+            "ad_group_criterion_position_estimates_first_position_cpc_micros": "Estimated CPC bid, in micros, required to show the ad in the first position.",
         },
     },
     "keyword_stats": {
@@ -245,6 +249,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "asset_group_primary_status": "Aggregated primary serving status of the asset group.",
             "asset_group_ad_strength": "Google's rated ad strength of the asset group.",
             "asset_group_final_urls": "Landing-page URLs for the asset group.",
+            "asset_group_path2": "Second part of optional text appended to the auto-generated display URL.",
         },
     },
     "asset_group_stats": {
@@ -264,6 +269,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "metrics_all_conversions_value": "Total value of all conversions.",
             "metrics_view_through_conversions": "View-through conversions.",
             "segments_date": "The date the metrics are reported for.",
+            "segments_month": "Month the metrics are reported for.",
         },
     },
     "shopping_performance_view": {

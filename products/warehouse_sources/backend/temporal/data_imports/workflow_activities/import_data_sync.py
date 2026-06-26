@@ -245,7 +245,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 # schema now. The schedule is unpaused if the schema transitions back
                 # to snapshot mode (e.g., after a TRUNCATE or re-enable after grace period).
                 try:
-                    from products.data_warehouse.backend.data_load.service import pause_external_data_schedule
+                    from products.data_warehouse.backend.facade.api import pause_external_data_schedule
 
                     await database_sync_to_async_pool(pause_external_data_schedule)(str(inputs.schema_id))
                     await logger.ainfo("Paused per-schema schedule for CDC streaming schema")

@@ -248,15 +248,20 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     )
 
 
+# Templates whose image bundles the agent-server at /scripts and can therefore
+# take a live local dist overlay in DEBUG. Add new agent-server-bearing templates here.
+AGENT_SERVER_TEMPLATES = frozenset({SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE})
+
+
 def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
     """Overlay each local package's built `dist/` dir onto the installed package
-    via add_local_dir(copy=False). No-op unless `template` is DEFAULT_BASE and
-    local packages are available.
+    via add_local_dir(copy=False). No-op unless `template` bundles the agent-server
+    and local packages are available.
 
     Transitive deps are resolved from the baked /scripts/node_modules/ tree;
     only compiled output is swapped live.
     """
-    if template != SandboxTemplate.DEFAULT_BASE:
+    if template not in AGENT_SERVER_TEMPLATES:
         return image
     packages = get_local_posthog_code_packages()
     if not packages:

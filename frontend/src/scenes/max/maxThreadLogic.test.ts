@@ -30,7 +30,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
-import { sandboxStreamLogic } from 'products/posthog_ai/frontend/sandbox/sandboxStreamLogic'
+import { sandboxStreamLogic } from 'products/posthog_ai/frontend'
 
 import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'

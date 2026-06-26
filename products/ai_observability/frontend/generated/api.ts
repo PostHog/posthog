@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BatchCheckRequestApi,
     BatchCheckResponseApi,
+    ClusteringConfigApi,
+    ClusteringConfigSetEventFiltersApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
     DatasetApi,
@@ -32,8 +34,6 @@ import type {
     LLMPromptPublicApi,
     LLMPromptResolveResponseApi,
     LLMProviderKeyApi,
-    LlmAnalyticsClusteringConfigRetrieve200,
-    LlmAnalyticsClusteringConfigSetEventFiltersCreate200,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
@@ -88,10 +88,6 @@ import type {
     ScoreDefinitionApi,
     ScoreDefinitionCreateApi,
     ScoreDefinitionNewVersionApi,
-    SentimentBatchResponseApi,
-    SentimentGenerationsRequestApi,
-    SentimentGenerationsResponseApi,
-    SentimentRequestApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
@@ -521,18 +517,18 @@ export const evaluationsTestHogCreate = async (
     })
 }
 
-export const getLlmAnalyticsClusteringConfigRetrieveUrl = (projectId: string) => {
+export const getLlmAnalyticsClusteringConfigListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_analytics/clustering_config/`
 }
 
 /**
  * Team-level clustering configuration (event filters for automated pipelines).
  */
-export const llmAnalyticsClusteringConfigRetrieve = async (
+export const llmAnalyticsClusteringConfigList = async (
     projectId: string,
     options?: RequestInit
-): Promise<LlmAnalyticsClusteringConfigRetrieve200> => {
-    return apiMutator<LlmAnalyticsClusteringConfigRetrieve200>(getLlmAnalyticsClusteringConfigRetrieveUrl(projectId), {
+): Promise<ClusteringConfigApi> => {
+    return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigListUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -547,15 +543,15 @@ export const getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl = (projectI
  */
 export const llmAnalyticsClusteringConfigSetEventFiltersCreate = async (
     projectId: string,
+    clusteringConfigSetEventFiltersApi: ClusteringConfigSetEventFiltersApi,
     options?: RequestInit
-): Promise<LlmAnalyticsClusteringConfigSetEventFiltersCreate200> => {
-    return apiMutator<LlmAnalyticsClusteringConfigSetEventFiltersCreate200>(
-        getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
+): Promise<ClusteringConfigApi> => {
+    return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusteringConfigSetEventFiltersApi),
+    })
 }
 
 export const getLlmAnalyticsClusteringJobsListUrl = (
@@ -578,7 +574,7 @@ export const getLlmAnalyticsClusteringJobsListUrl = (
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsList = async (
     projectId: string,
@@ -596,7 +592,7 @@ export const getLlmAnalyticsClusteringJobsCreateUrl = (projectId: string) => {
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsCreate = async (
     projectId: string,
@@ -616,7 +612,7 @@ export const getLlmAnalyticsClusteringJobsRetrieveUrl = (projectId: string, id: 
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsRetrieve = async (
     projectId: string,
@@ -634,7 +630,7 @@ export const getLlmAnalyticsClusteringJobsUpdateUrl = (projectId: string, id: st
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsUpdate = async (
     projectId: string,
@@ -655,7 +651,7 @@ export const getLlmAnalyticsClusteringJobsPartialUpdateUrl = (projectId: string,
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsPartialUpdate = async (
     projectId: string,
@@ -676,7 +672,7 @@ export const getLlmAnalyticsClusteringJobsDestroyUrl = (projectId: string, id: s
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsDestroy = async (
     projectId: string,
@@ -1600,40 +1596,6 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoreDefinitionNewVersionApi),
-    })
-}
-
-export const getLlmAnalyticsSentimentCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/sentiment/`
-}
-
-export const llmAnalyticsSentimentCreate = async (
-    projectId: string,
-    sentimentRequestApi: SentimentRequestApi,
-    options?: RequestInit
-): Promise<SentimentBatchResponseApi> => {
-    return apiMutator<SentimentBatchResponseApi>(getLlmAnalyticsSentimentCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sentimentRequestApi),
-    })
-}
-
-export const getLlmAnalyticsSentimentGenerationsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/sentiment/generations/`
-}
-
-export const llmAnalyticsSentimentGenerationsCreate = async (
-    projectId: string,
-    sentimentGenerationsRequestApi?: SentimentGenerationsRequestApi,
-    options?: RequestInit
-): Promise<SentimentGenerationsResponseApi> => {
-    return apiMutator<SentimentGenerationsResponseApi>(getLlmAnalyticsSentimentGenerationsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sentimentGenerationsRequestApi),
     })
 }
 

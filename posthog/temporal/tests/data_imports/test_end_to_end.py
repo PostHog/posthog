@@ -57,13 +57,15 @@ from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
-from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+    get_latest_run_if_exists,
+)
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -3584,7 +3586,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
         "tax_exempt": "none",
         "address": None,
         "invoice_prefix": "0759376C",
-        "balance": 0,
+        "balance": -1000,
         "currency": None,
         "livemode": False,
         "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',

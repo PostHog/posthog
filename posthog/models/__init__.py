@@ -85,12 +85,7 @@ from .oauth import (
     OAuthRefreshToken,
 )
 
-from ..approvals.models import Approval, ApprovalPolicy, ChangeRequest
-
 __all__ = [
-    "Approval",
-    "ApprovalPolicy",
-    "ChangeRequest",
     "ActivityLog",
     "AsyncDeletion",
     "AsyncMigration",

@@ -4,7 +4,6 @@ import dataclasses
 
 import duckdb
 import deltalake
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -37,6 +36,7 @@ from posthog.ducklake.verification import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -104,7 +104,7 @@ async def ducklake_copy_workflow_gate_activity(inputs: DuckLakeCopyWorkflowGateI
         return False
 
     try:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "ducklake-data-modeling-copy-workflow",
             str(team.uuid),
             groups={

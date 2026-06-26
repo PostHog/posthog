@@ -1,6 +1,6 @@
-import { logger } from '~/utils/logger'
-import { captureException } from '~/utils/posthog'
-import { retryIfRetriable } from '~/utils/retries'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+import { retryIfRetriable } from '~/common/utils/retries'
 
 import { BatchProcessingStep } from './base-batch-pipeline'
 import { pipelineRetryAttemptsHistogram } from './metrics'

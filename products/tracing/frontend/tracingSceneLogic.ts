@@ -16,6 +16,7 @@ import {
     DEFAULT_ORDER_BY,
     DEFAULT_ORDER_DIRECTION,
     DEFAULT_SERVICE_NAMES,
+    DEFAULT_VIEW_MODE,
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
 import type { tracingSceneLogicType } from './tracingSceneLogicType'
@@ -30,12 +31,12 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             [
                 'spans',
                 'spansLoading',
-                'rootSpans',
+                'listRows',
                 'sparklineData',
                 'sparklineLoading',
                 'hasMoreToLoad',
                 'hasRunQuery',
-                'totalSpansMatchingFilters',
+                'totalMatchingFilters',
                 'traceSpans',
                 'traceSpansLoading',
                 'traceSpansLoadingMore',
@@ -70,6 +71,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'setServiceNames',
                 'setFilterGroup',
                 'setSort',
+                'setViewMode',
                 'setCompareMode',
                 'setOverlayWindows',
                 'setFilters',
@@ -217,6 +219,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         setFilterGroup: () => actions.handleFilterChange('filter_group'),
         setSort: ({ orderBy, orderDirection }) =>
             actions.handleFilterChange('sort', { column: orderBy, direction: orderDirection }),
+        setViewMode: ({ viewMode }) => actions.handleFilterChange('view_mode', { mode: viewMode }),
         setCompareMode: ({ compareMode }) => actions.handleFilterChange('compare_mode', { enabled: compareMode }),
         setOverlayWindows: () => {
             // Overlay drags only refetch the aggregation — the sparkline canvas range
@@ -304,6 +307,12 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 hasChanges = true
             }
 
+            const viewModeFromUrl = searchParams.view === 'spans' ? 'spans' : DEFAULT_VIEW_MODE
+            if (viewModeFromUrl !== values.filters.viewMode) {
+                filtersFromUrl.viewMode = viewModeFromUrl
+                hasChanges = true
+            }
+
             if (hasChanges) {
                 actions.setFilters(filtersFromUrl)
             } else if (!values.hasRunQuery) {
@@ -367,6 +376,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             }
             if (values.filters.compareMode) {
                 searchParams.compare = 'true'
+            }
+            if (values.filters.viewMode !== DEFAULT_VIEW_MODE) {
+                searchParams.view = values.filters.viewMode
             }
 
             actions.runQuery()

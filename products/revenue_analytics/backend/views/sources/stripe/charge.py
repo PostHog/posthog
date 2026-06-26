@@ -10,11 +10,8 @@ from products.revenue_analytics.backend.views.sources.helpers import (
     currency_aware_divider,
     is_zero_decimal_in_stripe,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-)
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
+from products.warehouse_sources.backend.facade.sources import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 
 
 def build(handle: SourceHandle) -> BuiltQuery:

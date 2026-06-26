@@ -29,7 +29,13 @@ from psycopg import sql
 if TYPE_CHECKING:
     from posthog.ducklake.models import DuckgresServer
 
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+
 DUCKLAKE_CATALOG_RESET_ENV_VAR = "POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET"
+
+# The duckgres schema prefix the data-modeling shadow materialization writes models into.
+DATA_MODELING_DUCKGRES_SHADOW_SCHEMA_PREFIX = "shadow"
 
 logger = logging.getLogger(__name__)
 
@@ -504,6 +510,26 @@ def duckgres_data_imports_schema(team_id: int) -> str:
     return f"posthog_data_imports_{suffix}"
 
 
+def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
+    """Resolve the duckgres table name the data-import copy workflow writes a schema's snapshot into.
+
+    Must stay byte-identical to what the copy workflow computes so the reader resolves to the same
+    table the writer produced.
+    """
+    source_type = schema.source.source_type
+    prefix = schema.source.prefix
+    normalized_name = schema.normalized_name
+    return sanitize_ducklake_identifier(
+        f"{source_type}_{prefix}_{normalized_name}" if prefix else f"{source_type}_{normalized_name}",
+        default_prefix="data_import",
+    )
+
+
+def duckgres_data_modeling_schema(team_id: int) -> str:
+    """Resolve the duckgres schema the data-modeling shadow materialization writes a team's models into."""
+    return f"{DATA_MODELING_DUCKGRES_SHADOW_SCHEMA_PREFIX}_{team_id}_models"
+
+
 TABLE_SUFFIX_MAX_LENGTH = 63
 # The table name the user supplies is used verbatim as the suffix in `events_<suffix>` /
 # `persons_<suffix>`, so it must already be a safe SQL identifier — lowercase letters,
@@ -602,6 +628,8 @@ __all__ = [
     "DucklingBackfillEnableError",
     "attach_catalog",
     "duckgres_data_imports_schema",
+    "duckgres_data_imports_table_name",
+    "duckgres_data_modeling_schema",
     "enable_team_backfill",
     "escape",
     "get_config",

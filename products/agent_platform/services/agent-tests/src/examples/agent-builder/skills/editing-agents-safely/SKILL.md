@@ -53,20 +53,21 @@ sees it.
 
 Choose the right verb:
 
-| Verb                                                    | When                                                                                                     | Reversibility                              |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `posthog__agent-applications-revisions-partial-update`  | Change `spec` fields (model, limits, triggers, tools[], identity_providers, mcps) — merges into the spec | Easy — the next update overwrites          |
-| `posthog__agent-applications-revisions-spec-update`     | Replace the whole `spec` at once (a large rewrite)                                                       | Easy — overwrites the spec                 |
-| `posthog__agent-applications-revisions-agent-md-update` | Overwrite `agent.md` (the system prompt)                                                                 | Easy — re-write                            |
-| `posthog__agent-applications-revisions-skills-update`   | Upsert one skill (body + companion files)                                                                | Easy — re-write                            |
-| `posthog__agent-applications-revisions-skills-destroy`  | Delete one skill                                                                                         | **Hard** — content gone unless you have it |
-| `posthog__agent-applications-revisions-tools-update`    | Upsert one custom tool (source + schema)                                                                 | Easy — re-write                            |
-| `posthog__agent-applications-revisions-tools-destroy`   | Delete one custom tool                                                                                   | **Hard** — content gone unless you have it |
+| Verb                                                        | When                                                                                                      | Reversibility                              |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `posthog__agent-applications-revisions-partial-update`      | Change `spec` fields (models, limits, triggers, tools[], identity_providers, mcps) — merges into the spec | Easy — the next update overwrites          |
+| `posthog__agent-applications-revisions-spec-update`         | Replace the whole `spec` at once (a large rewrite)                                                        | Easy — overwrites the spec                 |
+| `posthog__agent-applications-revisions-agent-md-update`     | Overwrite `agent.md` (the system prompt)                                                                  | Easy — re-write                            |
+| `posthog__llm-skills-search` / `posthog__llm-skills-create` | Find or author a skill in the llma-skill store                                                            | Easy — the store keeps every version       |
+| `posthog__agent-applications-revisions-skill-refs-set`      | Set which store skills the draft pins (`skill_refs`)                                                      | Easy — re-set the list; nothing is deleted |
+| `posthog__agent-applications-revisions-tools-update`        | Upsert one custom tool (source + schema)                                                                  | Easy — re-write                            |
+| `posthog__agent-applications-revisions-tools-destroy`       | Delete one custom tool                                                                                    | **Hard** — content gone unless you have it |
 
-These are all `posthog__agent-applications-*` MCP tools — there's
-no bulk bundle-replace verb, which is deliberate: edit the one thing
-that changed (`agent-md-update` / `skills-update` / `tools-update`)
-rather than rewriting the whole bundle.
+These are all `posthog__*` MCP tools — there's no bulk bundle-replace
+verb, which is deliberate: edit the one thing that changed
+(`agent-md-update` / `skill-refs-set` / `tools-update`) rather than
+rewriting the whole bundle. Skills aren't authored on the agent at all —
+they live in the store and the agent only references them.
 
 After any `spec` write, `posthog__agent-applications-revisions-retrieve` to
 confirm what actually persisted.
