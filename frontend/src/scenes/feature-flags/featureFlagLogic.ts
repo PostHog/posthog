@@ -85,6 +85,7 @@ import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
+import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
@@ -1308,16 +1309,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             values.currentTeam?.id
                         )
                         if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
-                            const aggregationGroupTypeIndex =
-                                conditionsConfig.default_groups.find(
-                                    (group) => group.aggregation_group_type_index != null
-                                )?.aggregation_group_type_index ?? null
                             baseFlagConfig = {
                                 ...baseFlagConfig,
                                 filters: {
                                     ...baseFlagConfig.filters,
                                     groups: conditionsConfig.default_groups,
-                                    aggregation_group_type_index: aggregationGroupTypeIndex,
+                                    aggregation_group_type_index: uniformAggregationGroupTypeIndex(
+                                        conditionsConfig.default_groups
+                                    ),
                                 },
                             }
                         }

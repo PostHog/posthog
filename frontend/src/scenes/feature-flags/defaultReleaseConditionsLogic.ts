@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { FeatureFlagFilters, FeatureFlagGroupType } from '~/types'
 
 import type { defaultReleaseConditionsLogicType } from './defaultReleaseConditionsLogicType'
+import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 
 export interface DefaultReleaseConditionsResponse {
     enabled: boolean
@@ -118,17 +119,12 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
 
         filtersForEditor: [
             (s) => [s.groups],
-            (groups): FeatureFlagFilters => {
-                const indices = groups.map((group) => group.aggregation_group_type_index ?? null)
-                const uniformIndex =
-                    indices.length > 0 && indices.every((index) => index === indices[0]) ? indices[0] : null
-                return {
-                    groups: groups.length > 0 ? groups : [{ properties: [], rollout_percentage: 0, variant: null }],
-                    multivariate: null,
-                    payloads: {},
-                    aggregation_group_type_index: uniformIndex,
-                }
-            },
+            (groups): FeatureFlagFilters => ({
+                groups: groups.length > 0 ? groups : [{ properties: [], rollout_percentage: 0, variant: null }],
+                multivariate: null,
+                payloads: {},
+                aggregation_group_type_index: uniformAggregationGroupTypeIndex(groups),
+            }),
         ],
 
         hasChanges: [

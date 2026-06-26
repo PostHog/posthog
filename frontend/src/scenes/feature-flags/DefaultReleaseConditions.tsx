@@ -43,16 +43,14 @@ export function DefaultReleaseConditions(): JSX.Element {
                         id="default-release-conditions"
                         filters={filtersForEditor}
                         onChange={(updatedFilters: FeatureFlagFilters) => {
-                            const topLevelIndex = updatedFilters.aggregation_group_type_index
-                            const groups =
-                                topLevelIndex != null
-                                    ? updatedFilters.groups.map((group) => ({
-                                          ...group,
-                                          aggregation_group_type_index:
-                                              group.aggregation_group_type_index ?? topLevelIndex,
-                                      }))
-                                    : updatedFilters.groups
-                            setLocalGroups(groups)
+                            // Mirror the top-level aggregation onto every group; null clears it back to users.
+                            const aggregationIndex = updatedFilters.aggregation_group_type_index ?? null
+                            setLocalGroups(
+                                updatedFilters.groups.map((group) => ({
+                                    ...group,
+                                    aggregation_group_type_index: aggregationIndex,
+                                }))
+                            )
                         }}
                         isDisabled={!!restrictedReason}
                         hideEarlyExit
