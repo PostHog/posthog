@@ -1213,7 +1213,7 @@ class BigQueryStorageConsumer(Consumer):
         #  to a PENDING stream with offsets, so that we can incrementally
         # commit. But that is more complicated, as it requires keeping track of
         # said offset, so we accept the duplicates for now.
-        # TODO: Evalute switching over and do it.
+        # TODO: Evaluate switching over and do it.
         attempt = 0
         while True:
             try:
@@ -1225,6 +1225,13 @@ class BigQueryStorageConsumer(Consumer):
                 if attempt >= max_attempts:
                     raise
 
+                backoff = min(2**attempt, 32)
+                self.logger.warning(
+                    "Storage stream transient error encountered",
+                    attempt=attempt,
+                    backoff=backoff,
+                    exc_info=True,
+                )
                 try:
                     # Reset the stream for the next attempt
                     stream.close()
@@ -1232,7 +1239,7 @@ class BigQueryStorageConsumer(Consumer):
                 except Exception:
                     pass
 
-                time.sleep(min(2**attempt, 32))
+                time.sleep(backoff)
 
     def start_stream(self) -> AppendRowsStream:
         """Start an append rows stream."""
