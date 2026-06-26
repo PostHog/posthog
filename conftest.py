@@ -54,14 +54,18 @@ def _activate_personhog_fake(request):
     """Force all person/group reads through the personhog fake for every test.
 
     The fake is seeded explicitly by the test helpers in posthog.test.persons
-    (create_person, create_group, etc.) — no signals are used.  Tests in
-    personhog_client/ manage their own client and are excluded.
+    (create_person, create_group, etc.).  While the fake is active, ORM access to
+    persons-DB models raises (PersonsDBORMBlockedError) so nothing can silently
+    fall back to the persons DB.
+
+    Tests that exercise the persons DB layer itself (sync, backfill, maintenance
+    commands) opt out with ``@pytest.mark.persons_db_direct`` — either on the
+    class/function or as a module-level ``pytestmark``.
     """
-    node_path = str(request.node.path)
-    if "personhog_client" in node_path or ".github" in node_path:
+    if request.node.get_closest_marker("persons_db_direct"):
         yield
         return
-    from posthog.test.personhog_fake import activate_personhog_fake  # noqa: PLC0415, I001 — lazy import avoids connecting signals before Django is ready
+    from posthog.personhog_client.fake_client import activate_personhog_fake  # noqa: PLC0415, I001 — lazy import avoids connecting signals before Django is ready
 
     with activate_personhog_fake():
         yield

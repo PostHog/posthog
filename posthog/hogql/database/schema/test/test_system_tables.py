@@ -19,6 +19,7 @@ from posthog.models import Group, GroupTypeMapping, GroupUsageMetric, Organizati
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.project import Project
 from posthog.models.scoping import team_scope
+from posthog.person_db_router import allow_persons_orm
 from posthog.test.persons import (
     create_group as _create_group_helper,
     create_group_type_mapping,
@@ -359,11 +360,15 @@ def _create_feature_flag(team: Team, label: str) -> FeatureFlag:
 
 
 def _create_group(team: Team, label: str) -> Group:
-    return _create_group_helper(team=team, group_key=f"group_{label}", group_type_index=0, version=0)
+    with allow_persons_orm():
+        return _create_group_helper(team=team, group_key=f"group_{label}", group_type_index=0, version=0)
 
 
 def _create_group_type_mapping(team: Team, label: str) -> GroupTypeMapping:
-    return create_group_type_mapping(team=team, project=team.project, group_type=f"type_{label}", group_type_index=0)
+    with allow_persons_orm():
+        return create_group_type_mapping(
+            team=team, project=team.project, group_type=f"type_{label}", group_type_index=0
+        )
 
 
 def _create_integration(team: Team, label: str):
