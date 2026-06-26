@@ -6546,6 +6546,60 @@ class TestExternalDataSource(APIBaseTest):
             == existing_integration_count
         )
 
+    def test_migrate_google_service_account_to_integrations_returns_400_when_no_legacy_key_file(self):
+        # Source with neither a key_file nor an integration has nothing to migrate.
+        source_model = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="BigQuery",
+            created_by=self.user,
+            prefix="",
+            job_inputs={
+                "dataset_id": "dummy_dataset_id",
+                "use_custom_region": {"enabled": False, "region": ""},
+                "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
+                "dataset_project": {"enabled": False, "dataset_project_id": ""},
+            },
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/migrate_google_service_account_to_integrations/"
+        )
+
+        assert response.status_code == 400
+        assert "No legacy BigQuery key_file credentials were found to migrate" in str(response.json())
+
+        source_model.refresh_from_db()
+        assert source_model.job_inputs.get("google_cloud_service_account_integration_id") is None
+        assert (
+            Integration.objects.filter(
+                team_id=self.team.pk,
+                kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+            ).count()
+            == 0
+        )
+
+    def test_migrate_google_service_account_to_integrations_rejects_non_bigquery_source(self):
+        source_model = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="",
+            job_inputs={"host": "localhost"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/migrate_google_service_account_to_integrations/"
+        )
+
+        assert response.status_code == 400
+        assert "only supports BigQuery sources" in str(response.json())
+
     @patch(
         "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
         return_value=(True, None),
