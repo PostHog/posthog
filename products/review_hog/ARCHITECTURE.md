@@ -577,31 +577,25 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
     `ReviewPerspectivesWorkflow` / `ValidateIssuesWorkflow`** (child workflows, kebab names `review-pr` /
     `review-analyze-chunks` / `review-perspectives` / `review-validate-issues`), then `combine+clean` →
     `dedup+persist-findings` → `build-body+finalize` → gated `publish` activities. **As built / decisions that
-    landed:**
-    - **Everything by reference via a new `pr_snapshot` working-state artefact** (`{head_sha, pr_metadata,
+    landed:** - **Everything by reference via a new `pr_snapshot` working-state artefact** (`{head_sha, pr_metadata,
 pr_comments, pr_files}`, migration `0004`) — the fetch activity persists it once; every stage activity reloads
-      its inputs from the DB by `(report_id, head_sha)`. So only `report_id` + `head_sha` + small unit keys / JSON
-      issue slices cross any boundary — no `pr_files` / diff / perspective-results ever do (respects the ~2 MiB cap).
-      This **subsumes** the planned "narrow validate to one file" optimization: narrowing happens _inside_ the
-      validate activity, nothing big crosses at all.
-    - **Identity is explicit** — deleted `executor.py`'s `_sandbox_identity` ContextVar / `bind_sandbox_identity` /
-      `_sandbox_context_for` and the module-global `_sandbox_semaphore`; `run_sandbox_review(team_id, user_id,
+    its inputs from the DB by `(report_id, head_sha)`. So only `report_id` + `head_sha` + small unit keys / JSON
+    issue slices cross any boundary — no `pr_files` / diff / perspective-results ever do (respects the ~2 MiB cap).
+    This **subsumes** the planned "narrow validate to one file" optimization: narrowing happens _inside_ the
+    validate activity, nothing big crosses at all. - **Identity is explicit** — deleted `executor.py`'s `_sandbox_identity` ContextVar / `bind_sandbox_identity` /
+    `_sandbox_context_for` and the module-global `_sandbox_semaphore`; `run_sandbox_review(team_id, user_id,
 repository, branch, …)` builds `CustomPromptSandboxContext` inline. Each fan-out child bounds its sandbox-turn
-      activities with a fresh `asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)` + `gather(return_exceptions=True)`.
-    - **Best-effort** partial-unit failure (per the decision); per-unit activities are idempotent (check-and-skip
-      already-persisted units) so resume + Temporal retries are safe. **Publish stays gated off.**
-    - **Tool modules** keep only their pure prompt builders (`build_analysis_prompt` / `build_review_prompt` /
-      `build_validation_prompt` / `generate_chunking_prompt` + `*_SYSTEM_PROMPT`); the fan-out orchestrators and
-      `run.py` are deleted (`deduplicate_issues` kept as a callable the dedup activity wraps, now taking explicit
-      identity). New `persist_pr_snapshot` / `load_pr_snapshot` / `persist_verdict` helpers.
-    - **Trigger:** `run_review` calls `backend/temporal/client.py:execute_review_pr_workflow` which **blocks**
-      (`client.execute_workflow`, `id_reuse_policy=ALLOW_DUPLICATE`) so the CLI eval loop stays intact; stage
-      progress streams in the worker log via `workflow.logger`. Registered on **`video-export-task-queue`**
-      (`start_temporal_worker.py` + `tach.toml` `posthog → products.review_hog` + the `container-images-cd.yml`
-      video-export change-detection grep). **The worker now needs `GITHUB_TOKEN` in its env** (fetch runs there).
-    - The reviewed-`head_sha` **checkout pin** stays **conditional step 16**; the **loop-y re-check**, cross-turn
-      finding identity, and `task_run` / `note` artefacts remain deferred. Design + grounded map (file:line cites)
-      in _Everything on Temporal_ below.
+    activities with a fresh `asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)` + `gather(return_exceptions=True)`. - **Best-effort** partial-unit failure (per the decision); per-unit activities are idempotent (check-and-skip
+    already-persisted units) so resume + Temporal retries are safe. **Publish stays gated off.** - **Tool modules** keep only their pure prompt builders (`build_analysis_prompt` / `build_review_prompt` /
+    `build_validation_prompt` / `generate_chunking_prompt` + `*_SYSTEM_PROMPT`); the fan-out orchestrators and
+    `run.py` are deleted (`deduplicate_issues` kept as a callable the dedup activity wraps, now taking explicit
+    identity). New `persist_pr_snapshot` / `load_pr_snapshot` / `persist_verdict` helpers. - **Trigger:** `run_review` calls `backend/temporal/client.py:execute_review_pr_workflow` which **blocks**
+    (`client.execute_workflow`, `id_reuse_policy=ALLOW_DUPLICATE`) so the CLI eval loop stays intact; stage
+    progress streams in the worker log via `workflow.logger`. Registered on **`video-export-task-queue`**
+    (`start_temporal_worker.py` + `tach.toml` `posthog → products.review_hog` + the `container-images-cd.yml`
+    video-export change-detection grep). **The worker now needs `GITHUB_TOKEN` in its env** (fetch runs there). - The reviewed-`head_sha` **checkout pin** stays **conditional step 16**; the **loop-y re-check**, cross-turn
+    finding identity, and `task_run` / `note` artefacts remain deferred. Design + grounded map (file:line cites)
+    in _Everything on Temporal_ below.
 16. ⏭️ **(conditional) Pin the sandbox checkout to the reviewed `head_sha` (`products/tasks` change).** Only if
     actually needed — resume-correctness, re-enabling publish, or the loop: thread a reviewed-commit SHA through the
     Tasks sandbox chain so the working tree == the injected change-set == the persisted snapshot == the finding
@@ -1063,6 +1057,251 @@ turn's current diff only); _reuse from the Signals leaf_ — `Commit` / `CodeRef
 (the Signals helpers close over Signals' module-global registry and can't take ours), the
 `ReviewIssueFinding` / `ValidationVerdict` schemas, and the working-state schemas
 (`ChunkSetArtefact` / `ChunkAnalysisArtefact` / `PerspectiveResultArtefact`). There is no on-disk store.
+
+---
+
+### 🔁 Stage 4 — the loop (design — not yet built)
+
+> **Status: design only — nothing here is built.** The single-turn `ReviewPRWorkflow` (Stage 3, step 15) is the
+> **per-turn body**; the loop wraps it so a PR review becomes a **living, multi-turn** process instead of a
+> one-shot job. This section is the **canonical** loop design — it supersedes the scattered "deferred to the loop"
+> notes above and the _Cloud host, Temporal & GitHub_ stub. Researched 2026-06-26 against the real code (a parallel
+> reader sweep of every subsystem the loop touches + the Tasks write/push path verified directly); cites are to
+> current `master` / `signals/reviewhog`. **Triggers (a `reviewhog` label, à la Stamphog) and the publish identity
+> are assumed inputs, deferred** — the maintainer wires the label trigger later and supplies the publish identity
+> (the team's GitHub App installation token, or a service user + project API key). This section designs the **loop
+> itself**. Variants are presented with a **decision** each (the maintainer is not in the loop to answer questions).
+
+**The target (maintainer's words).** Today users hand-run a sandbox agent and put it on `/loop` every 15 min from a
+chat window — workable but blunt. ReviewHog should do it properly. One turn of the loop:
+
+1. **Route** — decide if the PR passes through (Stamphog-style approve / skip) or needs review, and **which
+   perspectives** to enable.
+2. **Chunk** by meaning / area (only if needed — the existing chunk gate).
+3. **Spawn specialist reviewers in parallel** (Logic & Correctness, Contracts & Security, …, plus per-team custom
+   perspectives).
+4. **Combine → dedup → implement the fixes.**
+5. **Ask the user for context if needed** (store it for self-improvement) and **check if new comments / major code
+   changes appeared.**
+6. **Loop if justified, finish if not** — repeat until ready.
+
+Steps 1–4 are mostly the single-turn pipeline already (route is the one net-new stage; chunk / review / combine /
+dedup are built; "implement the fixes" is net-new — see _Action plane_). Steps 5–6 are the loop's control logic. The
+**living `ReviewReport`** (unique on `(team, repository, pr_number)`, with `run_count` / `last_run_at` / `status` /
+`head_sha` / `last_seen_comment_id` and head_sha-scoped resume — `models.py:27-54`, `persistence.py:56-132`) is
+**already the loop's memory**: every turn appends to it, and a re-run reuses turn-stable sandbox work. The loop adds
+four things on top: the **control plane** (what advances a turn, what ends it), the **router**, the **cross-turn
+finding identity** the watermark plumbing was shaped for, and the **action plane** ("implement the fixes").
+
+#### Control plane — how a turn is triggered and the loop lives
+
+`ReviewPRWorkflow` is single-shot today: started by `execute_workflow` (blocks), deterministic id
+`review-pr:{team}:{owner}/{repo}:{pr}`, `ALLOW_DUPLICATE` reuse policy, **no** `@workflow.signal` / `@workflow.query`
+/ `continue_as_new` (`client.py:24-57`, `workflow.py:246-426`, `types.py:39-41`). Two real topologies (a third,
+"per-PR cron", is just the timer mechanism either uses, not a standalone choice):
+
+- **Variant B — event-driven re-trigger (decision: build this first; smallest delta).** Keep the workflow
+  **short-lived / single-turn**. Each trigger (label add, new commit, new comment, a "re-check" timer) calls
+  `client.start_workflow("review-pr", …, id=review_pr_workflow_id(...), id_reuse_policy=ALLOW_DUPLICATE)` — a fresh
+  turn starts once the prior finished; a concurrent trigger on the same PR collapses by id. **The loop has no live
+  workflow** — the durable `ReviewReport` is the only long-lived state, exactly the "a PR review is a living
+  document, not a job" framing the store was built for. "Loop if justified" is the **router + watermarks** deciding
+  whether a triggered turn does real work or no-ops (head unchanged + no new comments → `persist_commit_snapshot`
+  already skips, `persistence.py:104-132`). "Ask the user and wait" is a posted question whose **reply is the next
+  webhook** — no live wait. Time-based re-checks (no webhook arrived) are a per-PR **Temporal Schedule** or a
+  `workflow.sleep` follow-up. _Pros:_ reuses today's idempotent, resumable, `ALLOW_DUPLICATE` workflow as-is; zero
+  history bloat; none of the `continue_as_new` traps; every turn is a clean, inspectable execution; restart-robust.
+  _Cons:_ no live "talk to / pause / inject-context mid-turn" — control is **between** turns; "force another turn"
+  is a DB write + a `start_workflow`, not a signal to a running run.
+- **Variant A — per-PR singleton loop (decision: the end-state; promote to it when live control is the actual ask).**
+  `ReviewPRWorkflow` becomes a long-lived `while True` singleton (one running execution per PR), parking between
+  turns on `workflow.wait([wait_for_event, wait_for_inactivity], return_when=FIRST_COMPLETED)` — the exact "wake on
+  signal OR inactivity timeout" select Tasks' `execute_sandbox` / `process_task` use
+  (`products/tasks/backend/temporal/execute_sandbox/workflow.py:318-351,424-449`; `process_task/workflow.py:210-268`).
+  Webhooks **signal-with-start** the deterministic id (create-if-absent, else deliver); `continue_as_new` bounds
+  history (carry watermark + buffered events + user-context in the input dataclass, drain in-flight handlers via
+  `await workflow.wait_condition(workflow.all_handlers_finished())` first); the run **returns** to finish (PR
+  merged/closed, idle, converged, or a max-turn budget). Copy the in-repo singletons wholesale:
+  `BufferSignalsWorkflow` (`products/signals/backend/temporal/buffer.py:136-205` — `workflow_id_for`,
+  `@workflow.query get_buffer_size`, `@workflow.signal submit_signal`, the loop, `continue_as_new`) and
+  `TeamSignalGroupingV2Workflow` (`grouping_v2.py:92-124,302-349` — pause/unpause signals + a query + classmethods
+  that drive it via signal-with-start, handling `RPCStatusCode.NOT_FOUND`). _Pros:_ live `@workflow.query` (stage,
+  findings-so-far, lifecycle counts, watermarks — zero history cost) and `@workflow.signal` (inject-context, pause,
+  cancel, force-turn); a durable "ask the user and **wait** for the reply" within a turn; the conversational agent
+  maps straight onto it. _Cons:_ a genuine topology change with easy-to-miss traps — drain handlers before
+  `continue_as_new`; `continue_as_new` is `NoReturn` (nothing follows it); Temporal stringifies int dict keys across
+  legs so per-chunk/per-file maps must be re-cast (`posthog/temporal/ai_observability/trace_clustering/coordinator.py:122-129`);
+  per-leg `run_timeout` resets on CAN; **Modal sandboxes must be reaped within a turn** so they don't leak across
+  legs (à la `execute_sandbox`'s `_reap_orphaned_sandbox`); one long-lived workflow per open PR.
+
+**Decision: build B first, promote to A when live control / a talk-to-it agent is genuinely wanted.** B is the
+smallest prod-usable step — the workflow, its idempotency, its resume, and `ALLOW_DUPLICATE` already exist — and it
+supports all six steps (each "wait" is a webhook gap, which is _more_ restart-robust than a live wait). A is the
+right home for the rich "loop till ready + talk to it + pause/inject" experience and is a clean copy of `buffer.py`
+/ `grouping_v2.py` when we get there. This is the doc's own nest-then-promote rule: don't stand up a long-lived
+singleton until the cross-turn prerequisites (below) are paid off and live in-run control is the real requirement.
+
+#### Triggers — GitHub events → turns (assumed input, deferred)
+
+The label trigger (à la Stamphog's `stamphog` label) and the publish identity are **deferred** per the maintainer;
+sketched only so the loop's contract is clear. The unified webhook dispatcher already exists (`github_webhook`,
+HMAC-verified, `posthog/urls.py:101-145,465-466`) with installation→team resolution (`_resolve_external_team`,
+`products/tasks/backend/webhooks.py:220-232`). Three advance signals, **all net-new dispatcher branches** (today
+`labeled` / `synchronize` are dropped, `issue_comment` routes only to conversations, `pull_request_review_comment`
+is unrouted — `webhooks.py:78-143`): **label add → start the loop**; **`synchronize` (new commit) → advance a turn**
+(carry the new `head_sha`); **comment on a tracked `ReviewReport` → advance a turn / feed step 5**. In B each is a
+`start_workflow`; in A each is a `signal-with-start`. Two non-negotiables from the existing handler: **dedupe on
+`X-GitHub-Delivery`** + **hand off fast (200/202) to Temporal**, and the **fork guard** (`head.repo == base repo`,
+`webhooks.py:127-133`) before reviewing — and certainly before _implementing_ — on an attacker-influenced head ref.
+Publish/fetch move off the static `GITHUB_TOKEN` onto the team's installation token (`first_for_team_repository` +
+`get_access_token`, `posthog/models/integration.py:2504-2519`, `github_integration_base.py:1433`) — or the
+maintainer's service-user + project key — when multi-tenant identity is needed; a PR-_review_ POST helper
+(`POST /pulls/{n}/reviews` with inline comments) is net-new (only `create_issue` / `create_pull_request` exist).
+
+#### Router (step 1) — pass-through vs review, perspective selection
+
+Stamphog already implements the deterministic half, and it's **pure, dependency-free logic** (`gates.py:1-10` — only
+`re` / `collections` / `fnmatch` / `pathlib`). But Stamphog lives in `tools/pr-approval-agent/` as a standalone
+`uv` / PEP-723 script with flat relative imports — **not importable app code**; the repo's owned-product /
+no-cross-import-from-`tools/` norms say **copy-and-own**, not import. So **re-vendor `gates.py`'s logic** (+ the
+`dismiss_check` delta classifier) into `products/review_hog/` as a deterministic `route` activity at the top of each
+turn:
+
+- **Pass-through** = Stamphog's T0 / allow-listed-only / test-only path (`is_allow_listed_only`, `test_only`,
+  `assign_tier`→T0 — `gates.py:457,371,556`): skip the expensive fan-out, optionally with one cheap single-turn LLM
+  "showstopper confirm" (Stamphog's `VERDICT_SCHEMA` + the **gates-authoritative, LLM-tightens-never-loosens**
+  invariant, `review_pr.py:459-481`).
+- **Perspective selection** = `detect_deny_categories` (`gates.py:392`) emits exactly `auth` / `crypto_secrets` /
+  `migrations` / `infra_cicd` / `billing` / `public_api` / `deps_toolchain`. **Invert Stamphog's semantics:** where
+  it _denies_ (T2-never → human), ReviewHog **enables the matching specialist** (auth/crypto → Contracts & Security;
+  migrations/deps → a data/dependency perspective; infra_cicd → infra/CI). Reuse the **detection**, drop the
+  deny→skip **routing**.
+- **Fan-out width** = the T1 sub-tier (`t1_risk_subclass`, `gates.py:578`) + `scope_breadth` (single / two /
+  cross-cutting, `gates.py:362`): T1a-trivial → minimal pass, T1d-complex / cross-cutting → full perspective set.
+- **Loop-continuation (steps 5–6)** = `dismiss_check.evaluate_delta` (`dismiss_check.py:168-209`): a first-parent
+  commit walk classifying new commits trivial-vs-non-trivial (force-push detection) is the cheap "did a _major_
+  change appear since last review?" gate — but driven from **ReviewHog's own persisted `head_sha`** (already stored
+  per turn), not from a bot-approval review Stamphog posts and ReviewHog won't.
+
+`github.py` (gh-CLI + local git) and `reviewer.py` (Claude Agent SDK) are execution-model-specific and **not**
+reusable — ReviewHog fetches via `fetch_pr_data_activity` and reviews via `MultiTurnSession`; only the prompt/schema
+_design_ transfers. The thresholds were calibrated for "safe to rubber-stamp", not "how much review", so expect
+re-tuning for ReviewHog's objective.
+
+#### Cross-turn finding identity & watermarks (the hard prerequisite)
+
+The append-only artefact log + latest-wins-per-`issue_key` read (`load_valid_findings`, `persistence.py:348-389`) is
+the **right substrate** — keep it; the loop only fixes what's positional. **Six net-new pieces, in priority order:**
+
+1. **Stable semantic finding key (the big one).** `issue_key = file:start:perspective:{pass}-{chunk}-{issue}`
+   (`persistence.py:402-413`) is per-turn **positional**: the `{pass}-{chunk}-{issue}` ordinal is reassigned every
+   run and `start` drifts as the PR evolves, so the same problem re-keys each turn and always looks "newly-appeared."
+   **Anchor identity on `file` + a normalized problem signature (title/body, content-anchored, not line-anchored)**,
+   independent of pipeline ordinals and line position. (`ReviewIssueFinding`'s docstring already _claims_ "stable
+   identity across turns" — `artefact_content.py:47-55` — that contract is **aspirational, not built**; fix it
+   before any cross-turn read is trusted.)
+2. **Per-finding lifecycle status.** `ReviewReport.status` (ACTIVE/IDLE/CLOSED) is the _report's_ job-state, not a
+   finding's. Add a lifecycle field on the finding (newly-appeared / still-open / resolved-by-a-new-commit /
+   superseded) and turn-over-turn diffing to set it.
+3. **Decouple the comment watermark.** `last_seen_comment_id` only advances _inside_ `persist_commit_snapshot`, gated
+   on `head_sha` movement (`persistence.py:104-132`) — so a **comments-only** change (step 5's "new comments
+   appeared" / "ask the user") never advances it and never triggers a turn. Add an independent advance + a "new
+   comments since the watermark → justify a turn" trigger.
+4. **Resolve / supersede detection.** Per-turn `commit` artefacts already store each turn's reviewed diff, but
+   nothing compares prior-vs-current to mark a finding's lines fixed. The data exists; the consumer is net-new.
+5. **Writers for `note` + `task_run`.** Both types are registered but have **zero writers** (`persistence.py:21,125`;
+   `artefact_content.py:139-158`). Step 5's "ask the user, store for self-improvement" → a **`note`** (author = user
+   via `ArtefactAttribution.from_user`, read by the _next_ turn's prompt); each turn's sandbox runs → `task_run`; the
+   implemented-fix commit → another `commit` artefact.
+6. **Persist the route decision + a CLOSED transition.** Nothing records "passed through" vs "reviewed", or which
+   perspectives ran (re-resolved fresh each run), and `status.CLOSED` is never written. Persist the per-turn routing
+   decision (a `note` or a small field) and transition to CLOSED on PR merge/close.
+
+> **Load-bearing:** every action variant below **re-spams or re-implements** without #1 + #2. `load_valid_findings`
+> reads **all** turns report-wide with no supersession (`persistence.py:348-389`), so under looping it accumulates
+> stale findings from old commits as if still valid — masked only because publish is gated off. **This lands before
+> publish is re-enabled.**
+
+#### Action plane — "implement the fixes" (step 4)
+
+Today ReviewHog only reviews + comments; editing code is net-new. Three tiers (verified against the real Tasks
+write path):
+
+- **C — native GitHub suggestion blocks (decision: first; small).** Emit a one-click **suggestion block** inside the
+  inline comment ReviewHog already posts (today `_format_issue_comment` renders prose, `publish_review.py:70-142`);
+  rides the existing gated publish path almost unchanged (`pr.create_review(event="COMMENT", …)`,
+  `publish_review.py:202-238`). Net-new: the validator must emit a **line-accurate literal replacement** (a
+  finding-schema field — today `suggestion` is prose) landing on the diff's RIGHT side (the position finder already
+  drops the rest, `publish_review.py:145-199`). Safe by construction — inert until a human clicks, no
+  auth/push/branch — so it's prod-usable the moment the publish flag flips. It **cannot be spam-safe without #1+#2
+  above**, so doing it first _forces_ that persistence work to land.
+- **A — delegate true implementation to the Tasks agentic-coding engine (decision: next; medium).** **Verified:** the
+  Tasks sandbox already does edit→commit→push→open-PR. `agent-server --createPr <bool> --baseBranch <branch>`
+  (`products/tasks/backend/logic/services/modal_sandbox.py:683-696`) is the engine; the sandbox is handed a **real
+  GitHub token** rewritten into both the git remote
+  (`git remote set-url origin https://x-access-token:<token>@github.com/<repo>`,
+  `products/tasks/backend/temporal/process_task/sandbox_credentials.py:49-67`) and the env, refreshed mid-run, with
+  an explicit **bot/installation-token authorship mode** (`PrAuthorshipMode`, `sandbox_credentials.py:149,240-276`).
+  So ReviewHog (behind the publish flag + per-PR opt-in) builds an implement-prompt from the kept findings, creates a
+  **Task** via the `products/tasks` **facade** targeting the PR repo at its branch with `create_pr=True`, and Tasks
+  opens a **companion PR** (never force-pushes the author's branch — satisfies "never auto-push without opt-in" for
+  free) and persists its own `TaskRun`; ReviewHog writes a **`task_run`** artefact linking finding→task (the dedup
+  key: only enqueue still-open findings with no prior linked task). _Cost:_ a full agentic sandbox per fix-batch is
+  the most expensive tier — the "loop if justified" gate must throttle it. This is **not** `code_workstreams` (that's
+  a scheduled PR _poller_ / grouper, `code_workstreams/workflow.py:1-27`) — it's `process_task` / `execute_sandbox`.
+- **B — a ReviewHog-owned write sandbox (decision: skip).** Re-derives at large effort exactly what A reuses
+  (writable checkout, push credentials, branch / PR creation, fork-safety) — today's executor is read-shaped
+  (shallow, single-branch, returns JSON, `executor.py:49-74`). Only if cross-product coupling to Tasks proves
+  unacceptable.
+
+**Decision: C now (forces the persistence prerequisites, prod-usable the moment publish flips), A next (opt-in real
+fixes via a companion PR, maximum reuse of a verified engine), skip B.**
+
+#### Conversational / control surface (optional; channel-agnostic)
+
+Per the maintainer the **interaction channel is pluggable** (Slack, GitHub comments, PostHog Code, …) and out of
+scope — design the durable part, leave the UI a thin adapter. **Must-have (ships with Variant A):** `@workflow.query`
+for live state (stage, findings-so-far, lifecycle counts, watermarks — zero history cost; copy `get_buffer_size` /
+`get_paused_state`) and `@workflow.signal` for inject-context / pause / cancel / force-turn (copy `submit_signal` /
+`set_paused_until`). These are _how_ steps 5–6 are even possible in the singleton; in Variant B their stand-ins are a
+DB read and a `start_workflow`. **Nice-to-have (defer):** a resumable **talk-to-the-run** agent maps onto Tasks'
+`execute_sandbox` interactive mode (signal-driven follow-ups with ack-dedup + resume snapshots,
+`execute_sandbox/workflow.py:549,1020`) — a ready-made template, but heavy. **"Store context for self-improvement"**
+is a per-turn **`note`** artefact now (cheap, read by the next turn's prompt); _editing the team's perspective /
+validation skills from feedback_ (learning across PRs) is a much larger effort, later.
+
+#### Recommended build order
+
+1. **Cross-turn finding identity + watermarks** (at least #1–#3) — the hard prerequisite; nothing cross-turn is
+   correct without it, and it's independent of topology.
+2. **Variant C** (suggestion blocks) behind the existing publish flag — exercises #1/#2 end-to-end and is the first
+   prod-usable fix tier.
+3. **The router** as a deterministic `route` activity (re-vendored gates) — pass-through + perspective selection +
+   the loop-continuation delta gate.
+4. **Variant B control plane** — event-driven re-trigger; the living `ReviewReport` is the loop's memory. At this
+   point the six-step loop runs end-to-end (webhook/timer-driven), publish flag flippable.
+5. **Variant A + `@workflow.query` / `@workflow.signal`** — promote to the per-PR singleton when live control is the
+   real ask; copy `buffer.py` / `grouping_v2.py`.
+6. **Variant A action upgrade** — delegate real fixes to Tasks (companion PR), `task_run` linkage, throttled by the
+   "loop if justified" gate.
+7. **Deferred:** the talk-to-the-run conversational agent; per-team-skill self-improvement; the `head_sha` checkout
+   pin (conditional step 16) becomes **required** here ("reviewed == recorded" under looping).
+
+#### Risks / decisions already made
+
+- **Topology = B-then-A** (not A-first): smallest prod-usable step; defers the `continue_as_new` traps until live
+  control is genuinely needed.
+- **Router = copy-and-own** Stamphog's pure gate logic into `products/review_hog/`, **invert** deny→enable; don't
+  cross-import `tools/`.
+- **Fix engine = reuse Tasks (A), not a new write sandbox (B).** The Tasks write/push/createPR path is verified; the
+  contents-write identity is Tasks' installation-token authorship mode, not a new ReviewHog credential.
+- **The persistence prerequisite is non-optional and lands first** — `load_valid_findings` accumulates stale
+  cross-turn findings until semantic identity + lifecycle exist; must precede re-enabling publish.
+- **Fork-PR safety** (`head.repo == base`) gates _any_ review, and hard-gates _implementing_, on attacker-influenced
+  head refs.
+- **Sandbox-leak across `continue_as_new` legs** (Variant A) — reap within the turn, à la `execute_sandbox`.
+- **Triggers + publish identity are assumed / deferred** per the maintainer (label later; App installation token or
+  service-user + project key).
 
 ---
 
