@@ -256,6 +256,13 @@ core:
         services:
             - postgresql
             - clickhouse
+    dev:bootstrap-project:
+        cmd: python manage.py bootstrap_local_project
+        description: Bootstrap a local project from an S3 events/persons dump (batch-export format)
+        services:
+            - postgresql
+            - clickhouse
+            - django
     dev:sync-flags:
         cmd: python manage.py sync_feature_flags
         description: Sync feature flags from configuration

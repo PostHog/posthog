@@ -32,6 +32,8 @@ export interface WorkflowRun {
     durationSeconds: number | null
     /** GitHub Actions run id — links straight to the run page when present. */
     runId: number | null
+    /** Re-run attempt (1 for the first); null when unknown (lifecycle events don't carry it). */
+    runAttempt: number | null
 }
 
 const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral', 'completed'])
@@ -76,6 +78,7 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
                 finishedAt: null,
                 durationSeconds: null,
                 runId: event.run_id ?? null,
+                runAttempt: null,
             }
             runs.push(run)
             const queue = unfinishedByWorkflow.get(workflow) ?? []
@@ -99,6 +102,7 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
                     finishedAt: event.at,
                     durationSeconds: null,
                     runId: event.run_id ?? null,
+                    runAttempt: null,
                 })
             }
         }

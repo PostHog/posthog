@@ -1,9 +1,10 @@
 import { get } from 'lodash'
 import { DateTime } from 'luxon'
 
-import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
-import { logger } from '../../../utils/logger'
-import { UUIDT } from '../../../utils/utils'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { logger } from '~/common/utils/logger'
+import { UUIDT } from '~/common/utils/utils'
+
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,

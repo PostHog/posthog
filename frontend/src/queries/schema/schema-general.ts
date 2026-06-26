@@ -194,6 +194,8 @@ export enum NodeKind {
 
     // MCP analytics
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
+    MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
+    MCPToolFailuresQuery = 'MCPToolFailuresQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -259,6 +261,8 @@ export type AnyDataNode =
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
     | MCPHarnessBreakdownQuery
+    | MCPToolTopUsersQuery
+    | MCPToolFailuresQuery
 
 /**
  * @discriminator kind
@@ -371,6 +375,8 @@ export type QuerySchema =
 
     // MCP analytics
     | MCPHarnessBreakdownQuery
+    | MCPToolTopUsersQuery
+    | MCPToolFailuresQuery
 
     // Property values
     | PropertyValuesQuery
@@ -1183,6 +1189,16 @@ export interface HeatmapSettings {
     sortOrder?: HeatmapSortOrder
 }
 
+export interface PieChartSettings {
+    /** What to render on each slice. Defaults to labels. */
+    sliceContent?: 'labels' | 'values' | 'none'
+    /** Whether slice values show as absolute amounts or shares of the total. Only applies when
+     *  `sliceContent` is `values`. */
+    valueDisplay?: 'absolute' | 'percentage'
+    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    showTotal?: boolean
+}
+
 export interface YAxisSettings {
     label?: string
     scale?: 'linear' | 'logarithmic'
@@ -1210,9 +1226,9 @@ export interface ChartSettings {
     showLegend?: boolean
     showValuesOnSeries?: boolean
     showTotalRow?: boolean
-    showPieTotal?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
+    pie?: PieChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
 }
@@ -1772,6 +1788,7 @@ export type FunnelStepsResults = Record<string, any>[]
 export type FunnelStepsBreakdownResults = Record<string, any>[][]
 export type FunnelTimeToConvertResults = {
     average_conversion_time: number | null
+    median_conversion_time: number | null
     bins: [BinNumber, BinNumber][]
 }
 export type FunnelTrendsResults = Record<string, any>[]
@@ -1779,6 +1796,8 @@ export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
     // This is properly FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     // but this large of a union doesn't provide any type-safety and causes python mypy issues, so represented as any.
     results: any
+    /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
+    total_median_conversion_time?: number | null
 }
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
@@ -2536,6 +2555,56 @@ export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQu
 }
 
 export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
+
+/** One row of the per-tool "Top users" table: a user and their activity on a tool. */
+export interface MCPToolTopUserItem {
+    distinct_id: string
+    /** JSON-encoded person.properties for the most recent call, for display. */
+    person_properties: string
+    calls: integer
+    errors: integer
+    error_rate_pct: number
+    /** Resolved harness labels seen for this user, deduped and sorted. */
+    harnesses: string[]
+    last_seen: string
+}
+
+export interface MCPToolTopUsersQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolTopUserItem[]
+}
+
+/** Top users of a single MCP tool over the last 7 days, with server-resolved harness labels. */
+export interface MCPToolTopUsersQuery extends DataNode<MCPToolTopUsersQueryResponse> {
+    kind: NodeKind.MCPToolTopUsersQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolTopUsersQueryResponse = CachedQueryResponse<MCPToolTopUsersQueryResponse>
+
+/** One row of the per-tool "Failures" table: an exception message paired with a tool. */
+export interface MCPToolFailureItem {
+    message: string
+    occurrences: integer
+    last_seen: string
+    /** Resolved harness labels seen for this exception, deduped and sorted. */
+    harnesses: string[]
+}
+
+export interface MCPToolFailuresQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolFailureItem[]
+}
+
+/** Top exception messages paired with a single MCP tool, with server-resolved harness labels. */
+export interface MCPToolFailuresQuery extends DataNode<MCPToolFailuresQueryResponse> {
+    kind: NodeKind.MCPToolFailuresQuery
+    /** The raw $mcp_tool_name to scope $exception events to. */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolFailuresQueryResponse = CachedQueryResponse<MCPToolFailuresQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -4050,6 +4119,9 @@ export interface ExperimentApiExposureConfig {
 export interface ExperimentApiExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentApiExposureConfig
+    /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from
+     *  the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
+    multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
 export const enum ExperimentMetricType {
@@ -4907,6 +4979,18 @@ export interface HogQLAlertConfig {
     label_column?: string | null
 }
 
+/** How a funnel alert measures conversion at its step.
+ * `conversion_from_start` = step count / first-step count; `conversion_from_previous` = step count / previous-step count. */
+export type FunnelConversionMetric = 'conversion_from_start' | 'conversion_from_previous'
+
+/** Alert config for funnel insights. Evaluates the conversion rate (as a percentage) at one step. */
+export interface FunnelsAlertConfig {
+    type: 'FunnelsAlertConfig'
+    /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
+    funnel_step?: integer | null
+    metric: FunnelConversionMetric
+}
+
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
 export interface AlertScheduleRestrictionWindow {
     start: string
@@ -5295,6 +5379,21 @@ export interface LLMTraceEvent {
     event: AIEventType | string // Allow both specific AI events and other event types
     properties: Record<string, any>
     createdAt: string
+    sentiment?: LLMSentimentResult
+}
+
+export interface LLMSentimentMessage {
+    label: string
+    score: number
+    scores?: Record<string, number>
+}
+
+export interface LLMSentimentResult {
+    label: string
+    score: number
+    scores?: Record<string, number>
+    messages?: Record<string, LLMSentimentMessage>
+    message_count?: number
 }
 
 // Snake-case here for the DataTable component.
@@ -5326,6 +5425,7 @@ export interface LLMTrace {
     events: LLMTraceEvent[]
     isSupportTrace?: boolean
     tools?: string[]
+    sentiment?: LLMSentimentResult
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -5350,6 +5450,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
+    /** Include stored sentiment evaluation results for returned traces and direct generation events. */
+    includeSentiment?: boolean
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean
 }
@@ -5366,6 +5468,8 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     kind: NodeKind.TraceQuery
     traceId: string
     dateRange?: DateRange
+    /** Include stored sentiment evaluation results for the trace and its generations. */
+    includeSentiment?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
 }
@@ -6939,6 +7043,13 @@ export const externalDataSources = [
     'Leexi',
     'RB2B',
     'Superwall',
+    'Liana',
+    'TawkTo',
+    'Hightouch',
+    'LemonSqueezy',
+    'Ikas',
+    'Talkwalker',
+    'NextdoorAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

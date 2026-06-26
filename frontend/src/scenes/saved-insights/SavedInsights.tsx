@@ -633,6 +633,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPToolTopUsersQuery]: {
+        name: 'MCP tool top users',
+        description: 'Top users of a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolFailuresQuery]: {
+        name: 'MCP tool failures',
+        description: 'Recurring exception messages for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
