@@ -753,7 +753,7 @@ def per_request_logging_context_middleware(
             if mcp_conversation_id:
                 span.set_attribute("mcp.conversation_id", mcp_conversation_id)
 
-        response = None
+        response: HttpResponse | None = None
         try:
             response = get_response(request)
         finally:
