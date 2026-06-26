@@ -23,6 +23,7 @@ import {
     createResolveTeamStep,
     createSkipCookielessRateLimitToOverflowStep,
     createValidateAiEventTokensStep,
+    createValidateEventUuidVersionStep,
     createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
@@ -251,6 +252,7 @@ export function createJoinedIngestionPipeline<
                                 .pipe(createResolveTeamStep(teamManager))
                                 .pipe(createValidateHistoricalMigrationStep())
                                 .pipe(createValidateAiEventTokensStep())
+                                .pipe(createValidateEventUuidVersionStep())
                                 .pipe(createEnrichSurveyPersonPropertiesStep())
                         )
                         .filterMap(addTeamToContext, (b) =>
