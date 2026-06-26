@@ -702,8 +702,29 @@ FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"
 FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = "Feature Flag calls made by unique users per variant"
 
 
-def _get_feature_flag_called_property_filters(feature_flag) -> list[dict[str, Any]]:
-    filters: list[dict[str, Any]] = [
+def _get_aggregation_entity_labels(feature_flag) -> tuple[str | None, str | None]:
+    group_type_index = feature_flag.aggregation_group_type_index
+    if group_type_index is None:
+        return None, None
+
+    from posthog.models.group_type_mapping import GroupTypeMapping, get_group_type_mapping_instance
+
+    try:
+        mapping = get_group_type_mapping_instance(
+            feature_flag.team.project_id,
+            group_type_index,
+            team=feature_flag.team,
+        )
+    except GroupTypeMapping.DoesNotExist:
+        return "group", "groups"
+
+    singular = mapping.name_singular or mapping.group_type
+    plural = mapping.name_plural or f"{mapping.group_type}s"
+    return singular, plural
+
+
+def _build_feature_flag_called_property_group(feature_flag) -> dict[str, Any]:
+    filter_values: list[dict[str, Any]] = [
         {
             "key": "$feature_flag",
             "operator": "exact",
@@ -713,7 +734,7 @@ def _get_feature_flag_called_property_filters(feature_flag) -> list[dict[str, An
     ]
     group_type_index = feature_flag.aggregation_group_type_index
     if group_type_index is not None:
-        filters.append(
+        filter_values.append(
             {
                 "key": f"$group_{group_type_index}",
                 "operator": "is_set",
@@ -721,16 +742,13 @@ def _get_feature_flag_called_property_filters(feature_flag) -> list[dict[str, An
                 "value": "is_set",
             }
         )
-    return filters
 
-
-def _build_feature_flag_called_properties_filter(feature_flag) -> dict[str, Any]:
     return {
         "type": "AND",
         "values": [
             {
                 "type": "AND",
-                "values": _get_feature_flag_called_property_filters(feature_flag),
+                "values": filter_values,
             }
         ],
     }
@@ -751,6 +769,13 @@ def _get_feature_flag_unique_calls_series(feature_flag) -> dict[str, Any]:
     return series
 
 
+def _get_feature_flag_unique_calls_insight_name(feature_flag) -> str:
+    _, plural = _get_aggregation_entity_labels(feature_flag)
+    if plural is None:
+        return FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME
+    return f"Feature Flag calls made by unique {plural} per variant"
+
+
 def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> None:
     dashboard.filters = {"date_from": "-30d"}
     tag, _ = Tag.objects.get_or_create(
@@ -765,7 +790,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> N
     _create_tile_for_insight(
         dashboard,
         name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
-        description=_get_feature_flag_total_volume_insight_description(feature_flag.key),
+        description=_get_feature_flag_total_volume_insight_description(feature_flag),
         query={
             "kind": "InsightVizNode",
             "source": {
@@ -774,7 +799,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> N
                 "filterTestAccounts": False,
                 "interval": "day",
                 "kind": "TrendsQuery",
-                "properties": _build_feature_flag_called_properties_filter(feature_flag),
+                "properties": _build_feature_flag_called_property_group(feature_flag),
                 "series": [{"event": "$feature_flag_called", "kind": "EventsNode", "name": "$feature_flag_called"}],
                 "trendsFilter": {
                     "aggregationAxisFormat": "numeric",
@@ -806,8 +831,8 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> N
 
     _create_tile_for_insight(
         dashboard,
-        name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
-        description=_get_feature_flag_unique_users_insight_description(feature_flag.key),
+        name=_get_feature_flag_unique_calls_insight_name(feature_flag),
+        description=_get_feature_flag_unique_calls_insight_description(feature_flag),
         query={
             "kind": "InsightVizNode",
             "source": {
@@ -816,7 +841,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> N
                 "filterTestAccounts": False,
                 "interval": "day",
                 "kind": "TrendsQuery",
-                "properties": _build_feature_flag_called_properties_filter(feature_flag),
+                "properties": _build_feature_flag_called_property_group(feature_flag),
                 "series": [_get_feature_flag_unique_calls_series(feature_flag)],
                 "trendsFilter": {
                     "aggregationAxisFormat": "numeric",
@@ -1091,12 +1116,16 @@ def create_data_ops_dashboard(team, user) -> Dashboard:
     return dashboard
 
 
-def _get_feature_flag_total_volume_insight_description(feature_flag_key: str) -> str:
-    return f"Shows the number of total calls made on feature flag with key: {feature_flag_key}"
+def _get_feature_flag_total_volume_insight_description(feature_flag, *, key: str | None = None) -> str:
+    return f"Shows the number of total calls made on feature flag with key: {key or feature_flag.key}"
 
 
-def _get_feature_flag_unique_users_insight_description(feature_flag_key: str) -> str:
-    return f"Shows the number of unique user calls made on feature flag per variant with key: {feature_flag_key}"
+def _get_feature_flag_unique_calls_insight_description(feature_flag, *, key: str | None = None) -> str:
+    singular, _ = _get_aggregation_entity_labels(feature_flag)
+    flag_key = key or feature_flag.key
+    if singular is None:
+        return f"Shows the number of unique user calls made on feature flag per variant with key: {flag_key}"
+    return f"Shows the number of unique {singular} calls made on feature flag per variant with key: {flag_key}"
 
 
 def update_feature_flag_dashboard(feature_flag, old_key: str) -> None:
@@ -1110,24 +1139,33 @@ def update_feature_flag_dashboard(feature_flag, old_key: str) -> None:
     if total_volume_insight:
         _update_tile_with_new_key(
             total_volume_insight,
-            feature_flag.key,
+            feature_flag,
             old_key,
             _get_feature_flag_total_volume_insight_description,
         )
 
-    unique_users_insight = dashboard.insights.filter(name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME).first()
-    if unique_users_insight:
+    unique_calls_insight = dashboard.insights.filter(
+        name=_get_feature_flag_unique_calls_insight_name(feature_flag)
+    ).first()
+    if unique_calls_insight is None:
+        unique_calls_insight = dashboard.insights.filter(name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME).first()
+    if unique_calls_insight:
         _update_tile_with_new_key(
-            unique_users_insight,
-            feature_flag.key,
+            unique_calls_insight,
+            feature_flag,
             old_key,
-            _get_feature_flag_unique_users_insight_description,
+            _get_feature_flag_unique_calls_insight_description,
         )
 
 
-def _update_tile_with_new_key(insight, new_key: str, old_key: str, descriptionFunction: Callable[[str], str]) -> None:
-    old_description = descriptionFunction(old_key)
-    new_description = descriptionFunction(new_key)
+def _update_tile_with_new_key(
+    insight,
+    feature_flag,
+    old_key: str,
+    description_fn: Callable[..., str],
+) -> None:
+    old_description = description_fn(feature_flag, key=old_key)
+    new_description = description_fn(feature_flag, key=feature_flag.key)
 
     if insight.description != old_description:  # We don't touch insights that have been manually edited
         return
@@ -1143,7 +1181,7 @@ def _update_tile_with_new_key(insight, new_key: str, old_key: str, descriptionFu
         if feature_flag_filter is None or feature_flag_filter.get("value") != old_key:
             return
 
-        feature_flag_filter["value"] = new_key
+        feature_flag_filter["value"] = feature_flag.key
         insight.query = insight.query  # Trigger field update
         # Only update the insight if it matches what we expect for the system created insights
         insight.description = new_description

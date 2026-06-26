@@ -4476,15 +4476,77 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         }
 
         assert tiles[0].insight is not None
-        total_volume_properties = tiles[0].insight.query["source"]["properties"]["values"][0]["values"]
+        total_volume_query = cast(dict[str, Any], tiles[0].insight.query)
+        total_volume_properties = total_volume_query["source"]["properties"]["values"][0]["values"]
         self.assertEqual(total_volume_properties, [flag_property_filter, group_property_filter])
 
         assert tiles[1].insight is not None
-        unique_calls_series = tiles[1].insight.query["source"]["series"][0]
+        self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique groups per variant")
+        self.assertEqual(
+            tiles[1].insight.description,
+            "Shows the number of unique group calls made on feature flag per variant with key: group-feature",
+        )
+        unique_calls_query = cast(dict[str, Any], tiles[1].insight.query)
+        unique_calls_series = unique_calls_query["source"]["series"][0]
         self.assertEqual(unique_calls_series["math"], "unique_group")
         self.assertEqual(unique_calls_series["math_group_type_index"], 0)
-        unique_calls_properties = tiles[1].insight.query["source"]["properties"]["values"][0]["values"]
+        unique_calls_properties = unique_calls_query["source"]["properties"]["values"][0]["values"]
         self.assertEqual(unique_calls_properties, [flag_property_filter, group_property_filter])
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_update_group_feature_flag_key_updates_usage_dashboard(self, mock_report_user_action):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 50}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED)
+        flag_id = create.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            {
+                "key": "renamed-group-feature",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 50}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        dashboard = FeatureFlag.objects.get(id=flag_id).usage_dashboard
+        assert dashboard is not None
+        assert dashboard.tiles is not None
+        tiles = sorted(
+            dashboard.tiles.all(),
+            key=lambda x: str(x.insight.name if x.insight is not None else ""),
+        )
+
+        expected_properties = [
+            {"key": "$feature_flag", "type": "event", "value": "renamed-group-feature", "operator": "exact"},
+            {"key": "$group_0", "type": "event", "value": "is_set", "operator": "is_set"},
+        ]
+
+        assert tiles[0].insight is not None
+        total_volume_query = cast(dict[str, Any], tiles[0].insight.query)
+        self.assertEqual(total_volume_query["source"]["properties"]["values"][0]["values"], expected_properties)
+
+        assert tiles[1].insight is not None
+        unique_calls_query = cast(dict[str, Any], tiles[1].insight.query)
+        self.assertEqual(unique_calls_query["source"]["properties"]["values"][0]["values"], expected_properties)
+        self.assertEqual(
+            tiles[1].insight.description,
+            "Shows the number of unique group calls made on feature flag per variant with key: renamed-group-feature",
+        )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
