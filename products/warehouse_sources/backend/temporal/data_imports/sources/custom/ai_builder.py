@@ -329,7 +329,12 @@ def draft_manifest_sync(
     system_prompt = build_system_prompt(reference_text)
     docs = _bounded_docs(docs_text)
 
+    # `prior_manifest_json` is repair feedback for the *next* attempt, so it resets to None whenever a
+    # reply is unparseable (there is no manifest to echo back). `last_parseable_manifest_json` instead
+    # latches the best draft ever produced — an unparseable final attempt must not erase a usable
+    # earlier draft from the result, which the `invalid` status contract promises to carry.
     prior_manifest_json: str | None = None
+    last_parseable_manifest_json: str | None = None
     last_error: str | None = None
     ever_parsed = False
 
@@ -358,6 +363,7 @@ def draft_manifest_sync(
                 error=None,
             )
         prior_manifest_json = json.dumps(manifest, indent=2)
+        last_parseable_manifest_json = prior_manifest_json
         last_error = error
 
     logger.info(
@@ -369,7 +375,7 @@ def draft_manifest_sync(
     )
     return ManifestDraftResult(
         status="invalid" if ever_parsed else "model_error",
-        manifest_json=prior_manifest_json,
+        manifest_json=last_parseable_manifest_json,
         resource_names=[],
         attempts=max_attempts,
         error=last_error,

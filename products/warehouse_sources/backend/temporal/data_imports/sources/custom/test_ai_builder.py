@@ -145,3 +145,14 @@ class TestDraftManifestSync(SimpleTestCase):
         self.assertEqual(result.attempts, 3)
         self.assertIsNotNone(result.manifest_json)
         self.assertIsNotNone(result.error)
+
+    def test_invalid_keeps_last_parseable_draft_when_final_reply_unparseable(self) -> None:
+        # Attempt 1 parses but fails validation; the final attempt is unparseable. The result must
+        # still carry the earlier draft — `invalid` promises a manifest_json to fix by hand — rather
+        # than nulling it because the last reply happened to be garbage.
+        client = _client([json.dumps({"client": {"base_url": "https://api.example.com"}}), "not json at all"])
+        result = draft_manifest_sync(
+            team_id=1, source_name="Acme", docs_text="docs", max_attempts=2, client=client, reference_text="ref"
+        )
+        self.assertEqual(result.status, "invalid")
+        self.assertIsNotNone(result.manifest_json)
