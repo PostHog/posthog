@@ -73,11 +73,6 @@ class Migration(migrations.Migration):
                 to="workflows.hogflowrevision",
             ),
         ),
-        migrations.AddField(
-            model_name="teamworkflowsconfig",
-            name="revisions_enabled",
-            field=models.BooleanField(default=False),
-        ),
         migrations.AddIndex(
             model_name="hogflowrevision",
             index=models.Index(fields=["hog_flow", "version"], name="hfr_flow_version_idx"),
