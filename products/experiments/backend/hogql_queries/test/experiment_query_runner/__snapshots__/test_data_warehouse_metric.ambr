@@ -1250,7 +1250,7 @@
         FROM groups
         WHERE and(equals(groups.team_id, 99999), equals(index, 0))
         GROUP BY groups.group_type_index,
-                 groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
+                 groups.group_key SETTINGS optimize_aggregation_in_order=1) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        metric_events AS

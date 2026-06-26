@@ -24,7 +24,8 @@
     SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, %(hogql_val_1)s)), 1) AS properties___group_boolean, groups.group_type_index AS index, groups.group_key AS key
     FROM groups
     WHERE and(equals(groups.team_id, 420), equals(index, 0))
-    GROUP BY groups.group_type_index, groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
+    GROUP BY groups.group_type_index, groups.group_key
+    SETTINGS optimize_aggregation_in_order=1) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
   WHERE equals(events.team_id, 420)
   LIMIT 50000
   '''
@@ -37,7 +38,8 @@
     SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, %(hogql_val_1)s)), 1) AS properties___inty, groups.group_type_index AS index, groups.group_key AS key
     FROM groups
     WHERE and(equals(groups.team_id, 420), equals(index, 0))
-    GROUP BY groups.group_type_index, groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
+    GROUP BY groups.group_type_index, groups.group_key
+    SETTINGS optimize_aggregation_in_order=1) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
   WHERE equals(events.team_id, 420)
   LIMIT 50000
   '''

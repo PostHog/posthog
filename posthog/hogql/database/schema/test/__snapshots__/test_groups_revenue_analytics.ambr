@@ -11,7 +11,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             coalesce(revenue_agg.group_key, mrr_agg.group_key) AS group_key,
@@ -240,7 +240,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             revenue_analytics_customer__groups.key AS group_key,
@@ -307,7 +307,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -482,7 +482,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             coalesce(revenue_agg.group_key, mrr_agg.group_key) AS group_key,
@@ -686,7 +686,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             revenue_analytics_customer__groups.key AS group_key,
@@ -753,7 +753,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.email, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.email, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -927,7 +927,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             revenue_analytics_customer__groups.key AS group_key,
@@ -994,7 +994,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -1168,7 +1168,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             revenue_analytics_customer__groups.key AS group_key,
@@ -1235,7 +1235,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -1409,7 +1409,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             revenue_analytics_customer__groups.key AS group_key,
@@ -1476,7 +1476,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -1651,7 +1651,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             revenue_analytics_customer__groups.key AS group_key,
@@ -1718,7 +1718,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(JSONExtractString(revenue_analytics_customer.metadata, 'id'), revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(JSONExtractString(revenue_analytics_customer.metadata, 'id'), revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -2173,7 +2173,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -2348,7 +2348,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             coalesce(revenue_agg.group_key, mrr_agg.group_key) AS group_key,
@@ -2402,7 +2402,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             revenue_analytics_customer__groups.key AS group_key,
@@ -2420,7 +2420,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -2461,7 +2461,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             coalesce(revenue_agg.group_key, mrr_agg.group_key) AS group_key,
@@ -2515,7 +2515,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             revenue_analytics_customer__groups.key AS group_key,
@@ -2533,7 +2533,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.email, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.email, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -2573,7 +2573,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             revenue_analytics_customer__groups.key AS group_key,
@@ -2591,7 +2591,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -2631,7 +2631,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             revenue_analytics_customer__groups.key AS group_key,
@@ -2649,7 +2649,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -2690,7 +2690,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
+              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
   LEFT JOIN
     (SELECT 99999 AS team_id,
             revenue_analytics_customer__groups.key AS group_key,
@@ -2708,7 +2708,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(JSONExtractString(revenue_analytics_customer.metadata, 'id'), revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(JSONExtractString(revenue_analytics_customer.metadata, 'id'), revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -2805,7 +2805,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
+                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups) AS revenue_analytics_customer__groups ON equals(revenue_analytics_customer.id, revenue_analytics_customer__groups.revenue_analytics_customer__groups___key)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
