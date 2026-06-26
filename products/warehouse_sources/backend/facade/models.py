@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_should_sync,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import (
     ExternalDataSource,
@@ -44,4 +45,5 @@ __all__ = [
     "sync_frequency_interval_to_sync_frequency",
     "sync_frequency_to_sync_frequency_interval",
     "update_should_sync",
+    "update_sync_type_config_keys",
 ]
