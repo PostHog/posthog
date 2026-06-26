@@ -514,12 +514,23 @@ function AutoConfigureTablesStep(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <LemonBanner type="info">
-                We've auto-configured {selectedCount} {selectedCount === 1 ? 'table' : 'tables'} with smart sync
-                defaults. Continue below to start importing, or review the configuration first.
-            </LemonBanner>
+            {selectedCount === 0 ? (
+                <LemonBanner type="warning">
+                    No tables could be auto-configured — they may all have permission errors. Use "Review and customize
+                    tables" to inspect and fix them before syncing.
+                </LemonBanner>
+            ) : (
+                <LemonBanner type="info">
+                    We've auto-configured {selectedCount} {selectedCount === 1 ? 'table' : 'tables'} with smart sync
+                    defaults. Continue below to start importing, or review the configuration first.
+                </LemonBanner>
+            )}
             <div>
-                <LemonButton type="secondary" onClick={() => setCustomize(true)} data-attr="dwh-onboarding-customize-tables">
+                <LemonButton
+                    type="secondary"
+                    onClick={() => setCustomize(true)}
+                    data-attr="dwh-onboarding-customize-tables"
+                >
                     Review and customize tables
                 </LemonButton>
             </div>
