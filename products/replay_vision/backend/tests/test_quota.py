@@ -202,13 +202,14 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
 
 class TestPaceCandidateLimit:
     @staticmethod
-    def _snapshot(remaining: int, period_end: datetime) -> QuotaSnapshot:
+    def _snapshot(remaining: int, period_end: datetime, enabled_scanner_count: int = 1) -> QuotaSnapshot:
         return QuotaSnapshot(
             monthly_quota=remaining,
             usage_this_month=0,
             period_start=period_end - timedelta(days=30),
             period_end=period_end,
             projected_monthly_observations=0,
+            enabled_scanner_count=enabled_scanner_count,
         )
 
     @parameterized.expand(
@@ -236,6 +237,14 @@ class TestPaceCandidateLimit:
         snapshot = self._snapshot(remaining=10, period_end=period_end)
         result = pace_candidate_limit(snapshot, now, tick_interval=timedelta(minutes=5))
         assert result == 1
+
+    def test_divides_by_enabled_scanner_count(self) -> None:
+        now = datetime(2026, 6, 15, tzinfo=UTC)
+        period_end = now + timedelta(minutes=50)  # 10 ticks of 5 minutes
+        snapshot = self._snapshot(remaining=100, period_end=period_end, enabled_scanner_count=5)
+        result = pace_candidate_limit(snapshot, now, tick_interval=timedelta(minutes=5))
+        # 100 remaining / 10 ticks / 5 scanners = 2 per tick per scanner
+        assert result == 2
 
 
 class TestProjectedMonthlyObservations(_VisionQuotaTestCase):

@@ -30,6 +30,7 @@ class QuotaSnapshot:
     period_end: datetime
     # Sum of enabled scanners' persisted per-scanner estimates across the org; uncomputed estimates count 0.
     projected_monthly_observations: int
+    enabled_scanner_count: int
 
     @property
     def remaining(self) -> int:
@@ -45,17 +46,20 @@ def pace_candidate_limit(
     now: datetime,
     tick_interval: timedelta = timedelta(minutes=5),
 ) -> int:
-    """Cap a per-tick candidate limit so the org's remaining quota is paced evenly across the period.
+    """Cap a per-tick candidate limit so the org's remaining quota is paced evenly across the period
+    and shared across the org's enabled scanners.
 
-    Returns 0 when the period is exhausted or already over. Org-level (not per-scanner): multiple
-    scanners on the same team share this budget implicitly by reading the same snapshot.
+    Returns 0 when the period is exhausted or already over. Scanners read the same snapshot
+    independently per tick; dividing by `enabled_scanner_count` gives a fair (not optimal) share so a
+    single heavy scanner can't burn the budget N× faster when N scanners are enabled.
     """
     if snapshot.remaining == 0 or now >= snapshot.period_end:
         return 0
     seconds_remaining = (snapshot.period_end - now).total_seconds()
     tick_seconds = tick_interval.total_seconds()
     ticks_remaining = max(1, math.ceil(seconds_remaining / tick_seconds))
-    return max(1, math.floor(snapshot.remaining / ticks_remaining))
+    active_scanners = max(1, snapshot.enabled_scanner_count)
+    return max(1, math.floor(snapshot.remaining / ticks_remaining / active_scanners))
 
 
 def next_month_start(now: datetime) -> datetime:
@@ -98,10 +102,15 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         expires_at__gt=now,
     ).aggregate(total=Coalesce(Sum("amount"), Value(0)))["total"]
     projected = sum_enabled_scanner_estimates(organization_id)
+    enabled_scanner_count = ReplayScanner.objects.filter(
+        team__organization_id=organization_id,
+        enabled=True,
+    ).count()
     return QuotaSnapshot(
         monthly_quota=MONTHLY_OBSERVATION_QUOTA + bonus,
         usage_this_month=usage,
         period_start=period_start,
         period_end=period_end,
         projected_monthly_observations=projected,
+        enabled_scanner_count=enabled_scanner_count,
     )
