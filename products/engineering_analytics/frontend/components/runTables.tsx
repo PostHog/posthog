@@ -336,10 +336,10 @@ export function RunJobsTable({
             nouns={['job', 'jobs']}
         />
     )
-    // Natural nested view has no canonical grid to anchor to, so indent by the parent's toggle-column
-    // width to line the jobs up under the runs. The aligned grid needs no indent: with no toggle column
-    // of its own, the job name column absorbs that width and the data columns fall under L1's on their own.
-    return embedded && !aligned ? <div className="pl-12">{table}</div> : table
+    // No indent: the job table has no expand-toggle column of its own, so its name column absorbs that
+    // width and the rows read flush-left under the parent run instead of behind an empty indent (which
+    // reads as a stray gap in front of the jobs).
+    return table
 }
 
 // The minimum a run row needs to drive the shared columns + job expansion. Callers add their own lead
