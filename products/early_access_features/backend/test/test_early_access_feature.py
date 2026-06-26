@@ -11,8 +11,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
-from posthog.models import Person
 from posthog.models.team.team_caching import set_team_in_cache
+from posthog.test.persons import create_person
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -875,7 +875,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -932,7 +932,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features_with_pre_env_cached_team(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -989,7 +989,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features_with_cached_team(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -1034,7 +1034,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             )
 
     def test_early_access_features_beta_only(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -1153,7 +1153,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features_includes_payload_in_preview(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},

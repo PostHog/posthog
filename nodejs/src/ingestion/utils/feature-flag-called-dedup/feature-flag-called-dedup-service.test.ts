@@ -117,6 +117,8 @@ describe('RedisFeatureFlagCalledDedupService', () => {
         it.each<[IngestionLane | null, boolean]>([
             ['main', true],
             ['overflow', true],
+            ['turbo', true],
+            ['team2', true],
             [null, true],
             ['historical', false],
             ['async', false],

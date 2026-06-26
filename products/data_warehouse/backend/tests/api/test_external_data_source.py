@@ -42,14 +42,15 @@ from products.data_warehouse.backend.presentation.views.external_data_source imp
     strip_sensitive_from_dict,
 )
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
     ExternalDataSchema,
+    ExternalDataSource,
+    PendingSourceCredential,
     sync_frequency_interval_to_sync_frequency,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -91,7 +92,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -7268,8 +7268,8 @@ class TestCreateWebhook(APIBaseTest):
         # Inject a second required webhook field into the source config so we can test
         # that a partial update which omits one required field is accepted while still
         # preserving the existing value on the HogFunction.
+        from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
         from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-        from products.warehouse_sources.backend.types import ExternalDataSourceType
 
         original_source = SourceRegistry.get_source(ExternalDataSourceType("Stripe"))
         original_config = original_source.get_source_config

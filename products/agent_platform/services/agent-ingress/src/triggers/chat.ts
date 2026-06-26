@@ -13,7 +13,7 @@
 
 import { z } from 'zod'
 
-import { buildClientToolResultMarker, CLIENT_KIND_HEADER, parseClientKind } from '@posthog/agent-shared'
+import { buildClientToolResultMarker } from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
@@ -30,13 +30,8 @@ import { defineRoute, type AuthedRouteCtx, type TriggerModule } from './types'
 
 async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>): Promise<void> {
     const { res, deps, resolved } = ctx
-    const { message, external_key: externalKey = null } = ctx.parsed
+    const { message, external_key: externalKey = null, supported_client_tools: supportedClientTools } = ctx.parsed
     const sessionPrincipal = ctx.principal
-    // Stash the caller's client_kind on the session row so the runner can
-    // tailor model-facing prose (e.g. suppress the approval-URL guidance for
-    // posthog-code, whose chat preview renders an in-line approval card).
-    // Unauthenticated header — UX gating only, never a security boundary.
-    const clientKind = parseClientKind(ctx.req.headers[CLIENT_KIND_HEADER])
     const outcome = await enqueueOrResume(
         { queue: deps.queue },
         {
@@ -47,7 +42,10 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
             principal: sessionPrincipal,
             trigger: 'chat',
             requesterDisplay: principalDisplay(sessionPrincipal),
-            triggerMetadata: clientKind ? { client_kind: clientKind } : undefined,
+            triggerMetadata: {
+                kind: 'chat',
+                ...(supportedClientTools?.length ? { supported_client_tools: supportedClientTools } : {}),
+            },
         }
     )
     if (outcome.kind === 'elevation_required') {

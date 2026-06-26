@@ -360,9 +360,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
         original_shell = proc_config.get("shell", "")
         if original_shell:
-            env_exports = (
-                "export PERSONHOG_ADDR='127.0.0.1:50052' PERSONHOG_ENABLED='true' PERSONHOG_ROLLOUT_PERCENTAGE='100'"
-            )
+            env_exports = "export PERSONHOG_ADDR='127.0.0.1:50052'"
             proc_config["shell"] = f"{env_exports} && {original_shell}"
 
         return proc_config

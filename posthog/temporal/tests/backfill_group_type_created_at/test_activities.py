@@ -20,7 +20,10 @@ from posthog.temporal.backfill_group_type_created_at.types import (
     GroupTypeUpdate,
     PlanBackfillInput,
 )
+from posthog.test.persons import create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+pytestmark = pytest.mark.persons_db_direct
 
 CREATED_AT = datetime(2026, 5, 31, 22, 33, tzinfo=UTC)
 EARLIER = datetime(2026, 5, 12, 0, 0, tzinfo=UTC)
@@ -83,7 +86,7 @@ def _seed_mapping(team: Team, index: int, group_type: str, created_at: datetime 
             team=team, project_id=team.project_id, group_type=group_type, group_type_index=index
         )
     else:
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping(
             team=team,
             project_id=team.project_id,
             group_type=group_type,
@@ -313,7 +316,7 @@ class TestApplyGroupTypeCreatedAtBackfillIntegration:
         def seed():
             _seed_mapping(self.team, 0, "organization", MAPPING_CREATED_AT)
             other_team = Team.objects.create(organization=organization, name="other-project")
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping(
                 team=other_team,
                 project_id=other_team.project_id,
                 group_type="organization",
