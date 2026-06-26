@@ -82,6 +82,10 @@ describe('customSourceManifestBuilderLogic', () => {
             expect(logic.values.manifestState.tables[0].name).toBe('users')
         })
 
+        it('opens directly in the builder, never the AI intro, when a manifest already exists', () => {
+            expect(logic.values.showBuilder).toBe(true)
+        })
+
         it('mirrors the saved manifest into the outer form on mount', () => {
             const pushed = pushedFields(setValue)
             expect(JSON.parse(pushed['payload.manifest_json'] as string).client.base_url).toBe(
@@ -98,6 +102,8 @@ describe('customSourceManifestBuilderLogic', () => {
 
         it('replaces form state and unblocks the outer-form sync', () => {
             expect(logic.values.manifestState.base_url).toBe('')
+            // A fresh source (no manifest yet) starts on the AI intro, not the builder.
+            expect(logic.values.showBuilder).toBe(false)
 
             logic.actions.setManifestState(parseManifestIntoState(savedManifest))
 
@@ -122,6 +128,8 @@ describe('customSourceManifestBuilderLogic', () => {
             customSourceManifestBuilderLogic({ setValue, initialManifestJson: savedManifest })
 
             expect(logic.values.manifestState.base_url).toBe('https://saved.example.com')
+            // The late manifest also moves the user off the AI intro into the builder.
+            expect(logic.values.showBuilder).toBe(true)
         })
     })
 

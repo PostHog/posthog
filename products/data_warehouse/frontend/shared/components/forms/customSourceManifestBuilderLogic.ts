@@ -278,6 +278,9 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
             props.initialManifestJson
         ) {
             actions.setManifestState(parseManifestIntoState(props.initialManifestJson))
+            // An existing source's manifest arrived (often a beat after mount, via the config-page
+            // poll): it already has a manifest, so open straight in the builder, never the AI intro.
+            actions.setShowBuilder(true)
         }
     }),
 ])

@@ -10,8 +10,8 @@ MCP: the skill is the model's system prompt, and the manifest reference is its g
 The engine is deliberately decoupled from the request/Temporal layer: it takes a ``team_id`` and
 docs *text* (already fetched or pasted), never touches the database, and returns a plain result.
 The caller is responsible for the gates that must run before any data reaches the gateway — the
-``dwh_custom_source`` feature flag and the org's ``is_ai_data_processing_approved`` opt-in — and for
-telemetry, exactly as ``enrich_table_semantics`` does in its activity wrapper.
+``dwh-custom-source-ai-builder`` feature flag and the org's ``is_ai_data_processing_approved`` opt-in
+— and for telemetry, exactly as ``enrich_table_semantics`` does in its activity wrapper.
 """
 
 from __future__ import annotations
@@ -333,8 +333,8 @@ def draft_manifest_sync(
 ) -> ManifestDraftResult:
     """Draft and validate a manifest, repairing against validation errors up to ``max_attempts``.
 
-    The caller MUST have checked the ``dwh_custom_source`` flag and the org's AI-data-processing
-    opt-in before calling: this ships the docs text to the LLM gateway.
+    The caller MUST have checked the ``dwh-custom-source-ai-builder`` flag and the org's
+    AI-data-processing opt-in before calling: this ships the docs text to the LLM gateway.
     """
     reference_text = reference_text if reference_text is not None else load_skill_reference()
     client = client if client is not None else get_llm_client(product=CUSTOM_SOURCE_BUILDER_PRODUCT, team_id=team_id)

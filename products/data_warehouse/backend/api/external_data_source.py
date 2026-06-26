@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import uuid
 import dataclasses
 from collections.abc import Callable
@@ -67,6 +66,7 @@ from products.data_warehouse.backend.data_load.service import (
     ensure_cdc_slot_cleanup_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    is_custom_source_ai_builder_enabled_for_team,
     is_xmin_enabled_for_team,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
@@ -1407,36 +1407,6 @@ class DraftCustomManifestResponseSerializer(serializers.Serializer):
     )
 
 
-# Local-dev only. `draft_custom_manifest` falls back to this canned draft when the gateway call fails
-# under DEBUG, so the intro→builder flow stays testable without the LLM gateway — which needs
-# prod-style ingress to route get_llm_client's product path, so the bare local gateway 404s it.
-_STUB_CUSTOM_MANIFEST: dict[str, Any] = {
-    "client": {"base_url": "https://api.example.com/v1", "auth": {"type": "bearer"}},
-    "resources": [
-        {
-            "name": "users",
-            "primary_key": "id",
-            "endpoint": {
-                "path": "/users",
-                "data_selector": "data",
-                "incremental": {"cursor_path": "updated_at", "start_param": "since"},
-            },
-        },
-        {"name": "orders", "primary_key": "id", "endpoint": {"path": "/orders", "data_selector": "data"}},
-    ],
-}
-
-
-def _stub_custom_manifest_response() -> dict[str, Any]:
-    return {
-        "draft_status": "ok",
-        "manifest_json": json.dumps(_STUB_CUSTOM_MANIFEST, indent=2),
-        "resource_names": [resource["name"] for resource in _STUB_CUSTOM_MANIFEST["resources"]],
-        "attempts": 1,
-        "error": None,
-    }
-
-
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSource
@@ -2721,9 +2691,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         Reads the docs (a URL fetched server-side, or pasted text / OpenAPI spec), asks the model to
         author a RESTAPIConfig manifest, and validates it against the create-path checks — repairing
         against validation errors up to a small budget. Returns the manifest for the user to review
-        and tweak in the builder before creating the source; it does NOT create anything. Requires
-        the org to have approved AI data processing, since the docs are sent to the LLM gateway.
+        and tweak in the builder before creating the source; it does NOT create anything. Gated by the
+        `dwh-custom-source-ai-builder` flag, and requires the org to have approved AI data processing,
+        since the docs are sent to the LLM gateway.
         """
+        # Feature gate first, so the (paid) AI path stays hidden from orgs not in the rollout.
+        if not is_custom_source_ai_builder_enabled_for_team(self.team):
+            return Response(
+                status=status.HTTP_404_NOT_FOUND,
+                data={"message": "AI manifest drafting is not enabled for this organization."},
+            )
+
         serializer = DraftCustomManifestRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -2752,8 +2730,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         except APIConnectionError as e:
             capture_exception(e, {"team_id": self.team_id})
-            if settings.DEBUG:
-                return Response(status=status.HTTP_200_OK, data=_stub_custom_manifest_response())
             return Response(
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 data={
@@ -2762,8 +2738,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         except Exception as e:
             capture_exception(e, {"team_id": self.team_id})
-            if settings.DEBUG:
-                return Response(status=status.HTTP_200_OK, data=_stub_custom_manifest_response())
             return Response(
                 status=status.HTTP_502_BAD_GATEWAY,
                 data={"message": "The manifest drafting service failed. Try again, or author the manifest manually."},

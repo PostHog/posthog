@@ -4,7 +4,9 @@ import { IconPlus, IconSparkles, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     API_KEY_LOCATIONS,
@@ -87,6 +89,10 @@ export function CustomSourceManifestBuilder({
     const logic = customSourceManifestBuilderLogic({ initialManifestJson, setValue })
     const { manifestState, manifestJson, manifestPreviewOpen, docsUrl, sourceName, draftResultLoading, showBuilder } =
         useValues(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // The AI draft intro is gated separately from the Custom REST source itself; when it's off the
+    // builder is purely manual and the intro screen never appears.
+    const aiBuilderEnabled = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER]
     const {
         updateState,
         updateTable,
@@ -104,7 +110,7 @@ export function CustomSourceManifestBuilder({
     } = useActions(logic)
 
     // Airbyte-style intro: name + docs URL → draft with AI, or skip to the manual builder.
-    if (!showBuilder) {
+    if (aiBuilderEnabled && !showBuilder) {
         return (
             <div className="space-y-4">
                 <div>
@@ -158,7 +164,7 @@ export function CustomSourceManifestBuilder({
 
     return (
         <div className="space-y-6">
-            {!initialManifestJson && (
+            {aiBuilderEnabled && !initialManifestJson && (
                 <LemonButton size="small" type="tertiary" onClick={() => setShowBuilder(false)}>
                     ← Back to AI setup
                 </LemonButton>
