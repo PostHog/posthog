@@ -269,7 +269,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -438,7 +438,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -512,7 +512,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -583,7 +583,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -654,7 +654,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -725,7 +725,7 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))

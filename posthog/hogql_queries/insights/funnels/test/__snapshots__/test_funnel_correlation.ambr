@@ -1779,7 +1779,7 @@
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-              GROUP BY groups.group_type_index, groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+              GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -2711,7 +2711,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+                    groups.group_key) AS groups
         WHERE equals(groups.index, 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING or(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), notIn((aggregation_target_with_props.prop).1, []))
@@ -2774,7 +2774,7 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -2851,7 +2851,7 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -2928,7 +2928,7 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -3005,7 +3005,7 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -3098,7 +3098,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+                    groups.group_key) AS groups
         WHERE equals(groups.index, 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING or(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), notIn((aggregation_target_with_props.prop).1, []))
@@ -3739,7 +3739,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+                    groups.group_key) AS groups
         WHERE equals(groups.index, 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING or(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), notIn((aggregation_target_with_props.prop).1, []))
@@ -3802,7 +3802,7 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -3879,7 +3879,7 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -3956,7 +3956,7 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -4033,7 +4033,7 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key SETTINGS optimize_aggregation_in_order=1) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -4126,7 +4126,7 @@
            FROM groups
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
-                    groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+                    groups.group_key) AS groups
         WHERE equals(groups.index, 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING or(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), notIn((aggregation_target_with_props.prop).1, []))

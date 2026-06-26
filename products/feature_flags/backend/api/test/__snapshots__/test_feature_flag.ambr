@@ -52,7 +52,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), equals(groups.key, 'special-workspace'))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -88,7 +88,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), ilike(groups.key, '%org:%'))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -116,7 +116,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), in(groups.properties___industry, tuple('0', '1', '2', '3')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -153,7 +153,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), and(in(groups.properties___industry, tuple('0', '1', '2', '3', '4')), in(groups.properties___industry, tuple('2', '3', '4', '5', '6'))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,

@@ -9,7 +9,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE equals(groups.index, 0)
   ORDER BY groups.key ASC
   LIMIT 11
@@ -41,7 +41,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE equals(groups.index, 0)
   ORDER BY groups.created_at DESC
   LIMIT 11
@@ -100,7 +100,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE and(equals(groups.index, 0), ifNull(greater(accurateCastOrNull(groups.properties___arr, 'Float64'), 100.0), 0))
   ORDER BY groups.created_at DESC
   LIMIT 11
@@ -128,7 +128,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE equals(groups.index, 0)
   ORDER BY groups.key ASC
   LIMIT 11
@@ -159,7 +159,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE equals(groups.index, 0)
   ORDER BY accurateCastOrNull(groups.properties___arr, 'Float64') DESC
   LIMIT 11
@@ -190,7 +190,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE equals(groups.index, 0)
   ORDER BY accurateCastOrNull(groups.properties___arr, 'Float64') ASC
   LIMIT 11
@@ -218,7 +218,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE equals(groups.index, 0)
   ORDER BY coalesce(toString(groups.properties___name), toString(groups.key)) DESC
   LIMIT 11
@@ -249,7 +249,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE equals(groups.index, 0)
   ORDER BY groups.key ASC
   LIMIT 11
@@ -305,7 +305,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE and(equals(groups.index, 0), ifNull(equals(groups.properties___name, 'org0.inc'), 0))
   ORDER BY groups.created_at DESC
   LIMIT 11
@@ -334,7 +334,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE and(equals(groups.index, 0), or(ifNull(ilike(groups.properties___name, '%org2%'), 0), ilike(toString(groups.key), '%org2%')))
   ORDER BY multiIf(ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'org2'), 0), 0, ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'org2%'), 0), 1, 2) ASC, groups.created_at DESC
   LIMIT 11
@@ -365,7 +365,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE and(equals(groups.index, 0), or(ifNull(ilike(groups.properties___name, '%test%'), 0), ilike(toString(groups.key), '%test%')))
   ORDER BY groups.properties___arr DESC,
            multiIf(ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test'), 0), 0, ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test%'), 0), 1, 2) ASC
@@ -424,7 +424,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE and(equals(groups.index, 0), or(ifNull(ilike(groups.properties___name, '%test%'), 0), ilike(toString(groups.key), '%test%')))
   ORDER BY multiIf(ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test'), 0), 0, ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'test%'), 0), 1, 2) ASC, groups.created_at DESC
   LIMIT 11
@@ -453,7 +453,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE and(equals(groups.index, 0), or(ifNull(ilike(groups.properties___name, '%api%'), 0), ilike(toString(groups.key), '%api%')))
   ORDER BY multiIf(ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'api'), 0), 0, ifNull(ilike(coalesce(toString(groups.properties___name), toString(groups.key)), 'api%'), 0), 1, 2) ASC, groups.created_at DESC
   LIMIT 11
@@ -485,7 +485,7 @@
      FROM groups
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
-              groups.group_key SETTINGS optimize_aggregation_in_order=1) AS groups
+              groups.group_key) AS groups
   WHERE equals(groups.index, 0)
   ORDER BY groups.created_at DESC
   LIMIT 11
