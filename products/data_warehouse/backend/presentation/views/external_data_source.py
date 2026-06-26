@@ -460,6 +460,11 @@ def get_snowflake_source_table_location(
 
 
 CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
+DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
+    "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."
+)
+# Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
+DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake"]
 
 
 def count_active_custom_sources(team_id: int) -> int:
@@ -493,7 +498,7 @@ class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
         read_only=True,
         required=False,
         allow_null=True,
-        choices=["duckdb", "postgres", "mysql", "snowflake"],
+        choices=DIRECT_CONNECTION_ENGINE_CHOICES,
         help_text="Backend engine detected for the direct connection.",
     )
     function_source = serializers.CharField(
@@ -515,7 +520,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         source="connection_metadata.engine",
         read_only=True,
         allow_null=True,
-        choices=["duckdb", "postgres", "mysql", "snowflake"],
+        choices=DIRECT_CONNECTION_ENGINE_CHOICES,
         help_text="Backend engine detected for the direct connection.",
     )
 
@@ -678,7 +683,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         allow_null=True,
         required=False,
-        choices=["duckdb", "postgres", "mysql", "snowflake"],
+        choices=DIRECT_CONNECTION_ENGINE_CHOICES,
         help_text="Backend engine detected for the direct connection.",
     )
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
@@ -1594,16 +1599,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
-        is_direct_postgres = is_direct_query and source_type == ExternalDataSourceType.POSTGRES
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
         is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
 
-        if is_direct_query and not (is_direct_postgres or is_direct_mysql or is_direct_snowflake):
+        if is_direct_query and source_type not in direct_capable_source_types():
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={
-                    "message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."
-                },
+                data={"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
             )
 
         if is_direct_query:
@@ -3502,16 +3504,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
 
         if access_method == ExternalDataSource.AccessMethod.DIRECT:
-            if source_type not in (
-                ExternalDataSourceType.POSTGRES,
-                ExternalDataSourceType.MYSQL,
-                ExternalDataSourceType.SNOWFLAKE,
-            ):
+            if source_type not in direct_capable_source_types():
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."
-                    },
+                    data={"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
                 )
 
             normalized_prefix = prefix.strip() if isinstance(prefix, str) else ""

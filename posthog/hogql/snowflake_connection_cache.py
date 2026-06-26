@@ -77,10 +77,13 @@ def _config_key(config: SnowflakeSourceConfig) -> str:
     def text(value: object) -> str:
         return str(value) if value else ""
 
+    def digest(value: object) -> str:
+        return hashlib.sha256(text(value).encode("utf-8")).hexdigest()
+
     # Hash the secret rather than carry it in the key. Keying on the credentials means
     # a rotation routes to a fresh connection automatically (old entry just expires).
-    secret_digest = hashlib.sha256(text(secret).encode("utf-8")).hexdigest()
-    passphrase_digest = hashlib.sha256(text(getattr(auth, "passphrase", None)).encode("utf-8")).hexdigest()
+    secret_digest = digest(secret)
+    passphrase_digest = digest(getattr(auth, "passphrase", None))
     parts = [
         text(config.account_id),
         text(auth.user),
