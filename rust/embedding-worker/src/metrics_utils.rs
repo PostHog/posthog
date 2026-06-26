@@ -14,6 +14,8 @@ pub const EMBEDDING_REQUEST_TIME: &str = "embedding_worker_embedding_request_tim
 pub const EMBEDDING_TOTAL_TOKENS: &str = "embedding_worker_embedding_total_tokens";
 pub const REQUESTS_SENT: &str = "embedding_worker_requests_sent";
 pub const RESPONSES_RECEIVED: &str = "embedding_worker_responses_received";
+pub const RECENTLY_SEEN_WRITE_ERRORS: &str = "embedding_worker_recently_seen_write_errors";
+pub const RECENTLY_SEEN_READ_ERRORS: &str = "embedding_worker_recently_seen_read_errors";
 
 #[derive(Debug, Clone, Default)]
 pub struct RequestLabels {
