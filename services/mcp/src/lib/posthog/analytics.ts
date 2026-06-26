@@ -2,7 +2,8 @@ export enum AnalyticsEvent {
     MCP_INIT = 'mcp init',
     MCP_PROJECT_SWITCHED = 'mcp project switched',
     MCP_ORGANIZATION_SWITCHED = 'mcp organization switched',
-    MCP_TOOL_CALL = 'mcp_tool_call', // matching @posthog/mcp-analytics
+    MCP_TOOL_CALL = 'mcp_tool_call', // legacy, dual-emitted during the migration to `$mcp_tool_call`
+    MCP_TOOL_CALL_CANONICAL = '$mcp_tool_call',
     MCP_FEEDBACK_SUBMITTED = 'mcp feedback submitted',
 }
 
