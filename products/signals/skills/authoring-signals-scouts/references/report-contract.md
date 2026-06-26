@@ -13,6 +13,14 @@ This is **opt-in**. A scout gets these tools only if its skill's frontmatter
 scout whose findings are genuinely "weak observations the pipeline should consolidate" —
 that's exactly what `emit-signal` is for.
 
+> **Tool names vs. opt-in strings.** The callable MCP tools are
+> **`signals-scout-emit-report`** and **`signals-scout-edit-report`** (same `signals-scout-*`
+> prefix as `signals-scout-emit-signal`) — those are the names you invoke. The bare
+> `emit_report` / `edit_report` (underscored) used throughout this doc and below are the **opt-in
+> strings** you list under `allowed_tools`; they are not callable tool names. And like every
+> `signals-scout-*` tool, **both report tools require the current `run_id`** (the run you're
+> executing in) on every call — omitting it fails validation.
+
 ## When to use which channel
 
 | You have…                                                                                                          | Use           |
@@ -35,14 +43,15 @@ report only when you'd stand behind it as a standalone inbox item a human will a
 
 Judges the report for safety, then persists it at the judged status.
 
-| Field                       | Type                    | Notes                                                                                                                           |
-| --------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `title`                     | string, ≤300, non-empty | The inbox headline. One specific, quantified line.                                                                              |
-| `summary`                   | string                  | The report body prose — the same description-prose discipline as a finding (hook → pattern → hypothesis → recommendation).      |
-| `evidence`                  | list, ≥1                | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id.           |
-| `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                           |
-| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it. |
-| `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                              |
+| Field                       | Type                    | Notes                                                                                                                                                                                                                                              |
+| --------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_id`                    | string, required        | The current run's id — the run you're executing in, same as every `signals-scout-*` tool.                                                                                                                                                          |
+| `title`                     | string, ≤300, non-empty | The inbox headline. One specific, quantified line.                                                                                                                                                                                                 |
+| `summary`                   | string                  | The report body prose — the same description-prose discipline as a finding (hook → pattern → hypothesis → recommendation).                                                                                                                         |
+| `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id. Hard cap of **50** — summarize/trim before calling; a longer list fails validation before the report is judged or persisted. |
+| `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                              |
+| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                    |
+| `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                 |
 
 **Status is decided for you, from safety × actionability:**
 
@@ -54,8 +63,10 @@ Judges the report for safety, then persists it at the judged status.
 | unsafe       | (any)                    | `SUPPRESSED`     | no                 |
 
 The result tells you what happened: `report_id` (always set when a report was persisted —
-**even when suppressed**, so you can edit or dedup against it), `status`, `emitted` (true only
-when it actually surfaced — `READY` / `PENDING_INPUT`), `safety_explanation`, and
+**even when suppressed**, so you can edit or dedup against it), `report_status` (the birth status —
+`ready` / `pending_input` / `suppressed` — the field is named `report_status` in the response, not
+`status`), `emitted` (true only when it actually surfaced — `READY` / `PENDING_INPUT`),
+`safety_explanation`, and
 `skipped_reason` (set only when a preflight gate stopped the call before any report was
 created — the same AI-data-processing / source-enabled gates that govern `emit-signal`).
 
@@ -80,8 +91,8 @@ report.
 
 ## `edit_report` — update an existing report
 
-Rewrite `title`/`summary` and/or append a note to a report that already exists. Pass
-`report_id` plus at least one of `title`, `summary`, `append_note`.
+Rewrite `title`/`summary` and/or append a note to a report that already exists. Pass `run_id`
+(the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or
@@ -142,10 +153,11 @@ allowed_tools:
 ```
 
 A scout with no `allowed_tools` (or one that omits these) runs on the `emit-signal`-only
-contract — the report channel is invisible to it. Add a short body section telling the scout
-_when_ to reach for the channel (the canonical pilots,
-`signals-scout-health-checks` and `signals-scout-observability-gaps`, show the shape). Keep it
-lean — the field-level detail lives here, not in the body.
+contract — the report channel is invisible to it. No canonical scout enables the channel yet —
+`signals-scout-health-checks` and `signals-scout-observability-gaps` are its intended first
+adopters (a bundled health-check cluster and a single observability-gap recommendation are both
+natural 1:1 reports). Add a short body section telling the scout _when_ to reach for the channel.
+Keep it lean — the field-level detail lives here, not in the body.
 
 **Rollout posture:** start a newly opted-in scout in **dry-run** (`emit=false` on its
 `SignalScoutConfig`) so it runs and logs what it _would_ author without writing to the inbox.
