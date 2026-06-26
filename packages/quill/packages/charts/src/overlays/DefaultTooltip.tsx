@@ -62,7 +62,8 @@ export function DefaultTooltip<Meta = unknown>({
     const format = valueFormatter ?? ((value: number): React.ReactNode => value.toLocaleString())
     const rows = sortedByValue ? [...seriesData].sort((a, b) => b.value - a.value) : seriesData
     const summable = rows.filter((s) => !s.series.overlay)
-    const closestKey = hoverPosition != null ? findClosestSeriesKey(rows, hoverPosition.y) : null
+    const closestKey =
+        hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null
     const renderTotal = showTotal && summable.length > 1
     const total = summable.reduce((acc, s) => acc + s.value, 0)
     const formatTotal = totalFormatter ?? ((value: number): React.ReactNode => format(value, summable[0]))
