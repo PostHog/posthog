@@ -213,11 +213,6 @@ def holdout_filters_for_flag(holdout_id: int | None, filters: list | None) -> di
     }
 
 
-def get_excluded_variants(experiment: "Experiment") -> list[str]:
-    """Variant keys dropped from statistical analysis."""
-    return list(experiment.excluded_variants or [])
-
-
 LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
 
 

@@ -38,7 +38,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentHoldout,
     ExperimentMetricsRecalculation,
     experiment_has_legacy_metrics,
-    get_excluded_variants,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
@@ -421,7 +420,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,
                         only_count_matured_users=instance.only_count_matured_users,
-                        excluded_variants=get_excluded_variants(instance),
+                        excluded_variants=instance.excluded_variants or [],
                     )
 
         return data

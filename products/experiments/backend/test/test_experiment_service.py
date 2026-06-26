@@ -31,7 +31,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
-    get_excluded_variants,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
@@ -5380,23 +5379,6 @@ class TestValidateExcludedVariantKeys:
     def test_invalid_excluded_variants_raises(self, excluded_variants: list[str], baseline_key: str, match: str):
         with pytest.raises(ValidationError, match=match):
             ExperimentService._validate_excluded_variant_keys(excluded_variants, self._VARIANT_KEYS, baseline_key)
-
-
-class TestGetExcludedVariants:
-    @pytest.mark.parametrize(
-        "column,parameters,expected",
-        [
-            (None, None, []),
-            (None, {}, []),
-            (["test-2"], None, ["test-2"]),
-            ([], None, []),
-            # the deprecated parameters blob is never read — only the column matters
-            (None, {"excluded_variants": ["legacy"]}, []),
-        ],
-    )
-    def test_reads_only_column(self, column, parameters, expected):
-        experiment = Experiment(excluded_variants=column, parameters=parameters)
-        assert get_excluded_variants(experiment) == expected
 
 
 class TestValidateExcludedVariants:

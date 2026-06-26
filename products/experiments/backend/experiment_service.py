@@ -52,7 +52,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
-    get_excluded_variants,
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -1304,7 +1303,7 @@ class ExperimentService:
                         experiment.start_date,
                         experiment.stats_config,
                         experiment.exposure_criteria,
-                        excluded_variants=get_excluded_variants(experiment),
+                        excluded_variants=experiment.excluded_variants or [],
                     ),
                 )
 
@@ -2173,7 +2172,7 @@ class ExperimentService:
         if "excluded_variants" in update_data:
             excluded_variants = update_data["excluded_variants"]
         else:
-            excluded_variants = get_excluded_variants(experiment)
+            excluded_variants = experiment.excluded_variants or []
 
         for metric_field in ["metrics", "metrics_secondary"]:
             metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
