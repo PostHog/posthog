@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render } from '@testing-library/react'
+import { fireEvent, render, within } from '@testing-library/react'
 
 import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
 
@@ -36,7 +36,7 @@ describe('TextCard', () => {
     })
 
     it('opens the more menu on right-click and suppresses the native context menu', () => {
-        const { container, getByText, queryByText } = render(
+        const { container } = render(
             <TextCard
                 textTile={makeTextTile()}
                 placement={DashboardPlacement.Dashboard}
@@ -44,18 +44,21 @@ describe('TextCard', () => {
             />
         )
 
-        expect(queryByText('more overlay')).not.toBeInTheDocument()
+        // The overlay mounts into a portal on document.body, so we observe the menu's open state via the
+        // trigger button's active class (scoped to this render's container) rather than querying the overlay text.
+        const moreButton = within(container).getByLabelText('more')
+        expect(moreButton).not.toHaveClass('LemonButton--active')
 
         const card = container.querySelector('[data-attr="text-card"]') as HTMLElement
         const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
         fireEvent(card, event)
 
         expect(event.defaultPrevented).toBe(true)
-        expect(getByText('more overlay')).toBeInTheDocument()
+        expect(moreButton).toHaveClass('LemonButton--active')
     })
 
     it('does not hijack right-click when the more menu is hidden (Public placement)', () => {
-        const { container, queryByText } = render(
+        const { container } = render(
             <TextCard
                 textTile={makeTextTile()}
                 placement={DashboardPlacement.Public}
@@ -63,12 +66,13 @@ describe('TextCard', () => {
             />
         )
 
+        expect(within(container).queryByLabelText('more')).not.toBeInTheDocument()
+
         const card = container.querySelector('[data-attr="text-card"]') as HTMLElement
         const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
         fireEvent(card, event)
 
         expect(event.defaultPrevented).toBe(false)
-        expect(queryByText('more overlay')).not.toBeInTheDocument()
     })
 
     it('renders edit-mode edge overlay when enabled and not resizing', () => {
