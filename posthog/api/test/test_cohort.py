@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -2497,6 +2498,35 @@ email@example.org,
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 2, response)
+
+    def test_cohort_persons_paginate_newest_created_first(self):
+        # Members must paginate by created_at DESC (newest first), matching the legacy PersonQuery order.
+        # `created_at` order is deliberately decorrelated from insertion order (id) so that the
+        # ActorsQuery default (id ASC) produces a different first page than the required order —
+        # otherwise this regression is invisible (get_serialized_people re-sorts each page by
+        # created_at DESC, so a single page always *looks* correctly ordered).
+        created_at_by_label = {"a": "2021-01-02", "b": "2021-01-04", "c": "2021-01-01", "d": "2021-01-03"}
+        uuid_by_label = {}
+        for label in ["a", "b", "c", "d"]:  # insertion order → ascending id
+            with freeze_time(created_at_by_label[label]):
+                person = create_person(team=self.team, distinct_ids=[label], properties={"$os": "Chrome"})
+                uuid_by_label[label] = str(person.uuid)
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        paged_ids: list[str] = []
+        url: Optional[str] = f"/api/cohort/{cohort.pk}/persons?limit=2"
+        while url:
+            page = self.client.get(url).json()
+            paged_ids += [row["id"] for row in page["results"]]
+            url = page["next"]
+
+        expected = [uuid_by_label[label] for label in ["b", "d", "a", "c"]]  # created_at DESC
+        self.assertEqual(paged_ids, expected)
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
