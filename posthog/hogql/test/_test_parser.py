@@ -6457,8 +6457,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("INTERVAL 'twenty days'", "Unsupported interval count: twenty"),
                 ("INTERVAL '-1 day'", "Unsupported interval count: -1"),
                 ("INTERVAL '1.5 days'", "Unsupported interval count: 1.5"),
-                # `stoi`'s `out_of_range::what()` differs by stdlib (libc++ adds `: out of range`, libstdc++ doesn't); match the platform-independent prefix only.
+                # `stoi`'s `what()` text differs by stdlib (libc++ adds the `: out of range` / `: no conversion` suffix, libstdc++ doesn't); match the platform-independent prefix only.
                 ("INTERVAL '99999999999999999999 day'", "Unknown error: stoi"),
+                # A space-but-empty count (`' '`, `' day'`) isn't a digit-check failure — cpp's per-char isdigit loop is vacuous, then `std::stoi("")` throws. rust used to reject the empty count with "Unsupported interval count:" before reaching the stoi step.
+                ("INTERVAL ' '", "Unknown error: stoi"),
+                ("INTERVAL ' day'", "Unknown error: stoi"),
+                # `std::stoi` returns `int`, so a count past INT_MAX (2147483647) is out_of_range. rust used to parse the count as i64 and silently accept these.
+                ("INTERVAL '2147483648 day'", "Unknown error: stoi"),
                 ("INTERVAL '1 SECOND'", "Unsupported interval unit: SECOND"),
                 # A string with no internal space can't be `<count> <unit>`: cpp commits to ColumnExprIntervalString and its visitor rejects with this message. rust used to fall through to the expr+unit form and raise a "expected interval unit keyword" SyntaxError instead — same base class, so only the message asserts the divergence.
                 ("INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
@@ -6480,7 +6485,8 @@ def parser_test_factory(backend: HogQLParserBackend):
             # on both backends — the fall-back to the string-form rejection must not
             # pre-empt these. `interval 'x' day` takes the same path with the unit
             # immediately after the string.
-            for src in ("INTERVAL 'a' || 'b' hour", "INTERVAL 'x' day"):
+            # `INTERVAL '2147483647 day'` is the largest count `std::stoi` accepts (INT_MAX) — it must still parse, guarding the boundary against the out_of_range reject case above.
+            for src in ("INTERVAL 'a' || 'b' hour", "INTERVAL 'x' day", "INTERVAL '2147483647 day'"):
                 self.assertEqual(parse_expr(src, backend="cpp-json"), parse_expr(src, backend=backend), msg=src)
 
         def test_in_cohort_falls_back_to_identifier_when_rhs_missing(self):
