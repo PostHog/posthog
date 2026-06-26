@@ -37,24 +37,18 @@ export function InsertTileOverlay({
     disabled,
     getMenuItems,
 }: InsertTileOverlayProps): JSX.Element | null {
-    // Candidate row boundaries: the top (0), the start of every tile, and the bottom of the grid.
-    // Insertion is full-width (push everything at/below the row down), so a line only makes sense at a
-    // clean horizontal cut — a row no tile straddles. We drop any row that runs through the middle of a
-    // tile in another column (e.g. a short tile's start landing inside a tall neighbour), which would
-    // otherwise draw the "+" across a tile and force an overlapping reflow on insert.
+    // Row boundaries: the top (0), the start of every tile, and the bottom of the grid. We offer a line
+    // at any row that lines up with a tile edge — even one that runs through a taller tile in another
+    // column — so insertion is available next to every row on the board, not just clean full-width cuts.
     const boundaryRows = useMemo(() => {
-        const items = layout || []
         const rows = new Set<number>([0])
         let maxBottom = 0
-        for (const item of items) {
+        for (const item of layout || []) {
             rows.add(item.y)
             maxBottom = Math.max(maxBottom, item.y + item.h)
         }
         rows.add(maxBottom)
-        const straddles = (row: number): boolean => items.some((item) => item.y < row && item.y + item.h > row)
-        return Array.from(rows)
-            .filter((row) => !straddles(row))
-            .sort((a, b) => a - b)
+        return Array.from(rows).sort((a, b) => a - b)
     }, [layout])
 
     if (!canEditDashboard || isMobileView || disabled) {
