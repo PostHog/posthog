@@ -23,32 +23,33 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse is not None
         return response.clickhouse, response.results
 
-    def test_bare_limit_pushdown_returns_correct_deduplicated_rows(self):
+    def test_bare_limit_two_phase_returns_correct_deduplicated_rows(self):
         team = self._team()
         for i in range(1, 12):
             create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={"name": f"name-{i}"})
-        # g00 (smallest key, always inside the limit window) has two ClickHouse rows: an older stale version
-        # and a newer one. The query-time dedup must argMax to LATEST; a pushdown that truncated the per-group
-        # aggregation would return STALE. Written straight to ClickHouse since one group key = one Postgres row.
+        # g00 (smallest key, always inside the limit window) has two ClickHouse rows: an older stale version and a
+        # newer one. The two-phase limits on (index, key), so both versions of g00 still feed the outer argMax, which
+        # must return LATEST. Written straight to ClickHouse since one group key = one Postgres row.
         raw_create_group_ch(team.pk, 0, "g00", {"name": "STALE"}, datetime(2020, 1, 1), timestamp=datetime(2020, 1, 1))
         raw_create_group_ch(team.pk, 0, "g00", {"name": "LATEST"}, datetime(2024, 1, 1), timestamp=datetime(2024, 1, 1))
 
         sql, results = self._run(team, "SELECT key, properties.name FROM groups LIMIT 10")
 
-        # the pushdown must not under-return: 12 groups exist, 10 requested
+        # the limit must not under-return: 12 groups exist, 10 requested
         assert len(results) == 10
         # ...the returned keys are distinct (no dedup leak duplicating a group)
         assert len({key for key, _ in results}) == 10
         # ...and g00's value is the latest, not the stale one
         assert dict(results)["g00"] == "LATEST"
-        # the optimisation is actually applied (results alone can't prove it wasn't silently dropped)
-        assert "optimize_aggregation_in_order=1" in sql
+        # the two-phase is actually applied: keys are picked via an IN-subquery limited to N+1 (results alone can't
+        # prove the heavy argMax was limited rather than run over every group)
+        assert "in(tuple(" in sql
         assert "LIMIT 11" in sql
 
-    def test_order_by_limit_returns_global_top_and_is_not_pushed(self):
+    def test_order_by_limit_returns_global_top_and_is_not_limited(self):
         team = self._team()
-        # rank rises with key for g00..g10, but the global max rank lives on g11, the largest key. If the limit
-        # were pushed into the dedup, ClickHouse would (at scale) keep the smallest keys and drop g11.
+        # rank rises with key for g00..g10, but the global max rank lives on g11, the largest key. If the key limit
+        # were applied, the inner subquery would keep an arbitrary 6 keys and could drop g11 before the ordering runs.
         for i in range(11):
             create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={"rank": str(i)})
         create_group(team_id=team.pk, group_type_index=0, group_key="g11", properties={"rank": "999"})
@@ -58,8 +59,8 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         # real-ClickHouse correctness: the global top-by-rank is returned
         assert len(results) == 5
         assert results[0][0] == "g11"
-        # deterministic guard check: the limit was not pushed into the dedup (the wrong result it would cause
-        # only surfaces once in-order aggregation engages, which it doesn't at unit-test scale)
+        # deterministic guard check: the key limit was not applied (which 6 keys the inner subquery would keep is
+        # unordered, so the wrong result it causes isn't deterministic at unit-test scale)
         assert "LIMIT 6" not in sql
 
     @parameterized.expand(

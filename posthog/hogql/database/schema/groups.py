@@ -1,6 +1,5 @@
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
-from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.lazy_join_tags import GROUPS_REVENUE_ANALYTICS
@@ -18,6 +17,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.parser import parse_expr, parse_select
 
 GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "index": IntegerDatabaseField(
@@ -52,17 +52,22 @@ GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
+def select_from_groups_table(requested_fields: dict[str, list[str | int]], key_limit: int | None = None):
     select = argmax_select(
         table_name="raw_groups",
         select_fields=requested_fields,
         group_fields=["index", "key"],
         argmax_field="updated_at",
     )
-    # GROUP BY (index, key) is a prefix of the table ORDER BY (team_id, group_type_index, group_key) once team_id is
-    # pinned by the mandatory WHERE, so ClickHouse can aggregate in sort order and finalize each group as it goes
-    # instead of buffering an argMax state (carrying the full group_properties blob) for every group at once.
-    select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+    if key_limit is not None:
+        # Two-phase dedup. `groups` is a Distributed table sharded by rand(), so every version of a group is scattered
+        # across shards; a plain `GROUP BY (index, key)` therefore can't be resolved per-shard and gathers every
+        # group's argMax state -- each carrying the full group_properties blob -- at the initiator before the outer
+        # LIMIT can apply, OOMing large teams. So first pick the N group keys from just (index, key) (cheap, no
+        # properties), then argMax the heavy properties for only those keys.
+        keys = parse_select("SELECT index, key FROM raw_groups GROUP BY index, key")
+        keys.limit = ast.Constant(value=key_limit)
+        select.where = parse_expr("(index, key) IN {keys}", placeholders={"keys": keys})
     return select
 
 
@@ -74,20 +79,14 @@ def _resolved_table(table_type) -> object | None:
     return getattr(table_type, "table", None)
 
 
-def _push_limit_into_groups_dedup(select: SelectQuery, node: SelectQuery) -> None:
-    # When directly selecting from `groups` with a LIMIT and nothing that changes which rows survive, copy the limit
-    # into the dedup so in-order aggregation can stop after enough groups rather than scanning the whole team. Skip
-    # anything that could change which/how many rows survive the limit: a WHERE/PREWHERE/HAVING/QUALIFY (a premature
-    # inner LIMIT would drop rows the outer filter wanted), an ORDER BY (the limit would keep the wrong groups), a
-    # DISTINCT or GROUP BY (could collapse the limited rows below the requested count), an ARRAY JOIN (can drop rows
-    # whose array is empty), LIMIT BY/WITH TIES/PERCENT, or a non-constant LIMIT/OFFSET. Without the pushdown the
-    # query is still correct and still memory-bounded by optimize_aggregation_in_order; we only forgo early termination.
-    #
-    # `next_join` only catches explicit joins in the FROM -- the `revenue_analytics` lazy join is attached to `node`
-    # after this runs, so the pushdown fires through it. That's correct because it is a LEFT JOIN: it never *drops* a
-    # groups row (it may fan one out to several rows, but each kept group still yields >= 1 row, so any N groups plus
-    # their joined data is a valid answer for an unordered limit). A future groups lazy join that is INNER or filters
-    # the left side would need to be excluded here.
+def _bare_limit_key_count(node: SelectQuery) -> int | None:
+    # The two-phase key limit is only safe for a direct `select ... from groups limit N` with nothing that changes
+    # which/how many rows survive: a WHERE/PREWHERE/HAVING/QUALIFY filters after the dedup, an ORDER BY would need the
+    # keys ordered too, a DISTINCT/GROUP BY could collapse the limited rows below the requested count, an ARRAY JOIN
+    # can drop rows whose array is empty, and LIMIT BY/WITH TIES/PERCENT or a non-constant LIMIT/OFFSET reshape the
+    # result. In those cases we fall back to the full dedup (correct, just not bounded). The `revenue_analytics` lazy
+    # join is attached to `node` after this runs and is a row-preserving LEFT JOIN, so limiting the keys underneath it
+    # stays correct for an unordered limit.
     if (
         node.select_from is None
         or node.select_from.next_join is not None
@@ -106,12 +105,11 @@ def _push_limit_into_groups_dedup(select: SelectQuery, node: SelectQuery) -> Non
         or node.limit_percent
         or not isinstance(_resolved_table(node.select_from.type), GroupsTable)
     ):
-        return
+        return None
 
     offset = node.offset.value if isinstance(node.offset, ast.Constant) else 0
-    # +1 mirrors persons: leaves room to detect whether more rows exist; the outer LIMIT trims the extra row.
-    select.limit = ast.Constant(value=node.limit.value + offset + 1)
-    select.offset = ast.Constant(value=0)
+    # +1 mirrors persons: leaves room to detect whether more rows exist; the outer LIMIT trims the extra group.
+    return node.limit.value + offset + 1
 
 
 def join_with_group_n_table(
@@ -172,9 +170,7 @@ class GroupsTable(LazyTable):
     fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
-        select = select_from_groups_table(table_to_add.fields_accessed)
-        _push_limit_into_groups_dedup(select, node)
-        return select
+        return select_from_groups_table(table_to_add.fields_accessed, key_limit=_bare_limit_key_count(node))
 
     def to_printed_clickhouse(self, context):
         return "groups"
