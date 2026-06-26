@@ -7,7 +7,7 @@ def backfill_identity_verified(apps, schema_editor):
     # Everything else (widget HMAC, email SPF) was assessed per-request and isn't
     # recoverable for historical rows, so it stays NULL ("unknown") rather than False.
     Ticket = apps.get_model("conversations", "Ticket")
-    Ticket.objects.filter(channel_source__in=["slack", "teams", "github"]).update(identity_verified=True)
+    Ticket.objects.filter(channel_source__in=["slack", "teams"]).update(identity_verified=True)
 
 
 class Migration(migrations.Migration):

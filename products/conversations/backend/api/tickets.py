@@ -1211,9 +1211,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 email_config=email_config,
                 email_from=data["recipient_email"],
                 email_subject=data.get("email_subject", ""),
-                # Outbound ticket composed by an authenticated team member to a recipient
-                # validated against person records — not an external identity claim.
-                identity_verified=True,
+                # The recipient hasn't proven control of this address — a team member just typed it —
+                # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
+                identity_verified=None,
             )
 
             Comment.objects.create(

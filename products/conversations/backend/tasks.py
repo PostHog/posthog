@@ -1879,8 +1879,9 @@ def create_github_issue(
         status=Status.OPEN,
         github_repo=repo,
         github_issue_number=issue_number,
-        # Outbound issue created by an authenticated team member — not an external identity claim.
-        identity_verified=True,
+        # Outbound issue opened by the team — there's no external party whose identity we verified,
+        # so leave it unknown rather than claiming a verification that never happened.
+        identity_verified=None,
     )
 
     CommentModel.objects.create(
