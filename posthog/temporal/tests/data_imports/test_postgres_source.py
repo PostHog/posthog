@@ -19,17 +19,16 @@ import pytest_asyncio
 from psycopg import AsyncConnection, AsyncCursor, sql
 from psycopg.rows import TupleRow
 
-from posthog.temporal.data_imports.sources.common.base import SimpleSource
-from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
-from posthog.temporal.data_imports.sources.postgres.postgres import (
+from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
+
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     SSLRequiredError,
     _get_sslmode,
 )
-from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -462,7 +461,7 @@ class TestSSLRequirement:
     def test_source_ssl_requirement(
         self, team, postgres_config, is_new_source, ssh_tunnel_enabled, require_tls, expected_require_ssl
     ):
-        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
         source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -506,7 +505,7 @@ class TestSSLRequirement:
         mock_inputs.logger = mock.MagicMock()
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
         ) as mock_postgres_source:
             assert isinstance(postgres_source, SimpleSource)
             postgres_source.source_for_pipeline(config, mock_inputs)
@@ -516,14 +515,14 @@ class TestSSLRequirement:
 
     @pytest.mark.django_db(transaction=True)
     def test_validate_credentials_returns_error_on_ssl_failure(self, team, postgres_config):
-        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
         postgres_source = PostgresSource()
         config = postgres_source.parse_config(postgres_config)
 
         with (
             mock.patch(
-                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas"
             ) as mock_get_schemas,
             override_settings(DEBUG=False, TEST=False),
         ):

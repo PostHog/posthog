@@ -10,8 +10,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CommitDiffResponseApi,
+    EditReportRequestApi,
+    EditReportResponseApi,
     EmitFindingRequestApi,
     EmitFindingResponseApi,
+    EmitReportRequestApi,
+    EmitReportResponseApi,
     ForgetRequestApi,
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
@@ -563,6 +567,28 @@ export const signalsScoutRunsRetrieve = async (
     })
 }
 
+export const getSignalsScoutEditReportUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/edit-report/`
+}
+
+/**
+ * Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary edits are best-effort: the pipeline may later re-research and overwrite them.
+ * @summary Edit an existing report for a run
+ */
+export const signalsScoutEditReport = async (
+    projectId: string,
+    runId: string,
+    editReportRequestApi: EditReportRequestApi,
+    options?: RequestInit
+): Promise<EditReportResponseApi> => {
+    return apiMutator<EditReportResponseApi>(getSignalsScoutEditReportUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(editReportRequestApi),
+    })
+}
+
 export const getSignalsScoutRunsEmissionsUrl = (projectId: string, runId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/${runId}/emissions/`
 }
@@ -598,6 +624,28 @@ export const signalsScoutRunsEmissionReports = async (
     return apiMutator<ScoutEmissionReportLinkApi[]>(getSignalsScoutRunsEmissionReportsUrl(projectId, runId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutEmitReportUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/emit-report/`
+}
+
+/**
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * @summary Author a full report for a run
+ */
+export const signalsScoutEmitReport = async (
+    projectId: string,
+    runId: string,
+    emitReportRequestApi: EmitReportRequestApi,
+    options?: RequestInit
+): Promise<EmitReportResponseApi> => {
+    return apiMutator<EmitReportResponseApi>(getSignalsScoutEmitReportUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emitReportRequestApi),
     })
 }
 
@@ -640,7 +688,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 500.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (

@@ -245,6 +245,22 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     settings.DATABASES["persons_db_writer"]["NAME"] = test_persons_db_name
     settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
 
+    # Point the off-ORM persons_db util (posthog/persons_db.py) at the test persons DB.
+    # It reads only PERSONS_DB_{WRITER,READER}_URL from the environment, never Django
+    # settings, so the test database has to be exposed to it via those env vars.
+    _persons_db = settings.DATABASES["persons_db_writer"]
+    _persons_user = quote_plus(_persons_db.get("USER") or "")
+    _persons_password = f":{quote_plus(_persons_db['PASSWORD'])}" if _persons_db.get("PASSWORD") else ""
+    # HOST/PORT can be empty strings in Django's config (empty HOST means Unix socket);
+    # fall back to localhost:5432 so the URL is always well-formed for psycopg.
+    _persons_host = _persons_db.get("HOST") or "localhost"
+    _persons_port = _persons_db.get("PORT") or "5432"
+    _persons_db_url = (
+        f"postgres://{_persons_user}{_persons_password}@{_persons_host}:{_persons_port}/{test_persons_db_name}"
+    )
+    os.environ["PERSONS_DB_WRITER_URL"] = _persons_db_url
+    os.environ["PERSONS_DB_READER_URL"] = _persons_db_url
+
     # Update product database NAMEs to use test-prefixed names
     from posthog.product_db_config import load_product_db_routes
 

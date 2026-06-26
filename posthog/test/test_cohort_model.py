@@ -10,7 +10,8 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.batch_iterators import FunctionBatchIterator
-from posthog.models import Person, Team
+from posthog.models import Team
+from posthog.test.persons import add_cohort_members, create_person
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
@@ -21,12 +22,12 @@ class TestCohort(BaseTest):
     CLASS_DATA_LEVEL_SETUP = False  # So that each test gets a different team_id, ensuring separation of CH data
 
     def test_insert_by_distinct_id(self):
-        Person.objects.create(team=self.team, distinct_ids=["000"])
-        Person.objects.create(team=self.team, distinct_ids=["123"])
-        Person.objects.create(team=self.team)
+        create_person(team=self.team, distinct_ids=["000"])
+        create_person(team=self.team, distinct_ids=["123"])
+        create_person(team=self.team)
         # Team leakage
         team2 = Team.objects.create(organization=self.organization)
-        Person.objects.create(team=team2, distinct_ids=["123"])
+        create_person(team=team2, distinct_ids=["123"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["a header or something", "123", "000", "email@example.org"])
@@ -45,17 +46,17 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.is_calculating, False)
 
     def test_insert_by_distinct_id_in_batches(self):
-        Person.objects.create(team=self.team, distinct_ids=["000"])
-        Person.objects.create(team=self.team, distinct_ids=["001"])
-        Person.objects.create(team=self.team, distinct_ids=["002", "011"])
-        Person.objects.create(team=self.team, distinct_ids=["003", "012"])
-        Person.objects.create(team=self.team, distinct_ids=["004"])
-        Person.objects.create(team=self.team, distinct_ids=["005"])
-        Person.objects.create(team=self.team, distinct_ids=["006"])
-        Person.objects.create(team=self.team, distinct_ids=["007"])
-        Person.objects.create(team=self.team, distinct_ids=["008"])
-        Person.objects.create(team=self.team, distinct_ids=["009"])
-        Person.objects.create(team=self.team, distinct_ids=["010"])
+        create_person(team=self.team, distinct_ids=["000"])
+        create_person(team=self.team, distinct_ids=["001"])
+        create_person(team=self.team, distinct_ids=["002", "011"])
+        create_person(team=self.team, distinct_ids=["003", "012"])
+        create_person(team=self.team, distinct_ids=["004"])
+        create_person(team=self.team, distinct_ids=["005"])
+        create_person(team=self.team, distinct_ids=["006"])
+        create_person(team=self.team, distinct_ids=["007"])
+        create_person(team=self.team, distinct_ids=["008"])
+        create_person(team=self.team, distinct_ids=["009"])
+        create_person(team=self.team, distinct_ids=["010"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         batch_count = cohort.insert_users_by_list(
@@ -73,13 +74,13 @@ class TestCohort(BaseTest):
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
             name="cohort1",
         )
-        person1 = Person.objects.create(
+        person1 = create_person(
             distinct_ids=["person1"],
             team_id=self.team.pk,
             properties={"$some_prop": "something"},
         )
-        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
-        person3 = Person.objects.create(
+        create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        person3 = create_person(
             distinct_ids=["person3"],
             team_id=self.team.pk,
             properties={"$some_prop": "something"},
@@ -335,7 +336,7 @@ class TestCohort(BaseTest):
             "345b621a-26e1-4888-a9eb-175329f7923b",
         ]
         for person_uuid in uuids:
-            Person.objects.create(team=self.team, uuid=person_uuid)
+            create_person(team=self.team, uuid=person_uuid)
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
 
         # Insert all users into the cohort using batching (batchsize=3)
@@ -353,7 +354,7 @@ class TestCohort(BaseTest):
         """Test that batching with duplicates works correctly - people already in cohort are not re-inserted."""
         # Create people with distinct IDs
         for i in range(10):
-            Person.objects.create(team=self.team, distinct_ids=[f"user{i}"])
+            create_person(team=self.team, distinct_ids=[f"user{i}"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
 
@@ -384,7 +385,7 @@ class TestCohort(BaseTest):
     def test_insert_users_list_by_uuid_with_different_db_aliases(self):
         from unittest.mock import patch
 
-        person = Person.objects.create(team=self.team, distinct_ids=["cross-db-test"])
+        person = create_person(team=self.team, distinct_ids=["cross-db-test"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
 
         # Simulate production config where db_for_read returns a different
@@ -448,7 +449,7 @@ class TestCohort(BaseTest):
         )
 
         for age in excluded_ages:
-            Person.objects.create(
+            create_person(
                 distinct_ids=[str(uuid.uuid4())],
                 team_id=self.team.pk,
                 properties={"age": age},
@@ -456,7 +457,7 @@ class TestCohort(BaseTest):
 
         expected_people = []
         for age in included_ages:
-            person = Person.objects.create(
+            person = create_person(
                 distinct_ids=[str(uuid.uuid4())],
                 team_id=self.team.pk,
                 properties={"age": age},
@@ -484,15 +485,15 @@ class TestCohort(BaseTest):
         from products.cohorts.backend.models.util import get_static_cohort_size
 
         # Create persons
-        person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
-        person3 = Person.objects.create(team=self.team, distinct_ids=["person3"])
+        person1 = create_person(team=self.team, distinct_ids=["person1"])
+        person2 = create_person(team=self.team, distinct_ids=["person2"])
+        person3 = create_person(team=self.team, distinct_ids=["person3"])
 
         # Create a static cohort
         cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
 
-        # Add persons to cohort using the many-to-many relationship
-        cohort.people.add(person1, person2, person3)
+        # Add persons to cohort
+        add_cohort_members(cohort, [person1, person2, person3])
 
         # Test that get_static_cohort_size returns the correct count
         size = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
@@ -506,11 +507,11 @@ class TestCohort(BaseTest):
         # in count_cohort_members), not by person.team_id. The previous join through
         # posthog_person was a hot per-PK lookup on the write replica that we
         # dropped for IOPS reasons — production cannot reach this state via the
-        # supported APIs, and a raw M2M add() like the one below is what would have
+        # supported APIs, and a cross-team add like the one below is what would have
         # had to break for a count discrepancy to surface in real traffic.
         team2 = Team.objects.create(organization=self.organization)
-        person4 = Person.objects.create(team=team2, distinct_ids=["person4"])
-        cohort.people.add(person4)
+        person4 = create_person(team=team2, distinct_ids=["person4"])
+        add_cohort_members(cohort, [person4])
 
         size = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
         assert size == 4, f"Expected 4 cohort rows after cross-team add, got {size}"

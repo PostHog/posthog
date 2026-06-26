@@ -1,1 +1,1 @@
-1237_alter_integration_kind
+1242_consolidate_duckgres_models_drop

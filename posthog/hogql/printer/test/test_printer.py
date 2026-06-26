@@ -63,8 +63,7 @@ from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyType
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 from ee.clickhouse.materialized_columns.columns import (
     get_bloom_filter_index_name,
@@ -462,6 +461,11 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("1.0 % 2.66"), "modulo(1.0, 2.66)")
         self.assertEqual(self._expr("'string'"), "%(hogql_val_0)s")
 
+    def test_case_insensitive_function_name(self):
+        # rand is registered case-insensitively, so uppercase RAND() resolves to rand()
+        self.assertEqual(self._expr("rand()"), "rand()")
+        self.assertEqual(self._expr("RAND()"), "rand()")
+
     def test_arrays(self):
         self.assertEqual(self._expr("[]"), "[]")
         self.assertEqual(self._expr("[1,2]"), "[1, 2]")
@@ -605,7 +609,7 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk),
                 "hogql",
             ),
-            "properties.`$browser with a \\` tick`",
+            "properties.`$browser with a `` tick`",
         )
         self.assertEqual(
             self._expr(
@@ -613,7 +617,7 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk),
                 "hogql",
             ),
-            "properties.`$browser \\\\with a \\n\\` tick`",
+            "properties.`$browser \\\\with a \\n`` tick`",
         )
         # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
         self.assertEqual(
@@ -6858,6 +6862,44 @@ class TestDuckDBPrinter(BaseTest):
         for printer in (DuckDBPrinter(context=ctx), PostgresPrinter(context=ctx)):
             with self.assertRaisesMessage(QueryError, 'is not permitted as it contains the "%" character'):
                 printer._print_identifier("bad%name")
+
+    def test_dollar_prefixed_property_renders_as_jsonpath_member(self):
+        # DuckDB's JSON arrow operator reads a key beginning with `$` as a JSONPath root marker, so the
+        # inherited Postgres form `(properties) ->> '$ai_session_id'` fails to bind on duckgres with
+        # "JSON path error near 'ai_session_id'". Every PostHog built-in property is `$`-prefixed, so
+        # DuckDB must emit the key as a quoted JSONPath member instead: `$."$ai_session_id"`.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._expr("properties.$ai_session_id", context=context)
+        self.assertEqual(printed, "(events.properties) ->> %(hogql_val_0)s")
+        self.assertEqual(list(context.values.values()), ['$."$ai_session_id"'])
+
+    def test_nested_property_renders_as_single_jsonpath_member(self):
+        # A nested chain collapses into one JSONPath bound as a single value, not a chain of arrows.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._expr("properties.a.b.$browser", context=context)
+        self.assertEqual(printed, "(events.properties) ->> %(hogql_val_0)s")
+        self.assertEqual(list(context.values.values()), ['$."a"."b"."$browser"'])
+
+    def test_json_property_key_with_quote_is_escaped_in_jsonpath(self):
+        # A `"` in the key would terminate the quoted JSONPath member early, so it must be backslash
+        # escaped. The whole path is still a bound value, so this is not a SQL-injection vector.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self._expr("properties['a\"b']", context=context)
+        self.assertEqual(list(context.values.values()), ['$."a\\"b"'])
+
+    def test_repeated_property_access_reuses_one_placeholder(self):
+        # DuckDB rejects `GROUP BY <expr>` when the same JSON path is bound to a different placeholder
+        # in the SELECT than in the GROUP BY — it can't prove the two parameterized expressions are
+        # equal. Repeated identical reads must collapse to a single bound value so the printed
+        # expressions match textually.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select(
+            "SELECT properties.$ai_session_id AS s, count() AS n FROM events GROUP BY properties.$ai_session_id",
+            context=context,
+        )
+        self.assertEqual(list(context.values.values()).count('$."$ai_session_id"'), 1)
+        # the SELECT and GROUP BY reference the very same placeholder token
+        self.assertEqual(printed.count("(events.properties) ->> %(hogql_val_0)s"), 2)
 
 
 class TestMySQLPrinter(BaseTest):

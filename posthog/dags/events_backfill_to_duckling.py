@@ -8,8 +8,8 @@ This job targets individual customer "ducklings" - isolated DuckLake instances w
 own RDS catalog and S3 bucket.
 
 Architecture:
-    DuckgresServer (connection + S3 bucket name; older orgs read the bucket from DuckLakeCatalog)
-        │ team_id → organization_id → connection; bucket from the stored DuckgresServer/DuckLakeCatalog row
+    DuckgresServer (duckgres connection + DuckLake catalog connection + S3 bucket name)
+        │ team_id → organization_id → connection; bucket from the control plane / stored DuckgresServer row
         ▼
     ClickHouse (events table)
         │ export via s3() - bucket policy allows ClickHouse EC2 role
@@ -25,12 +25,11 @@ IAM Access:
 
 Partition Strategy:
     DynamicPartitionsDefinition with composite keys: {team_id}_{date}
-    - team_id maps to a duckling via DuckLakeBackfill (enablement) + DuckgresServer (connection)
+    - team_id maps to a duckling via DuckgresServerTeam (membership + enablement) + DuckgresServer (connection)
     - date is the partition date (YYYY-MM-DD)
 """
 
 import os
-import json
 import math
 import time
 import calendar
@@ -68,13 +67,8 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.ducklake.client import make_duckgres_conninfo
-from posthog.ducklake.common import (
-    DUCKGRES_BUCKET_REGION,
-    _get_org_id_for_team,
-    get_duckgres_server_for_organization,
-    get_ducklake_catalog_for_organization,
-)
-from posthog.ducklake.models import DuckLakeBackfill
+from posthog.ducklake.common import DUCKGRES_BUCKET_REGION, _get_org_id_for_team, get_duckgres_server_for_organization
+from posthog.ducklake.models import DuckgresServerTeam
 
 logger = structlog.get_logger(__name__)
 
@@ -180,8 +174,8 @@ class DucklingTarget:
 
     Built once per run from the team's organization id. The duckgres connection is driven by
     make_duckgres_conninfo (duckgres owns catalog attachment on the connection); the S3 bucket
-    is resolved by _resolve_duckling_target (DuckLakeCatalog → control plane → stored
-    DuckgresServer fallback). The control plane is the authoritative owner of the bucket name.
+    is resolved by _resolve_duckling_target (control plane → stored DuckgresServer fallback).
+    The control plane is the authoritative owner of the bucket name.
     """
 
     team_id: int
@@ -196,12 +190,12 @@ class DucklingTarget:
 def _resolve_table_names(team_id: int) -> tuple[str, str]:
     """Resolve this team's per-environment events/persons table names.
 
-    A team's `DuckLakeBackfill.table_suffix` (when set) isolates its data into
+    A team's `DuckgresServerTeam.table_suffix` (when set) isolates its data into
     dedicated `events_<suffix>` / `persons_<suffix>` tables so multiple teams sharing one
     org-scoped duckling don't merge into the shared `posthog.events` / `posthog.persons`.
     An unset suffix (legacy single-team ducklings) keeps the shared table names.
     """
-    suffix = DuckLakeBackfill.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
+    suffix = DuckgresServerTeam.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
     if not suffix:
         return "events", "persons"
     _validate_identifier(suffix)
@@ -216,14 +210,12 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     per-environment suffix (or the shared defaults).
 
     Bucket resolution order:
-      1. The org's DuckLakeCatalog row (hand-entered, older orgs that predate the control
-         plane and have no CP-owned bucket to ask about).
-      2. The control plane — the single owner of the duckling bucket name. It is consulted
+      1. The control plane — the single owner of the duckling bucket name. It is consulted
          BEFORE the stored DuckgresServer row on purpose: a row provisioned before the
          naming fix carries a stale, locally-derived bucket that names an object store
          that doesn't exist, and that stale value must not win. cp_bucket_for() also
          reconciles the row so it converges for next time.
-      3. The stored DuckgresServer.bucket, only as a fallback when the control plane is
+      2. The stored DuckgresServer.bucket, only as a fallback when the control plane is
          unreachable/unconfigured — so a transient CP outage doesn't fail a run whose
          bucket is already known-good.
 
@@ -231,22 +223,10 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     Crossplane composition and produced buckets that don't exist. Fail loudly if nothing
     can name it rather than export to a guessed bucket.
     """
-    from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+    from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
     org_id = _get_org_id_for_team(team_id)
     events_table, persons_table = _resolve_table_names(team_id)
-
-    catalog = get_ducklake_catalog_for_organization(org_id)
-    if catalog is not None and catalog.bucket:
-        bucket, bucket_region = catalog.bucket, catalog.bucket_region
-        return DucklingTarget(
-            team_id=team_id,
-            organization_id=org_id,
-            bucket=bucket,
-            bucket_region=bucket_region,
-            events_table=events_table,
-            persons_table=persons_table,
-        )
 
     # Control plane first — authoritative, and rejects an org_id-mismatched status body.
     cp_bucket = managed_warehouse.cp_bucket_for(org_id)
@@ -286,8 +266,8 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
         )
 
     raise ValueError(
-        f"No S3 bucket resolvable for org {org_id}: absent from DuckLakeCatalog, the control "
-        f"plane warehouse status named none, and no stored DuckgresServer bucket to fall back to."
+        f"No S3 bucket resolvable for org {org_id}: the control plane warehouse status named "
+        f"none, and no stored DuckgresServer bucket to fall back to."
     )
 
 
@@ -406,6 +386,38 @@ def _connection_dropped(exc: BaseException) -> bool:
     return False
 
 
+# Transient S3 responses (5xx and throttling) that DuckLake surfaces back through the PG
+# wire while touching object storage: glob() listing the run's files, ducklake_add_data_files
+# reading Parquet footers, and the ranged DELETE's data-file rewrites. S3 occasionally returns
+# 503 SlowDown/Service Unavailable or 500 InternalError under load (e.g. right after an export
+# writes a fan-out of files and registration immediately lists them).
+_TRANSIENT_S3_MARKERS = (
+    "http 503",
+    "service unavailable",
+    "http 500",
+    "internalerror",
+    "http 429",
+    "too many requests",
+    "slowdown",
+    "slow down",
+    "reduce your request rate",
+)
+
+
+def _is_transient_s3_error(exc: BaseException) -> bool:
+    """True when `exc` is a transient S3 5xx/throttle surfaced by duckgres while reading or
+    listing object storage. Unlike _connection_dropped the worker is healthy — S3 just
+    hiccuped — so it is retryable on the SAME connection (no reconnect) after a backoff.
+
+    Gated on the message actually referencing object storage / an HTTP transport error so a
+    genuine SQL error that merely contains a number like "500" can't be misclassified.
+    """
+    msg = str(exc).lower()
+    if not any(token in msg for token in ("s3://", "http error", "http get", "http put", "http head")):
+        return False
+    return any(marker in msg for marker in _TRANSIENT_S3_MARKERS)
+
+
 class _DuckgresSession:
     """A duckgres connection that transparently reconnects to a fresh worker when
     the current worker drops mid-statement.
@@ -444,35 +456,56 @@ class _DuckgresSession:
         return self._conn
 
     def run(self, what: str, op: Callable[[psycopg.Connection[Any]], Any]) -> Any:
-        """Run `op(conn)`, reconnecting to a fresh worker and retrying if the
-        worker/connection drops mid-statement. Non-connection errors propagate
-        immediately (no retry); the last connection error is re-raised once the
-        attempt budget is exhausted.
+        """Run `op(conn)`, retrying on two recoverable failure classes:
+
+          * worker/connection drop mid-statement → reconnect to a fresh worker and replay;
+          * transient S3 5xx/throttle while touching object storage → replay on the SAME
+            connection (the worker is healthy) after a backoff.
+
+        Any other (genuine SQL/logic) error propagates immediately. The last recoverable
+        error is re-raised once the attempt budget is exhausted. `op` MUST be idempotent —
+        a replay can re-run an already-applied op (see the class docstring).
         """
         last_exc: Exception | None = None
         for attempt in range(1, self.MAX_ATTEMPTS + 1):
             try:
                 return op(self._conn)
             except Exception as exc:
-                if not _connection_dropped(exc):
+                dropped = _connection_dropped(exc)
+                transient_s3 = _is_transient_s3_error(exc)
+                if not (dropped or transient_s3):
                     raise
                 last_exc = exc
                 if attempt == self.MAX_ATTEMPTS:
                     break
-                self._context.log.warning(
-                    f"duckgres worker/connection dropped during {what} "
-                    f"(attempt {attempt}/{self.MAX_ATTEMPTS}); reconnecting to a fresh worker: {exc}"
-                )
-                logger.warning(
-                    "duckling_duckgres_reconnect",
-                    what=what,
-                    attempt=attempt,
-                    error=str(exc),
-                    error_type=type(exc).__name__,
-                )
-                self._reconnect()
+                if dropped:
+                    self._context.log.warning(
+                        f"duckgres worker/connection dropped during {what} "
+                        f"(attempt {attempt}/{self.MAX_ATTEMPTS}); reconnecting to a fresh worker: {exc}"
+                    )
+                    logger.warning(
+                        "duckling_duckgres_reconnect",
+                        what=what,
+                        attempt=attempt,
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
+                    self._reconnect()
+                else:
+                    # Transient S3 hiccup — the worker is fine, just back off and replay.
+                    self._context.log.warning(
+                        f"transient S3 error during {what} "
+                        f"(attempt {attempt}/{self.MAX_ATTEMPTS}); retrying after backoff: {exc}"
+                    )
+                    logger.warning(
+                        "duckling_duckgres_transient_s3_retry",
+                        what=what,
+                        attempt=attempt,
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
                 time.sleep(min(2**attempt, 30))
-        assert last_exc is not None  # only reached after a connection-drop break
+        assert last_exc is not None  # only reached after a recoverable-error break
         raise last_exc
 
     def _reconnect(self) -> None:
@@ -2275,10 +2308,10 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 def duckling_events_daily_backfill_sensor(
     context: SensorEvaluationContext,
 ) -> SensorResult:
-    """Discover teams with backfills enabled (DuckLakeBackfill) and create daily backfill partitions.
+    """Discover teams with backfills enabled (DuckgresServerTeam) and create daily backfill partitions.
 
     This sensor runs periodically to:
-    1. Find all teams with backfills enabled (DuckLakeBackfill)
+    1. Find all teams with backfills enabled (DuckgresServerTeam)
     2. Create partitions for yesterday's data (if not already exists)
     3. Trigger backfill runs for new partitions
     4. Retry failed partitions that already exist
@@ -2291,7 +2324,7 @@ def duckling_events_daily_backfill_sensor(
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
 
-    for backfill in DuckLakeBackfill.objects.filter(enabled=True):
+    for backfill in DuckgresServerTeam.objects.filter(backfill_enabled=True):
         partition_key = f"{backfill.team_id}_{yesterday}"
 
         if partition_key not in existing:
@@ -2367,11 +2400,37 @@ def duckling_events_daily_backfill_sensor(
     )
 
 
-# Number of monthly partitions to create per sensor tick (to avoid timeout)
+# Number of monthly partitions to create per sensor tick (to avoid timeout).
+# Still used by the persons full-backfill sensor below.
 BACKFILL_MONTHS_PER_TICK = 3
 
 # Ignore events before this date — pre-2015 data is typically junk timestamps
 EARLIEST_BACKFILL_DATE = datetime(2015, 1, 1)
+
+# Full EVENTS-backfill sensor (round-robin, bounded top-up). Execution is throttled
+# separately by the duckling_events_v1 managed concurrency limit (charts) — kept small so
+# ClickHouse only ever sees a few concurrent exports. These knobs govern how the sensor
+# ENQUEUES into that limit; they never widen ClickHouse load.
+#
+# Standing depth of the run queue the sensor keeps topped up. Bounded so Dagster never
+# holds thousands of QUEUED runs: with the concurrency limit draining a few at a time, a
+# shallow queue keeps every slot busy while staying small. Fairness across orgs comes from
+# round-robin selection, not from depth.
+EVENTS_BACKFILL_TARGET_QUEUE_DEPTH = 100
+# Hard cap on RunRequests emitted in one tick, bounding the tick's work (and its 60s eval
+# budget) even when filling the queue from empty.
+EVENTS_BACKFILL_MAX_PARTITIONS_PER_TICK = 100
+# Cap on per-team earliest-event ClickHouse lookups per tick. This is the only expensive
+# sensor op; it runs once per team ever, then the result is cached on the model row.
+EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK = 5
+# Stored in DuckgresServerTeam.earliest_event_date for a team with no events, so the sensor
+# caches "nothing to backfill" instead of re-querying every tick. Far enough in the future
+# that the generated months range is always empty.
+_NO_HISTORY_SENTINEL = date(9999, 12, 31)
+# Run tag stamped on full-backfill runs only. The full and daily events sensors share one
+# job (duckling_events_backfill_job), so the top-up's in-flight count filters on this tag to
+# count its OWN queued runs — otherwise a burst of daily runs could zero out its slots.
+_FULL_BACKFILL_RUN_TAG = {"duckling_backfill_type": "full"}
 
 
 def get_months_in_range(start_date: date, end_date: date) -> list[str]:
@@ -2393,147 +2452,133 @@ def get_months_in_range(start_date: date, end_date: date) -> list[str]:
 
 @sensor(
     name="duckling_events_full_backfill_sensor",
-    minimum_interval_seconds=600,  # Run every 10 minutes
+    minimum_interval_seconds=60,  # Cheap now (no per-month ClickHouse query) — tick often to keep the queue fed
     job_name="duckling_events_backfill_job",
     default_status=DefaultSensorStatus.RUNNING,
 )
 def duckling_events_full_backfill_sensor(
     context: SensorEvaluationContext,
 ) -> SensorResult:
-    """Full historical backfill sensor - creates MONTHLY partitions for efficiency.
+    """Full historical events backfill — monthly partitions, enqueued round-robin under a bounded queue.
 
-    Uses monthly partitions (YYYY-MM) instead of daily to reduce partition count.
-    Each monthly partition processes all days in that month.
+    Monthly partitions (``{team_id}_{YYYY-MM}``) keep the partition count down; each one
+    backfills all days in its month.
 
-    Cursor format: {"team_id": X, "next_month": "YYYY-MM", "earliest": "YYYY-MM"}
+    Enqueue strategy, decoupled from execution (which the duckling_events_v1 concurrency
+    limit throttles to a handful of concurrent runs to protect ClickHouse):
 
-    Each tick creates up to BACKFILL_MONTHS_PER_TICK partitions (default 3)
-    to stay within the 60-second timeout limit.
+      * ``earliest_event_date`` is resolved from ClickHouse ONCE per team and cached on the
+        ``DuckgresServerTeam`` row (bounded to EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK
+        lookups per tick), so the hot path issues no ClickHouse queries and an org's whole
+        history can be enqueued in a few quick ticks instead of dripping 3 months / 10 min.
+      * Candidate months are interleaved ROUND-ROBIN across all enabled teams (each team
+        advances one month per round), so the FIFO run queue drains fairly — no org waits
+        for another's entire history to finish first.
+      * The sensor tops the queue up to EVENTS_BACKFILL_TARGET_QUEUE_DEPTH (counting
+        in-flight runs) rather than dumping the whole backlog, so Dagster holds a small
+        bounded queue while the concurrency limit does the actual throttling.
 
-    Manual trigger:
-        To restart from scratch, reset the cursor in Dagster UI:
-        Sensors -> duckling_events_full_backfill_sensor -> Reset cursor
+    Idempotent and cursor-free: already-registered partitions are skipped and ``run_key`` is
+    the partition key, so re-ticks and restarts never double-enqueue. Any cursor written by
+    the previous serial implementation is simply ignored (safe rollback either way).
     """
     yesterday = (timezone.now() - timedelta(days=1)).date()
 
-    # Parse cursor - tracks where we left off
-    cursor_data: dict = {}
-    if context.cursor:
-        try:
-            cursor_data = json.loads(context.cursor)
-        except json.JSONDecodeError:
-            cursor_data = {}
-
-    backfills = list(DuckLakeBackfill.objects.filter(enabled=True).order_by("team_id"))
+    backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
     if not backfills:
-        context.log.info("No enabled DuckLakeBackfill entries found")
+        context.log.info("No enabled DuckgresServerTeam entries found")
         return SensorResult(run_requests=[])
 
-    # Find where to resume from
-    resume_team_id = cursor_data.get("team_id")
-    resume_month = cursor_data.get("next_month")
-    cached_earliest = cursor_data.get("earliest")
-
-    # Find the backfill entry to resume from (or start from first)
-    start_idx = 0
-    if resume_team_id:
-        for i, bf in enumerate(backfills):
-            if bf.team_id == resume_team_id:
-                start_idx = i
-                break
-
-    new_partitions: list[str] = []
-    run_requests: list[RunRequest] = []
-    existing_partitions = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
-
-    # Process backfills starting from where we left off
-    for bf_idx, bf in enumerate(backfills[start_idx:], start=start_idx):
-        if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
-            context.log.info(f"Batch limit reached, will continue from team {bf.team_id}")
+    # 1. Resolve + cache earliest_event_date for teams that don't have it yet. This is the
+    #    only expensive op (one ClickHouse query/team), bounded per tick and cached forever.
+    lookups = 0
+    for bf in backfills:
+        if bf.earliest_event_date is not None:
+            continue
+        if lookups >= EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK:
             break
-
-        team_id = bf.team_id
-
-        # Determine start month - use cached value if resuming same team
-        if team_id == resume_team_id and cached_earliest:
-            earliest_month = cached_earliest
-            current_month = resume_month if resume_month else earliest_month
+        lookups += 1
+        earliest_dt = get_earliest_event_date_for_team(bf.team_id)
+        if earliest_dt is None:
+            bf.earliest_event_date = _NO_HISTORY_SENTINEL
+            context.log.info(f"No events for team_id={bf.team_id}; caching no-history sentinel")
         else:
-            # Query ClickHouse for earliest date (only once per team)
-            earliest_dt = get_earliest_event_date_for_team(team_id)
-            if earliest_dt is None:
-                context.log.info(f"No events found for team_id={team_id}, skipping")
-                continue
-            earliest_dt = max(earliest_dt, EARLIEST_BACKFILL_DATE)
-            earliest_month = earliest_dt.strftime("%Y-%m")
-            current_month = earliest_month
+            bf.earliest_event_date = max(earliest_dt, EARLIEST_BACKFILL_DATE).date()
+        bf.save(update_fields=["earliest_event_date"])
 
-        # Generate monthly partitions for this team
-        end_month = yesterday.strftime("%Y-%m")
-        all_months = get_months_in_range(datetime.strptime(current_month, "%Y-%m").date(), yesterday)
+    # 2. Per-team remaining months (oldest first), skipping already-registered partitions.
+    existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
+    per_team_remaining: list[list[str]] = []
+    for bf in backfills:
+        earliest = bf.earliest_event_date
+        if earliest is None or earliest > yesterday:
+            # Unresolved this tick, or no-history sentinel / brand-new team (nothing historical yet).
+            continue
+        keys = [f"{bf.team_id}_{m}" for m in get_months_in_range(earliest, yesterday)]
+        remaining = [k for k in keys if k not in existing]
+        if remaining:
+            per_team_remaining.append(remaining)
 
-        for month in all_months:
-            if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
-                break
+    # 3. Round-robin interleave by month index: round r takes each team's r-th remaining
+    #    month, so the queue order is team0-m0, team1-m0, ..., team0-m1, ... — fair under FIFO.
+    candidates: list[str] = []
+    round_idx = 0
+    while True:
+        added = False
+        for team_keys in per_team_remaining:
+            if round_idx < len(team_keys):
+                candidates.append(team_keys[round_idx])
+                added = True
+        if not added:
+            break
+        round_idx += 1
 
-            partition_key = f"{team_id}_{month}"
-            current_month = month
+    if not candidates:
+        context.log.debug("Full events backfill: nothing left to enqueue")
+        return SensorResult(run_requests=[])
 
-            # Skip partitions that already exist — advance cursor past them
-            if partition_key in existing_partitions:
-                continue
+    # 4. Bounded top-up: emit only enough to refill the queue to the target depth. The
+    #    `limit` bounds the status query — we only need in-flight count vs. the target.
+    inflight = context.instance.get_runs(
+        filters=RunsFilter(
+            job_name="duckling_events_backfill_job",
+            tags=_FULL_BACKFILL_RUN_TAG,  # count only full-backfill runs, not the shared-job daily runs
+            statuses=[
+                DagsterRunStatus.QUEUED,
+                DagsterRunStatus.NOT_STARTED,
+                DagsterRunStatus.STARTING,
+                DagsterRunStatus.STARTED,
+            ],
+        ),
+        limit=EVENTS_BACKFILL_TARGET_QUEUE_DEPTH + 1,
+    )
+    slots = max(0, EVENTS_BACKFILL_TARGET_QUEUE_DEPTH - len(inflight))
+    to_emit = candidates[: min(slots, EVENTS_BACKFILL_MAX_PARTITIONS_PER_TICK)]
 
-            new_partitions.append(partition_key)
-            run_requests.append(
-                RunRequest(
-                    partition_key=partition_key,
-                )
-            )
-
-        # Update cursor for next tick
-        # Move to next month after the last one we processed
-        last_processed = datetime.strptime(current_month, "%Y-%m").date()
-        if last_processed.month == 12:
-            next_month_date = date(last_processed.year + 1, 1, 1)
-        else:
-            next_month_date = date(last_processed.year, last_processed.month + 1, 1)
-        next_month = next_month_date.strftime("%Y-%m")
-
-        if next_month <= end_month:
-            # More months to process for this team
-            cursor_data = {
-                "team_id": team_id,
-                "next_month": next_month,
-                "earliest": earliest_month,
-            }
-        else:
-            # Done with this team, move to next
-            next_idx = bf_idx + 1
-            if next_idx < len(backfills):
-                cursor_data = {"team_id": backfills[next_idx].team_id}
-            else:
-                # All teams done - reset cursor to check again tomorrow
-                cursor_data = {"completed": timezone.now().date().isoformat()}
-
-    # Check if we're in "completed" state and should skip until new data
-    if cursor_data.get("completed") == timezone.now().date().isoformat() and not new_partitions:
-        context.log.debug("Full backfill complete for today")
-        return SensorResult(run_requests=[], cursor=json.dumps(cursor_data))
-
-    if new_partitions:
-        context.log.info(f"Creating {len(new_partitions)} monthly partitions")
-        logger.info(
-            "duckling_full_backfill_batch",
-            partition_count=len(new_partitions),
-            cursor=cursor_data,
+    if not to_emit:
+        context.log.debug(
+            f"Full events backfill: queue at capacity ({len(inflight)}/{EVENTS_BACKFILL_TARGET_QUEUE_DEPTH}), "
+            f"{len(candidates)} still pending"
         )
+        return SensorResult(run_requests=[])
 
+    # run_key = partition_key so a re-tick or restart can't double-launch the same month.
+    # The tag lets the next tick's in-flight count see these as full-backfill runs.
+    run_requests = [RunRequest(partition_key=k, run_key=k, tags=_FULL_BACKFILL_RUN_TAG) for k in to_emit]
+    context.log.info(
+        f"Enqueuing {len(to_emit)} monthly partition(s) across {len(per_team_remaining)} team(s); "
+        f"{len(inflight)} in flight, {len(candidates) - len(to_emit)} still pending"
+    )
+    logger.info(
+        "duckling_full_backfill_enqueue",
+        emitted=len(to_emit),
+        inflight=len(inflight),
+        pending=len(candidates) - len(to_emit),
+        teams_with_work=len(per_team_remaining),
+    )
     return SensorResult(
         run_requests=run_requests,
-        dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)]
-        if new_partitions
-        else [],
-        cursor=json.dumps(cursor_data),
+        dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(to_emit)],
     )
 
 
@@ -2555,7 +2600,7 @@ duckling_events_backfill_job = define_asset_job(
 def duckling_persons_daily_backfill_sensor(
     context: SensorEvaluationContext,
 ) -> SensorResult:
-    """Discover teams with backfills enabled (DuckLakeBackfill) and create daily persons partitions.
+    """Discover teams with backfills enabled (DuckgresServerTeam) and create daily persons partitions.
 
     Similar to duckling_events_daily_backfill_sensor but for persons data.
     Uses _timestamp (Kafka ingestion time) for date filtering.
@@ -2567,7 +2612,7 @@ def duckling_persons_daily_backfill_sensor(
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
 
-    for backfill in DuckLakeBackfill.objects.filter(enabled=True):
+    for backfill in DuckgresServerTeam.objects.filter(backfill_enabled=True):
         partition_key = f"{backfill.team_id}_{yesterday}"
 
         if partition_key not in existing:
@@ -2657,9 +2702,9 @@ def duckling_persons_full_backfill_sensor(
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    backfills = list(DuckLakeBackfill.objects.filter(enabled=True).order_by("team_id"))
+    backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
     if not backfills:
-        context.log.info("No enabled DuckLakeBackfill entries found")
+        context.log.info("No enabled DuckgresServerTeam entries found")
         return SensorResult(run_requests=[])
 
     # Check existing partitions

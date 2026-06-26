@@ -3,7 +3,7 @@
 Direct-query-only utilities (DataWarehouseTable upserts, the `direct://postgres`
 url_pattern, the option keys that encode source location on a direct table) live
 in `direct_postgres.py`. Generic projection / `schema_metadata` builders live in
-`posthog/temporal/data_imports/sources/common/sql/{projection,metadata}.py`.
+`products/warehouse_sources/backend/temporal/data_imports/sources/common/sql/{projection,metadata}.py`.
 """
 
 from __future__ import annotations
@@ -13,18 +13,6 @@ from typing import TYPE_CHECKING, Any
 from django.db.models import Q
 
 import structlog
-
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace
-from posthog.temporal.data_imports.sources.common.sql.metadata import (
-    extract_available_column_names,
-    sql_schema_metadata as _sql_schema_metadata,
-)
-from posthog.temporal.data_imports.sources.common.sql.projection import (
-    filter_columns_by_enabled_columns as _filter_columns_by_enabled_columns,
-    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
-    prune_enabled_columns,
-)
 
 from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_CATALOG_OPTION,
@@ -38,6 +26,17 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.util import (
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import normalize_namespace
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
+    extract_available_column_names,
+    sql_schema_metadata as _sql_schema_metadata,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    filter_columns_by_enabled_columns as _filter_columns_by_enabled_columns,
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    prune_enabled_columns,
 )
 
 if TYPE_CHECKING:

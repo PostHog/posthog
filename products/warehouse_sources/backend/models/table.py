@@ -31,10 +31,10 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
-from products.data_warehouse.backend.direct_mysql import DIRECT_MYSQL_SCHEMA_OPTION, DIRECT_MYSQL_TABLE_OPTION
-from products.data_warehouse.backend.direct_postgres import (
+from products.data_warehouse.backend.facade.sources import (
+    DIRECT_MYSQL_SCHEMA_OPTION,
+    DIRECT_MYSQL_TABLE_OPTION,
     DIRECT_POSTGRES_CATALOG_OPTION,
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.models.util import (
     clean_type,
     remove_named_tuples,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables
