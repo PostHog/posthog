@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import type { QueuedMessage } from '../logics/taskRunInteractionLogic'
+import type { QueuedMessage } from '../logics/runInteractionLogic'
 import { QueuedMessageList } from './QueuedMessageList'
 
 // Logic-free and controlled — the story owns the queue and wires `onUpdate` / `onRemove`, exactly as the

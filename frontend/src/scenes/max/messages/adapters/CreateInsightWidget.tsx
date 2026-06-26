@@ -1,4 +1,4 @@
-import { GenericMcpToolRenderer, SandboxDataToolRow, type SandboxToolRendererProps } from 'products/posthog_ai/frontend'
+import { GenericMcpToolRenderer, DataToolRow, type ToolRendererProps } from 'products/posthog_ai/frontend/api/tools'
 
 import { VisualizationWidget, getArtifactOpenTarget } from '../VisualizationWidget'
 import { extractVisualizationArtifact } from './extractors'
@@ -8,7 +8,7 @@ import { extractVisualizationArtifact } from './extractors'
  * artifact lands (pending / in-progress / malformed output) we fall back to the generic card so
  * the call still renders something.
  */
-export function CreateInsightWidget(props: SandboxToolRendererProps): JSX.Element {
+export function CreateInsightWidget(props: ToolRendererProps): JSX.Element {
     const { message } = props
     const artifact = message.status === 'completed' ? extractVisualizationArtifact(message) : null
 
@@ -19,13 +19,13 @@ export function CreateInsightWidget(props: SandboxToolRendererProps): JSX.Elemen
     const target = getArtifactOpenTarget(artifact.envelope, artifact.content)
 
     return (
-        <SandboxDataToolRow {...props}>
+        <DataToolRow {...props}>
             <VisualizationWidget
                 content={artifact.content}
                 openUrl={target.url}
                 openTooltip={target.tooltip}
                 embedded
             />
-        </SandboxDataToolRow>
+        </DataToolRow>
     )
 }

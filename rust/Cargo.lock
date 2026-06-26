@@ -2835,6 +2835,7 @@ dependencies = [
  "sqlx",
  "subtle",
  "symbolic",
+ "testcontainers",
  "thiserror 2.0.18",
  "tiktoken-rs",
  "tokio",

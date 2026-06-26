@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import type { SandboxToolCallMessage } from 'products/posthog_ai/frontend/types/sandboxToolTypes'
+import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 import { BuiltinToolRenderer } from './builtinToolRenderers'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
@@ -15,7 +15,7 @@ function imageBlock(data: string, mimeType: string): unknown {
     return { type: 'content', content: { type: 'image', data, mimeType } }
 }
 
-function makeMessage(overrides: Partial<SandboxToolCallMessage> = {}): SandboxToolCallMessage {
+function makeMessage(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage {
     return {
         id: 'tc-1',
         resolvedKey: 'Bash',
