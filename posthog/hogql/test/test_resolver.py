@@ -717,10 +717,10 @@ class TestResolver(BaseTest):
             "top as (select p.event from mid p, mid q) "
             "select r.event from top r, top s"
         )
-        assert built_ids, "expected at least one CTE table to be built"
         assert len(built_ids) == len(set(built_ids)), (
             f"a CTE table was rebuilt: {len(built_ids)} builds for {len(set(built_ids))} distinct CTEs"
         )
+        assert len(set(built_ids)) == 3, "all 3 CTEs (base, mid, top) should be built exactly once"
 
     def test_same_named_ctes_in_different_scopes_do_not_collide(self):
         # Same name, different scopes: keyed by type identity not name, so they must not collide.
