@@ -16,6 +16,7 @@ import { useEffect } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -41,7 +42,7 @@ import { sourceSettingsLogic } from './tabs/sourceSettingsLogic'
 import { SyncsTab } from './tabs/SyncsTab'
 import { WebhookTab } from './tabs/WebhookTab'
 
-const SOURCE_SCENE_TABS = ['schemas', 'syncs', 'metrics', 'configuration', 'webhook'] as const
+const SOURCE_SCENE_TABS = ['schemas', 'syncs', 'metrics', 'configuration', 'webhook', 'history'] as const
 export type SourceSceneTab = (typeof SOURCE_SCENE_TABS)[number]
 
 export interface SourceSceneProps {
@@ -267,6 +268,12 @@ function ManagedSourceTabs({
             content: <WebhookTab id={sourceId} />,
         })
     }
+
+    tabs.push({
+        label: 'History',
+        key: 'history',
+        content: <ActivityLog id={sourceId} scope={ActivityScope.EXTERNAL_DATA_SOURCE} />,
+    })
 
     return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
 }

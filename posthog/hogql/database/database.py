@@ -150,11 +150,14 @@ from posthog.synthetic_user import SyntheticUser
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    DataWarehouseTableColumns,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 # posthog.schema (the pydantic models) is runtime-imported inside serialize()/serialize_fields()
 # so it stays off django.setup(), where this module loads via the warehouse/data-modeling models.

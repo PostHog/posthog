@@ -25,9 +25,7 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
 
 
@@ -1266,7 +1264,9 @@ class TestDirectPostgresQuery(APIBaseTest):
             'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function',
         )
 
-    @override_settings(CLOUD_DEPLOYMENT="US")
+    # DEV (not US/EU) keeps the host guard active without the internal-team allowlist, which the
+    # test team's auto-assigned id can otherwise collide with (US team_id 2 / EU team_id 1).
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_blocks_internal_host(self, mock_connect):
         source = ExternalDataSource.objects.create(

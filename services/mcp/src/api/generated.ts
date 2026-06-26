@@ -2698,6 +2698,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
+      total_median_conversion_time?: number | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -4391,14 +4393,95 @@ export namespace Schemas {
       config: ExperimentResultsWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi;
+    export type LogsListWidgetAddRequestOpenApiWidgetType = typeof LogsListWidgetAddRequestOpenApiWidgetType[keyof typeof LogsListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const LogsListWidgetAddRequestOpenApiWidgetType = {
+      LogsList: 'logs_list',
+    } as const;
+
+    /**
+     * Sort by newest (latest) or oldest (earliest) first.
+     */
+    export type LogsListWidgetConfigOrderBy = typeof LogsListWidgetConfigOrderBy[keyof typeof LogsListWidgetConfigOrderBy];
+
+
+    export const LogsListWidgetConfigOrderBy = {
+      Latest: 'latest',
+      Earliest: 'earliest',
+    } as const;
+
+    export type LogsListWidgetConfigSeverityLevelsItem = typeof LogsListWidgetConfigSeverityLevelsItem[keyof typeof LogsListWidgetConfigSeverityLevelsItem];
+
+
+    export const LogsListWidgetConfigSeverityLevelsItem = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
+
+    /**
+     * Render log timestamps in UTC or in each viewer's local timezone.
+     */
+    export type LogsListWidgetConfigTimezone = typeof LogsListWidgetConfigTimezone[keyof typeof LogsListWidgetConfigTimezone];
+
+
+    export const LogsListWidgetConfigTimezone = {
+      Utc: 'UTC',
+      Local: 'local',
+    } as const;
+
+    export interface LogsListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      /**
+         * Maximum number of log lines to return.
+         * @minimum 1
+         * @maximum 100
+         */
+      limit?: number;
+      /** Sort by newest (latest) or oldest (earliest) first. */
+      orderBy?: LogsListWidgetConfigOrderBy;
+      /** Only show logs at these severity levels. Empty shows all levels. */
+      severityLevels?: LogsListWidgetConfigSeverityLevelsItem[];
+      /** Only show logs from these services. Empty shows all services. */
+      serviceNames?: string[];
+      /** Wrap long log lines instead of truncating them to a single row. */
+      wrapLines?: boolean;
+      /** Render log timestamps in UTC or in each viewer's local timezone. */
+      timezone?: LogsListWidgetConfigTimezone;
+      /** short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply. */
+      savedViewId?: string | null;
+    }
+
+    export interface LogsListWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: LogsListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the recent logs widget. */
+      config: LogsListWidgetConfig;
+    }
+
+    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -7400,7 +7483,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig;
+    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | LogsListWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -8262,7 +8345,7 @@ export namespace Schemas {
       kind: 'custom_template';
       from_template: string;
       alias: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
     } | {
       kind: 'client';
@@ -8317,8 +8400,9 @@ export namespace Schemas {
       description?: string;
       from_template?: string;
       alias?: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
+      source_version_id?: string;
     };
 
     export type AgentRevisionSpecIdentityProvidersItem = {
@@ -8470,6 +8554,29 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * One reference to a versioned skill in the llma-skill store, pinned into
+     * this agent's bundle at freeze.
+     */
+    export interface SkillRef {
+      /**
+         * Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.
+         * @maxLength 64
+         */
+      from_template: string;
+      /**
+         * Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.
+         * @maxLength 64
+         * @pattern ^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
+         */
+      alias: string;
+      /**
+         * Specific published version to pin. Omit to pin the store's latest version at freeze time.
+         * @minimum 1
+         */
+      version?: number;
+    }
+
     export interface AgentRevision {
       readonly id: string;
       readonly application: string;
@@ -8481,6 +8588,8 @@ export namespace Schemas {
       /** @nullable */
       readonly bundle_sha256: string | null;
       spec?: AgentRevisionSpec;
+      /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
+      readonly skill_refs: readonly SkillRef[];
       /** @nullable */
       readonly created_by_id: number | null;
       /**
@@ -12655,6 +12764,22 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export type ClusteringConfigEventFiltersItem = { [key: string]: unknown };
+
+    export interface ClusteringConfig {
+      /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
+      event_filters: ClusteringConfigEventFiltersItem[];
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export type ClusteringConfigSetEventFiltersEventFiltersItem = { [key: string]: unknown };
+
+    export interface ClusteringConfigSetEventFilters {
+      /** PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters. */
+      event_filters: ClusteringConfigSetEventFiltersEventFiltersItem[];
+    }
+
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
@@ -14534,6 +14659,7 @@ export namespace Schemas {
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
+     * * `logs_list` - logs_list
      * * `session_replay_list` - session_replay_list
      */
     export type DashboardPatchWidgetOpenApiWidgetTypeEnum = typeof DashboardPatchWidgetOpenApiWidgetTypeEnum[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnum];
@@ -14544,6 +14670,7 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
+      LogsList: 'logs_list',
       SessionReplayList: 'session_replay_list',
     } as const;
 
@@ -14556,6 +14683,7 @@ export namespace Schemas {
        * * `error_tracking_list` - error_tracking_list
        * * `experiment_results` - experiment_results
        * * `experiments_list` - experiments_list
+       * * `logs_list` - logs_list
        * * `session_replay_list` - session_replay_list */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
       /** Widget-specific configuration. Shape depends on the tile's widget_type. */
@@ -15987,6 +16115,9 @@ export namespace Schemas {
      * * `Superwall` - Superwall
      * * `Liana` - Liana
      * * `TawkTo` - TawkTo
+     * * `Hightouch` - Hightouch
+     * * `LemonSqueezy` - LemonSqueezy
+     * * `Ikas` - Ikas
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16634,6 +16765,9 @@ export namespace Schemas {
       Superwall: 'Superwall',
       Liana: 'Liana',
       TawkTo: 'TawkTo',
+      Hightouch: 'Hightouch',
+      LemonSqueezy: 'LemonSqueezy',
+      Ikas: 'Ikas',
     } as const;
 
     /**
@@ -17294,7 +17428,10 @@ export namespace Schemas {
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
        * * `Liana` - Liana
-       * * `TawkTo` - TawkTo */
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch
+       * * `LemonSqueezy` - LemonSqueezy
+       * * `Ikas` - Ikas */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22509,7 +22646,10 @@ export namespace Schemas {
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
        * * `Liana` - Liana
-       * * `TawkTo` - TawkTo */
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch
+       * * `LemonSqueezy` - LemonSqueezy
+       * * `Ikas` - Ikas */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -27693,6 +27833,22 @@ export namespace Schemas {
       created_at: string;
     }
 
+    /**
+     * * `active` - ACTIVE
+     * * `expiring_soon` - EXPIRING_SOON
+     * * `in_grace` - IN_GRACE
+     * * `overdue` - OVERDUE
+     */
+    export type LifecycleEnum = typeof LifecycleEnum[keyof typeof LifecycleEnum];
+
+
+    export const LifecycleEnum = {
+      Active: 'active',
+      ExpiringSoon: 'expiring_soon',
+      InGrace: 'in_grace',
+      Overdue: 'overdue',
+    } as const;
+
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -28073,6 +28229,58 @@ export namespace Schemas {
       threshold_count: number;
       /** Threshold operator used for evaluation. */
       threshold_operator: string;
+    }
+
+    export type LogsListWidgetCatalogEntryOpenApiWidgetType = typeof LogsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof LogsListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const LogsListWidgetCatalogEntryOpenApiWidgetType = {
+      LogsList: 'logs_list',
+    } as const;
+
+    export interface LogsListWidgetCatalogEntryOpenApi {
+      widget_type: LogsListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: LogsListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `logs_list` - logs_list
+     */
+    export type LogsListWidgetTypeEnum = typeof LogsListWidgetTypeEnum[keyof typeof LogsListWidgetTypeEnum];
+
+
+    export const LogsListWidgetTypeEnum = {
+      LogsList: 'logs_list',
+    } as const;
+
+    export type LogsListWidgetUpdateRequestOpenApiWidgetType = typeof LogsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof LogsListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const LogsListWidgetUpdateRequestOpenApiWidgetType = {
+      LogsList: 'logs_list',
+    } as const;
+
+    export interface LogsListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: LogsListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the recent logs widget. Omit to leave unchanged. */
+      config?: LogsListWidgetConfig;
     }
 
     export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
@@ -28859,6 +29067,20 @@ export namespace Schemas {
       Close: 'close',
       PermissionResponse: 'permission_response',
       SetConfigOption: 'set_config_option',
+    } as const;
+
+    /**
+     * * `up` - up
+     * * `down` - down
+     * * `flat` - flat
+     */
+    export type MetricAnomalyDirectionEnum = typeof MetricAnomalyDirectionEnum[keyof typeof MetricAnomalyDirectionEnum];
+
+
+    export const MetricAnomalyDirectionEnum = {
+      Up: 'up',
+      Down: 'down',
+      Flat: 'flat',
     } as const;
 
     /**
@@ -29955,6 +30177,60 @@ export namespace Schemas {
       Healthy: 'healthy',
       NeedsAttention: 'needs_attention',
     } as const;
+
+    export interface WorkflowCost {
+      /** GitHub Actions workflow name this cost is for. */
+      workflow_name: string;
+      /** Billable (self-hosted) minutes for this workflow within the scope. */
+      billable_minutes: number;
+      /**
+         * Estimated dollar cost for this workflow, or null when nothing was costable.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+      /** Costed jobs for this workflow (billable Linux runner, finished). */
+      costed_jobs: number;
+      /** Billable Linux jobs still queued/running for this workflow. */
+      unsettled_jobs: number;
+      /** Provider-hosted/non-Linux jobs for this workflow, outside the estimate. */
+      excluded_jobs: number;
+    }
+
+    export interface RunCost {
+      /** GitHub Actions run id this cost is for. */
+      run_id: number;
+      /** Re-run attempt number; 1 for the first attempt. */
+      run_attempt: number;
+      /** Billable (self-hosted) minutes for this run attempt. */
+      billable_minutes: number;
+      /**
+         * Estimated dollar cost for this run attempt, or null when nothing was costable.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+    }
+
+    export interface PRCostSummary {
+      /** Same spend broken down per workflow. */
+      by_workflow: WorkflowCost[];
+      /** Same spend broken down per workflow run, keyed by (run_id, run_attempt). */
+      by_run: RunCost[];
+      /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
+      jobs_available: boolean;
+      /** Wall-clock minutes consumed on billable (self-hosted) runners, summed across costed jobs. */
+      billable_minutes: number;
+      /**
+         * Estimated dollar cost (sum of per-job estimates: elapsed x tier multiplier x reference rate). Null when no job was costable.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+      /** Jobs counted in the estimate (billable Linux runner, finished). */
+      costed_jobs: number;
+      /** Billable Linux jobs still queued/running (no elapsed) — excluded from the estimate. */
+      unsettled_jobs: number;
+      /** Jobs on provider-hosted (GitHub-hosted, free) or non-Linux runners — outside the estimate. */
+      excluded_jobs: number;
+    }
 
     export interface RepoRef {
       /** Code host provider, e.g. 'github'. */
@@ -31108,48 +31384,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: PauseStateResponse[];
-    }
-
-    /**
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products
-     */
-    export type PersistedFolderTypeEnum = typeof PersistedFolderTypeEnum[keyof typeof PersistedFolderTypeEnum];
-
-
-    export const PersistedFolderTypeEnum = {
-      Home: 'home',
-      Pinned: 'pinned',
-      CustomProducts: 'custom_products',
-    } as const;
-
-    export interface PersistedFolder {
-      readonly id: string;
-      /** Which persisted folder this is for the user (home, pinned, custom_products).
-       *
-       * * `home` - Home
-       * * `pinned` - Pinned
-       * * `custom_products` - Custom Products */
-      type: PersistedFolderTypeEnum;
-      /**
-         * Protocol prefix of the folder location, e.g. 'products://'.
-         * @maxLength 64
-         */
-      protocol?: string;
-      /** Path within the protocol that the folder resolves to. */
-      path?: string;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedPersistedFolderList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: PersistedFolder[];
     }
 
     export interface PersonRecord {
@@ -34838,7 +35072,7 @@ export namespace Schemas {
       kind: 'custom_template';
       from_template: string;
       alias: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
     } | {
       kind: 'client';
@@ -34893,8 +35127,9 @@ export namespace Schemas {
       description?: string;
       from_template?: string;
       alias?: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
+      source_version_id?: string;
     };
 
     export type PatchedAgentRevisionSpecIdentityProvidersItem = {
@@ -35041,6 +35276,8 @@ export namespace Schemas {
       /** @nullable */
       readonly bundle_sha256?: string | null;
       spec?: PatchedAgentRevisionSpec;
+      /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
+      readonly skill_refs?: readonly SkillRef[];
       /** @nullable */
       readonly created_by_id?: number | null;
       /**
@@ -38150,25 +38387,6 @@ export namespace Schemas {
       delete_insights?: boolean;
     }
 
-    export interface PatchedPersistedFolder {
-      readonly id?: string;
-      /** Which persisted folder this is for the user (home, pinned, custom_products).
-       *
-       * * `home` - Home
-       * * `pinned` - Pinned
-       * * `custom_products` - Custom Products */
-      type?: PersistedFolderTypeEnum;
-      /**
-         * Protocol prefix of the folder location, e.g. 'products://'.
-         * @maxLength 64
-         */
-      protocol?: string;
-      /** Path within the protocol that the folder resolves to. */
-      path?: string;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-    }
-
     export interface PatchedPersonRecord {
       /** Numeric person ID. */
       readonly id?: number;
@@ -40761,6 +40979,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
+      model?: string;
+      /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -41123,7 +41356,7 @@ export namespace Schemas {
       config?: SessionReplayListWidgetConfig;
     }
 
-    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi;
+    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -43152,14 +43385,6 @@ export namespace Schemas {
       payload: ProjectProfilePayload;
     }
 
-    export interface PromotedProductIntent {
-      /**
-         * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-         * @nullable
-         */
-      product_key: string | null;
-    }
-
     export interface Property {
       /**
        *  You can use a simplified version:
@@ -43436,10 +43661,15 @@ export namespace Schemas {
       /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
       rerun_cycles: number;
       /**
-         * Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.
+         * Estimated CI cost in USD summed over this PR's jobs (billable runners only). Null when nothing was costable or the job-level source isn't synced.
          * @nullable
          */
       estimated_cost_usd?: number | null;
+      /**
+         * Billable (self-hosted) minutes summed over this PR's jobs. Null when the job source isn't synced.
+         * @nullable
+         */
+      billable_minutes?: number | null;
     }
 
     export interface PullRequestList {
@@ -43464,6 +43694,89 @@ export namespace Schemas {
       Android: 'android',
       Web: 'web',
     } as const;
+
+    /**
+     * * `run` - RUN
+     * * `skip` - SKIP
+     */
+    export type QuarantineModeEnum = typeof QuarantineModeEnum[keyof typeof QuarantineModeEnum];
+
+
+    export const QuarantineModeEnum = {
+      Run: 'run',
+      Skip: 'skip',
+    } as const;
+
+    /**
+     * * `product` - PRODUCT
+     * * `file` - FILE
+     * * `directory` - DIRECTORY
+     * * `test` - TEST
+     */
+    export type SelectorKindEnum = typeof SelectorKindEnum[keyof typeof SelectorKindEnum];
+
+
+    export const SelectorKindEnum = {
+      Product: 'product',
+      File: 'file',
+      Directory: 'directory',
+      Test: 'test',
+    } as const;
+
+    export interface QuarantineEntry {
+      /** Test selector: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
+      id: string;
+      /** Test runner the selector targets, e.g. 'pytest' or 'jest'. */
+      runner: string;
+      /** Why the test was quarantined. */
+      reason: string;
+      /** GitHub team or user handle responsible for the fix. */
+      owner: string;
+      /** Tracking issue URL, or empty when none was filed. */
+      issue: string;
+      /** ISO date the entry was added. */
+      added: string;
+      /** ISO date the quarantine expires; past it the test blocks CI normally again. */
+      expires: string;
+      /** 'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all).
+       *
+       * * `run` - RUN
+       * * `skip` - SKIP */
+      mode: QuarantineModeEnum;
+      /** Expiry classification: 'active' (>7 days left), 'expiring_soon' (0-7 days left), 'in_grace' (expired up to 7 days ago), 'overdue' (expired beyond the grace period).
+       *
+       * * `active` - ACTIVE
+       * * `expiring_soon` - EXPIRING_SOON
+       * * `in_grace` - IN_GRACE
+       * * `overdue` - OVERDUE */
+      lifecycle: LifecycleEnum;
+      /** Days until the entry expires; negative once past expiry. */
+      days_until_expiry: number;
+      /** What the selector covers: 'test' (contains '::'), 'file', 'directory', or 'product'.
+       *
+       * * `product` - PRODUCT
+       * * `file` - FILE
+       * * `directory` - DIRECTORY
+       * * `test` - TEST */
+      selector_kind: SelectorKindEnum;
+    }
+
+    export interface QuarantineFile {
+      /** Quarantined selectors, most urgent first (overdue, in_grace, expiring_soon, active), then by soonest expiry. */
+      entries: QuarantineEntry[];
+      /** Repository the file was read from. Null in local-dev mode, where the server's own checkout is read. */
+      repo: RepoRef | null;
+      /** False when the repository has no quarantine file (not an error) or it could not be fetched. */
+      available: boolean;
+      /** Contract violations (malformed JSON, bad entries) or fetch failures. Malformed entries are dropped; well-formed ones are kept. */
+      parse_errors: string[];
+      /** Forward-compatibility notices, e.g. unknown entry fields. */
+      parse_warnings: string[];
+      /** GitHub blob URL of the quarantine file, or empty when read locally or unavailable. */
+      source_url: string;
+      /** When this snapshot was computed (UTC); expiry math uses this clock. */
+      generated_at: string;
+    }
 
     export interface QuarantineInput {
       /**
@@ -45137,6 +45450,8 @@ export namespace Schemas {
       results: unknown;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
+      total_median_conversion_time?: number | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
@@ -46671,6 +46986,14 @@ export namespace Schemas {
     }
 
     /**
+     * Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references.
+     */
+    export interface SetSkillRefsRequest {
+      /** The complete set of store-skill references for this draft; replaces any existing references. */
+      skill_refs: SkillRef[];
+    }
+
+    /**
      * * `trace` - trace
      * * `debug` - debug
      * * `info` - info
@@ -48026,7 +48349,10 @@ export namespace Schemas {
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
        * * `Liana` - Liana
-       * * `TawkTo` - TawkTo */
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch
+       * * `LemonSqueezy` - LemonSqueezy
+       * * `Ikas` - Ikas */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -48713,7 +49039,10 @@ export namespace Schemas {
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
        * * `Liana` - Liana
-       * * `TawkTo` - TawkTo */
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch
+       * * `LemonSqueezy` - LemonSqueezy
+       * * `Ikas` - Ikas */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -49392,7 +49721,10 @@ export namespace Schemas {
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
        * * `Liana` - Liana
-       * * `TawkTo` - TawkTo */
+       * * `TawkTo` - TawkTo
+       * * `Hightouch` - Hightouch
+       * * `LemonSqueezy` - LemonSqueezy
+       * * `Ikas` - Ikas */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -50845,6 +51177,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
+      model?: string;
+      /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
@@ -51767,6 +52114,21 @@ export namespace Schemas {
          * @nullable
          */
       branch?: string | null;
+      /** Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run. */
+      model?: string;
+      /** Reasoning effort to warm the sandbox on for models that expose an effort control.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
     }
 
     /**
@@ -51851,31 +52213,31 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
-    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
       results: WidgetCatalogEntry[];
     }
 
-    export interface WorkflowHealthDay {
-      /** UTC calendar day. */
-      day: string;
-      /** Runs started that day. */
+    export interface WorkflowHealthBucket {
+      /** Bucket start, aligned to the item's granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /** Runs started in this bucket. */
       run_count: number;
-      /** Runs that completed that day. */
+      /** Runs that completed in this bucket. */
       completed: number;
-      /** Completed runs with conclusion 'success' that day. */
+      /** Completed runs with conclusion 'success' in this bucket. */
       successes: number;
-      /** Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+      /** Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
       failures: number;
     }
 
     export interface WorkflowHealthItem {
       /** Repository the workflow runs in. */
       repo: RepoRef;
-      /** Daily run history across the whole window, oldest first, zero-filled. */
-      daily: WorkflowHealthDay[];
+      /** Run history across the whole window, oldest first, zero-filled, bucketed by granularity. */
+      buckets: WorkflowHealthBucket[];
       /** GitHub Actions workflow name. */
       workflow_name: string;
       /** Total runs started in the window. */
@@ -51900,6 +52262,123 @@ export namespace Schemas {
          * @nullable
          */
       last_failure_at: string | null;
+      /**
+         * Whether the most recent completed run was a decisive failure (conclusion 'failure' or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.
+         * @nullable
+         */
+      latest_run_failed: boolean | null;
+      /**
+         * Raw conclusion of the most recent completed run ('success', 'cancelled', 'skipped', ...), so a real pass can be told from a non-failure non-success. Null when none completed.
+         * @nullable
+         */
+      latest_run_conclusion: string | null;
+      /** Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'. */
+      granularity: string;
+      /**
+         * Billable (self-hosted) minutes over this workflow's jobs in the window. Null when the job-level source isn't synced.
+         * @nullable
+         */
+      billable_minutes?: number | null;
+      /**
+         * Estimated cost in USD over this workflow's jobs in the window. Null when nothing was costable or the job source isn't synced.
+         * @nullable
+         */
+      estimated_cost_usd?: number | null;
+    }
+
+    export interface WorkflowJob {
+      /** GitHub Actions job id. */
+      id: number;
+      /** The workflow run id this job belongs to. */
+      run_id: number;
+      /** Job name. */
+      name: string;
+      /** Raw job status: 'queued', 'in_progress', 'completed', etc. */
+      status: string;
+      /**
+         * Job conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null while running.
+         * @nullable
+         */
+      conclusion: string | null;
+      /**
+         * When the job started, or null while still queued.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * When the job completed, or null while still running.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * Wall-clock duration in seconds; null until the job completes.
+         * @nullable
+         */
+      duration_seconds: number | null;
+      /** Where the job ran: 'github_hosted' (free for open source), 'self_hosted' (billable), or 'unknown'. */
+      runner_provider: string;
+      /** Runner tier the job ran on (e.g. '16-core' or 'ubuntu-latest'), or '' when unknown. */
+      runner_label: string;
+      /**
+         * Estimated cost in USD from runner tier + elapsed time; null when the tier is unknown or the job hasn't finished.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowRunDetail {
+      /** Repository the run belongs to. */
+      repo: RepoRef;
+      /** GitHub Actions run id. */
+      id: number;
+      /** GitHub Actions workflow name. */
+      workflow_name: string;
+      /** Commit SHA the run was triggered on. */
+      head_sha: string;
+      /** Git branch the run was triggered on. */
+      head_branch: string;
+      /** Raw run status: 'queued', 'in_progress', 'completed', etc. */
+      status: string;
+      /**
+         * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', 'action_required', ...), or null while still in progress.
+         * @nullable
+         */
+      conclusion: string | null;
+      /**
+         * When the run started, or null for a queued/barely-started run.
+         * @nullable
+         */
+      run_started_at: string | null;
+      /**
+         * When the run was last updated (its finish time once completed), or null when unstarted.
+         * @nullable
+         */
+      updated_at: string | null;
+      /**
+         * Wall-clock duration in seconds; null until the run completes.
+         * @nullable
+         */
+      duration_seconds: number | null;
+      /** Re-run attempt number; 1 for the first attempt. */
+      run_attempt: number;
+      /** Attributed pull request number, or 0 when unattributed. */
+      pr_number: number;
+    }
+
+    export interface WorkflowRunnerCost {
+      /** 'self_hosted' (billable), 'github_hosted' (free), or 'unknown'. */
+      provider: string;
+      /** Runner tier, e.g. '16-core' or 'ubuntu-latest'. */
+      runner_label: string;
+      /** Jobs that ran on this tier for the workflow. */
+      job_count: number;
+      /** Billable minutes on this tier. */
+      billable_minutes: number;
+      /**
+         * Estimated cost in USD on this tier; null for non-billable (github-hosted/non-Linux).
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
     }
 
     export interface WorkflowStatsRow {
@@ -51916,17 +52395,6 @@ export namespace Schemas {
      */
     export interface WriteAgentMdRequest {
       content: string;
-    }
-
-    /**
-     * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
-     * at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
-     */
-    export interface WriteSkillRequest {
-      /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
-      description: string;
-      /** The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`. */
-      body: string;
     }
 
     export type WriteSpecRequestSpec = { [key: string]: unknown };
@@ -51954,11 +52422,11 @@ export namespace Schemas {
 
     /**
      * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
-     * payload.
+     * payload. Skills are not authored here: they come from the llma-skill store
+     * via `skill_refs` and are materialized into the bundle at freeze.
      */
     export interface WriteTypedBundleRequest {
       agent_md: string;
-      skills?: WriteSkillRequest[];
       tools?: WriteToolRequest[];
       spec: WriteTypedBundleRequestSpec;
     }
@@ -52431,7 +52899,10 @@ export namespace Schemas {
        * * `regex` - regex
        * * `not_regex` - not_regex */
       op?: OpEnum;
-      /** Value to compare against. For regex operators this is the pattern. */
+      /**
+         * Value to compare against. For regex operators this is the pattern.
+         * @maxLength 1024
+         */
       value: string;
       /** Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.
        *
@@ -52494,20 +52965,6 @@ export namespace Schemas {
       change_ratio: number;
     }
 
-    /**
-     * * `up` - up
-     * * `down` - down
-     * * `flat` - flat
-     */
-    export type _MetricAnomalyReportDirectionEnum = typeof _MetricAnomalyReportDirectionEnum[keyof typeof _MetricAnomalyReportDirectionEnum];
-
-
-    export const _MetricAnomalyReportDirectionEnum = {
-      Up: 'up',
-      Down: 'down',
-      Flat: 'flat',
-    } as const;
-
     export interface _MetricQueryPoint {
       /** Bucket start as ISO 8601 timestamp. */
       time: string;
@@ -52567,7 +53024,7 @@ export namespace Schemas {
        * * `up` - up
        * * `down` - down
        * * `flat` - flat */
-      direction: _MetricAnomalyReportDirectionEnum;
+      direction: MetricAnomalyDirectionEnum;
       /**
          * First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.
          * @nullable
@@ -52682,7 +53139,7 @@ export namespace Schemas {
        * * `day` - day
        * * `week` - week */
       interval?: MetricQueryIntervalEnum | null;
-      /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'. */
+      /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid (maximum 10). Mutually exclusive with 'metricName'. */
       clauses?: _MetricClause[];
       /**
          * Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.
@@ -55798,10 +56255,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type EnvironmentsLlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
-
     export type EnvironmentsLlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -56577,7 +57030,7 @@ export namespace Schemas {
 
     export type EnvironmentsMetricsValuesRetrieveParams = {
     /**
-     * Max number of names to return. Defaults to 100, capped at 1000.
+     * Max number of names to return. Defaults to 100; maximum 1000.
      */
     limit?: number;
     /**
@@ -56623,17 +57076,6 @@ export namespace Schemas {
      * Filter by recipient target type (e.g. `user`, `team`)
      */
     target_type?: string;
-    };
-
-    export type EnvironmentsPersistedFolderListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type EnvironmentsPersonsListParams = {
@@ -59754,17 +60196,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type DesktopPersistedFolderListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type DesktopRecordingsListParams = {
     /**
      * Number of results to return per page.
@@ -59870,6 +60301,21 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsPrCostParams = {
+    /**
+     * Pull request number to estimate cost for.
+     */
+    pr_number: number;
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
@@ -59885,11 +60331,41 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsPrRunsParams = {
+    /**
+     * Pull request number whose runs to list.
+     */
+    pr_number: number;
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPullRequestsParams = {
+    /**
+     * Optional GitHub login to scope the list to one author's pull requests.
+     */
+    author?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsQuarantineParams = {
+    /**
+     * Optional 'owner/name' repository to read the quarantine file from. Defaults to the connected GitHub source's most active repo over the last 30 days.
+     */
+    repo?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -59902,7 +60378,7 @@ export namespace Schemas {
      */
     branch?: string;
     /**
-     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     * Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
      */
     date_from?: string;
     /**
@@ -59913,6 +60389,78 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowJobsParams = {
+    /**
+     * Which re-run attempt to scope jobs to. Omit to use the run's latest attempt; pass an explicit attempt to avoid mixing jobs across a re-run's attempts.
+     */
+    run_attempt?: number;
+    /**
+     * Workflow run id to list jobs for.
+     */
+    run_id: number;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowRunParams = {
+    /**
+     * GitHub Actions run id to inspect.
+     */
+    run_id: number;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository the workflow belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Workflow name to break down cost for.
+     */
+    workflow_name: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository the workflow belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Workflow name to list runs for.
+     */
+    workflow_name: string;
     };
 
     export type EnvironmentsListParams = {
@@ -62212,10 +62760,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
-
     export type LlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -63038,7 +63582,7 @@ export namespace Schemas {
 
     export type MetricsValuesRetrieveParams = {
     /**
-     * Max number of names to return. Defaults to 100, capped at 1000.
+     * Max number of names to return. Defaults to 100; maximum 1000.
      */
     limit?: number;
     /**
@@ -63120,17 +63664,6 @@ export namespace Schemas {
     };
 
     export type ObjectMediaPreviewsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type PersistedFolderListParams = {
     /**
      * Number of results to return per page.
      */

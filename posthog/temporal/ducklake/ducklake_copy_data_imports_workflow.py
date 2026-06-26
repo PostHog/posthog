@@ -17,12 +17,12 @@ from posthog.ducklake.common import (
     _get_org_id_for_team,
     attach_catalog,
     duckgres_data_imports_schema,
+    duckgres_data_imports_table_name,
     get_config,
     get_duckgres_server_for_organization,
     get_ducklake_catalog_by_team_org,
     get_ducklake_catalog_for_organization,
     is_dev_mode,
-    sanitize_ducklake_identifier,
 )
 from posthog.ducklake.storage import (
     cleanup_staged_files,
@@ -51,7 +51,7 @@ from posthog.temporal.ducklake.metrics import (
     get_ducklake_copy_data_imports_verification_metric,
 )
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
     DUCKGRES_BATCH_SINK_FLAG,
 )
@@ -253,12 +253,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
                 ducklake_schema_name=ducklake_schema_name,
-                ducklake_table_name=sanitize_ducklake_identifier(
-                    f"{source_type}_{schema.source.prefix}_{normalized_name}"
-                    if schema.source.prefix
-                    else f"{source_type}_{normalized_name}",
-                    default_prefix="data_import",
-                ),
+                ducklake_table_name=duckgres_data_imports_table_name(schema),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
                 staging_uri=staging_uri,

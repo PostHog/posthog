@@ -80,7 +80,6 @@ APIScopeObject = Literal[
     "organization_integration",
     "organization_member",
     "person",
-    "persisted_folder",
     "plugin",
     "product_tour",
     "project",
@@ -153,6 +152,9 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_sessi
 # ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
+    # SDK local evaluation and remote config. The Rust feature-flags service already
+    # validates feature_flag:read PSAKs on the flag-definitions path; this makes them creatable.
+    ("feature_flag", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
