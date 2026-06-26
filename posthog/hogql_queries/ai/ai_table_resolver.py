@@ -10,6 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
 from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_events_table
+from posthog.ph_client import feature_enabled_or_false
 
 AI_EVENTS_QUERY_TOTAL = Counter(
     "posthog_ai_events_query_total",
@@ -36,6 +37,21 @@ if TYPE_CHECKING:
 class AIEventsUnavailableError(Exception):
     """The requested AI events could not be served from the dedicated ai_events table
     and the caller opted out of the events fallback (``fall_back_to_events=False``)."""
+
+
+def is_ai_events_enabled(team: Team) -> bool:
+    """Kill switch for ai_events table reads.
+
+    When disabled, all single-trace runners skip the ai_events attempt
+    and query the events table directly.
+    """
+    return feature_enabled_or_false(
+        "ai-events-table-rollout",
+        str(team.id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
 
 
 class AIEventsExpiredError(AIEventsUnavailableError):

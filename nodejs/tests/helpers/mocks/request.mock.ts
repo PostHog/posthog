@@ -1,6 +1,6 @@
-import { FetchResponse } from '../../../src/utils/request'
+import { FetchResponse } from '~/common/utils/request'
 
-jest.mock('../../../src/utils/request', () => {
+jest.mock('~/common/utils/request', () => {
     return {
         fetch: jest.fn(() =>
             Promise.resolve({
@@ -21,5 +21,5 @@ jest.mock('../../../src/utils/request', () => {
     }
 })
 
-export const mockFetch: jest.Mock<Promise<FetchResponse>> = require('../../../src/utils/request').fetch
-export const mockInternalFetch: jest.Mock<Promise<FetchResponse>> = require('../../../src/utils/request').internalFetch
+export const mockFetch: jest.Mock<Promise<FetchResponse>> = require('~/common/utils/request').fetch
+export const mockInternalFetch: jest.Mock<Promise<FetchResponse>> = require('~/common/utils/request').internalFetch

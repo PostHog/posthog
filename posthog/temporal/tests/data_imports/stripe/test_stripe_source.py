@@ -6,14 +6,14 @@ import pytest
 from unittest import mock
 
 import stripe as stripe_lib
+import requests
 from parameterized import parameterized
 from stripe._http_client import HTTPClient
 
 from posthog.models.integration import Integration
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import StripeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
@@ -704,6 +704,41 @@ def test_stripe_http_client_retries_rate_limits(_name, status_code, num_retries,
     assert (
         client._should_retry(response, None, num_retries=num_retries, max_network_retries=max_network_retries)
         is expected
+    )
+
+
+@parameterized.expand(
+    [
+        # (cause, num_retries, max_network_retries, expected)
+        # A connection reset mid-response body surfaces as a ChunkedEncodingError, which Stripe
+        # wraps in a non-retryable APIConnectionError — we retry it while budget remains.
+        ("connection_reset_retried", requests.exceptions.ChunkedEncodingError("Connection broken"), 0, 2, True),
+        # ...but stops once the retry budget is exhausted, so we don't loop forever.
+        (
+            "connection_reset_budget_exhausted",
+            requests.exceptions.ChunkedEncodingError("Connection broken"),
+            2,
+            2,
+            False,
+        ),
+        # An SSL error is deliberately non-retryable in the SDK — we must not start retrying it.
+        ("ssl_error_not_retried", requests.exceptions.SSLError("bad cert"), 0, 2, False),
+        # An APIConnectionError with no wrapped cause has nothing to identify as a reset.
+        ("no_cause_not_retried", None, 0, 2, False),
+    ]
+)
+def test_stripe_http_client_retries_connection_reset(_name, cause, num_retries, max_network_retries, expected):
+    """A connection reset while paging surfaces from requests as a ChunkedEncodingError, which the
+    SDK declines to retry (only Timeout/ConnectionError are retryable) so it crashes the import.
+    Our client retries that transient reset in-process while leaving SSL errors non-retryable."""
+    client = _tracked_stripe_http_client()
+    # response=None is how the SDK signals a connection error rather than an HTTP response.
+    error = stripe_lib.APIConnectionError("Unexpected error communicating with Stripe.")
+    if cause is not None:
+        error.__cause__ = cause
+
+    assert (
+        client._should_retry(None, error, num_retries=num_retries, max_network_retries=max_network_retries) is expected
     )
 
 

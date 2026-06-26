@@ -123,7 +123,7 @@ function ScratchpadHeader({
                 <IconNotebook className="size-5 text-primary-3000" />
                 <span className="text-base font-semibold text-default">Scout scratchpad</span>
             </div>
-            <p className="mb-0 max-w-2xl text-sm text-secondary">
+            <p className="mb-0 text-sm text-secondary">
                 Where your scouts jot down useful context as they scan your project — things they've classified, ruled
                 out, or the vocabulary they've settled on. Browse it to see what they're picking up about your setup.
             </p>
