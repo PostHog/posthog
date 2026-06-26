@@ -3,6 +3,7 @@ from typing import Optional, cast
 import requests
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -12,12 +13,14 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.appsflyer.appsflyer import (
+    AppsFlyerCredentialsError,
     AppsFlyerRetryableError,
     appsflyer_source,
     validate_credentials as validate_appsflyer_credentials,
 )
 from posthog.temporal.data_imports.sources.appsflyer.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import AppsFlyerSourceConfig
@@ -27,6 +30,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.APPSFLYER
@@ -48,6 +53,7 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.APPS_FLYER,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="AppsFlyer",
             caption="""Enter your AppsFlyer credentials to pull aggregate performance reports into the PostHog Data warehouse.
 
@@ -78,6 +84,11 @@ You can find your API token (V2) in AppsFlyer under your account menu > Security
             ),
         )
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.appsflyer.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_schemas(
         self,
         config: AppsFlyerSourceConfig,
@@ -106,16 +117,19 @@ You can find your API token (V2) in AppsFlyer under your account menu > Security
         self, config: AppsFlyerSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         try:
-            if validate_appsflyer_credentials(config.api_token, config.app_id):
-                return True, None
+            # validate_credentials returns True or raises — it never returns False — so an
+            # unexpected status surfaces its real cause instead of a conflated credential error.
+            validate_appsflyer_credentials(config.api_token, config.app_id)
+            return True, None
+        except AppsFlyerCredentialsError as e:
+            # The token or app id was rejected — surface which one rather than a conflated message.
+            return False, str(e)
         except (AppsFlyerRetryableError, requests.RequestException):
             # A rate-limit, 5xx, or network blip isn't a bad credential — don't mislabel it.
             return (
                 False,
                 "Could not reach AppsFlyer to validate credentials. This may be a temporary rate-limit or network issue — please try again.",
             )
-
-        return False, "Invalid AppsFlyer API token or app id"
 
     def source_for_pipeline(self, config: AppsFlyerSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return appsflyer_source(

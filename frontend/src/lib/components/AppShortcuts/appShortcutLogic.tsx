@@ -1,6 +1,7 @@
 import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
 
-import { isMac } from 'lib/utils'
+import posthog from 'lib/posthog-typed'
+import { isMac } from 'lib/utils/dom'
 import { Scene } from 'scenes/sceneTypes'
 
 import type { appShortcutLogicType } from './appShortcutLogicType'
@@ -58,7 +59,19 @@ function getSequenceKeys(keybind: string[]): string[] {
     return keybind.filter((key) => key !== 'then')
 }
 
-function triggerShortcut(shortcut: AppShortcutType): void {
+function formatKeybind(keybind: string[]): string {
+    return isSequenceKeybind(keybind) ? getSequenceKeys(keybind).join(' then ') : keybind.join('+')
+}
+
+function triggerShortcut(shortcut: AppShortcutType, triggeredKeybind: string[]): void {
+    posthog.capture('keybind triggered', {
+        name: shortcut.name,
+        intent: shortcut.intent,
+        keybind: formatKeybind(triggeredKeybind),
+        interaction: shortcut.interaction,
+        scope: shortcut.scope ?? 'global',
+    })
+
     if (shortcut.interaction === 'click') {
         shortcut.ref.current?.click()
     } else if (shortcut.interaction === 'focus') {
@@ -173,7 +186,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 if (matchingShortcut && !values.disabledShortcutNames.includes(matchingShortcut.name)) {
                     event.preventDefault()
                     event.stopPropagation()
-                    triggerShortcut(matchingShortcut)
+                    triggerShortcut(matchingShortcut, pressedKeys)
                 }
                 return
             }
@@ -200,7 +213,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 event.stopPropagation()
                 cache.sequenceKeys = []
                 cache.sequenceShortcut = null
-                triggerShortcut(singleKeyMatch)
+                triggerShortcut(singleKeyMatch, [key])
                 return
             }
 
@@ -241,7 +254,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                     cache.sequenceShortcut = null
                     if (!values.disabledShortcutNames.includes(matchingShortcut.name)) {
                         event.preventDefault()
-                        triggerShortcut(matchingShortcut)
+                        triggerShortcut(matchingShortcut, keybind)
                     }
                 } else {
                     // Partial match - keep tracking

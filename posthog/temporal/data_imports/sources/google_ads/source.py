@@ -2,6 +2,7 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -12,12 +13,14 @@ from posthog.schema import (
     SuggestedTable,
 )
 
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
     ResumableSource,
 )
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -40,6 +43,13 @@ class GoogleAdsSource(
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEADS
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.google_ads.canonical_descriptions import (  # noqa: PLC0415
+            CANONICAL_DESCRIPTIONS,
+        )
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "PERMISSION_DENIED": None,
@@ -56,6 +66,16 @@ class GoogleAdsSource(
             # has restricted third-party API access for this app (org policy / app not approved).
             # Retrying cannot recover — an admin must grant access before the user reconnects.
             "access_not_configured": "Your Google Workspace administrator has restricted API access for this app. Ask your admin to approve it, then reconnect your Google Ads account.",
+            # Integration.DoesNotExist raised by `google_ads_client` when the stored OAuth
+            # integration row has been deleted/disconnected before the sync runs. Retrying cannot
+            # recover — the user must reconnect their Google Ads account. Model-specific so we don't
+            # swallow unrelated `DoesNotExist` errors from other models, which may be real bugs.
+            "Integration matching query does not exist": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
+            # gapic wraps a transport-level UNAUTHENTICATED into google.api_core.exceptions.Unauthenticated,
+            # whose str() is "401 Request is missing required authentication credential. ..." — it never
+            # contains the bare "UNAUTHENTICATED" token, so the gRPC-status keys above don't catch it.
+            # Retrying cannot recover — the user must reconnect their Google Ads account.
+            "Request is missing required authentication credential": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options
@@ -135,6 +155,8 @@ class GoogleAdsSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["adwords"],
             label="Google Ads",
             caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",
             releaseStatus=ReleaseStatus.GA,
@@ -263,6 +285,11 @@ class GoogleAdsSource(
                     f"Customer ID {config.customer_id} is not correct. Please check your customer ID and try again.",
                 )
             return True, None
+        except Integration.DoesNotExist:
+            return (
+                False,
+                "The Google Ads connection for this source no longer exists. Please reconnect your Google Ads account.",
+            )
         except Exception as e:
             error_message = str(e)
             if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_message:
@@ -274,5 +301,11 @@ class GoogleAdsSource(
                 return (
                     False,
                     "The Google account is not associated with any Google Ads accounts. Please use an account with Google Ads access.",
+                )
+            if "matching query does not exist" in error_message:
+                return (
+                    False,
+                    "Your Google Ads connection is no longer available — it may have been disconnected. "
+                    "Please reconnect your Google Ads account.",
                 )
             return False, f"Error validating credentials: {error_message}"

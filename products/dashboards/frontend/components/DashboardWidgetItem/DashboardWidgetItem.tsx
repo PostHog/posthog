@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import React, { useState } from 'react'
 import { createPortal } from 'react-dom'
 
+import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
@@ -203,6 +204,15 @@ function DashboardWidgetItemContent({
 
     const refreshDisabledReason = loading ? 'Refreshing...' : undefined
 
+    // Refresh icon revealed on tile hover, mirroring insight tiles. Gated on editing controls so it
+    // stays off public/export dashboards, and hidden while the tile is loading (refresh stays reachable
+    // via the always-present "⋯" menu for touch/keyboard). CardMeta's CSS handles the hover reveal.
+    const showHoverRefresh =
+        !!showEditingControls && !isUnknownWidgetType && headerLayout === 'dashboard_tile' && !loading
+    const refreshControl = showHoverRefresh ? (
+        <CardMetaRefreshButton onRefresh={onRefresh} lastRefresh={lastFetchedAt} dataAttr="dashboard-widget-refresh" />
+    ) : null
+
     return (
         <>
             <WidgetCardHeader
@@ -213,12 +223,14 @@ function DashboardWidgetItemContent({
                 widgetTypeLabel={widgetTypeLabel}
                 config={widget.config}
                 headerMeta={headerCatalogEntry.headerMeta}
+                TopHeading={definition?.TopHeading}
                 description={description}
                 showDescription={showDescription}
                 loading={loading}
                 showEditingControls={showEditingControls}
                 isDashboardEditMode={isDashboardEditMode}
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(placement, showEditingControls)}
+                refreshControl={refreshControl}
                 moreButtonOverlay={
                     <>
                         {titleHref && (

@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class BigCommerceSource(SimpleSource[BigCommerceSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BIG_COMMERCE,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
             label="BigCommerce",
             iconPath="/static/services/bigcommerce.png",
             fields=cast(list[FieldType], []),

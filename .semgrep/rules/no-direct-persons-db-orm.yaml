@@ -13,7 +13,8 @@ rules:
       severity: WARNING
       languages: [python]
       patterns:
-          - pattern: $MODEL.objects
+          - pattern: $MODEL.objects.$METHOD(...)
+          - pattern-not: $MODEL.objects.none()
           - metavariable-regex:
                 metavariable: $MODEL
                 regex: >-

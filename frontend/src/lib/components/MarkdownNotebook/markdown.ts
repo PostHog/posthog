@@ -143,6 +143,10 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
 }
 
 export function serializeMarkdownNotebook(document: NotebookDocument): string {
+    if (document.nodes.length === 1 && isEmptyNotebookTitleNode(document.nodes[0])) {
+        return ''
+    }
+
     const shouldPreserveEmptyParagraphs = document.nodes.length > 1
     const serialized = document.nodes
         .map((node) => serializeDocumentNode(node, shouldPreserveEmptyParagraphs))
@@ -153,6 +157,10 @@ export function serializeMarkdownNotebook(document: NotebookDocument): string {
         shouldPreserveEmptyParagraphs && isEmptyParagraphNode(lastNode) && previousNode?.type !== 'component'
 
     return shouldPreserveTrailingEmptyParagraph ? serialized : serialized.trimEnd()
+}
+
+function isEmptyNotebookTitleNode(node: NotebookBlockNode | undefined): boolean {
+    return !!node && node.type === 'heading' && node.level === 1 && serializeInlineNodes(node.children) === ''
 }
 
 export function serializeNode(node: NotebookBlockNode): string {

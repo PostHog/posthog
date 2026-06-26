@@ -23,6 +23,8 @@ from posthog.temporal.data_imports.sources.google_search_console.google_search_c
     _resolve_window,
     _row_to_dict,
     google_search_console_source,
+    normalize_site_url,
+    suggest_registered_site,
 )
 
 TODAY = dt.date(2026, 4, 30)
@@ -425,3 +427,64 @@ def test_throttle_spaces_requests_per_site(monkeypatch):
     gsc._throttle("sc-domain:example.com")
 
     assert sleeps == [pytest.approx(gsc._MIN_REQUEST_INTERVAL_SECONDS)]
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # Already canonical — left untouched.
+        ("https://example.com/", "https://example.com/"),
+        ("sc-domain:example.com", "sc-domain:example.com"),
+        # Percent-encoded values copied from a URL bar.
+        ("sc-domain%3Abidsstack.com", "sc-domain:bidsstack.com"),
+        ("sc-domain%3Atopol.io", "sc-domain:topol.io"),
+        ("https%3A%2F%2Fexample.com%2F", "https://example.com/"),
+        # URL-prefix property missing its trailing slash.
+        ("https://agentic30.app", "https://agentic30.app/"),
+        ("https://docebo.com", "https://docebo.com/"),
+        # Capitalized scheme/host — Google stores both lowercase, so an exact match needs them lowered.
+        ("Https://www.veteranpcs.com/", "https://www.veteranpcs.com/"),
+        ("HTTPS://Example.com", "https://example.com/"),
+        # Path case is preserved — it can be significant for a URL-prefix property.
+        ("Https://example.com/Blog", "https://example.com/Blog/"),
+        # Surrounding whitespace.
+        ("  https://example.com/  ", "https://example.com/"),
+        # The full Search Console UI URL — the property lives in resource_id.
+        (
+            "https://search.google.com/search-console/performance/search-analytics"
+            "?resource_id=https%3A%2F%2Fwww.viamar.ca%2F&metrics=CLICKS%2CIMPRESSIONS",
+            "https://www.viamar.ca/",
+        ),
+        # Bare hostname is ambiguous (URL-prefix vs domain) — left untouched.
+        ("agentic30.app", "agentic30.app"),
+        ("agentic30.app/", "agentic30.app/"),
+    ],
+)
+def test_normalize_site_url(raw, expected):
+    assert normalize_site_url(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "site_url,registered,expected",
+    [
+        # Bare hostname matches a registered URL-prefix property.
+        ("plotlens.ai", ["https://plotlens.ai/"], "https://plotlens.ai/"),
+        ("buyticketbrasil.com", ["https://buyticketbrasil.com/"], "https://buyticketbrasil.com/"),
+        # Bare hostname matches a registered domain property.
+        ("autocomply.dev", ["sc-domain:autocomply.dev"], "sc-domain:autocomply.dev"),
+        # URL-prefix preferred when both forms are registered.
+        ("example.com", ["sc-domain:example.com", "https://example.com/"], "https://example.com/"),
+        # A trailing slash on the bare hostname is tolerated.
+        ("plotlens.ai/", ["https://plotlens.ai/"], "https://plotlens.ai/"),
+        # An uppercase bare hostname is lowercased to match Google's canonical property names.
+        ("PlotLens.AI", ["https://plotlens.ai/"], "https://plotlens.ai/"),
+        ("EXAMPLE.COM", ["sc-domain:example.com"], "sc-domain:example.com"),
+        # No registered property matches — nothing to suggest.
+        ("plotlens.ai", ["https://other.com/"], None),
+        # Already scheme-qualified or a domain property: not ambiguous, so no suggestion.
+        ("https://plotlens.ai/", ["https://plotlens.ai/"], None),
+        ("sc-domain:plotlens.ai", ["sc-domain:plotlens.ai"], None),
+    ],
+)
+def test_suggest_registered_site(site_url, registered, expected):
+    assert suggest_registered_site(site_url, registered) == expected

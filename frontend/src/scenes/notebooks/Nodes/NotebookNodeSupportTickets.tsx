@@ -1,7 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
-
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
@@ -10,9 +8,9 @@ import {
     SupportTicketsTableFilters,
 } from 'products/conversations/frontend/scenes/tickets/SupportTicketsScene'
 import { supportTicketsSceneLogic } from 'products/conversations/frontend/scenes/tickets/supportTicketsSceneLogic'
-import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { getCustomerProfileRemoveMenuItem } from './customerProfileNotebookNodeMenu'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
@@ -23,17 +21,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSupportTicketsA
     const logicProps = { key: nodeId, distinctIds }
     const mountedLogic = supportTicketsSceneLogic(logicProps)
     useAttachedLogic(mountedLogic, notebookLogic)
-    const { removeNode } = useActions(customerProfileLogic)
 
     useOnMountEffect(() => {
-        setMenuItems([
-            {
-                label: 'Remove',
-                onClick: () => removeNode(NotebookNodeType.SupportTickets),
-                sideIcon: <IconX />,
-                status: 'danger',
-            },
-        ])
+        const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.SupportTickets)
+        if (removeMenuItem) {
+            setMenuItems([removeMenuItem])
+        }
     })
 
     if (!expanded) {

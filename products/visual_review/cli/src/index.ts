@@ -84,6 +84,10 @@ run.command('create')
     .option('--token <value>', 'Personal API token')
     .option('--cookie <value>', 'Session cookie')
     .option('--purpose <purpose>', 'Run purpose: review or observe', 'review')
+    .option(
+        '--partial',
+        'Mark the run as a subset. Identifiers in the baseline but not in this run are left untouched instead of flagged as removed.'
+    )
     .action(async (options: RunCreateOptions) => {
         if (!baselineExists(options.baseline)) {
             process.exit(0)
@@ -178,6 +182,7 @@ interface RunCreateOptions {
     token?: string
     cookie?: string
     purpose?: string
+    partial?: boolean
 }
 
 interface RunUploadOptions {
@@ -304,7 +309,7 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
     const commit = options.commit ?? getCurrentCommit()
 
     log(
-        `Creating run: type=${options.type}, branch=${branch}, commit=${commit.slice(0, 10)}, purpose=${options.purpose ?? 'review'}`
+        `Creating run: type=${options.type}, branch=${branch}, commit=${commit.slice(0, 10)}, purpose=${options.purpose ?? 'review'}${options.partial ? ', partial' : ''}`
     )
 
     const result = await client.createRun({
@@ -316,6 +321,7 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
         snapshots: [],
         purpose: options.purpose,
         metadata: collectCIMetadata(),
+        isPartial: options.partial,
     })
 
     log(`Run created: ${result.run_id}`)

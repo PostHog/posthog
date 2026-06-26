@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class SapSuccessFactorsSource(SimpleSource[SapSuccessFactorsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SAP_SUCCESS_FACTORS,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="SAP SuccessFactors",
             iconPath="/static/services/sap_successfactors.png",
             fields=cast(list[FieldType], []),

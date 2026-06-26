@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -18,6 +19,7 @@ from posthog.temporal.data_imports.sources.commercetools.commercetools import (
 )
 from posthog.temporal.data_imports.sources.commercetools.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -28,6 +30,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CommercetoolsSource(ResumableSource[CommercetoolsSourceConfig, CommercetoolsResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.COMMERCETOOLS
@@ -38,6 +42,11 @@ class CommercetoolsSource(ResumableSource[CommercetoolsSourceConfig, Commercetoo
         # minted bearer token) are sent to; retargeting either must re-require the secret so it
         # can't be aimed at a different commercetools project or region.
         return ["region", "project_key"]
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.commercetools.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
@@ -51,6 +60,7 @@ class CommercetoolsSource(ResumableSource[CommercetoolsSourceConfig, Commercetoo
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.COMMERCETOOLS,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
             label="commercetools",
             caption="""Enter your commercetools API client credentials to pull your commerce data into the PostHog Data warehouse.
 

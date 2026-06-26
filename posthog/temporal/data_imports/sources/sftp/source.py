@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SFTP,
+            category=DataWarehouseSourceCategory.FILE_STORAGE,
             label="SFTP",
             iconPath="/static/services/sftp.png",
             fields=cast(list[FieldType], []),

@@ -366,7 +366,9 @@ describe('markdownNotebookDowngrade', () => {
         })
     })
 
-    it.each([['<Chat id="c1" />'], ['<Prompt text="hello" />']])('drops %s blocks', (markdown) => {
+    it('drops Prompt blocks', () => {
+        const markdown = '<Prompt text="hello" />'
+
         expect(convertMarkdownToNotebookContent(markdown)).toEqual({ type: 'doc', content: [] })
     })
 

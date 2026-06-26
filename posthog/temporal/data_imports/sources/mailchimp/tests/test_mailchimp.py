@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
+from requests.exceptions import ProxyError, RequestException
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.mailchimp.mailchimp import (
@@ -17,6 +18,7 @@ from posthog.temporal.data_imports.sources.mailchimp.mailchimp import (
     _get_contacts_iterator,
     extract_data_center,
     mailchimp_source,
+    validate_credentials,
 )
 
 
@@ -45,6 +47,40 @@ class TestExtractDataCenter:
     def test_malicious_dc_values_raise(self, malicious_key):
         with pytest.raises(ValueError, match="Invalid Mailchimp API key format"):
             extract_data_center(malicious_key)
+
+
+class TestValidateCredentials:
+    def test_success(self, monkeypatch):
+        get_mock = MagicMock(return_value=_make_http_response({}, status_code=200))
+        monkeypatch.setattr(
+            "posthog.temporal.data_imports.sources.mailchimp.mailchimp.make_tracked_session",
+            lambda *a, **k: type("_S", (), {"get": staticmethod(get_mock)})(),
+        )
+        assert validate_credentials("key-us6") == (True, None)
+
+    def test_invalid_api_key_format_is_surfaced(self):
+        valid, error = validate_credentials("invalidkey")
+        assert valid is False
+        assert error is not None and "Invalid Mailchimp API key format" in error
+
+    @pytest.mark.parametrize(
+        "exception",
+        [
+            ProxyError("Cannot connect to proxy.", OSError("Tunnel connection failed: 502 Bad gateway")),
+            RequestException("connection reset"),
+        ],
+    )
+    def test_network_errors_return_friendly_message_without_raw_details(self, monkeypatch, exception):
+        get_mock = MagicMock(side_effect=exception)
+        monkeypatch.setattr(
+            "posthog.temporal.data_imports.sources.mailchimp.mailchimp.make_tracked_session",
+            lambda *a, **k: type("_S", (), {"get": staticmethod(get_mock)})(),
+        )
+
+        valid, error = validate_credentials("key-us6")
+
+        assert valid is False
+        assert error == "Could not reach the Mailchimp API. Check your network connection and try again."
 
 
 class TestFormatIncrementalValue:

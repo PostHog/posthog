@@ -12,6 +12,7 @@ from requests import Response
 from urllib3.util.retry import Retry
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -275,12 +276,38 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
             )
 
 
+# Plain-English replacements for the pydantic constraint messages users hit most
+# when hand-authoring a manifest; an unmapped error keeps pydantic's own wording.
+_VALIDATION_MESSAGE_OVERRIDES = {
+    "string_too_short": "must not be empty",
+}
+
+
+def _render_error_location(loc: tuple[Any, ...]) -> str:
+    """Render a pydantic ``loc`` tuple as a path that mirrors the manifest JSON,
+    e.g. ``("resources", 0, "endpoint", "path")`` -> ``resources[0].endpoint.path``."""
+    rendered = ""
+    for part in loc:
+        if isinstance(part, int):
+            rendered += f"[{part}]"
+        elif rendered:
+            rendered += f".{part}"
+        else:
+            rendered = str(part)
+    return rendered
+
+
 def _format_validation_errors(exc: ValidationError) -> str:
-    """Render Pydantic's validation errors as a single user-facing string."""
+    """Render Pydantic's validation errors as a single user-facing string.
+
+    Pydantic's positional loc tuples and raw constraint wording ("String should
+    have at least 1 character") read like internals to someone editing manifest
+    JSON, so mirror the JSON path and swap the common messages for plainer English.
+    """
     messages: list[str] = []
     for error in exc.errors():
-        location = ".".join(str(part) for part in error["loc"])
-        message = error["msg"].removeprefix("Value error, ")
+        location = _render_error_location(error["loc"])
+        message = _VALIDATION_MESSAGE_OVERRIDES.get(error["type"], error["msg"].removeprefix("Value error, "))
         messages.append(f"{location}: {message}" if location else message)
     return "; ".join(messages)
 
@@ -480,6 +507,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOM,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Custom REST source",
             releaseStatus=ReleaseStatus.ALPHA,
             caption=(
@@ -535,6 +563,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return {
             "401 Client Error": "The upstream API rejected the request with HTTP 401. Check that the configured auth credentials are correct.",
             "403 Client Error": "The upstream API rejected the request with HTTP 403. The configured credentials may lack the required permissions.",
+            # A schema points to a resource the manifest no longer defines (renamed or removed
+            # in an edit while the table's sync stayed scheduled). Permanent until the config is
+            # fixed — match the stable suffix, not the variable resource name in the message.
+            "not found in config": "A table in this sync points to a resource that no longer exists in the source's manifest. Re-add the resource to the manifest, or remove the table from the sync, then try again.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
@@ -650,11 +682,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # surfaces on the first sync instead.
             try:
                 if response.status_code in (401, 403):
-                    return False, (
+                    message = (
                         f"Resource {resource['name']!r}: the upstream API rejected the request with "
-                        f"HTTP {response.status_code} from {url} — check the configured auth credentials: "
-                        f"{_read_capped_text(response)}"
+                        f"HTTP {response.status_code} from {url} — check the configured auth credentials."
                     )
+                    snippet = _read_capped_text(response)
+                    if snippet:
+                        message += f" The upstream responded: {snippet}"
+                    return False, message
             finally:
                 response.close()
 
@@ -784,14 +819,24 @@ def _read_capped_text(response: Response) -> str:
 
     ``decode_content=False`` is deliberate: it reads exactly ``PROBE_ERROR_SNIPPET_BYTES``
     raw bytes and never inflates a ``Content-Encoding: gzip`` body, so a decompression
-    bomb can't expand a tiny read into megabytes. The snippet is only a human-readable
-    diagnostic — a (rare) compressed error body just shows as bytes.
+    bomb can't expand a tiny read into megabytes. The flip side is that a compressed or
+    otherwise non-text body would decode to binary garbage, so it is omitted from the
+    snippet rather than echoed into a user-facing error.
     """
+    # ``identity`` means "no transformation", so its body is plain bytes worth surfacing;
+    # any other encoding (gzip, br, …) would decode to garbage, so omit the snippet.
+    if response.headers.get("Content-Encoding", "").lower() not in ("", "identity"):
+        return ""
     try:
         raw = response.raw.read(PROBE_ERROR_SNIPPET_BYTES, decode_content=False)
     except Exception:
         return ""
-    return raw.decode("utf-8", errors="replace")
+    text = raw.decode("utf-8", errors="replace")
+    # A replacement char means the bytes weren't valid UTF-8 — a binary or still-encoded
+    # body — so drop it rather than surface garbage to the user.
+    if "�" in text:
+        return ""
+    return text.strip()
 
 
 def _static_probe_params(params: Any) -> dict[str, Any]:

@@ -16,6 +16,8 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock
 
+from django.db import connections
+
 import responses
 
 from posthog.models.scoping import team_scope
@@ -23,6 +25,19 @@ from posthog.models.scoping import team_scope
 from products.visual_review.backend.models import Repo
 
 PRODUCT_DATABASES = {"default", "visual_review_db_writer", "visual_review_db_reader"}
+
+
+@pytest.fixture(scope="package", autouse=True)
+def _enable_pg_trgm_on_visual_review_db(django_db_setup, django_db_blocker):
+    """Runs search uses pg_trgm on the visual_review product database, which is a separate
+    Postgres DB from default (so the default DB's pg_trgm doesn't reach it). Enable it once
+    per package, after django_db_setup has created the product test databases. Scoped to
+    this product's conftest (and to package scope, matching django_db_setup) so other
+    products' test sessions — which don't create the visual_review test database — are
+    unaffected."""
+    with django_db_blocker.unblock():
+        with connections["visual_review_db_writer"].cursor() as cursor:
+            cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 
 
 @pytest.fixture(autouse=True)

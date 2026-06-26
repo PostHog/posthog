@@ -57,7 +57,16 @@ rules:
                               AccessControl
                               |Account
                               |Action
+                              |AgentApplication
                               |AgentArtifact
+                              |AgentIdentityCredential
+                              |AgentIdentityLinkState
+                              |AgentRevision
+                              |AgentSandboxInstance
+                              |AgentSession
+                              |AgentSessionCredential
+                              |AgentToolApprovalRequest
+                              |AgentUser
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -81,6 +90,7 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomPropertyDefinition
                               |DAG
                               |Dashboard
                               |DashboardTemplate
@@ -218,6 +228,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
+                              |SourceBatchDuckgresApply
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -245,7 +256,13 @@ rules:
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
+                              |VisionAction
+                              |VisionActionRun
+                              |WarehouseColumnAnnotation
+                              |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
+                              |WebAnalyticsInteraction
+                              |WebAnalyticsVisit
                               |WizardSession
                           )$
                 - focus-metavariable: $SINK
@@ -305,7 +322,16 @@ rules:
                         AccessControl
                         |Account
                         |Action
+                        |AgentApplication
                         |AgentArtifact
+                        |AgentIdentityCredential
+                        |AgentIdentityLinkState
+                        |AgentRevision
+                        |AgentSandboxInstance
+                        |AgentSession
+                        |AgentSessionCredential
+                        |AgentToolApprovalRequest
+                        |AgentUser
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -329,6 +355,7 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomPropertyDefinition
                         |DAG
                         |Dashboard
                         |DashboardTemplate
@@ -462,6 +489,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
+                        |SourceBatchDuckgresApply
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
@@ -489,7 +517,13 @@ rules:
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
+                        |VisionAction
+                        |VisionActionRun
+                        |WarehouseColumnAnnotation
+                        |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
+                        |WebAnalyticsInteraction
+                        |WebAnalyticsVisit
                         |WizardSession
                     )$
           # Exclude when team filter is present
@@ -580,6 +614,7 @@ rules:
                       regex: |
                           (?x)(
                               CIMDVerificationToken
+                              |IdentityProviderConfig
                               |LegalDocument
                               |OrganizationMembership
                               |OrganizationDomain
@@ -588,6 +623,7 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
+                              |ReplayObservationUsage
                               |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
@@ -647,6 +683,7 @@ rules:
                 regex: |
                     (?x)(
                         CIMDVerificationToken
+                        |IdentityProviderConfig
                         |LegalDocument
                         |OrganizationMembership
                         |OrganizationDomain
@@ -655,6 +692,7 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
+                        |ReplayObservationUsage
                         |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference
@@ -893,6 +931,7 @@ rules:
                               |KernelRuntime
                               |MCPServerInstallation
                               |PersistedFolder
+                              |Reminder
                               |SessionRecordingViewed
                               |UserHomeSettings
                               |UserProductList
@@ -964,6 +1003,7 @@ rules:
                         |InsightViewed
                         |KernelRuntime
                         |PersistedFolder
+                        |Reminder
                         |SessionRecordingViewed
                         |UserHomeSettings
                         |UserProductList

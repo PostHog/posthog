@@ -14,7 +14,8 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
+import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
 
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -97,6 +98,7 @@ export function AccountNotebooksExpansion({
     const { notebooks, notebooksLoading } = useValues(logic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
+    const { selectNotebook } = useActions(notebookPanelLogic)
     const activeTab = activeTabFor(accountId)
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
@@ -110,11 +112,13 @@ export function AccountNotebooksExpansion({
                         <Link
                             to={urls.notebook(notebook.short_id)}
                             className="font-medium"
-                            onClick={() =>
+                            onClick={(event) => {
                                 posthog.capture(AccountsEvents.NoteClicked, {
                                     notebook_short_id: notebook.short_id,
                                 })
-                            }
+                                event.preventDefault()
+                                selectNotebook(notebook.short_id)
+                            }}
                         >
                             {notebook.title || 'Untitled note'}
                         </Link>

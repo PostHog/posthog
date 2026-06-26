@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class CosmosDBSource(SimpleSource[CosmosDBSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.COSMOS_DB,
+            category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["azure cosmos"],
             label="Azure Cosmos DB",
             iconPath="/static/services/cosmosdb.png",
             fields=cast(list[FieldType], []),

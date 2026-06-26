@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from posthog.hogql.transforms.property_types import PropertySwapper
 
     from posthog.models import Team, User
+    from posthog.rbac.user_access_control import UserAccessControl
 
 
 def _default_modifiers() -> "HogQLQueryModifiers":
@@ -44,6 +45,14 @@ class HogQLContext:
 
     # User making the queries - used for access control on system tables
     user: Optional["User"] = None
+    # Preloaded access-control snapshot for `user`, shared so schema filtering and the query
+    # cache fingerprint resolve access from the same rows (one bulk preload per run).
+    user_access_control: Optional["UserAccessControl"] = None
+
+    # SECURITY-SENSITIVE: bypass for HogQL access control on warehouse tables.
+    # Set ONLY when running in a context without a user (e.g., internal data imports, schema introspection).
+    # Every call site that sets this MUST include an inline comment explaining why.
+    bypass_warehouse_access_control: bool = False
 
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
@@ -100,6 +109,11 @@ class HogQLContext:
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
+    # Per-query cache of the `system.information_schema` introspection result (populated lazily in
+    # posthog/hogql/database/schema/information_schema.py). Shared across the information_schema
+    # tables so a single query touching several of them walks the database (and fires the warehouse
+    # metadata ORM queries) only once.
+    information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
     # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.

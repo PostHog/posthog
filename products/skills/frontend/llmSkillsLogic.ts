@@ -2,26 +2,66 @@ import { actions, afterMount, kea, listeners, path, props, reducers, selectors }
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import { ApiConfig } from '~/lib/api'
+import { objectsEqual } from 'lib/utils/objects'
+
+import api, { ApiConfig } from '~/lib/api'
+import { downloadBlob } from '~/lib/components/ExportButton/exporter'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
-import { objectsEqual } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 
 import {
+    getLlmSkillsNameExportRetrieveUrl,
+    llmSkillsImportCreate,
     llmSkillsList,
+    llmSkillsMarketplaceInstallCommandCreate,
+    llmSkillsMarketplaceInstallCommandRetrieve,
     llmSkillsNameArchiveCreate,
     llmSkillsNameDuplicateCreate,
-} from 'products/ai_observability/frontend/generated/api'
+} from 'products/skills/frontend/generated/api'
 import type {
     LLMSkillListApi,
+    LLMSkillMarketplaceCommandApi,
     PaginatedLLMSkillListListApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
+} from 'products/skills/frontend/generated/api.schemas'
 
 import type { llmSkillsLogicType } from './llmSkillsLogicType'
+
+/** Builds the `/plugin marketplace add` command. The token is embedded once minted; until then
+ * a placeholder is shown. */
+export function buildMarketplaceCommand(token: string | null): string {
+    const teamId = ApiConfig.getCurrentTeamId()
+    const origin = window.location.origin
+    const scheme = origin.startsWith('https') ? 'https' : 'http'
+    const host = origin.replace(/^https?:\/\//, '')
+    return `/plugin marketplace add ${scheme}://x-access-token:${token ?? 'YOUR_PHS_TOKEN'}@${host}/api/projects/${teamId}/llm_skills/marketplace.git`
+}
+
+function errorDetail(error: unknown): string | undefined {
+    return error !== null && typeof error === 'object' && 'detail' in error
+        ? (error as { detail?: string }).detail
+        : undefined
+}
+
+/** Download a skill as a spec-compliant zip. The generated export client JSON-parses the
+ * binary response, so fetch the raw blob via the generated URL builder instead. */
+export async function exportAndDownloadSkill(skillName: string): Promise<void> {
+    const url = getLlmSkillsNameExportRetrieveUrl(String(ApiConfig.getCurrentTeamId()), skillName, {})
+    const response = await api.getResponse(url)
+    if (!response.ok) {
+        let detail = 'Failed to export skill'
+        try {
+            detail = (await response.json())?.detail || detail
+        } catch {
+            // non-JSON error body; keep the default message
+        }
+        throw new Error(detail)
+    }
+    downloadBlob(await response.blob(), `${skillName}.zip`)
+}
 
 export const SKILLS_PER_PAGE = 30
 // Hard upper bound for "group by prefix" mode — grouping is a client-side aggregation,
@@ -32,6 +72,51 @@ export const SKILLS_GROUP_LIMIT = 500
 // as leaves of the deepest allowed group.
 export const SKILLS_GROUP_MAX_DEPTH = 4
 export const LLM_SKILLS_FORCE_RELOAD_PARAM = 'llm_skills_force_reload'
+
+/** URL/UI key for the default tab — the uncategorized skills (everything not pulled into a category tab). */
+export const DEFAULT_SKILLS_TAB_KEY: string = 'skills'
+
+/** Sub-title shown for the default "Skills" tab. Category tabs carry their own copy (below). */
+export const DEFAULT_SKILLS_TAB_DESCRIPTION = 'Manage versioned agent skills that any agent can discover and use.'
+
+export interface SkillCategoryTab {
+    /** Tab key, also the `/skills/<key>` URL segment. */
+    key: string
+    /** The `LLMSkill.category` value this tab filters to. */
+    category: string
+    label: string
+    /** Sub-title shown under the scene title while this tab is active. */
+    description: string
+}
+
+/**
+ * Category-backed tabs shown alongside the default "Skills" tab. Each entry surfaces one
+ * `LLMSkill.category` value as its own tab and removes it from the default list (which only shows
+ * uncategorized skills). To add a tab — e.g. official AI-plugin skills — add an entry here, register
+ * the matching `/skills/<key>` route in manifest.tsx, and have the producer stamp that `category`.
+ */
+export const SKILL_CATEGORY_TABS: SkillCategoryTab[] = [
+    {
+        key: 'scouts',
+        category: 'scout',
+        label: 'Scouts',
+        description:
+            "Scouts — scheduled agents that scan your project and surface findings in your inbox. Includes PostHog's canonical scouts and any custom ones you author.",
+    },
+]
+
+export function skillCategoryForTabKey(tabKey: string): string {
+    return SKILL_CATEGORY_TABS.find((tab) => tab.key === tabKey)?.category ?? ''
+}
+
+export function skillTabDescription(tabKey: string): string {
+    return SKILL_CATEGORY_TABS.find((tab) => tab.key === tabKey)?.description ?? DEFAULT_SKILLS_TAB_DESCRIPTION
+}
+
+/** The `/skills` or `/skills/<categoryKey>` path for a tab key. */
+export function skillTabUrl(tabKey: string): string {
+    return tabKey === DEFAULT_SKILLS_TAB_KEY ? urls.skills() : urls.skillsCategoryTab(tabKey)
+}
 
 export interface SkillFilters {
     page: number
@@ -153,11 +238,29 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             debounce,
         }),
         loadSkills: (debounce: boolean = true) => ({ debounce }),
+        loadCategoryCounts: true,
+        setActiveTab: (tabKey: string) => ({ tabKey }),
         deleteSkill: (skillName: string) => ({ skillName }),
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
+        importSkill: (file: File) => ({ file }),
+        setImporting: (importing: boolean) => ({ importing }),
+        downloadSkillZip: (skillName: string) => ({ skillName }),
+        setConnectModalOpen: (open: boolean) => ({ open }),
+        loadMarketplaceState: true,
+        // rotate=false mints when absent / returns the masked existing key; rotate=true rolls it.
+        issueMarketplaceCommand: (rotate: boolean = false) => ({ rotate }),
+        setMarketplaceState: (state: LLMSkillMarketplaceCommandApi | null) => ({ state }),
+        setMarketplaceLoading: (loading: boolean) => ({ loading }),
+        setIssuingCredential: (issuing: boolean) => ({ issuing }),
     }),
 
     reducers({
+        activeTabKey: [
+            DEFAULT_SKILLS_TAB_KEY,
+            {
+                setActiveTab: (_, { tabKey }) => tabKey,
+            },
+        ],
         rawFilters: [
             null as Partial<SkillFilters> | null,
             {
@@ -167,6 +270,39 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+        importing: [
+            false,
+            {
+                setImporting: (_, { importing }) => importing,
+            },
+        ],
+        connectModalOpen: [
+            false,
+            {
+                setConnectModalOpen: (_, { open }) => open,
+            },
+        ],
+        // The full server response (status, command, command_template, token, mask). The live phs_
+        // token only ever lives here and only on create/rotate; clear it when the modal closes.
+        marketplaceState: [
+            null as LLMSkillMarketplaceCommandApi | null,
+            {
+                setMarketplaceState: (_, { state }) => state,
+                setConnectModalOpen: (state, { open }) => (open ? state : null),
+            },
+        ],
+        marketplaceLoading: [
+            false,
+            {
+                setMarketplaceLoading: (_, { loading }) => loading,
+            },
+        ],
+        issuingCredential: [
+            false,
+            {
+                setIssuingCredential: (_, { issuing }) => issuing,
             },
         ],
     }),
@@ -181,6 +317,9 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                     }
 
                     const { filters } = values
+                    // Always send `category` (even as ""): the default tab shows uncategorized skills,
+                    // each category tab shows its own category. Presence of the param is the filter.
+                    const category = values.activeCategory
                     const params = filters.group_by_prefix
                         ? {
                               search: filters.search,
@@ -188,6 +327,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               offset: 0,
                               limit: SKILLS_GROUP_LIMIT,
                               created_by_id: filters.created_by_id,
+                              category,
                           }
                         : {
                               search: filters.search,
@@ -195,6 +335,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               offset: Math.max(0, (filters.page - 1) * SKILLS_PER_PAGE),
                               limit: SKILLS_PER_PAGE,
                               created_by_id: filters.created_by_id,
+                              category,
                           }
 
                     if (
@@ -211,6 +352,27 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 },
             },
         ],
+        // Per-category skill counts, used to decide which category tabs to show. Loaded once on
+        // mount (and after a delete) with a cheap limit=1 probe per category — we only read `count`.
+        categoryCounts: [
+            {} as Record<string, number>,
+            {
+                loadCategoryCounts: async () => {
+                    const teamId = String(ApiConfig.getCurrentTeamId())
+                    const entries = await Promise.all(
+                        SKILL_CATEGORY_TABS.map(async (tab) => {
+                            const { count } = await llmSkillsList(teamId, {
+                                category: tab.category,
+                                limit: 1,
+                                offset: 0,
+                            })
+                            return [tab.category, count] as const
+                        })
+                    )
+                    return Object.fromEntries(entries)
+                },
+            },
+        ],
     })),
 
     selectors({
@@ -219,7 +381,43 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             (rawFilters: Partial<SkillFilters> | null): SkillFilters => cleanFilters(rawFilters || {}),
         ],
 
+        activeCategory: [
+            (s) => [s.activeTabKey],
+            (activeTabKey: string): string => skillCategoryForTabKey(activeTabKey),
+        ],
+
+        activeTabDescription: [
+            (s) => [s.activeTabKey],
+            (activeTabKey: string): string => skillTabDescription(activeTabKey),
+        ],
+
+        // A category tab is shown only once the team has at least one skill in that category.
+        // The active tab is always kept visible so direct navigation to /skills/<key> (or deleting
+        // the last skill while viewing the tab) doesn't strand the user on a tab that isn't listed.
+        visibleCategoryTabs: [
+            (s) => [s.categoryCounts, s.activeTabKey],
+            (categoryCounts: Record<string, number>, activeTabKey: string): SkillCategoryTab[] =>
+                SKILL_CATEGORY_TABS.filter(
+                    (tab) => (categoryCounts[tab.category] ?? 0) > 0 || tab.key === activeTabKey
+                ),
+        ],
+
         count: [(s) => [s.skills], (skills: PaginatedLLMSkillListListApi) => skills.count],
+
+        marketplaceCommand: [
+            (s) => [s.marketplaceState],
+            (marketplaceState: LLMSkillMarketplaceCommandApi | null): string =>
+                // Live command (token embedded) once issued, else the server placeholder template,
+                // else a locally-built placeholder before the state has loaded.
+                marketplaceState?.command ?? marketplaceState?.command_template ?? buildMarketplaceCommand(null),
+        ],
+
+        codexCommand: [
+            (s) => [s.marketplaceState],
+            (marketplaceState: LLMSkillMarketplaceCommandApi | null): string =>
+                // Same per-user credential; the Codex two-line command. Only shown once state loads.
+                marketplaceState?.codex_command ?? marketplaceState?.codex_command_template ?? '',
+        ],
 
         sorting: [
             (s) => [s.filters],
@@ -280,7 +478,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         ],
     }),
 
-    listeners(({ asyncActions, values, selectors }) => ({
+    listeners(({ actions, asyncActions, values, selectors }) => ({
         setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const { filters } = values
@@ -295,6 +493,8 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 await llmSkillsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), skillName)
                 lemonToast.info(`${skillName || 'Skill'} has been archived.`)
                 await asyncActions.loadSkills(false)
+                // Archiving may have removed the last skill in a category — refresh tab visibility.
+                actions.loadCategoryCounts()
             } catch (e) {
                 console.error('Failed to archive skill', e)
                 lemonToast.error('Failed to archive skill')
@@ -313,6 +513,72 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 lemonToast.error('Failed to duplicate skill')
             }
         },
+
+        importSkill: async ({ file }) => {
+            actions.setImporting(true)
+            try {
+                // Orval types the FileField as string; the generated client appends the File to FormData.
+                const skill = await llmSkillsImportCreate(String(ApiConfig.getCurrentTeamId()), {
+                    file: file as unknown as string,
+                })
+                lemonToast.success(`Imported "${skill.name}".`)
+                actions.loadSkills(false)
+                router.actions.push(urls.skill(skill.name))
+            } catch (e) {
+                console.error('Failed to import skill', e)
+                lemonToast.error(errorDetail(e) || 'Failed to import skill — is it a valid skill zip?')
+            } finally {
+                actions.setImporting(false)
+            }
+        },
+
+        downloadSkillZip: async ({ skillName }) => {
+            try {
+                await exportAndDownloadSkill(skillName)
+            } catch (e) {
+                console.error('Failed to export skill', e)
+                lemonToast.error(errorDetail(e) || (e instanceof Error ? e.message : 'Failed to export skill'))
+            }
+        },
+
+        setConnectModalOpen: ({ open }) => {
+            // Reload the (token-less) connection state each time the modal opens so we never
+            // re-surface a previously minted token and always reflect the current credential.
+            if (open) {
+                actions.loadMarketplaceState()
+            }
+        },
+
+        loadMarketplaceState: async () => {
+            actions.setMarketplaceLoading(true)
+            try {
+                const state = await llmSkillsMarketplaceInstallCommandRetrieve(String(ApiConfig.getCurrentTeamId()))
+                actions.setMarketplaceState(state)
+            } catch (e) {
+                console.error('Failed to load marketplace connection state', e)
+                lemonToast.error(errorDetail(e) || 'Failed to check your skill store connection.')
+            } finally {
+                actions.setMarketplaceLoading(false)
+            }
+        },
+
+        issueMarketplaceCommand: async ({ rotate }) => {
+            actions.setIssuingCredential(true)
+            try {
+                // Per-user read-only credential: mints if absent, rolls (rotate=true) only this user's own key.
+                const state = await llmSkillsMarketplaceInstallCommandCreate(String(ApiConfig.getCurrentTeamId()), {
+                    rotate,
+                })
+                actions.setMarketplaceState(state)
+            } catch (e) {
+                console.error('Failed to issue marketplace credential', e)
+                lemonToast.error(
+                    errorDetail(e) || 'Failed to issue credential. Do you have permission to manage API keys?'
+                )
+            } finally {
+                actions.setIssuingCredential(false)
+            }
+        },
     })),
 
     trackedActionToUrl(({ values }) => {
@@ -321,32 +587,49 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             const urlValues = cleanFilters(router.values.searchParams)
 
             if (!objectsEqual(values.filters, urlValues)) {
-                return [urls.skills(), nextValues, {}, { replace: true }]
+                // Keep filter changes on the active tab's path so editing search/sort on a category
+                // tab doesn't bounce the URL back to the default /skills.
+                return [skillTabUrl(values.activeTabKey), nextValues, {}, { replace: true }]
             }
         }
 
         return { setFilters: changeUrl }
     }),
 
-    urlToAction(({ actions, values }) => ({
-        [urls.skills()]: (_, searchParams, __, { method }) => {
-            const newFilters = cleanFilters(searchParams)
-            const forceReload = typeof searchParams?.[LLM_SKILLS_FORCE_RELOAD_PARAM] === 'string'
-            if (!objectsEqual(values.filters, newFilters)) {
-                actions.setFilters(newFilters, false)
-            } else if (forceReload || method !== 'REPLACE') {
-                actions.loadSkills(false)
+    urlToAction(({ actions, values }) => {
+        const handleTab =
+            (tabKey: string) =>
+            (_: any, searchParams: Record<string, any>, __: any, { method }: { method: string }): void => {
+                // Update the active tab first so the loader picks up the new category. Setting it is a
+                // plain reducer (no reload of its own) — handleTab owns the single reload below.
+                const tabChanged = values.activeTabKey !== tabKey
+                if (tabChanged) {
+                    actions.setActiveTab(tabKey)
+                }
+                const newFilters = cleanFilters(searchParams)
+                const forceReload = typeof searchParams?.[LLM_SKILLS_FORCE_RELOAD_PARAM] === 'string'
+                if (!objectsEqual(values.filters, newFilters)) {
+                    // setFilters reloads, reading the just-updated activeCategory.
+                    actions.setFilters(newFilters, false)
+                } else if (tabChanged || forceReload || method !== 'REPLACE') {
+                    actions.loadSkills(false)
+                }
+
+                if (forceReload) {
+                    const nextSearchParams = { ...searchParams }
+                    delete nextSearchParams[LLM_SKILLS_FORCE_RELOAD_PARAM]
+                    router.actions.replace(skillTabUrl(tabKey), nextSearchParams)
+                }
             }
 
-            if (forceReload) {
-                const nextSearchParams = { ...searchParams }
-                delete nextSearchParams[LLM_SKILLS_FORCE_RELOAD_PARAM]
-                router.actions.replace(urls.skills(), nextSearchParams)
-            }
-        },
-    })),
+        return {
+            [urls.skills()]: handleTab(DEFAULT_SKILLS_TAB_KEY),
+            ...Object.fromEntries(SKILL_CATEGORY_TABS.map((tab) => [skillTabUrl(tab.key), handleTab(tab.key)])),
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.loadSkills()
+        actions.loadCategoryCounts()
     }),
 ])

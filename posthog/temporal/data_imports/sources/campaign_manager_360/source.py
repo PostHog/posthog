@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class CampaignManager360Source(SimpleSource[CampaignManager360SourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CAMPAIGN_MANAGER360,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["cm360"],
             label="Campaign Manager 360",
             iconPath="/static/services/campaign_manager_360.png",
             fields=cast(list[FieldType], []),

@@ -24,6 +24,7 @@ class SavedHeatmap(UUIDTModel):
     target_widths = models.JSONField(default=list)
     type = models.CharField(max_length=20, choices=Type, default=Type.SCREENSHOT)
     status = models.CharField(max_length=20, choices=Status, default=Status.PROCESSING)
+    block_consent_modals = models.BooleanField(default=False)
 
     # Content moved to HeatmapSnapshot per width
 
@@ -62,6 +63,7 @@ class SavedHeatmap(UUIDTModel):
             "target_widths": self.target_widths,
             "type": self.type,
             "status": self.status,
+            "block_consent_modals": self.block_consent_modals,
         }
 
 

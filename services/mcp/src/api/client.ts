@@ -119,6 +119,12 @@ export interface ApiConfig {
     oauthClientName?: string | undefined
     mcpSessionId?: string | undefined
     mcpConversationId?: string | undefined
+    /**
+     * Sandbox-provisioned task id (from the inbound `x-posthog-task-id` MCP header). Forwarded
+     * to the PostHog API as `X-PostHog-Task-Id` on every call so writes can be attributed to
+     * the agent's task; the API validates it against the token's team.
+     */
+    taskId?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -173,6 +179,8 @@ export class ApiClient {
             ...(this.config.mcpConversationId
                 ? { 'x-posthog-mcp-conversation-id': this.config.mcpConversationId }
                 : {}),
+            // Forward the sandbox task id so API writes are attributed to the agent's task.
+            ...(this.config.taskId ? { 'X-PostHog-Task-Id': this.config.taskId } : {}),
             'X-PostHog-Client': 'mcp',
         }
         if (options?.body) {
@@ -1158,10 +1166,11 @@ export class ApiClient {
 
             const baseUrl = this.getProjectBaseUrl(projectId)
 
-            // `actor` → 3 columns, `matched_recordings` → recordings, everything else passes through.
+            // `actor`/`person` → 3 columns, `matched_recordings` → recordings, everything else passes through.
+            // Retention projects `person`, which carries the same actor shape as `actor`.
             const columns: string[] = []
             for (const field of finalSelect) {
-                if (field === 'actor') {
+                if (field === 'actor' || field === 'person') {
                     columns.push('distinct_id', 'email', 'name')
                 } else if (field === 'matched_recordings') {
                     columns.push('recordings')
@@ -1175,7 +1184,7 @@ export class ApiClient {
                 for (let i = 0; i < finalSelect.length; i++) {
                     const field = finalSelect[i]
                     const cell = row[i]
-                    if (field === 'actor') {
+                    if (field === 'actor' || field === 'person') {
                         const props = cell?.properties ?? {}
                         cells.push(cell?.distinct_ids?.[0] ?? null, props.email, props.name)
                     } else if (field === 'matched_recordings') {
@@ -1226,6 +1235,41 @@ export class ApiClient {
 
             pathsActors: async ({ query }: { query: Record<string, unknown> }) =>
                 runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
+
+            retentionActors: async ({ query }: { query: Record<string, unknown> }) => {
+                // Columns are `person` + one per return interval: prefix = period (day/week/…), count =
+                // custom-bracket count + 1, else totalIntervals. Mirrors the frontend retentionToActorsQuery.
+                const filter = ((query.source as Record<string, unknown>)?.retentionFilter ?? {}) as Record<
+                    string,
+                    unknown
+                >
+                const period = typeof filter.period === 'string' ? filter.period.toLowerCase() : 'day'
+                const brackets = filter.retentionCustomBrackets as number[] | undefined
+                const count = brackets?.length ? brackets.length + 1 : (filter.totalIntervals as number) || 7
+                // The schema codegen doesn't propagate `@minimum`/`@maximum` on integer fields (only array
+                // `@maxItems`, which already bounds `retentionCustomBrackets`), so `totalIntervals` can't be
+                // capped in the generated zod — enforce it here instead. The limit matches the app's
+                // retention UI (period count capped at 31; totalIntervals adds the acquisition interval → 32).
+                // TODO: drop this guard once the schema generator supports integer min/max.
+                const MAX_RETENTION_INTERVALS = 32
+                if (count > MAX_RETENTION_INTERVALS) {
+                    throw new Error(
+                        `Retention query requests ${count} intervals; the maximum is ${MAX_RETENTION_INTERVALS}.`
+                    )
+                }
+
+                const select = ['person', ...Array.from({ length: count }, (_, i) => `${period}_${i}`)]
+                return runActorsQuery(query, select, ['length(appearances) DESC', 'actor_id'])
+            },
+
+            // Stickiness drills into one bar (`day` = active-interval count). The runner projects only
+            // `actor_id` with no `matching_events`, so there is no recordings column — same as lifecycle.
+            stickinessActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
+
+            // Funnel actors project `actor` (+ `matched_recordings` when `includeRecordings`, handled
+            // by runActorsQuery). The query carries the step/trends-dropoff selectors on the inner
+            // FunnelsActorsQuery; ordering is backend-determined, so orderBy stays empty.
+            funnelActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
         }
     }
 

@@ -61,11 +61,11 @@ class ExperimentPrecomputeCanaryInputs:
 
     experiment_id: int | None = None
     metric_uuids: list[str] | None = None
-    funnel_quota: int = 6
-    mean_quota: int = 3
-    ratio_quota: int = 2
+    funnel_quota: int = 12
+    mean_quota: int = 6
+    ratio_quota: int = 4
     per_experiment_cap: int = 3
-    time_budget_seconds: int = 3600
+    time_budget_seconds: int = 5400
     triggered_manually: bool = False
 
 
@@ -134,3 +134,7 @@ class RecalculationProgressUpdate:
     metric_uuids: list[str] | None = None
     mark_started: bool = False
     mark_completed: bool = False
+    # Run-level outcome carried on the finish step so the activity can emit the
+    # 'experiment results refresh completed' analytics event with real counts.
+    succeeded_metrics: int | None = None
+    failed_metrics: int | None = None

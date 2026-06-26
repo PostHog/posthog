@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class PlanetScaleSource(SimpleSource[PlanetScaleSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PLANET_SCALE,
+            category=DataWarehouseSourceCategory.DATABASES,
             label="PlanetScale",
             iconPath="/static/services/planetscale.svg",
             fields=cast(list[FieldType], []),

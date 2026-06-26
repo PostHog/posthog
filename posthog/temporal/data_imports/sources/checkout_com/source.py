@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -18,6 +19,7 @@ from posthog.temporal.data_imports.sources.checkout_com.checkout_com import (
     validate_credentials as validate_checkout_credentials,
 )
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -37,6 +39,8 @@ _DISPUTES_INCREMENTAL_FIELDS: list[IncrementalField] = [
 
 @SourceRegistry.register
 class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHECKOUTCOM
@@ -55,6 +59,7 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHECKOUT_COM,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Checkout.com",
             caption="""Enter your Checkout.com API access keys to pull your disputes data into the PostHog Data warehouse.
 
@@ -94,6 +99,11 @@ Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.
                 ],
             ),
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.checkout_com.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

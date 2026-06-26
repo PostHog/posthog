@@ -9,6 +9,7 @@ from posthog.temporal.data_imports.sources.common.sql.identifiers import (
     BacktickIdentifierQuoter,
     InvalidIdentifierError,
 )
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.common.sql.query_builder import ParamStyle, SelectQueryBuilder
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -195,3 +196,109 @@ class TestParamStyles:
         named = SelectQueryBuilder(quoter=AnsiIdentifierQuoter(), param_style=ParamStyle.PYFORMAT_NAMED)
         assert qmark.select_all(schema="public", table_name="t").params == []
         assert named.select_all(schema="public", table_name="t").params == {}
+
+
+class TestSelectAllRowFilters:
+    builder = SelectQueryBuilder(quoter=BacktickIdentifierQuoter())
+
+    def _filter(self, column: str, operator: str, value: object) -> ValidatedRowFilter:
+        return ValidatedRowFilter(column=column, operator=operator, value=value, category=ColumnTypeCategory.INTEGER)
+
+    def test_single_filter_emits_where_and_param(self) -> None:
+        result = self.builder.select_all(
+            schema="db",
+            table_name="t",
+            row_filters=[self._filter("age", ">", 21)],
+        )
+        assert "WHERE `age` > %(row_filter_0)s" in result.sql
+        assert result.params == {"row_filter_0": 21}
+
+    def test_multiple_filters_are_anded(self) -> None:
+        result = self.builder.select_all(
+            schema="db",
+            table_name="t",
+            row_filters=[self._filter("age", ">", 21), self._filter("score", "<=", 100)],
+        )
+        assert "WHERE `age` > %(row_filter_0)s AND `score` <= %(row_filter_1)s" in result.sql
+        assert result.params == {"row_filter_0": 21, "row_filter_1": 100}
+
+    def test_filters_compose_with_incremental(self) -> None:
+        result = self.builder.select_all(
+            schema="db",
+            table_name="t",
+            incremental_field="updated_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            incremental_last_value=datetime.datetime(2025, 1, 1),
+            row_filters=[self._filter("age", ">", 21)],
+        )
+        # Incremental condition first, then the row filter, both ANDed; ORDER BY still present.
+        assert (
+            "WHERE `updated_at` > %(incremental_value)s AND `age` > %(row_filter_0)s ORDER BY `updated_at` ASC"
+            in result.sql
+        )
+        assert isinstance(result.params, dict)
+        assert result.params["incremental_value"] == datetime.datetime(2025, 1, 1)
+        assert result.params["row_filter_0"] == 21
+
+    def test_value_never_interpolated(self) -> None:
+        result = self.builder.select_all(
+            schema="db",
+            table_name="t",
+            row_filters=[
+                ValidatedRowFilter(
+                    column="name", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+                )
+            ],
+        )
+        assert "DROP TABLE" not in result.sql
+        assert isinstance(result.params, dict)
+        assert result.params["row_filter_0"] == "x'; DROP TABLE y; --"
+
+    def test_positional_style_orders_filters_after_incremental(self) -> None:
+        builder = SelectQueryBuilder(quoter=AnsiIdentifierQuoter(), param_style=ParamStyle.NUMERIC)
+        result = builder.select_all(
+            schema="public",
+            table_name="users",
+            incremental_field="id",
+            incremental_field_type=IncrementalFieldType.Integer,
+            incremental_last_value=5,
+            row_filters=[self._filter("age", ">", 21)],
+        )
+        # Incremental value is bound first (:1), row filter second (:2) — order matters for positional params.
+        assert result.params == [5, 21]
+        assert ":1" in result.sql and ":2" in result.sql
+
+    def test_in_filter_expands_to_one_placeholder_per_value(self) -> None:
+        result = self.builder.select_all(
+            schema="db",
+            table_name="t",
+            row_filters=[self._filter("age", "IN", [21, 30, 40])],
+        )
+        assert "WHERE `age` IN (%(row_filter_0_0)s, %(row_filter_0_1)s, %(row_filter_0_2)s)" in result.sql
+        assert result.params == {"row_filter_0_0": 21, "row_filter_0_1": 30, "row_filter_0_2": 40}
+
+    def test_in_filter_positional_order_after_incremental(self) -> None:
+        builder = SelectQueryBuilder(quoter=AnsiIdentifierQuoter(), param_style=ParamStyle.NUMERIC)
+        result = builder.select_all(
+            schema="public",
+            table_name="users",
+            incremental_field="id",
+            incremental_field_type=IncrementalFieldType.Integer,
+            incremental_last_value=5,
+            row_filters=[self._filter("age", "NOT IN", [21, 30])],
+        )
+        # Incremental value bound first, then each IN element in order.
+        assert result.params == [5, 21, 30]
+        assert '"age" NOT IN (:2, :3)' in result.sql
+
+    def test_none_row_filters_no_where(self) -> None:
+        result = self.builder.select_all(schema="db", table_name="t", row_filters=None)
+        assert "WHERE" not in result.sql
+
+    def test_malicious_column_rejected(self) -> None:
+        with pytest.raises(InvalidIdentifierError):
+            self.builder.select_all(
+                schema="db",
+                table_name="t",
+                row_filters=[self._filter("age`; DROP TABLE x; --", ">", 21)],
+            )

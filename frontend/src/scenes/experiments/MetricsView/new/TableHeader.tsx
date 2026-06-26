@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+
 import { ExperimentStatsMethod } from '~/types'
 
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
@@ -15,9 +17,15 @@ interface TableHeaderProps {
     axisRange?: number
     statsMethod?: ExperimentStatsMethod
     sequentialTestingEnabled?: boolean
+    loading?: boolean
 }
 
-export function TableHeader({ axisRange, statsMethod, sequentialTestingEnabled }: TableHeaderProps): JSX.Element {
+export function TableHeader({
+    axisRange,
+    statsMethod,
+    sequentialTestingEnabled,
+    loading = false,
+}: TableHeaderProps): JSX.Element {
     const [svgWidth, setSvgWidth] = useState<number | undefined>(undefined)
 
     // Set up tick values and scaling for the header
@@ -105,6 +113,13 @@ export function TableHeader({ axisRange, statsMethod, sequentialTestingEnabled }
                     ) : (
                         <div className="p-3" />
                     )}
+                </th>
+            </tr>
+            {/* Thin loader line spanning the full table width, pinned to the header's bottom edge.
+                Mirrors LemonTable's loader row: a zero-height positioning host for the absolute line. */}
+            <tr>
+                <th colSpan={7} className="relative h-0 overflow-visible !border-none !p-0 leading-none">
+                    <LemonTableLoader loading={loading} tag="div" placement="bottom" />
                 </th>
             </tr>
         </thead>

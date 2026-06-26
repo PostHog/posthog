@@ -55,6 +55,26 @@ pub async fn update_team_in_hypercache(
     Ok(())
 }
 
+/// Write a raw team-token hypercache entry that omits `project_id`, simulating a cache entry
+/// written before that field existed. `verify_token_and_get_team` then deserializes it with
+/// `project_id == None` (via `#[serde(default)]`), which is the only way to exercise the
+/// `project_id_for_team` fallback — the typed `update_team_in_hypercache` always carries the field.
+pub async fn update_team_in_hypercache_without_project_id(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+    team: &Team,
+) -> Result<(), Error> {
+    let mut value = serde_json::to_value(team)?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.remove("project_id");
+    }
+    let json_string = serde_json::to_string(&value)?;
+    let pickled_bytes =
+        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle team");
+    let cache_key = team_token_hypercache_key(&team.api_token);
+    client.set_bytes(cache_key, pickled_bytes, None).await?;
+    Ok(())
+}
+
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
@@ -898,6 +918,20 @@ pub async fn update_team_autocapture_exceptions(
     Ok(())
 }
 
+pub async fn update_team_timezone(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    timezone: &str,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    sqlx::query("UPDATE posthog_team SET timezone = $1 WHERE id = $2")
+        .bind(timezone)
+        .bind(team_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 /// Build a `FeatureFlagList` with proper `EvaluationMetadata` from a list of flags.
 ///
 /// Scans each flag's filters for `PropertyType::Flag` dependencies and produces
@@ -1266,6 +1300,10 @@ impl TestContext {
         enabled: bool,
     ) -> Result<(), Error> {
         update_team_autocapture_exceptions(self.non_persons_writer.clone(), team_id, enabled).await
+    }
+
+    pub async fn update_team_timezone(&self, team_id: i32, timezone: &str) -> Result<(), Error> {
+        update_team_timezone(self.non_persons_writer.clone(), team_id, timezone).await
     }
 
     pub async fn get_person_id_by_distinct_id(

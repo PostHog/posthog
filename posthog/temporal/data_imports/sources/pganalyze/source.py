@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -23,6 +24,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PgAnalyzeSource(SimpleSource[PgAnalyzeSourceConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PGANALYZE
@@ -69,6 +72,7 @@ class PgAnalyzeSource(SimpleSource[PgAnalyzeSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PG_ANALYZE,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="pganalyze",
             caption="Connect pganalyze to sync Postgres performance issues, query stats, and server metadata into the PostHog Data warehouse.",
             iconPath="/static/services/pganalyze.svg",

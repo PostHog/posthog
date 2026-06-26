@@ -42,6 +42,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { isQuickFilterItem } from 'lib/components/TaxonomicFilter/types'
 import { buildTaxonomicGroups } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
+import { isContainsShortcutItem } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -419,10 +420,13 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         (group: TaxonomicFilterGroup, valueIn: TaxonomicFilterValue | null, item: any) => {
             // Mirror the legacy `taxonomicFilterLogic.selectItem` recent
             // recording so menu commits show up in the dropdown's
-            // "Recent" entry. Quick-filter items are skipped (they're
-            // shortcuts, not filterable definitions); pinned/recent
-            // context wrappers get stripped before persisting.
-            if (valueIn != null && item && !isQuickFilterItem(item)) {
+            // "Recent" entry. Quick-filter items and the synthetic
+            // "URL contains <query>" shortcut are skipped (they're
+            // shortcuts, not filterable definitions — and recording the
+            // shortcut would shadow it on the next search, since the recent
+            // shares its entryKey but lacks the contains label/telemetry);
+            // pinned/recent context wrappers get stripped before persisting.
+            if (valueIn != null && item && !isQuickFilterItem(item) && !isContainsShortcutItem(item)) {
                 const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
                 const stripped = hasRecentContext(item) ? stripRecentContext(item) : item
                 const cleanItem = {
