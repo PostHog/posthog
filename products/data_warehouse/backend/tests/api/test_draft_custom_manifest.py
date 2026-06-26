@@ -14,9 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.ai_
 
 _DRAFT_PATH = "products.data_warehouse.backend.presentation.views.external_data_source.draft_manifest_sync"
 _FETCH_PATH = "products.data_warehouse.backend.presentation.views.external_data_source.fetch_docs_text"
-_FLAG_PATH = (
-    "products.data_warehouse.backend.presentation.views.external_data_source.is_custom_source_ai_builder_enabled_for_team"
-)
+_FLAG_PATH = "products.data_warehouse.backend.presentation.views.external_data_source.is_custom_source_ai_builder_enabled_for_team"
 _THROTTLE_SCOPES = (
     "custom_source_ai_builder_burst",
     "custom_source_ai_builder_sustained",
