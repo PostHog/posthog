@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
@@ -777,41 +777,38 @@ class TestPostgresSourceNonRetryableErrors:
         assert is_non_retryable, f"SSH handshake EOF should be non-retryable: {_SSH_HANDSHAKE_EOF_ERROR}"
 
 
-class _RaisingTunnel:
-    """Context manager whose `__enter__` raises, standing in for paramiko's handshake EOFError."""
-
-    def __enter__(self):
-        raise EOFError()
-
-    def __exit__(self, *args):
-        return False
+def _raise_eof() -> None:
+    # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
+    # this raises before the generator yields, standing in for paramiko's handshake EOFError.
+    raise EOFError()
 
 
-class _BodyRaisingTunnel:
-    """Opens cleanly, then the body raises EOFError — must NOT be misattributed to the handshake."""
+@contextmanager
+def _handshake_eof_tunnel() -> Iterator[tuple[str, int]]:
+    _raise_eof()
+    yield ("127.0.0.1", 5432)
 
-    def __enter__(self):
-        return ("127.0.0.1", 5432)
 
-    def __exit__(self, *args):
-        return False
+@contextmanager
+def _body_eof_tunnel() -> Iterator[tuple[str, int]]:
+    yield ("127.0.0.1", 5432)
 
 
 class TestTunnelWithHandshakeTranslation:
     def test_bare_handshake_eof_is_translated_with_cause(self):
+        # The translated message (verified non-retryable in `test_ssh_handshake_eof_is_non_retryable`)
+        # replaces the bare EOFError while preserving it as the cause.
         with pytest.raises(Exception, match=_SSH_HANDSHAKE_EOF_ERROR) as exc_info:
-            with _tunnel_with_handshake_translation(lambda: _RaisingTunnel()):
+            with _tunnel_with_handshake_translation(_handshake_eof_tunnel):
                 pass
 
         assert isinstance(exc_info.value.__cause__, EOFError)
-        non_retryable = PostgresSource().get_non_retryable_errors()
-        assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
 
     def test_body_eof_is_not_translated(self):
         # A failure raised by the body (not the handshake) must surface as the original EOFError,
         # never the translated handshake message — guards the `yield`-outside-`except` invariant.
         with pytest.raises(EOFError):
-            with _tunnel_with_handshake_translation(lambda: _BodyRaisingTunnel()):
+            with _tunnel_with_handshake_translation(_body_eof_tunnel):
                 raise EOFError()
 
 
