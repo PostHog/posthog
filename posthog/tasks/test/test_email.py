@@ -1923,8 +1923,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         jobs: list[tuple[str, dt.timedelta, str | None]],
         expect_email: bool,
     ) -> None:
-        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -1956,8 +1955,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -1980,8 +1978,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_kitchen_sink_snapshot(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2059,8 +2056,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_truncates_long_errors(
         self, MockEmailMessage: MagicMock, name: str, error: str, expected_error: str
     ) -> None:
-        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 

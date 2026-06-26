@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 

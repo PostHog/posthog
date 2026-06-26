@@ -196,7 +196,7 @@ def _warehouse_metadata(
     # cycle, since products import hogql) and off every non-information_schema query.
     from posthog.models.scoping import team_scope  # noqa: PLC0415
 
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery  # noqa: PLC0415
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
     from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation  # noqa: PLC0415
 

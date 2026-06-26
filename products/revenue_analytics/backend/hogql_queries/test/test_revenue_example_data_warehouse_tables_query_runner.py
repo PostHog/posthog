@@ -12,7 +12,7 @@ from posthog.schema import (
     RevenueExampleDataWarehouseTablesQueryResponse,
 )
 
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
     RevenueExampleDataWarehouseTablesQueryRunner,

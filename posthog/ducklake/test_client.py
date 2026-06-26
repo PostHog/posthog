@@ -39,7 +39,7 @@ class TestDuckLakeModelRedirect:
     def test_materialized_model_resolves_to_ducklake_table_not_s3(self):
         from posthog.models import Organization, Team
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
         from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
         from products.warehouse_sources.backend.models.table import DataWarehouseTable
 

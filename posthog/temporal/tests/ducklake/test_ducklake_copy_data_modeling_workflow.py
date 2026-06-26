@@ -25,7 +25,7 @@ from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
 )
 from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
 def _create_mock_server():

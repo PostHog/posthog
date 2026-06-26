@@ -6,7 +6,7 @@ from rest_framework.pagination import PageNumberPagination
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.models import Edge
+from products.data_modeling.backend.facade.models import Edge
 
 
 class EdgeSerializer(serializers.ModelSerializer):

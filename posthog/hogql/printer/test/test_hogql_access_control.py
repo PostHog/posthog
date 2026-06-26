@@ -664,7 +664,7 @@ class TestWarehouseViewAccessControl(BaseTest):
         super().setUp()
         from posthog.constants import AvailableFeature
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},

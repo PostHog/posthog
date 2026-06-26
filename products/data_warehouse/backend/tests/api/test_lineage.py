@@ -2,7 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from posthog.test.db_context_capturing import capture_db_queries
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.presentation.views.lineage import topological_sort
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 

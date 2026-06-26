@@ -67,7 +67,7 @@ from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError

@@ -1,7 +1,6 @@
 from posthog.test.base import APIBaseTest
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 
 
 class TestDag(APIBaseTest):

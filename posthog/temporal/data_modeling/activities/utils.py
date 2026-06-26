@@ -1,7 +1,7 @@
 import re
 import datetime as dt
 
-from products.data_modeling.backend.models import Node
+from products.data_modeling.backend.facade.models import Node
 
 # Regex patterns for stripping hostnames from ClickHouse error messages
 # Matches patterns like: "(from chi-xxx.svc.cluster.local:9000)" or "(from 10.0.0.1:9000)"

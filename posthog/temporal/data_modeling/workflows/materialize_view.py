@@ -39,7 +39,7 @@ from posthog.temporal.data_modeling.metrics import (
     get_node_total_storage_mib_metric,
 )
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJobEngine
+from products.data_modeling.backend.facade.models import DataModelingJobEngine
 
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [

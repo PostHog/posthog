@@ -5,12 +5,7 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
-from products.data_modeling.backend.models import Edge, Node
-from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import ResolutionCycleError
-from products.data_modeling.backend.models.node import NodeType
-from products.data_modeling.backend.services.saved_query_dag_sync import (
+from products.data_modeling.backend.logic.saved_query_dag_sync import (
     HasDependentsError,
     delete_node_from_dag,
     get_dag_id,
@@ -18,6 +13,11 @@ from products.data_modeling.backend.services.saved_query_dag_sync import (
     sync_saved_query_to_dag,
     update_node_type,
 )
+from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import ResolutionCycleError
+from products.data_modeling.backend.models.node import NodeType
 
 
 @pytest.mark.django_db

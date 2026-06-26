@@ -5,7 +5,7 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
-from products.data_modeling.backend.models import Edge, Node, NodeType
+from products.data_modeling.backend.facade.models import Edge, Node, NodeType
 
 LOGGER = get_logger(__name__)
 

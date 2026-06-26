@@ -33,7 +33,7 @@ def _bind_materialized_models(database: Any, team_id: int) -> None:
     from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
     from posthog.hogql.errors import ResolutionError
 
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
     schema_name = duckgres_data_modeling_schema(team_id)
     materialized = DataWarehouseSavedQuery.objects.filter(
