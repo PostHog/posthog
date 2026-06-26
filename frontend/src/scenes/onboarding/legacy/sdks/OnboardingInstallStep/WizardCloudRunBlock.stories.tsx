@@ -174,3 +174,65 @@ export const RunItYourself: Story = cloudRunStory({
         await userEvent.click(document.querySelector('[data-attr="context-wizard-mode-local"]') as Element)
     },
 })
+
+interface PlaygroundArgs {
+    githubConnected: boolean
+    repository: '' | 'web' | 'api' | 'mobile-app'
+    pullRequestQueued: boolean
+}
+
+/**
+ * Interactive harness for the whole cloud-run flow: the controls panel drives whether GitHub is
+ * connected, which repo is picked, and whether the PR has been queued. Keyed on the args so flipping
+ * a control remounts the scene and re-derives state from scratch — the logic reducers (selected repo,
+ * run status) don't reset on their own, and the connected/not state comes from a render-time mock.
+ */
+function CloudRunPlayground({ githubConnected, repository, pullRequestQueued }: PlaygroundArgs): JSX.Element {
+    useMountedLogic(onboardingLogic)
+    useMountedLogic(wizardCloudRunLogic)
+
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/integrations': {
+                results: githubConnected ? [githubIntegration] : [],
+            },
+        },
+    })
+
+    useDelayedOnMountEffect(() => {
+        router.actions.push(urls.onboarding())
+        if (repository) {
+            wizardCloudRunLogic.actions.setSelectedRepository(repository)
+        }
+        if (pullRequestQueued) {
+            wizardCloudRunLogic.actions.startCloudRunSuccess()
+        }
+    })
+
+    return <App />
+}
+
+/** Fully controllable: flip GitHub on/off, pick a repo, and queue the PR straight from the controls panel. */
+export const Playground: StoryObj<PlaygroundArgs> = {
+    args: { githubConnected: true, repository: 'web', pullRequestQueued: false },
+    argTypes: {
+        githubConnected: {
+            control: 'boolean',
+            description: 'Whether a GitHub integration exists — off shows the "Connect GitHub" button',
+        },
+        repository: {
+            control: 'select',
+            options: ['', 'web', 'api', 'mobile-app'],
+            description: 'Repository to pre-select — empty leaves "Open my pull request" disabled',
+        },
+        pullRequestQueued: {
+            control: 'boolean',
+            description: 'Whether the run has been kicked off — on shows the queued confirmation',
+        },
+    },
+    render: (args) => <CloudRunPlayground key={JSON.stringify(args)} {...args} />,
+    parameters: { testOptions: { waitForSelector: '[data-attr="wizard-cloud-run-open-pr"]' } },
+    play: async () => {
+        await clickButton('Get started')
+    },
+}

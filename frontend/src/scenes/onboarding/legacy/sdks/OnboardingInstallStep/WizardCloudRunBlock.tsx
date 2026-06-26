@@ -76,12 +76,12 @@ export function WizardCloudRunBlock({
                     to={connectGitHubUrl}
                     disableClientSideRouting
                     data-attr="wizard-cloud-run-connect-github"
-                    className="self-start"
+                    className={hideHog ? 'self-center' : 'self-start'}
                 >
                     Connect GitHub
                 </LemonButton>
             ) : (
-                <div className="flex flex-col gap-2">
+                <div className={`flex flex-col gap-2 ${hideHog ? 'items-center' : ''}`}>
                     <div className="flex items-center gap-1.5 text-xs text-muted">
                         <IconCheckCircle className="text-success" />
                         <span>
@@ -100,7 +100,7 @@ export function WizardCloudRunBlock({
                         loading={cloudRunStatus === 'submitting'}
                         disabledReason={selectedRepository ? undefined : 'Pick a repository first'}
                         data-attr="wizard-cloud-run-open-pr"
-                        className="self-start"
+                        className={hideHog ? 'self-center' : 'self-start'}
                     >
                         Open my pull request
                     </LemonButton>
