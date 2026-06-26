@@ -17,7 +17,7 @@ from products.endpoints.backend.rate_limit import (
     is_endpoint_materialization_ready,
     set_endpoint_materialization_ready,
 )
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestMaterializationCache(TestCase):

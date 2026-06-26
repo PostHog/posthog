@@ -22,6 +22,10 @@ export const ActivityEventsListWidgetConfig = /* @__PURE__ */ zod.object({
         .max(activityEventsListWidgetConfigLimitMax)
         .default(activityEventsListWidgetConfigLimitDefault)
         .describe('Maximum number of events to return.'),
+    eventName: zod
+        .union([zod.string().min(1), zod.null()])
+        .optional()
+        .describe('Limit the feed to a single event name. Omit or null for all events.'),
 })
 
 export type ActivityEventsListWidgetConfig = zod.input<typeof ActivityEventsListWidgetConfig>

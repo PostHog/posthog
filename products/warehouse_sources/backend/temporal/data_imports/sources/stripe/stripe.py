@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
 import orjson
 import stripe as stripe_lib
 import pyarrow as pa
+import requests
 from asgiref.sync import async_to_sync
 from stripe import ListObject, RequestsClient, StripeClient
 from stripe._base_address import BaseAddresses
@@ -57,6 +58,18 @@ LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
 
 
+def _is_retryable_connection_reset(error: stripe_lib.APIConnectionError) -> bool:
+    """A connection reset *mid-response* surfaces from ``requests`` as a ``ChunkedEncodingError``
+    (the body stream broke after the headers arrived). Stripe's ``_handle_request_error`` only
+    flags ``Timeout`` and ``ConnectionError`` as retryable, so it wraps this in an
+    ``APIConnectionError`` with ``should_retry=False`` and the SDK gives up — the error then
+    propagates straight out of ``auto_paging_iter`` and fails the whole import. The reset is
+    transient and our reads are idempotent list/GET calls, so it is safe to retry within the SDK's
+    bounded backoff. Matching ``ChunkedEncodingError`` (not ``SSLError`` or other
+    ``RequestException``\\ s the SDK also declines) keeps this scoped to the mid-stream drop."""
+    return isinstance(error.__cause__, requests.exceptions.ChunkedEncodingError)
+
+
 class _RateLimitRetryingRequestsClient(RequestsClient):
     """Stripe's SDK retries 409/5xx (and whatever ``Stripe-Should-Retry`` advises) but never
     retries 429s on its own — ``_should_retry`` excludes them. A rate limit during a large sync,
@@ -65,7 +78,9 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
 
     Opt 429 into the SDK's existing ``Retry-After``-aware exponential backoff so transient rate
     limits are absorbed in-process (bounded by ``max_network_retries``) instead of crashing the
-    run. Our Stripe reads are list/GET calls, so retrying them is idempotent."""
+    run. We also retry a connection reset that drops the response mid-body — the SDK declines it
+    (see ``_is_retryable_connection_reset``). Our Stripe reads are list/GET calls, so retrying them
+    is idempotent."""
 
     def _should_retry(
         self,
@@ -76,11 +91,14 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     ) -> bool:
         if super()._should_retry(response, api_connection_error, num_retries, max_network_retries):
             return True
-        # The base logic already enforced the retry budget and declined; the only retryable case
-        # it leaves on the table is a 429, which the SDK omits but which is safe to retry here.
+        # The base logic already enforced the retry budget and declined; the only retryable cases
+        # it leaves on the table are a 429 (the SDK omits it) and a connection reset mid-response
+        # body, both safe to retry on our idempotent list/GET calls.
         if num_retries >= (max_network_retries or 0):
             return False
-        return response is not None and response[1] == 429
+        if response is not None:
+            return response[1] == 429
+        return api_connection_error is not None and _is_retryable_connection_reset(api_connection_error)
 
 
 def _tracked_stripe_http_client() -> RequestsClient:
@@ -127,6 +145,24 @@ def _is_stripe_resource_missing_error(error: stripe_lib.StripeError) -> bool:
     return getattr(error, "code", None) == "resource_missing"
 
 
+def _coerce_incremental_cursor(value: Any) -> Optional[int]:
+    """Coerce a stored incremental watermark to the Unix-timestamp int that Stripe object
+    `created`/`date` fields are. The persisted watermark can come back as a numeric string, so
+    comparing it directly against the int field raises `'<=' not supported between instances of
+    'int' and 'str'`. Returns None when the value can't be read as an int, so the caller skips
+    the cursor comparison rather than crashing."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _stripe_base_addresses() -> BaseAddresses:
     # Redirect Stripe API calls to a local mock (e.g. STRIPE_API_BASE=http://localhost:12111)
     # when running the stripe-mock dev service. No-op in production where the var is unset.
@@ -148,6 +184,27 @@ class StripeNestedResource:
     parent: StripeResource
     parent_name: str = ""
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Optional predicate over a parent object. When set and it returns False, we skip the nested
+    # API call for that parent entirely. Stripe has no top-level list for these nested resources, so
+    # the default behaviour fans out one call per parent — most of which return nothing. A cheap
+    # signal already present on the parent object lets us avoid the calls that can't yield data.
+    parent_has_nested: Optional[Callable[[dict[str, Any]], bool]] = None
+
+
+def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
+    """Skip the per-customer balance-transactions call when the customer's credit balance is exactly 0.
+
+    A customer balance transaction is a credit/debit against the customer's stored balance, so any
+    customer that has ever had one and not netted it back to zero carries a non-zero ``balance``. The
+    vast majority of customers never touch their balance, so this turns the full per-customer sweep
+    (one call each, almost all empty) into a handful of calls.
+
+    Tradeoff: a customer whose balance was credited and then fully consumed back to 0 has ledger
+    entries but a 0 balance, so we won't fetch their history. This is rare and an accepted cost of
+    avoiding the per-customer fan-out. A missing ``balance`` (unexpected payload shape) is treated as
+    "might have" so we never silently drop data."""
+    balance = customer.get("balance")
+    return balance is None or balance != 0
 
 
 @dataclasses.dataclass
@@ -205,6 +262,7 @@ def _build_resources(
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
+            parent_has_nested=_customer_might_have_balance_transactions,
         ),
         CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
             method=client.customers.payment_methods.list,
@@ -276,8 +334,14 @@ def get_rows(
                 resource.parent.method,
                 params={**default_params, **resource.parent.params, **resume_params},
             )
+            skipped_parents = 0
             for obj in stripe_parent_objects.auto_paging_iter():
                 parent_obj_id = obj[resource.parent_id]
+                # Skip parents that a cheap signal on the parent object rules out — avoids one empty
+                # nested call per parent (the bulk of Stripe API volume for these resources).
+                if resource.parent_has_nested is not None and not resource.parent_has_nested(obj):
+                    skipped_parents += 1
+                    continue
                 try:
                     stripe_nested_objects = _call_stripe(
                         resource.method,
@@ -305,6 +369,10 @@ def get_rows(
                     if not _is_stripe_resource_missing_error(e):
                         raise
                     logger.debug(f"Stripe: skipping {resource.nested_parent_param}={parent_obj_id}, no longer exists")
+            if skipped_parents:
+                logger.debug(
+                    f"Stripe: skipped {skipped_parents} {resource.nested_parent_param}(s) with no nested data, saving that many API calls"
+                )
         else:
             stripe_objects = _call_stripe(
                 resource.method, params={**default_params, **resource.params, **resume_params}
@@ -360,8 +428,9 @@ def get_rows(
                 f"created[gt]": db_incremental_field_last_value,
             },
         )
+        last_value_cursor = _coerce_incremental_cursor(db_incremental_field_last_value)
         for obj in stripe_objects.auto_paging_iter():
-            if obj[incremental_field_name] <= db_incremental_field_last_value:
+            if last_value_cursor is not None and obj[incremental_field_name] <= last_value_cursor:
                 break
 
             yield obj

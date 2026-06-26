@@ -1450,6 +1450,7 @@ class FunnelTimeToConvertResults(BaseModel):
     )
     average_conversion_time: float | None = None
     bins: list[list[int]]
+    median_conversion_time: float | None = None
 
 
 class FunnelTrendsResults(RootModel[list[dict[str, Any]]]):
@@ -1549,6 +1550,26 @@ class IntegrationFilter(BaseModel):
     )
 
 
+class LLMSentimentMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    score: float
+    scores: dict[str, float] | None = None
+
+
+class LLMSentimentResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    message_count: float | None = None
+    messages: dict[str, LLMSentimentMessage] | None = None
+    score: float
+    scores: dict[str, float] | None = None
+
+
 class LLMTraceEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1557,6 +1578,7 @@ class LLMTraceEvent(BaseModel):
     event: AIEventType | str
     id: str
     properties: dict[str, Any]
+    sentiment: LLMSentimentResult | None = None
 
 
 class LLMTracePerson(BaseModel):
@@ -5541,6 +5563,7 @@ class LLMTrace(BaseModel):
     outputTokens: float | None = None
     person: LLMTracePerson | None = None
     requestCost: float | None = None
+    sentiment: LLMSentimentResult | None = None
     tools: list[str] | None = None
     totalCost: float | None = None
     totalLatency: float | None = None
@@ -10595,6 +10618,13 @@ class CachedFunnelsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+    total_median_conversion_time: float | None = Field(
+        default=None,
+        description=(
+            "Median total conversion time across all completers, computed"
+            " breakdown-agnostically for the Steps viz header."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
@@ -15699,6 +15729,13 @@ class FunnelsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    total_median_conversion_time: float | None = Field(
+        default=None,
+        description=(
+            "Median total conversion time across all completers, computed"
+            " breakdown-agnostically for the Steps viz header."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -19070,6 +19107,13 @@ class QueryResponseAlternative68(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    total_median_conversion_time: float | None = Field(
+        default=None,
+        description=(
+            "Median total conversion time across all completers, computed"
+            " breakdown-agnostically for the Steps viz header."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -20685,6 +20729,10 @@ class TraceQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    includeSentiment: bool | None = Field(
+        default=None,
+        description=("Include stored sentiment evaluation results for the trace and its generations."),
+    )
     kind: Literal["TraceQuery"] = "TraceQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: (
@@ -20758,6 +20806,10 @@ class TracesQuery(BaseModel):
     filterTestAccounts: bool | None = None
     groupKey: str | None = None
     groupTypeIndex: int | None = None
+    includeSentiment: bool | None = Field(
+        default=None,
+        description=("Include stored sentiment evaluation results for returned traces and direct generation events."),
+    )
     kind: Literal["TracesQuery"] = "TracesQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
