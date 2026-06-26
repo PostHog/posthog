@@ -595,10 +595,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                             f"Unknown columns in masked_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
                         )
-                protected = set(instance.primary_key_columns or [])
+                protected = {c.casefold() for c in (instance.primary_key_columns or [])}
                 if instance.incremental_field:
-                    protected.add(instance.incremental_field)
-                conflicting = [c for c in masked_columns if c in protected]
+                    protected.add(instance.incremental_field.casefold())
+                conflicting = [c for c in masked_columns if c.casefold() in protected]
                 if conflicting:
                     raise ValidationError(
                         f"Primary-key and incremental-field columns can't be masked: {sorted(conflicting)}."
