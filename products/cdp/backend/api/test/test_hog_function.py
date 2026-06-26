@@ -864,6 +864,37 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "v2/track" in obj.hog
         assert obj.encrypted_inputs["apiKey"]["value"] == "FRESHLY_ENTERED"
 
+    def test_invocation_cannot_redirect_preserved_secret(self, *args):
+        function_id = self._create_destination_with_secret()
+        # Mirror the editor: fetch the function (secret comes back masked as {"secret": true}),
+        # tamper with the code, then test-invoke it without re-entering the secret.
+        config = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function_id}").json()
+        assert config["inputs"]["apiKey"] == {"secret": True}
+        config["hog"] = "print(inputs.apiKey)"
+
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invoke:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}/invocations/",
+                data={"configuration": config, "mock_async_functions": False},
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "Re-enter the secret" in str(response.json())
+        # The invocation must be rejected before it ever reaches the executor
+        mock_invoke.assert_not_called()
+
+    def test_invocation_allowed_when_code_unchanged(self, *args):
+        function_id = self._create_destination_with_secret()
+        config = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function_id}").json()
+
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}/invocations/",
+                data={"configuration": config, "mock_async_functions": True},
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_invoke.assert_called_once()
+
     def test_generates_hog_bytecode(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",

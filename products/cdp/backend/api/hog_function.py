@@ -239,7 +239,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # changing `hog` or `inputs_schema` to ship it to a host they control — exfiltrating a
         # credential they were never allowed to see. So require any stored secret to be re-supplied
         # with a fresh value before the code or input schema can change.
-        instance = self.instance
+        #
+        # Resolve the existing function the same way `to_internal_value` does — test invocations
+        # (`HogFunctionInvocationSerializer`) validate the nested config with the function in
+        # `context["instance"]` rather than `self.instance`, and a one-off invocation can execute
+        # the changed code (or echo a secret into its logs), so the check must cover that path too.
+        instance = cast(Optional[HogFunction], self.context.get("instance") or self.instance)
         if not isinstance(instance, HogFunction) or attrs.get("deleted") is True:
             return
 
