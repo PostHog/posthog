@@ -201,8 +201,18 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIn(stale.id, stale_ids)
         self.assertNotIn(fresh.id, stale_ids)
 
-        ancient = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
+            self.assertTrue(facade.fail_task_run(stale.id, "boom"))
+            # already-failed run is no longer QUEUED -> no-op
+            self.assertFalse(facade.fail_task_run(stale.id, "boom again"))
+        stale.refresh_from_db()
+        self.assertEqual(stale.status, TaskRun.Status.FAILED.value)
+        self.assertEqual(stale.error_message, "boom")
+
+    def test_stale_queued_created_at_hard_cap(self):
+        task = self._make_task()
         now = django_timezone.now()
+        ancient = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         TaskRun.objects.filter(pk=ancient.pk).update(
             created_at=now - timedelta(hours=50), updated_at=now - timedelta(hours=2)
         )
@@ -218,14 +228,6 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         self.assertIn(ancient.id, hard_capped)
         self.assertNotIn(resuming.id, hard_capped)
-
-        with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
-            self.assertTrue(facade.fail_task_run(stale.id, "boom"))
-            # already-failed run is no longer QUEUED -> no-op
-            self.assertFalse(facade.fail_task_run(stale.id, "boom again"))
-        stale.refresh_from_db()
-        self.assertEqual(stale.status, TaskRun.Status.FAILED.value)
-        self.assertEqual(stale.error_message, "boom")
 
     def test_update_task_run_state(self):
         task = self._make_task()
