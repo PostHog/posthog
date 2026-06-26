@@ -150,7 +150,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "campaign_overview_stats": {
         "description": "Daily campaign performance overview including video metrics, segmented by date and device.",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/campaign",
-        "columns": _stats_columns(
+        "columns": _overview_stats_columns(
             campaign_name="Name of the campaign.",
             campaign_advertising_channel_type="Primary serving target of the campaign.",
             metrics_video_views="Number of views of a video ad.",
