@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Optional
 
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY, get_user_model, load_backend
 from django.core.signing import TimestampSigner
@@ -10,9 +11,12 @@ from loginas.utils import is_impersonated_session
 from posthog.auth import OAuthAccessTokenAuthentication
 
 
-def is_impersonated(request: HttpRequest) -> bool:
+def is_impersonated(request: Optional[HttpRequest]) -> bool:
     """Whether the current action is being performed under staff impersonation.
     Use this instead of `is_impersonated_session` which misses MCP impersonation.
+
+    `request` is optional — serializers used outside a view and programmatic deletions
+    have no request, and a request-less action can't be impersonated, so that's `False`.
 
     Impersonation reaches the backend two ways:
     1. A loginas browser session - the staff user is impersonating through django admin,
@@ -20,6 +24,8 @@ def is_impersonated(request: HttpRequest) -> bool:
     2. An OAuth access token minted during such a session (MCP). These API requests
        carry no session cookie, but the token records `impersonated_by`.
     """
+    if request is None:
+        return False
     if is_impersonated_session(request):
         return True
 

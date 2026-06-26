@@ -291,7 +291,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                     organization_id=insight.team.organization.id,
                     team_id=self.context["team_id"],
                     user=user,
-                    was_impersonated=is_impersonated(self.context["request"]) if "request" in self.context else False,
+                    was_impersonated=is_impersonated(self.context.get("request")),
                     item_id=insight_id,  # Type: ignore
                     scope="Insight",
                     activity="exported" if reason is None else f"exported for {reason}",
@@ -329,7 +329,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             organization_id=instance.team.organization_id,
             team_id=instance.team_id,
             user=user,
-            was_impersonated=is_impersonated(self.context["request"]) if "request" in self.context else False,
+            was_impersonated=is_impersonated(self.context.get("request")),
             item_id=instance.id,
             scope="ExportedAsset",
             activity="exported",

@@ -321,6 +321,7 @@ def _non_oauth_request() -> HttpRequest:
 class TestIsImpersonated(SimpleTestCase):
     @parameterized.expand(
         [
+            ("no_request", lambda: None, False),
             ("loginas_browser_session", lambda: _session_request(impersonated=True), True),
             ("plain_browser_session", lambda: _session_request(impersonated=False), False),
             # an OAuth/MCP token minted under impersonation must flag as impersonated

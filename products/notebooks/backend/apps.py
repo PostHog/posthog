@@ -45,7 +45,7 @@ class NotebooksConfig(AppConfig):
                 organization_id=organization.id,
                 team_id=team_id,
                 user=user,
-                was_impersonated=is_impersonated(context.request) if context.request else False,
+                was_impersonated=is_impersonated(context.request),
             )
 
         def _post_restore(context, notebook):
@@ -65,7 +65,7 @@ class NotebooksConfig(AppConfig):
                 organization_id=organization.id,
                 team_id=team_id,
                 user=user,
-                was_impersonated=is_impersonated(context.request) if context.request else False,
+                was_impersonated=is_impersonated(context.request),
                 changes=[Change(type="Notebook", action="changed", field="deleted", before=True, after=False)],
             )
 

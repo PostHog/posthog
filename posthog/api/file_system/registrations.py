@@ -52,7 +52,7 @@ def _log_deletion_activity(
         organization_id=organization.id,
         team_id=team_id,
         user=context.user,
-        was_impersonated=is_impersonated(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         item_id=str(item_id),
         scope=scope,
         activity="deleted",
@@ -82,7 +82,7 @@ def _log_restore_activity(
         organization_id=organization.id,
         team_id=team_id,
         user=context.user,
-        was_impersonated=is_impersonated(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         item_id=str(item_id),
         scope=scope,
         activity="restored",
@@ -192,7 +192,7 @@ def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
         organization_id=organization.id,
         team_id=team_id,
         user=user,
-        was_impersonated=is_impersonated(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         changes=[
             Change(
                 type="SessionRecordingPlaylist",
@@ -233,7 +233,7 @@ def _playlist_post_delete(context: DeletionContext, playlist: Any) -> None:
         organization_id=organization.id,
         team_id=team_id,
         user=user,
-        was_impersonated=is_impersonated(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         changes=[
             Change(
                 type="SessionRecordingPlaylist",
