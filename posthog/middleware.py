@@ -786,7 +786,7 @@ def per_request_logging_context_middleware(
             # can be minutes for SSE endpoints (AI chat, dashboard tiles, etc.).
             # Endpoints that use sse_streaming_response() release connections
             # before returning, so this only fires for ones that don't.
-            if isinstance(response, StreamingHttpResponse):
+            if response is not None and isinstance(response, StreamingHttpResponse):
                 held = [
                     conn.alias
                     for conn in db_connections.all(initialized_only=True)
