@@ -10,6 +10,7 @@ import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { enableClipboardPaste } from 'lib/monaco/clipboardPaste'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
@@ -476,35 +477,9 @@ export function CodeEditor({
                 })
             )
         }
-        // Monaco's built-in context-menu "Paste" relies on document.execCommand('paste'),
-        // which browsers block for security, so it silently does nothing (Cmd/Ctrl+V keeps
-        // working because that's a native paste event). Override it to read the clipboard
-        // via the async API instead. No keybinding is set so the native keyboard paste is
-        // left untouched as a fallback if clipboard-read permission is denied.
-        if (navigator.clipboard?.readText) {
-            monacoDisposables.current.push(
-                editor.addAction({
-                    id: 'editor.action.clipboardPasteAction',
-                    label: 'Paste',
-                    contextMenuGroupId: '9_cutcopypaste',
-                    contextMenuOrder: 3,
-                    run: async (ed) => {
-                        try {
-                            const text = await navigator.clipboard.readText()
-                            if (text) {
-                                ed.trigger('keyboard', 'type', { text })
-                            }
-                        } catch (error) {
-                            // A denied/unavailable clipboard-read permission is expected — the user can
-                            // still use Cmd/Ctrl+V. Surface anything else so it stays visible in dev.
-                            if (!(error instanceof DOMException)) {
-                                console.warn('Failed to paste from clipboard', error)
-                            }
-                        }
-                    },
-                })
-            )
-        }
+        // Fix Monaco's broken right-click "Paste" by overriding the command rather than adding a
+        // second menu item (see enableClipboardPaste).
+        monacoDisposables.current.push(enableClipboardPaste(editor))
 
         if (autoFocus) {
             editor.focus()
