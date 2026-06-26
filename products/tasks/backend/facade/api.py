@@ -36,7 +36,6 @@ from posthog.models.integration import Integration
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
-from products.tasks.backend.logic.wizard_cloud import WIZARD_PR_AGENT_PROMPT
 from products.tasks.backend.models import (
     CodeInvite,
     CodeInviteRedemption,
@@ -48,6 +47,7 @@ from products.tasks.backend.models import (
     TaskAutomation,
     TaskRun,
 )
+from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
 from products.tasks.backend.visibility import task_run_visibility_q, task_visibility_q
 
 from . import contracts

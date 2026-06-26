@@ -1,3 +1,4 @@
+WIZARD_PR_AGENT_PROMPT = """
 PostHog's setup wizard has already run in this repository and integrated PostHog. The working tree
 contains its uncommitted changes (modified source files, an updated package manifest, installed
 dependencies, a `posthog-setup-report.md` summary, and possibly a `.posthog-events.json` plan).
@@ -32,3 +33,4 @@ Do not modify unrelated code, add/remove/upgrade dependencies beyond what a fail
 requires, or touch `.github/workflows/**`, `CODEOWNERS`, or branch-protection config. If CI is red
 for reasons unrelated to the integration, note it as a comment in the PR rather than making broad
 changes.
+"""
