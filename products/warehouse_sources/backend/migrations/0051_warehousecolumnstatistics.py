@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1238_ducklakebackfill_earliest_event_date"),
-        ("warehouse_sources", "0049_alter_externaldatasource_source_type_and_more"),
+        ("warehouse_sources", "0050_alter_externaldatasource_source_type_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

@@ -21679,7 +21679,8 @@
                 "Ikas",
                 "Talkwalker",
                 "NextdoorAds",
-                "AppLovin"
+                "AppLovin",
+                "Baserow"
             ],
             "type": "string"
         },
