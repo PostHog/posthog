@@ -7,15 +7,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
 )
 
 _JOB_VERSION_KEYS = ["completed_at", "started_at", "created_at"]
-_JOB_SCHEMA = pa.schema(
-    {
-        "id": pa.int64(),
-        "status": pa.string(),
-        "completed_at": pa.string(),
-        "started_at": pa.string(),
-        "created_at": pa.string(),
-    }
-)
+_JOB_FIELDS: dict[str, pa.DataType] = {
+    "id": pa.int64(),
+    "status": pa.string(),
+    "completed_at": pa.string(),
+    "started_at": pa.string(),
+    "created_at": pa.string(),
+}
+_JOB_SCHEMA = pa.schema(_JOB_FIELDS)
 
 
 def _job(
@@ -69,6 +68,21 @@ def test_one_row_per_id_in_arrival_order() -> None:
 def test_drops_rows_with_null_id() -> None:
     rows = _dedupe([{"id": None, "status": "queued", "created_at": "t0", "started_at": None, "completed_at": None}])
     assert rows == []
+
+
+def test_equal_version_keys_keep_later_arrival() -> None:
+    # GitHub's second-coarse updated_at can be identical for a fast in_progress -> completed
+    # transition; the later-arriving completed event must win, so a strict > would freeze the row.
+    table = pa.table(
+        {
+            "id": [1, 1],
+            "status": ["in_progress", "completed"],
+            "updated_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+        }
+    )
+    out = _make_webhook_dedupe_transformer("id", ["updated_at"])(table)
+    assert out.num_rows == 1
+    assert out.column("status")[0].as_py() == "completed"
 
 
 def test_single_version_key_keeps_max() -> None:

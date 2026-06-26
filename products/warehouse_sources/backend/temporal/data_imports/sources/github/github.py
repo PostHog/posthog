@@ -643,7 +643,10 @@ def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) 
             if object_id is None:
                 continue
             best = best_index_by_id.get(object_id)
-            if best is None or rank(index) > rank(best):
+            # On a tie (>=, not >) the later-arriving row wins. GitHub timestamps are second-coarse,
+            # so a fast in_progress -> completed transition can share an updated_at; rows arrive in
+            # chronological order (files read oldest-first), so the later index is the newer event.
+            if best is None or rank(index) >= rank(best):
                 best_index_by_id[object_id] = index
 
         # Preserve input order among the survivors so the batch stays in arrival order. The indices

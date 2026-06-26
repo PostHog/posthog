@@ -93,6 +93,13 @@ class WebhookSourceManager:
 
         await self._logger.adebug(f"Webhook source reading {len(files)} files")
 
+        def finalize_batch(tables: list[pa.Table]) -> pa.Table:
+            # Dedupe across the whole concatenated batch, not per file: a yielded batch can span
+            # several S3 files, and the same id (e.g. a run's queued/completed events) can land in
+            # different files. A per-file pass would let both survive into one batch.
+            merged = pa.concat_tables(tables, promote_options="permissive")
+            return table_transformer(merged) if table_transformer else merged
+
         batch_tables: list[pa.Table] = []
         batch_paths: list[str] = []
         batch_rows = 0
@@ -115,16 +122,13 @@ class WebhookSourceManager:
 
                 table = self._transform_webhook_table(table)
 
-                if table_transformer:
-                    table = table_transformer(table)
-
                 batch_tables.append(table)
                 batch_paths.append(path)
                 batch_rows += table.num_rows
                 batch_bytes += table.nbytes
 
                 if batch_rows >= batch_row_limit or batch_bytes >= batch_byte_limit:
-                    merged = pa.concat_tables(batch_tables, promote_options="permissive")
+                    merged = finalize_batch(batch_tables)
                     await self._logger.adebug(
                         "webhook_batch_yield",
                         file_count=len(batch_paths),
@@ -143,7 +147,7 @@ class WebhookSourceManager:
 
             # Yield any remaining rows
             if batch_tables:
-                merged = pa.concat_tables(batch_tables, promote_options="permissive")
+                merged = finalize_batch(batch_tables)
                 await self._logger.adebug(
                     "webhook_batch_yield",
                     file_count=len(batch_paths),
