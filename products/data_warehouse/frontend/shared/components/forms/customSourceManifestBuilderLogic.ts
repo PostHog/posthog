@@ -15,7 +15,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { ApiConfig } from '~/lib/api'
+import { ApiConfig, ApiError } from '~/lib/api'
 
 import { externalDataSourcesDraftCustomManifestCreate } from 'products/warehouse_sources/frontend/generated/api'
 import type { DraftCustomManifestResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -254,8 +254,13 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                 )
             }
         },
-        generateFromDocsFailure: () => {
-            lemonToast.error('Failed to draft a manifest. Try again, or configure it manually.')
+        generateFromDocsFailure: ({ errorObject }) => {
+            // Surface the backend's specific reason instead of a blanket message: 4xx/5xx bodies carry
+            // `data.message`, while a 429 throttle carries DRF's `data.detail` ("…available in N
+            // seconds") — telling a rate-limited user to "try again" immediately would be wrong.
+            const apiError = errorObject instanceof ApiError ? errorObject : undefined
+            const message = apiError?.data?.message || apiError?.data?.detail
+            lemonToast.error(message || 'Failed to draft a manifest. Try again, or configure it manually.')
         },
     })),
     afterMount(({ actions, props }) => {
