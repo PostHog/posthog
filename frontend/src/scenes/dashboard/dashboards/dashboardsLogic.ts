@@ -192,6 +192,13 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         .map((shortcut) => shortcut.ref as string)
                 ),
         ],
+        // True while the user has the Starred filter on but their shortcuts haven't loaded yet.
+        // Without this, a bookmarked `?starred=true` would filter every dashboard out (shortcutData
+        // starts empty and loads async) and look broken — so we hold the table in a loading state instead.
+        starredFilterPending: [
+            (s) => [s.filters, projectTreeDataLogic.selectors.shortcutDataHasLoaded],
+            (filters, shortcutDataHasLoaded): boolean => filters.starred === true && !shortcutDataHasLoaded,
+        ],
         dashboards: [
             (s) => [
                 dashboardsModel.selectors.nameSortedDashboards,
@@ -201,8 +208,18 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 s.currentTab,
                 s.user,
                 s.starredDashboardRefs,
+                projectTreeDataLogic.selectors.shortcutDataHasLoaded,
             ],
-            (allDashboards, rawDashboards, searchedDashboards, filters, currentTab, user, starredDashboardRefs) => {
+            (
+                allDashboards,
+                rawDashboards,
+                searchedDashboards,
+                filters,
+                currentTab,
+                user,
+                starredDashboardRefs,
+                shortcutDataHasLoaded
+            ) => {
                 // When a search term is active we trust the server's trigram word similarity
                 // ranking; otherwise we use the model's alphabetised list. This keeps the exact
                 // match at the top.
@@ -221,7 +238,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 if (filters.pinned) {
                     haystack = haystack.filter((d) => d.pinned)
                 }
-                if (filters.starred) {
+                // Only narrow to starred once shortcuts have loaded — otherwise the set is still empty
+                // and we'd wrongly hide everything (the table shows a loading state via starredFilterPending).
+                if (filters.starred && shortcutDataHasLoaded) {
                     haystack = haystack.filter((d) => starredDashboardRefs.has(String(d.id)))
                 }
                 if (filters.shared) {

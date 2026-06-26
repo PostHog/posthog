@@ -51,9 +51,9 @@ import { DashboardsFiltersBar } from './DashboardsFiltersBar'
 
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { dashboards } = useValues(dashboardsLogic)
+    const { dashboards, starredFilterPending } = useValues(dashboardsLogic)
 
-    return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} />
+    return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading || starredFilterPending} />
 }
 
 interface DashboardsTableProps {
@@ -97,7 +97,7 @@ export function DashboardsTable({
                                   const shortcut = shortcutData.find(
                                       (s) => s.type === 'dashboard' && s.ref === String(id)
                                   )
-                                  if (shortcut) {
+                                  if (shortcut?.id) {
                                       deleteShortcut(shortcut.id)
                                   }
                               }
