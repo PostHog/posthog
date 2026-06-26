@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
-import { LemonSegmentedButton, LemonSelect, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSelect, LemonSwitch, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import { MetricCard, useChartTheme } from '@posthog/quill-charts'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -22,7 +22,7 @@ import { DateMappingOption } from '~/types'
 
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { MetricAggregation, metricsViewerLogic, MetricsViewMode } from './metricsViewerLogic'
+import { LIVE_REFRESH_MS, MetricAggregation, metricsViewerLogic, MetricsViewMode } from './metricsViewerLogic'
 
 const VIEW_MODE_OPTIONS: { value: MetricsViewMode; label: string }[] = [
     { value: 'chart', label: 'Chart' },
@@ -105,6 +105,7 @@ export const MetricsViewer = (): JSX.Element => {
         sparklineLabels,
         statTotal,
         anomalyBadge,
+        liveRefresh,
         queryResultsLoading,
         hasMetricName,
     } = useValues(logic)
@@ -115,6 +116,7 @@ export const MetricsViewer = (): JSX.Element => {
         setDateTo,
         setViewMode,
         setStatSummary,
+        setLiveRefresh,
         fetchQueryResults,
         fetchAnomaly,
         clearAnomaly,
@@ -231,6 +233,13 @@ export const MetricsViewer = (): JSX.Element => {
                         onChange={(value) => setStatSummary(value)}
                     />
                 )}
+                <LemonSwitch
+                    label="Live"
+                    checked={liveRefresh}
+                    onChange={setLiveRefresh}
+                    tooltip={`Auto-refresh every ${LIVE_REFRESH_MS / 1000}s`}
+                    bordered
+                />
             </div>
             <div className="relative h-[360px] border rounded p-3">
                 {!hasMetricName ? (

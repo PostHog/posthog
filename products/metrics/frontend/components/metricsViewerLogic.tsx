@@ -23,6 +23,8 @@ const DEFAULT_DATE_FROM = '-1h'
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, cancelling the previous one'
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
 const ANOMALY_WINDOW_FRACTION = 0.2
+export const LIVE_REFRESH_MS = 15_000
+const LIVE_REFRESH_KEY = 'metricsLiveRefresh'
 
 const resolveDate = (value: string | null | undefined): string | null => {
     if (!value) {
@@ -44,6 +46,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setDateTo: (dateTo: string | null) => ({ dateTo }),
         setViewMode: (viewMode: MetricsViewMode) => ({ viewMode }),
         setStatSummary: (statSummary: MetricSummary) => ({ statSummary }),
+        setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -60,17 +63,34 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         viewMode: ['chart' as MetricsViewMode, { setViewMode: (_, { viewMode }) => viewMode }],
         // 'latest' (current value) is the natural default for a live single-metric stat.
         statSummary: ['latest' as MetricSummary, { setStatSummary: (_, { statSummary }) => statSummary }],
+        liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
         queryAbortController: [
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         cancelInProgressQuery: ({ controller }) => {
             if (values.queryAbortController !== null) {
                 values.queryAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
             }
             actions.setQueryAbortController(controller)
+        },
+        setLiveRefresh: ({ liveRefresh }) => {
+            if (!liveRefresh) {
+                cache.disposables.dispose(LIVE_REFRESH_KEY)
+                return
+            }
+            // pauseOnPageHidden (default) stops polling on a hidden tab and resumes on focus.
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    actions.fetchQueryResults({})
+                    if (values.viewMode === 'stat') {
+                        actions.fetchAnomaly({})
+                    }
+                }, LIVE_REFRESH_MS)
+                return () => clearInterval(intervalId)
+            }, LIVE_REFRESH_KEY)
         },
     })),
     loaders(({ values, actions }) => ({
