@@ -267,13 +267,6 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.desktop_recordings"
-depends_on = [
-    "posthog",
-]
-layer = "modules"
-
-[[modules]]
 path = "products.early_access_features"
 depends_on = [
     "posthog",

@@ -3018,8 +3018,6 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
-  products/desktop_recordings: {}
-
   products/early_access_features:
     dependencies:
       '@posthog/icons':
