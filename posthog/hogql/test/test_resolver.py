@@ -1129,7 +1129,10 @@ class TestResolver(BaseTest):
             description="Event name, e.g. '$pageview' or 'purchase'. Autocapture/PostHog events are prefixed with '$'.",
         )
         assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == StringDatabaseField(
-            name="person_id", array=None, nullable=False
+            name="person_id",
+            array=None,
+            nullable=False,
+            description="Resolved person this distinct_id belongs to; matches `persons.id`.",
         )
         assert cast(ast.FieldType, node.select[2].type).resolve_database_field(self.context) == StringJSONDatabaseField(
             name="person_properties", nullable=False

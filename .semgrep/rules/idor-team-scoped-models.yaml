@@ -260,6 +260,7 @@ rules:
                               |VisionAction
                               |VisionActionRun
                               |WarehouseColumnAnnotation
+                              |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
@@ -522,6 +523,7 @@ rules:
                         |VisionAction
                         |VisionActionRun
                         |WarehouseColumnAnnotation
+                        |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
