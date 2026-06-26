@@ -142,7 +142,6 @@ frontend/src/scenes/audit-logs/ @PostHog/team-platform-features
 frontend/src/scenes/activity/ @PostHog/team-platform-features
 posthog/models/activity_logging/ @PostHog/team-platform-features
 frontend/src/scenes/approvals/ @PostHog/team-platform-features
-products/approvals/ @PostHog/team-platform-features
 frontend/src/scenes/resource-transfer/ @PostHog/team-platform-features
 posthog/api/resource_transfer.py @PostHog/team-platform-features
 posthog/models/resource_transfer/ @PostHog/team-platform-features
