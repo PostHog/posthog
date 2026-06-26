@@ -102,21 +102,21 @@ const STREAM_END_EVENT = 'stream-end'
 function streamResumeKey(runId: string): string {
     return `posthog-ai:stream-resume:${runId}`
 }
-function readSandboxStreamResumeId(runId: string): string | null {
+function readStreamResumeId(runId: string): string | null {
     try {
         return window.sessionStorage.getItem(streamResumeKey(runId))
     } catch {
         return null
     }
 }
-function writeSandboxStreamResumeId(runId: string, eventId: string): void {
+function writeStreamResumeId(runId: string, eventId: string): void {
     try {
         window.sessionStorage.setItem(streamResumeKey(runId), eventId)
     } catch {
         // sessionStorage may be unavailable (private mode / quota) — resume from in-memory state only.
     }
 }
-function clearSandboxStreamResumeId(runId: string): void {
+function clearStreamResumeId(runId: string): void {
     try {
         window.sessionStorage.removeItem(streamResumeKey(runId))
     } catch {
@@ -135,7 +135,7 @@ export interface StreamProxyTarget {
  * rollout flag off we skip the token mint entirely (pre-proxy behavior); with it on but the server
  * resolves no base URL — or the mint throws — we fall back to Django so streaming never breaks.
  */
-export async function resolveSandboxStreamTarget(
+export async function resolveStreamTarget(
     projectId: string,
     taskId: string,
     runId: string,
@@ -1661,7 +1661,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     // steady-state stream never re-delivers a frame we've already appended. Mirrored to
                     // sessionStorage so a live reconnect that lost the in-memory cursor can recover it.
                     cache.lastEventId = id
-                    writeSandboxStreamResumeId(runId, id)
+                    writeStreamResumeId(runId, id)
                 }
                 if (event === STREAM_END_EVENT) {
                     // Durable end-of-run sentinel — the run's event stream is finished, so stop here
@@ -1670,7 +1670,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     // the listener. `streamEnded` (read by the reader loop) suppresses the clean-EOF
                     // drop that follows.
                     cache.streamEnded = true
-                    clearSandboxStreamResumeId(runId)
+                    clearStreamResumeId(runId)
                     actions.streamEnded()
                     return
                 }
@@ -1748,7 +1748,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // carries a valid one); with it off, or on the fallback, it's a no-op and we hit
                 // Django. A failed mint falls back to Django — streaming never breaks on the proxy.
                 const proxyTarget = values.streamViaProxyEnabled
-                    ? await resolveSandboxStreamTarget(String(projectId), taskId, runId, true)
+                    ? await resolveStreamTarget(String(projectId), taskId, runId, true)
                     : null
                 if (signal.aborted) {
                     return
@@ -1760,7 +1760,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // pre-empt it — only a live reconnect that lost its in-memory cursor honors it.
                 const lastEventId =
                     (cache.lastEventId as string | undefined) ??
-                    (cache.bufferingLiveFrames ? undefined : (readSandboxStreamResumeId(runId) ?? undefined))
+                    (cache.bufferingLiveFrames ? undefined : (readStreamResumeId(runId) ?? undefined))
 
                 let response: Response
                 try {
@@ -2088,7 +2088,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // resume a finished stream (the S3 history replay is the reopen path).
             const terminalRun = cache.activeRun as { taskId: string; runId: string } | undefined
             if (terminalRun) {
-                clearSandboxStreamResumeId(terminalRun.runId)
+                clearStreamResumeId(terminalRun.runId)
             }
 
             // A run that already terminated in a prior session is surfaced read-only on reopen —

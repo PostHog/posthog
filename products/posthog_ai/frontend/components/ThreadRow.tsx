@@ -48,7 +48,7 @@ function progressStepText(step: ProgressStep): string {
     return step.detail ? `${step.label}\n\n${step.detail}` : step.label
 }
 
-function resolveSandboxProgressState(steps: ProgressStep[]): ExecutionStatus {
+function resolveProgressState(steps: ProgressStep[]): ExecutionStatus {
     if (steps.some((step) => step.status === 'failed')) {
         return ExecutionStatus.Failed
     }
@@ -61,7 +61,7 @@ function resolveSandboxProgressState(steps: ProgressStep[]): ExecutionStatus {
     return ExecutionStatus.Completed
 }
 
-function resolveSandboxProgressHeadline(steps: ProgressStep[]): string {
+function resolveProgressHeadline(steps: ProgressStep[]): string {
     const active = steps.find((step) => step.status === 'in_progress')
     if (active) {
         return active.label
@@ -75,9 +75,9 @@ function ProgressItem({ item }: { item: ThreadItem }): JSX.Element | null {
         return null
     }
 
-    const headline = resolveSandboxProgressHeadline(steps)
+    const headline = resolveProgressHeadline(steps)
     const substeps = steps.length > 1 ? steps.map(progressStepText) : []
-    const state = resolveSandboxProgressState(steps)
+    const state = resolveProgressState(steps)
 
     return (
         <RunActivity

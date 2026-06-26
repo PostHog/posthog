@@ -21,7 +21,7 @@ import {
     mergeRunArtifacts,
     parsePermissionRequestFrame,
     reconnectDelayMs,
-    resolveSandboxStreamTarget,
+    resolveStreamTarget,
     runStreamLogic,
     SSE_HEALTHY_CONNECTION_MS,
     SSE_RECONNECT_BASE_DELAY_MS,
@@ -2982,9 +2982,9 @@ describe('runStreamLogic', () => {
             ;(tasksRunsStreamTokenRetrieve as jest.Mock).mockReset()
         })
 
-        describe('resolveSandboxStreamTarget', () => {
+        describe('resolveStreamTarget', () => {
             it('skips the token mint and streams from Django when the rollout is off', async () => {
-                expect(await resolveSandboxStreamTarget('997', 'task-1', 'run-1', false)).toBeNull()
+                expect(await resolveStreamTarget('997', 'task-1', 'run-1', false)).toBeNull()
                 expect(tasksRunsStreamTokenRetrieve).not.toHaveBeenCalled()
             })
 
@@ -2993,7 +2993,7 @@ describe('runStreamLogic', () => {
                     token: 'tok-1',
                     stream_base_url: 'https://proxy.example/',
                 })
-                expect(await resolveSandboxStreamTarget('997', 'task-1', 'run-1', true)).toEqual({
+                expect(await resolveStreamTarget('997', 'task-1', 'run-1', true)).toEqual({
                     baseUrl: 'https://proxy.example/',
                     token: 'tok-1',
                 })
@@ -3004,12 +3004,12 @@ describe('runStreamLogic', () => {
                     token: 'tok-1',
                     stream_base_url: null,
                 })
-                expect(await resolveSandboxStreamTarget('997', 'task-1', 'run-1', true)).toBeNull()
+                expect(await resolveStreamTarget('997', 'task-1', 'run-1', true)).toBeNull()
             })
 
             it('falls back to Django when minting the token throws', async () => {
                 ;(tasksRunsStreamTokenRetrieve as jest.Mock).mockRejectedValue(new Error('forbidden'))
-                expect(await resolveSandboxStreamTarget('997', 'task-1', 'run-1', true)).toBeNull()
+                expect(await resolveStreamTarget('997', 'task-1', 'run-1', true)).toBeNull()
             })
         })
 
