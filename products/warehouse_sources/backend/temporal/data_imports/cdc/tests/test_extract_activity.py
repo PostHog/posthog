@@ -1846,7 +1846,7 @@ class TestErrorClassification:
         mock_get_adapter.return_value = mock_adapter
 
         mock_activity.heartbeat = MagicMock()
-        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         with pytest.raises(NonRetryableException):
