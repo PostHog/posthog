@@ -243,7 +243,7 @@ describe('InsightDisplayConfig', () => {
                         'Stack bars',
                         'Show values on series',
                         'Show percentages on series',
-                        'Show legendBottom',
+                        'Show legendRight',
                     ],
                 },
             ],
