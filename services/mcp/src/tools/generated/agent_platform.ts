@@ -50,6 +50,7 @@ import {
     AgentApplicationsSessionsListQueryParams,
     AgentApplicationsSessionsRetrieveParams,
     AgentApplicationsSessionsRetrieveQueryParams,
+    AgentApplicationsSpecSchemaQueryParams,
     AgentRevisionsEnvKeysClearParams,
     AgentRevisionsEnvKeysGetParams,
     AgentRevisionsEnvKeysListParams,
@@ -184,6 +185,27 @@ const agentApplicationsModels = (): ToolBase<typeof AgentApplicationsModelsSchem
         const result = await context.api.request<Schemas.AgentApplication>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/models/`,
+        })
+        return result
+    },
+})
+
+const AgentApplicationsSpecSchemaSchema = AgentApplicationsSpecSchemaQueryParams
+
+const agentApplicationsSpecSchema = (): ToolBase<
+    typeof AgentApplicationsSpecSchemaSchema,
+    Schemas.AgentApplication
+> => ({
+    name: 'agent-applications-spec-schema',
+    schema: AgentApplicationsSpecSchemaSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsSpecSchemaSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentApplication>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/spec_schema/`,
+            query: {
+                section: params.section,
+            },
         })
         return result
     },
@@ -874,6 +896,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-env-keys-list': agentApplicationsEnvKeysList,
     'agent-applications-list': agentApplicationsList,
     'agent-applications-models': agentApplicationsModels,
+    'agent-applications-spec-schema': agentApplicationsSpecSchema,
     'agent-applications-partial-update': agentApplicationsPartialUpdate,
     'agent-applications-preview-proxy': agentApplicationsPreviewProxy,
     'agent-applications-retrieve': agentApplicationsRetrieve,
