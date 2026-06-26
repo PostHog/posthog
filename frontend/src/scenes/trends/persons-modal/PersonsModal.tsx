@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import React, { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { IconChevronLeft, IconChevronRight, IconCollapse, IconExpand } from '@posthog/icons'
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonBadge,
     LemonBanner,
@@ -41,7 +41,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
-import { InsightActorsQuery } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -56,18 +55,6 @@ import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 import { SessionActorDisplay } from './SessionActorDisplay'
 
-export interface PersonsModalDateNavigation {
-    /** All date strings along the x-axis (e.g. dataset.days). */
-    dates: string[]
-    /** Index of the date that was clicked — the modal opens here. */
-    currentIndex: number
-    /** Returns a fresh actors query for the given date index. */
-    buildQuery: (dateIndex: number) => InsightActorsQuery
-    /** Returns the modal title for the given date index. Receives the actor-label plural so the
-     *  title can read "People on Jun 24" or "Groups on Jun 24" depending on the insight. */
-    buildTitle: (dateIndex: number) => (actorLabel: string) => React.ReactNode
-}
-
 export interface PersonsModalProps extends PersonModalLogicProps, Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
     urlsIndex?: number
@@ -76,10 +63,6 @@ export interface PersonsModalProps extends PersonModalLogicProps, Pick<LemonModa
         value: string
     }[]
     title: React.ReactNode | ((actorLabel: string) => React.ReactNode)
-    /** When provided, adds prev/next arrows to the modal header so the user can step through
-     *  adjacent dates without reopening the modal. Only works when the modal was opened with a
-     *  `query` (not a `url`). */
-    dateNavigation?: PersonsModalDateNavigation
 }
 
 export function PersonsModal({
@@ -92,7 +75,6 @@ export function PersonsModal({
     inline,
     additionalSelect,
     orderBy,
-    dateNavigation,
 }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
@@ -134,23 +116,6 @@ export function PersonsModal({
         AccessControlLevel.Editor
     )
 
-    const [navDateIndex, setNavDateIndex] = useState(dateNavigation?.currentIndex ?? 0)
-
-    const navigate = useCallback(
-        (direction: -1 | 1) => {
-            if (!dateNavigation || !_query) {
-                return
-            }
-            const newIndex = navDateIndex + direction
-            if (newIndex < 0 || newIndex >= dateNavigation.dates.length) {
-                return
-            }
-            setNavDateIndex(newIndex)
-            updateActorsQuery(dateNavigation.buildQuery(newIndex))
-        },
-        [dateNavigation, navDateIndex, _query, updateActorsQuery]
-    )
-
     const totalActorsCount = missingActorsCount + actors.length
     type ActorsQuery = NonNullable<typeof query>
 
@@ -158,18 +123,16 @@ export function PersonsModal({
         typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null
 
     const getTitle = useCallback(() => {
-        const effectiveTitle = dateNavigation && _query ? dateNavigation.buildTitle(navDateIndex) : title
-
-        if (typeof effectiveTitle === 'function') {
-            return effectiveTitle(capitalizeFirstLetter(actorLabel.plural))
+        if (typeof title === 'function') {
+            return title(capitalizeFirstLetter(actorLabel.plural))
         }
 
-        if (isOtherBreakdown(effectiveTitle)) {
+        if (isOtherBreakdown(title)) {
             return 'Other'
         }
 
-        return effectiveTitle
-    }, [dateNavigation, navDateIndex, title, actorLabel.plural, _query])
+        return title
+    }, [title, actorLabel.plural])
 
     const hasGroups = actors.some((actor) => isGroupType(actor))
     const hasSessions = actors.some((actor) => isSessionType(actor))
@@ -187,27 +150,7 @@ export function PersonsModal({
                 inline={inline}
             >
                 <LemonModal.Header>
-                    {dateNavigation && _query ? (
-                        <div className="flex items-center gap-1 w-full min-w-0">
-                            <LemonButton
-                                size="small"
-                                icon={<IconChevronLeft />}
-                                onClick={() => navigate(-1)}
-                                disabled={navDateIndex <= 0}
-                                tooltip="Previous date"
-                            />
-                            <h3 className="flex-1 min-w-0 truncate">{getTitle()}</h3>
-                            <LemonButton
-                                size="small"
-                                icon={<IconChevronRight />}
-                                onClick={() => navigate(1)}
-                                disabled={navDateIndex >= dateNavigation.dates.length - 1}
-                                tooltip="Next date"
-                            />
-                        </div>
-                    ) : (
-                        <h3>{getTitle()}</h3>
-                    )}
+                    <h3>{getTitle()}</h3>
                 </LemonModal.Header>
                 <div className="px-4 py-2">
                     {actorsResponse && !!missingActorsCount && !hasGroups && (
