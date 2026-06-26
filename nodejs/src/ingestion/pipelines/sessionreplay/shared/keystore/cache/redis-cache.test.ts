@@ -1,3 +1,4 @@
+import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { RedisCachedKeyStore } from './redis-cache'
@@ -204,6 +205,29 @@ describe('RedisCachedKeyStore', () => {
             expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
             expect(mockRedisClient.del).not.toHaveBeenCalledWith('@posthog/replay/recording-key:2:session-123')
             expect(mockRedisClient.del).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('pool acquire failure', () => {
+        it.each([
+            {
+                method: 'getKey' as const,
+                args: ['session-123', 1] as const,
+            },
+            {
+                method: 'generateKey' as const,
+                args: ['session-123', 1] as const,
+            },
+            {
+                method: 'deleteKey' as const,
+                args: ['session-123', 1, 'test@example.com'] as const,
+            },
+        ])('$method still records latency and skips release when acquire throws', async ({ method, args }) => {
+            mockRedisPool.acquire.mockRejectedValue(new Error('Pool exhausted'))
+
+            await expect((cachedKeyStore[method] as any)(...args)).rejects.toThrow('Pool exhausted')
+            expect(mockRedisPool.release).not.toHaveBeenCalled()
+            expect(SessionBatchMetrics.observeKeystoreRedisLatency).toHaveBeenCalledWith(expect.any(Number))
         })
     })
 

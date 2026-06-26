@@ -19,6 +19,7 @@ export interface SessionFilterConfig {
     filterEnabled: boolean
     localCacheTtlMs: number
     localCacheMaxSize?: number
+    redisTimeoutMs?: number
 }
 
 /**
@@ -45,12 +46,14 @@ export class SessionFilter {
     private readonly sessionLimiter: Limiter
     private readonly blockingEnabled: boolean
     private readonly filterEnabled: boolean
+    private readonly redisTimeoutMs: number
 
     constructor(config: SessionFilterConfig) {
         this.redisPool = config.redisPool
         this.sessionLimiter = new Limiter(config.bucketCapacity, config.bucketReplenishRate)
         this.blockingEnabled = config.blockingEnabled
         this.filterEnabled = config.filterEnabled
+        this.redisTimeoutMs = config.redisTimeoutMs ?? 200
 
         this.localCache = new LRUCache({
             max: config.localCacheMaxSize ?? DEFAULT_LOCAL_CACHE_MAX_SIZE,
@@ -79,7 +82,12 @@ export class SessionFilter {
         let client
         try {
             client = await this.redisPool.acquire()
-            await client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
+            await Promise.race([
+                client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error('Redis SET timed out')), this.redisTimeoutMs)
+                ),
+            ])
 
             logger.info('session_filter_blocked_session', {
                 teamId,
@@ -132,7 +140,12 @@ export class SessionFilter {
         let client
         try {
             client = await this.redisPool.acquire()
-            const exists = await client.exists(key)
+            const exists = await Promise.race([
+                client.exists(key),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error('Redis EXISTS timed out')), this.redisTimeoutMs)
+                ),
+            ])
             const isBlocked = exists === 1
 
             // Cache the result locally to prevent repeated Redis calls

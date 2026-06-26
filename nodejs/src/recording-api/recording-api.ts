@@ -95,7 +95,7 @@ export class RecordingApi {
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
-        const retentionService = new RetentionService(teamService)
+        const retentionService = new RetentionService(this.redisPool, teamService)
 
         const keyStore: KeyStore = getKeyStore(retentionService, s3Region, {
             kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
