@@ -6,9 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 
+from llm_gateway.api.anthropic import _is_anthropic_billing_block
 from llm_gateway.request_context import (
     extract_posthog_flags_from_headers,
     extract_posthog_properties_from_headers,
@@ -1672,18 +1674,10 @@ class TestAnthropicBillingBlockDetection:
         ],
     )
     def test_billing_block_detection(self, case: str, status_code: int, message: str, expected: bool) -> None:
-        from fastapi import HTTPException
-
-        from llm_gateway.api.anthropic import _is_anthropic_billing_block
-
         exc = HTTPException(
             status_code=status_code, detail={"error": {"message": message, "type": "invalid_request_error"}}
         )
         assert _is_anthropic_billing_block(exc) is expected
 
     def test_non_dict_detail_is_not_billing(self) -> None:
-        from fastapi import HTTPException
-
-        from llm_gateway.api.anthropic import _is_anthropic_billing_block
-
         assert _is_anthropic_billing_block(HTTPException(status_code=400, detail="opaque string")) is False

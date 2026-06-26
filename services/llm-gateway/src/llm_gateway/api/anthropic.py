@@ -320,6 +320,16 @@ def _is_anthropic_billing_block(exc: HTTPException) -> bool:
     return any(signature in message for signature in _ANTHROPIC_BILLING_SIGNATURES)
 
 
+def _anthropic_error_type(exc: HTTPException) -> str:
+    """The provider error type from an Anthropic-style HTTPException detail, or "unknown"."""
+    detail = exc.detail
+    if isinstance(detail, dict):
+        error = detail.get("error")
+        if isinstance(error, dict):
+            return str(error.get("type", "unknown"))
+    return "unknown"
+
+
 def _is_breaker_success(status_code: int) -> bool:
     """4xx are caller-side errors and don't reflect Anthropic health, except 429 — that's
     Anthropic-side throttling and is exactly the kind of degradation the breaker exists for.
@@ -416,11 +426,7 @@ async def _handle_anthropic_messages(
         if not use_bedrock_fallback or not fallback_eligible:
             raise
 
-        error_type = (
-            "billing_block"
-            if billing_block
-            else (exc.detail.get("error", {}).get("type", "unknown") if isinstance(exc.detail, dict) else "unknown")
-        )
+        error_type = "billing_block" if billing_block else _anthropic_error_type(exc)
         logger.warning(
             "Anthropic request failed, attempting Bedrock fallback",
             model=body.model,
@@ -493,7 +499,7 @@ async def _handle_count_tokens(
         if not use_bedrock_fallback or _is_breaker_success(exc.status_code):
             raise
 
-        error_type = exc.detail.get("error", {}).get("type", "unknown") if isinstance(exc.detail, dict) else "unknown"
+        error_type = _anthropic_error_type(exc)
         logger.warning(
             "Anthropic count_tokens failed, attempting Bedrock fallback",
             model=body.model,
