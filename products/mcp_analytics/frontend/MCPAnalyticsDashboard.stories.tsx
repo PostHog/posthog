@@ -313,6 +313,11 @@ const meta: Meta = {
                     if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
                     }
+                    // Onboarding gate: report the project as instrumented so the scene
+                    // renders the dashboard/tabs instead of the empty state.
+                    if (query.includes('has_initialize')) {
+                        return [200, { results: [[true, true]] }]
+                    }
                     if (query.includes('AS session_id')) {
                         return [200, { results: SESSION_RESULTS }]
                     }

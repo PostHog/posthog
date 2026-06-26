@@ -258,6 +258,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         return SourceConfig(
             name=SchemaExternalDataSourceType.MONGO_DB,
             category=DataWarehouseSourceCategory.DATABASES,
+            featured=True,
             keywords=["mongo"],
             label="MongoDB",
             caption="Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data warehouse.",

@@ -3,10 +3,10 @@ import { memo } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
-import { SandboxToolActivity } from './SandboxToolActivity'
-import type { SandboxToolRendererProps } from './sandboxToolRegistry'
+import { ToolActivity } from './ToolActivity'
 import { compactInput, formatInput, getContentText, stripCodeFences } from './toolContentUtils'
 import { ToolOutput } from './ToolOutput'
+import type { ToolRendererProps } from './toolRegistry'
 
 /**
  * The catch-all tool card — user-installed MCP tools, unmapped PostHog `exec` inner tools, and Claude
@@ -15,9 +15,7 @@ import { ToolOutput } from './ToolOutput'
  * preview sits on the second line and the body shows any text output. Replaces the old
  * `FallbackMcpToolRenderer`.
  */
-export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(
-    props: SandboxToolRendererProps
-): JSX.Element {
+export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, displayName, turnComplete, turnCancelled } = props
 
     const isPostHogExec = !!message.innerToolName
@@ -54,7 +52,7 @@ export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(
         ) : undefined
 
     return (
-        <SandboxToolActivity
+        <ToolActivity
             message={message}
             icon={icon ?? <IconWrench />}
             title={title}

@@ -821,7 +821,7 @@ class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):
         assert response.json()["detail"] == "API key missing required scope 'approvals:read'"
 
     def _create_change_request(self):
-        from posthog.approvals.models import ChangeRequest, ChangeRequestState
+        from products.approvals.backend.models import ChangeRequest, ChangeRequestState
 
         return ChangeRequest.objects.create(
             team=self.team,
