@@ -46,6 +46,7 @@ import {
 import { getNativeTool, hasNativeTool, WEB_SEARCH_TOOL_ID } from '@posthog/agent-tools'
 
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
+import { effectiveToolLevel } from './mcp-tool-lookup'
 import { buildToolNameMap } from './provider-safe-names'
 
 /**
@@ -285,19 +286,25 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             })
         )
         for (const { client, tools: remoteTools } of listings) {
-            // PR 7: inclusion filter migrated from `allowlist[]` to `tools[]`,
-            // which carries both bare-string entries (passthrough — was
-            // allowlist) and object entries `{ name, requires_approval?, ... }`.
-            // We only need the entry NAMES here; the approval-wrap fallback
-            // lives in `driver.ts` and pulls the per-tool policy via
-            // `mcp-tool-lookup.ts` (added in commit B). Omitted/empty `tools`
-            // still means "expose every tool the server lists."
-            const includedNames =
-                client.ref.tools && client.ref.tools.length > 0
+            // Exposure filter — two models keyed on `default_tool_approval`:
+            //   - New model (set): a tool is hidden iff its EFFECTIVE level is
+            //     `deny` (`tools[].level` override ?? the connection default).
+            //     `default_tool_approval: 'deny'` + per-tool `allow` overrides is
+            //     therefore a strict allowlist. The approval-wrap in `driver.ts`
+            //     gates the `approve`-level ones via `lookupMcpToolApproval`.
+            //   - Legacy model (unset): `tools[]` is an inclusion allowlist —
+            //     bare strings + object entries by NAME; empty/omitted = expose
+            //     every tool. Per-tool `requires_approval` gating still applies.
+            const legacyAllowlist =
+                !client.ref.default_tool_approval && client.ref.tools && client.ref.tools.length > 0
                     ? new Set(client.ref.tools.map((t) => (typeof t === 'string' ? t : t.name)))
                     : null
             for (const remote of remoteTools) {
-                if (includedNames && !includedNames.has(remote.name)) {
+                if (client.ref.default_tool_approval) {
+                    if (effectiveToolLevel(client.ref, remote.name) === 'deny') {
+                        continue
+                    }
+                } else if (legacyAllowlist && !legacyAllowlist.has(remote.name)) {
                     continue
                 }
                 // `<prefix>__<remoteName>` is the model-visible identifier; the

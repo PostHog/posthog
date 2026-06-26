@@ -356,6 +356,16 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     # credential for the agent; runner loads the bearer from the
                     # row. Mirrors `connection` in agent-shared spec.ts.
                     "connection": {"type": "string", "minLength": 1},
+                    # Connection-wide default approval level (per-agent
+                    # tool-permission model). When set, the runner switches off
+                    # the legacy allowlist: effective level per tool = its
+                    # tools[].level override ?? this default; exposed unless
+                    # `deny`, gated when `approve`. Mirrors `ToolApprovalLevel`
+                    # + `default_tool_approval` in agent-shared spec.ts.
+                    "default_tool_approval": {"type": "string", "enum": ["allow", "approve", "deny"]},
+                    # Who approves (+ ttl) for `approve`-level tools under the
+                    # default+override model. Same block as the tool refs.
+                    "approval_policy": _APPROVAL_POLICY_JSON_SCHEMA,
                     "auth": {
                         "type": "object",
                         "properties": {
@@ -394,6 +404,9 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                     "type": "object",
                                     "properties": {
                                         "name": {"type": "string", "minLength": 1},
+                                        # Per-tool override of the connection's
+                                        # default_tool_approval (new model).
+                                        "level": {"type": "string", "enum": ["allow", "approve", "deny"]},
                                         "requires_approval": {"type": "boolean", "default": False},
                                         # Same block as the native/custom tool refs — keep in sync.
                                         "approval_policy": _APPROVAL_POLICY_JSON_SCHEMA,

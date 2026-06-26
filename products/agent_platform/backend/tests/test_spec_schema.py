@@ -154,6 +154,28 @@ def _with_auth(spec: dict) -> dict:
                 ],
             },
         ),
+        # Per-agent tool-permission model: a connection-wide default level plus
+        # per-tool `level` overrides (allow / approve / deny), with an entry-level
+        # approval_policy for the `approve`-level tools.
+        (
+            "external_mcp_default_tool_approval_and_overrides",
+            {
+                "model": "test/x",
+                "mcps": [
+                    {
+                        "id": "incident",
+                        "url": "https://mcp.incident.io/mcp",
+                        "connection": "019e7fb7-f4c0-75e2-9055-7c29a5cbb999",
+                        "default_tool_approval": "approve",
+                        "approval_policy": {"type": "agent", "ttl_ms": 900000},
+                        "tools": [
+                            {"name": "list-incidents", "level": "allow"},
+                            {"name": "delete-incident", "level": "deny"},
+                        ],
+                    }
+                ],
+            },
+        ),
         # Registry-pin shapes the freeze pipeline resolves: a skill carrying
         # `from_template` + `alias` (+ optional `version`) alongside the
         # runtime id/path, and a `custom_template` tool ref. Before these
@@ -298,6 +320,38 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
                 ],
             },
             "unique names",
+        ),
+        # `default_tool_approval` is an enum (allow / approve / deny); a typo
+        # must be rejected, not silently treated as "no default".
+        (
+            "external_mcp_bad_default_tool_approval",
+            {
+                "model": "test/x",
+                "mcps": [
+                    {
+                        "id": "incident",
+                        "url": "https://mcp.incident.io/mcp",
+                        "default_tool_approval": "ask",
+                    }
+                ],
+            },
+            "mcps.0",
+        ),
+        # Same for a per-tool `level` override.
+        (
+            "external_mcp_bad_tool_level",
+            {
+                "model": "test/x",
+                "mcps": [
+                    {
+                        "id": "incident",
+                        "url": "https://mcp.incident.io/mcp",
+                        "default_tool_approval": "allow",
+                        "tools": [{"name": "x", "level": "maybe"}],
+                    }
+                ],
+            },
+            "mcps.0",
         ),
         # The exact drift that poisoned the cron sweep: a cron trigger without
         # the now-required `prompt` (or `name`). The node schema rejects these

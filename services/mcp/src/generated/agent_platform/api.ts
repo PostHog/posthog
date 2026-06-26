@@ -206,6 +206,12 @@ export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax =
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourInteractiveDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsDefault = []
 
+export const agentApplicationsRevisionsCreateBodySpecMcpsItemApprovalPolicyTypeDefault = `principal`
+export const agentApplicationsRevisionsCreateBodySpecMcpsItemApprovalPolicyAllowEditDefault = false
+export const agentApplicationsRevisionsCreateBodySpecMcpsItemApprovalPolicyTtlMsDefault = 86400000
+export const agentApplicationsRevisionsCreateBodySpecMcpsItemApprovalPolicyTtlMsMin = 60000
+export const agentApplicationsRevisionsCreateBodySpecMcpsItemApprovalPolicyTtlMsMax = 604800000
+
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemSecretsDefault = []
 
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoRequiresApprovalDefault = false
@@ -578,6 +584,26 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         id: zod.string().min(1),
                         url: zod.url(),
                         connection: zod.string().min(1).optional(),
+                        default_tool_approval: zod.enum(['allow', 'approve', 'deny']).optional(),
+                        approval_policy: zod
+                            .object({
+                                type: zod
+                                    .enum(['principal', 'agent'])
+                                    .default(agentApplicationsRevisionsCreateBodySpecMcpsItemApprovalPolicyTypeDefault),
+                                allow_edit: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecMcpsItemApprovalPolicyAllowEditDefault
+                                    ),
+                                ttl_ms: zod
+                                    .number()
+                                    .min(agentApplicationsRevisionsCreateBodySpecMcpsItemApprovalPolicyTtlMsMin)
+                                    .max(agentApplicationsRevisionsCreateBodySpecMcpsItemApprovalPolicyTtlMsMax)
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecMcpsItemApprovalPolicyTtlMsDefault
+                                    ),
+                            })
+                            .optional(),
                         auth: zod
                             .object({
                                 provider: zod.string().optional(),
@@ -593,6 +619,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                     zod.string().min(1),
                                     zod.object({
                                         name: zod.string().min(1),
+                                        level: zod.enum(['allow', 'approve', 'deny']).optional(),
                                         requires_approval: zod
                                             .boolean()
                                             .default(
@@ -884,6 +911,12 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeout
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourInteractiveDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsDefault = []
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemApprovalPolicyTypeDefault = `principal`
+export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemApprovalPolicyAllowEditDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemApprovalPolicyTtlMsDefault = 86400000
+export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemApprovalPolicyTtlMsMin = 60000
+export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemApprovalPolicyTtlMsMax = 604800000
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemSecretsDefault = []
 
@@ -1273,6 +1306,28 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         id: zod.string().min(1),
                         url: zod.url(),
                         connection: zod.string().min(1).optional(),
+                        default_tool_approval: zod.enum(['allow', 'approve', 'deny']).optional(),
+                        approval_policy: zod
+                            .object({
+                                type: zod
+                                    .enum(['principal', 'agent'])
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemApprovalPolicyTypeDefault
+                                    ),
+                                allow_edit: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemApprovalPolicyAllowEditDefault
+                                    ),
+                                ttl_ms: zod
+                                    .number()
+                                    .min(agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemApprovalPolicyTtlMsMin)
+                                    .max(agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemApprovalPolicyTtlMsMax)
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemApprovalPolicyTtlMsDefault
+                                    ),
+                            })
+                            .optional(),
                         auth: zod
                             .object({
                                 provider: zod.string().optional(),
@@ -1288,6 +1343,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                     zod.string().min(1),
                                     zod.object({
                                         name: zod.string().min(1),
+                                        level: zod.enum(['allow', 'approve', 'deny']).optional(),
                                         requires_approval: zod
                                             .boolean()
                                             .default(

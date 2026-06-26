@@ -379,11 +379,29 @@ export const ApprovalPolicySchema = z.preprocess(
     })
 )
 
-const DEFAULT_APPROVAL_POLICY = {
+export const DEFAULT_APPROVAL_POLICY = {
     type: 'principal' as const,
     allow_edit: false,
     ttl_ms: 24 * 60 * 60 * 1000,
 }
+
+/**
+ * Per-tool approval level for an MCP connection: the effective level of a remote
+ * tool decides what the runner does with it.
+ *   - `allow`   — exposed, runs without approval.
+ *   - `approve` — exposed, every call parks for approval (the entry's
+ *                 `approval_policy` decides who/ttl).
+ *   - `deny`    — NOT exposed to the model at all.
+ *
+ * Used both as the connection-wide default (`McpRef.default_tool_approval`) and
+ * as a per-tool override (`McpToolEntry.level`). Effective level for a tool =
+ * its override `level` ?? the connection default. A connection with
+ * `default_tool_approval: 'deny'` + per-tool `allow` overrides is a strict
+ * allowlist. See `services/agent-runner/src/loop/build-agent-tools.ts`
+ * (exposure) and `mcp-tool-lookup.ts` (approval).
+ */
+export const ToolApprovalLevelSchema = z.enum(['allow', 'approve', 'deny'])
+export type ToolApprovalLevel = z.infer<typeof ToolApprovalLevelSchema>
 
 export const ToolRefSchema = z.discriminatedUnion('kind', [
     z.object({
@@ -478,20 +496,31 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
 ])
 
 /**
- * Per-tool selection + approval-gating entry for `external` MCP refs. The
- * bare-string form is the inclusion-only case (was `allowlist[]` pre-PR 7);
- * the object form adds approval gating using the same primitives as
- * `ToolRefSchema` (`requires_approval` + `approval_policy`). The dispatcher
- * looks the entry up by name when wrapping the model-visible
+ * Per-tool entry for an MCP ref. Two models, distinguished by whether the ref
+ * carries `default_tool_approval`:
+ *
+ *   - **Default+override model** (`default_tool_approval` set): an entry's
+ *     `level` OVERRIDES the connection default for that tool (allow / approve /
+ *     deny). This is the per-agent tool-permission model.
+ *   - **Legacy allowlist model** (no `default_tool_approval`): the bare-string
+ *     form is inclusion-only; the object form adds `requires_approval` +
+ *     `approval_policy`. Omitted/empty `tools[]` = expose every tool.
+ *
+ * The runner looks the entry up by name when building/gating the model-visible
  * `<prefix>__<remoteName>` tool — see
- * `services/agent-runner/src/loop/mcp-tool-lookup.ts` and the approval-wrap
- * fallback in `driver.ts`.
+ * `services/agent-runner/src/loop/mcp-tool-lookup.ts` + `build-agent-tools.ts`.
  */
 export const McpToolEntrySchema = z.union([
     z.string().min(1),
     z.object({
         /** Raw remote tool name (pre-prefix). Must match an entry from `client.listTools()`. */
         name: z.string().min(1),
+        /**
+         * Per-tool override of the connection's `default_tool_approval`. Only
+         * meaningful when the ref sets `default_tool_approval` (new model);
+         * ignored in the legacy allowlist model.
+         */
+        level: ToolApprovalLevelSchema.optional(),
         requires_approval: z.boolean().default(false),
         approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
     }),
@@ -532,6 +561,23 @@ export const McpRefSchema = z.object({
      * stays required (UI-filled); the installation row is the source of truth.
      */
     connection: z.string().min(1).optional(),
+    /**
+     * Connection-wide default approval level (per-agent tool-permission model).
+     * When SET, the runner switches off the legacy allowlist: every remote tool's
+     * effective level = its `tools[].level` override ?? this default; the tool is
+     * exposed unless its effective level is `deny`, and gated when `approve`.
+     * When ABSENT, `tools[]` keeps the legacy allowlist + `requires_approval`
+     * semantics (unchanged). The agent-config UI writes `'approve'` here when an
+     * MCP is first attached.
+     */
+    default_tool_approval: ToolApprovalLevelSchema.optional(),
+    /**
+     * Approval policy (who approves + ttl) for any tool whose effective level is
+     * `approve` under the default+override model. Defaults to the principal/24h
+     * policy. Ignored in the legacy model (there the per-tool entry carries its
+     * own `approval_policy`).
+     */
+    approval_policy: ApprovalPolicySchema.optional(),
     auth: z
         .object({
             /** Per-principal identity provider (id from `spec.identity_providers[]`):
@@ -564,11 +610,11 @@ export const McpRefSchema = z.object({
      */
     headers: z.record(z.string(), z.string()).optional(),
     /**
-     * Per-tool selection AND approval gating. Bare string is a passthrough
-     * (gates inclusion, no approval); object form carries
-     * `requires_approval` + `approval_policy`. Omitted / empty = expose
-     * every tool the server lists. Replaces the earlier `allowlist[]`
-     * field (PR 7 hard-break — no production specs used it).
+     * Per-tool entries. With `default_tool_approval` set, each object entry's
+     * `level` OVERRIDES the connection default for that tool (allow/approve/
+     * deny). Without it (legacy), a bare string is inclusion-only and the
+     * object form carries `requires_approval` + `approval_policy`; omitted /
+     * empty = expose every tool the server lists.
      *
      * Names must be unique within the array. A duplicate would be a
      * silent first-match-wins footgun — e.g. an author who appends a

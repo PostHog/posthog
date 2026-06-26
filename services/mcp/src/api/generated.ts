@@ -8363,6 +8363,33 @@ export namespace Schemas {
       interactive?: boolean;
     };
 
+    export type AgentRevisionSpecMcpsItemDefaultToolApproval = typeof AgentRevisionSpecMcpsItemDefaultToolApproval[keyof typeof AgentRevisionSpecMcpsItemDefaultToolApproval];
+
+
+    export const AgentRevisionSpecMcpsItemDefaultToolApproval = {
+      Allow: 'allow',
+      Approve: 'approve',
+      Deny: 'deny',
+    } as const;
+
+    export type AgentRevisionSpecMcpsItemApprovalPolicyType = typeof AgentRevisionSpecMcpsItemApprovalPolicyType[keyof typeof AgentRevisionSpecMcpsItemApprovalPolicyType];
+
+
+    export const AgentRevisionSpecMcpsItemApprovalPolicyType = {
+      Principal: 'principal',
+      Agent: 'agent',
+    } as const;
+
+    export type AgentRevisionSpecMcpsItemApprovalPolicy = {
+      type?: AgentRevisionSpecMcpsItemApprovalPolicyType;
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+    };
+
     export type AgentRevisionSpecMcpsItemAuth = {
       provider?: string;
     };
@@ -8372,6 +8399,7 @@ export namespace Schemas {
     export type AgentRevisionSpecMcpsItemToolsItem = string | {
       /** @minLength 1 */
       name: string;
+      level?: 'allow' | 'approve' | 'deny';
       requires_approval?: boolean;
       approval_policy?: {
       type?: 'principal' | 'agent';
@@ -8390,6 +8418,8 @@ export namespace Schemas {
       url: string;
       /** @minLength 1 */
       connection?: string;
+      default_tool_approval?: AgentRevisionSpecMcpsItemDefaultToolApproval;
+      approval_policy?: AgentRevisionSpecMcpsItemApprovalPolicy;
       auth?: AgentRevisionSpecMcpsItemAuth;
       secrets?: string[];
       headers?: AgentRevisionSpecMcpsItemHeaders;
@@ -35092,6 +35122,33 @@ export namespace Schemas {
       interactive?: boolean;
     };
 
+    export type PatchedAgentRevisionSpecMcpsItemDefaultToolApproval = typeof PatchedAgentRevisionSpecMcpsItemDefaultToolApproval[keyof typeof PatchedAgentRevisionSpecMcpsItemDefaultToolApproval];
+
+
+    export const PatchedAgentRevisionSpecMcpsItemDefaultToolApproval = {
+      Allow: 'allow',
+      Approve: 'approve',
+      Deny: 'deny',
+    } as const;
+
+    export type PatchedAgentRevisionSpecMcpsItemApprovalPolicyType = typeof PatchedAgentRevisionSpecMcpsItemApprovalPolicyType[keyof typeof PatchedAgentRevisionSpecMcpsItemApprovalPolicyType];
+
+
+    export const PatchedAgentRevisionSpecMcpsItemApprovalPolicyType = {
+      Principal: 'principal',
+      Agent: 'agent',
+    } as const;
+
+    export type PatchedAgentRevisionSpecMcpsItemApprovalPolicy = {
+      type?: PatchedAgentRevisionSpecMcpsItemApprovalPolicyType;
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+    };
+
     export type PatchedAgentRevisionSpecMcpsItemAuth = {
       provider?: string;
     };
@@ -35101,6 +35158,7 @@ export namespace Schemas {
     export type PatchedAgentRevisionSpecMcpsItemToolsItem = string | {
       /** @minLength 1 */
       name: string;
+      level?: 'allow' | 'approve' | 'deny';
       requires_approval?: boolean;
       approval_policy?: {
       type?: 'principal' | 'agent';
@@ -35119,6 +35177,8 @@ export namespace Schemas {
       url: string;
       /** @minLength 1 */
       connection?: string;
+      default_tool_approval?: PatchedAgentRevisionSpecMcpsItemDefaultToolApproval;
+      approval_policy?: PatchedAgentRevisionSpecMcpsItemApprovalPolicy;
       auth?: PatchedAgentRevisionSpecMcpsItemAuth;
       secrets?: string[];
       headers?: PatchedAgentRevisionSpecMcpsItemHeaders;

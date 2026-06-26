@@ -199,6 +199,23 @@ export const AgentRevisionStateEnumApi = {
     Archived: 'archived',
 } as const
 
+export type AgentRevisionApiSpecMcpsItemDefaultToolApproval =
+    (typeof AgentRevisionApiSpecMcpsItemDefaultToolApproval)[keyof typeof AgentRevisionApiSpecMcpsItemDefaultToolApproval]
+
+export const AgentRevisionApiSpecMcpsItemDefaultToolApproval = {
+    Allow: 'allow',
+    Approve: 'approve',
+    Deny: 'deny',
+} as const
+
+export type AgentRevisionApiSpecMcpsItemApprovalPolicyType =
+    (typeof AgentRevisionApiSpecMcpsItemApprovalPolicyType)[keyof typeof AgentRevisionApiSpecMcpsItemApprovalPolicyType]
+
+export const AgentRevisionApiSpecMcpsItemApprovalPolicyType = {
+    Principal: 'principal',
+    Agent: 'agent',
+} as const
+
 export type AgentRevisionApiSpecReasoning =
     (typeof AgentRevisionApiSpecReasoning)[keyof typeof AgentRevisionApiSpecReasoning]
 
@@ -436,6 +453,16 @@ export type AgentRevisionApiSpecToolsItem =
           interactive?: boolean
       }
 
+export type AgentRevisionApiSpecMcpsItemApprovalPolicy = {
+    type?: AgentRevisionApiSpecMcpsItemApprovalPolicyType
+    allow_edit?: boolean
+    /**
+     * @minimum 60000
+     * @maximum 604800000
+     */
+    ttl_ms?: number
+}
+
 export type AgentRevisionApiSpecMcpsItemAuth = {
     provider?: string
 }
@@ -447,6 +474,7 @@ export type AgentRevisionApiSpecMcpsItemToolsItem =
     | {
           /** @minLength 1 */
           name: string
+          level?: 'allow' | 'approve' | 'deny'
           requires_approval?: boolean
           approval_policy?: {
               type?: 'principal' | 'agent'
@@ -465,6 +493,8 @@ export type AgentRevisionApiSpecMcpsItem = {
     url: string
     /** @minLength 1 */
     connection?: string
+    default_tool_approval?: AgentRevisionApiSpecMcpsItemDefaultToolApproval
+    approval_policy?: AgentRevisionApiSpecMcpsItemApprovalPolicy
     auth?: AgentRevisionApiSpecMcpsItemAuth
     secrets?: string[]
     headers?: AgentRevisionApiSpecMcpsItemHeaders
@@ -822,6 +852,33 @@ export type PatchedAgentRevisionApiSpecToolsItem =
           interactive?: boolean
       }
 
+export type PatchedAgentRevisionApiSpecMcpsItemDefaultToolApproval =
+    (typeof PatchedAgentRevisionApiSpecMcpsItemDefaultToolApproval)[keyof typeof PatchedAgentRevisionApiSpecMcpsItemDefaultToolApproval]
+
+export const PatchedAgentRevisionApiSpecMcpsItemDefaultToolApproval = {
+    Allow: 'allow',
+    Approve: 'approve',
+    Deny: 'deny',
+} as const
+
+export type PatchedAgentRevisionApiSpecMcpsItemApprovalPolicyType =
+    (typeof PatchedAgentRevisionApiSpecMcpsItemApprovalPolicyType)[keyof typeof PatchedAgentRevisionApiSpecMcpsItemApprovalPolicyType]
+
+export const PatchedAgentRevisionApiSpecMcpsItemApprovalPolicyType = {
+    Principal: 'principal',
+    Agent: 'agent',
+} as const
+
+export type PatchedAgentRevisionApiSpecMcpsItemApprovalPolicy = {
+    type?: PatchedAgentRevisionApiSpecMcpsItemApprovalPolicyType
+    allow_edit?: boolean
+    /**
+     * @minimum 60000
+     * @maximum 604800000
+     */
+    ttl_ms?: number
+}
+
 export type PatchedAgentRevisionApiSpecMcpsItemAuth = {
     provider?: string
 }
@@ -833,6 +890,7 @@ export type PatchedAgentRevisionApiSpecMcpsItemToolsItem =
     | {
           /** @minLength 1 */
           name: string
+          level?: 'allow' | 'approve' | 'deny'
           requires_approval?: boolean
           approval_policy?: {
               type?: 'principal' | 'agent'
@@ -851,6 +909,8 @@ export type PatchedAgentRevisionApiSpecMcpsItem = {
     url: string
     /** @minLength 1 */
     connection?: string
+    default_tool_approval?: PatchedAgentRevisionApiSpecMcpsItemDefaultToolApproval
+    approval_policy?: PatchedAgentRevisionApiSpecMcpsItemApprovalPolicy
     auth?: PatchedAgentRevisionApiSpecMcpsItemAuth
     secrets?: string[]
     headers?: PatchedAgentRevisionApiSpecMcpsItemHeaders

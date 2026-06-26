@@ -478,4 +478,185 @@ describe('runtime MCPs: real e2e', () => {
         expect(mcpFail!.data.category).toBe('auth')
         expect(mcpFail!.data.reason).toMatch(/mcp_secret_not_resolved/)
     })
+
+    // ─────────────────────────────────────────────────────────────
+    // Per-agent tool-permission model: `mcps[].default_tool_approval`
+    // (allow / approve / deny) + per-tool `tools[].level` overrides.
+    // Effective level per tool = override ?? default. `deny` → hidden,
+    // `allow` → auto-run, `approve` → queue for approval. Setting
+    // `default_tool_approval` switches OFF the legacy allowlist.
+    // ─────────────────────────────────────────────────────────────
+    const queuedRows = async (applicationId: string): Promise<Array<{ id: string; tool_name: string }>> => {
+        const res = await request(c.janitor).get('/approvals').query({ application_id: applicationId, state: 'queued' })
+        return res.body.results as Array<{ id: string; tool_name: string }>
+    }
+
+    it('default_tool_approval=allow: the tool auto-runs with no approval row', async () => {
+        const { factory, captured } = buildFactory({
+            echo: { description: 'd', inputSchema: { msg: z.string() }, handler: ({ msg }) => ({ echoed: msg }) },
+        })
+        c = await buildCluster({ mcpTransportFactory: factory })
+        c.setScript([fauxCallTool('demo__echo', { msg: 'hi' }), fauxText('done')])
+        const { application } = await c.deployAgent({
+            slug: 'mcp-default-allow',
+            spec: { mcps: [{ id: 'demo', url: 'https://example.com/demo', default_tool_approval: 'allow' }] },
+        })
+        const res = await request(c.ingress).post('/agents/mcp-default-allow/run').send({ message: 'go' })
+        await c.drain()
+
+        const session = await c.queue.get(res.body.session_id)
+        expect(session!.state).toBe('completed')
+        expect(captured).toEqual([{ name: 'echo', args: { msg: 'hi' }, target: { url: 'https://example.com/demo' } }])
+        expect(await queuedRows(application.id)).toHaveLength(0)
+    })
+
+    it('default_tool_approval=approve: the tool queues, approve dispatches the real call', async () => {
+        let remoteHits = 0
+        const { factory } = buildFactory({
+            'promote-revision': {
+                description: 'd',
+                handler: () => {
+                    remoteHits += 1
+                    return { promoted: true }
+                },
+            },
+        })
+        c = await buildCluster({ mcpTransportFactory: factory })
+        // No `approval_policy` on the ref → exercises the DEFAULT_APPROVAL_POLICY fallback.
+        c.setScript([fauxCallTool('posthog__promote-revision', { id: 'r1' }), fauxText('queued'), fauxText('done')])
+        const { application } = await c.deployAgent({
+            slug: 'mcp-default-approve',
+            spec: { mcps: [{ id: 'posthog', url: 'https://example.com/posthog', default_tool_approval: 'approve' }] },
+        })
+        const run = await request(c.ingress).post('/agents/mcp-default-approve/run').send({ message: 'go' })
+        await c.drain()
+
+        // Parked for approval — remote not yet hit.
+        expect(remoteHits).toBe(0)
+        const queued = await queuedRows(application.id)
+        expect(queued).toHaveLength(1)
+        expect(queued[0].tool_name).toBe('posthog__promote-revision')
+
+        await request(c.janitor)
+            .post(`/approvals/${queued[0].id}/decide`)
+            .send({ decision: 'approve', decided_by: '00000000-0000-0000-0000-000000000001' })
+        await c.drain()
+
+        expect(remoteHits).toBe(1)
+        expect((await c.queue.get(run.body.session_id))!.state).toBe('completed')
+    })
+
+    it('default_tool_approval=approve: reject denies the call (remote never hit)', async () => {
+        let remoteHits = 0
+        const { factory } = buildFactory({
+            'promote-revision': {
+                description: 'd',
+                handler: () => {
+                    remoteHits += 1
+                    return { promoted: true }
+                },
+            },
+        })
+        c = await buildCluster({ mcpTransportFactory: factory })
+        c.setScript([fauxCallTool('posthog__promote-revision', { id: 'r1' }), fauxText('queued'), fauxText('stopped')])
+        const { application } = await c.deployAgent({
+            slug: 'mcp-default-approve-reject',
+            spec: { mcps: [{ id: 'posthog', url: 'https://example.com/posthog', default_tool_approval: 'approve' }] },
+        })
+        const run = await request(c.ingress).post('/agents/mcp-default-approve-reject/run').send({ message: 'go' })
+        await c.drain()
+        const [pending] = await queuedRows(application.id)
+        expect(pending).not.toBeUndefined()
+
+        await request(c.janitor)
+            .post(`/approvals/${pending.id}/decide`)
+            .send({ decision: 'reject', decided_by: '00000000-0000-0000-0000-000000000002', reason: 'nope' })
+        await c.drain()
+
+        expect(remoteHits).toBe(0)
+        expect((await c.queue.get(run.body.session_id))!.state).toBe('completed')
+        const allRows = (await request(c.janitor).get('/approvals').query({ application_id: application.id })).body
+            .results as Array<{ id: string; state: string }>
+        expect(allRows.find((r) => r.id === pending.id)?.state).toBe('rejected')
+    })
+
+    it('default_tool_approval=deny: the tool is hidden from the model (calling it errors)', async () => {
+        let remoteHits = 0
+        const { factory } = buildFactory({
+            echo: {
+                description: 'd',
+                inputSchema: { msg: z.string() },
+                handler: () => {
+                    remoteHits += 1
+                    return { ok: true }
+                },
+            },
+        })
+        c = await buildCluster({ mcpTransportFactory: factory })
+        // The model "tries" the denied tool; it isn't in the surface, so the loop
+        // returns an error tool_result (same path as the legacy allowlist miss).
+        c.setScript([fauxCallTool('demo__echo', { msg: 'hi' }), fauxText('cannot')])
+        await c.deployAgent({
+            slug: 'mcp-default-deny',
+            spec: { mcps: [{ id: 'demo', url: 'https://example.com/demo', default_tool_approval: 'deny' }] },
+        })
+        const run = await request(c.ingress).post('/agents/mcp-default-deny/run').send({ message: 'go' })
+        await c.drain()
+
+        expect(remoteHits).toBe(0)
+        const session = await c.queue.get(run.body.session_id)
+        expect(session!.state).toBe('completed')
+        const toolResult = session!.conversation.find((m) => m.role === 'toolResult') as
+            | { role: 'toolResult'; isError: boolean }
+            | undefined
+        expect(toolResult?.isError).toBe(true)
+    })
+
+    it('per-tool level overrides the default: allow auto-runs, deny stays hidden', async () => {
+        let blockedHits = 0
+        const { factory, captured } = buildFactory({
+            auto_tool: { description: 'd', handler: () => ({ ok: true }) },
+            blocked_tool: {
+                description: 'd',
+                handler: () => {
+                    blockedHits += 1
+                    return { ok: true }
+                },
+            },
+        })
+        c = await buildCluster({ mcpTransportFactory: factory })
+        // default=approve, but auto_tool is overridden to allow (runs, no
+        // approval) and blocked_tool to deny (hidden → calling it errors).
+        c.setScript([fauxCallTool('demo__auto_tool', {}), fauxCallTool('demo__blocked_tool', {}), fauxText('done')])
+        const { application } = await c.deployAgent({
+            slug: 'mcp-overrides',
+            spec: {
+                mcps: [
+                    {
+                        id: 'demo',
+                        url: 'https://example.com/demo',
+                        default_tool_approval: 'approve',
+                        tools: [
+                            { name: 'auto_tool', level: 'allow' },
+                            { name: 'blocked_tool', level: 'deny' },
+                        ],
+                    },
+                ],
+            },
+        })
+        const run = await request(c.ingress).post('/agents/mcp-overrides/run').send({ message: 'go' })
+        await c.drain()
+
+        const session = await c.queue.get(run.body.session_id)
+        expect(session!.state).toBe('completed')
+        // allow-override ran without queuing (proves it beats the approve default).
+        expect(captured.map((c) => c.name)).toEqual(['auto_tool'])
+        expect(await queuedRows(application.id)).toHaveLength(0)
+        // deny-override never reached the remote; the call came back as an error.
+        expect(blockedHits).toBe(0)
+        const errored = session!.conversation.some(
+            (m) => m.role === 'toolResult' && (m as { isError?: boolean }).isError === true
+        )
+        expect(errored).toBe(true)
+    })
 })

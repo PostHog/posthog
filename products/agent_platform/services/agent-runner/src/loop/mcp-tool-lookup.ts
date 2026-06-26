@@ -14,9 +14,32 @@
  * approval policy; gating is `external` only.
  */
 
-import { AgentSpec, ApprovalPolicy, McpRef } from '@posthog/agent-shared'
+import { AgentSpec, ApprovalPolicy, DEFAULT_APPROVAL_POLICY, McpRef, ToolApprovalLevel } from '@posthog/agent-shared'
 
 const PREFIX_SEPARATOR = '__'
+
+/**
+ * Effective approval level for a remote tool under the default+override model.
+ *
+ * Returns `null` when the ref has no `default_tool_approval` — i.e. it's a
+ * LEGACY allowlist ref, and callers should fall back to the legacy
+ * (bare-string / `requires_approval`) semantics. Otherwise the effective level
+ * is the tool's `tools[].level` override ?? the connection default.
+ *
+ * Shared by `build-agent-tools.ts` (exposure: `deny` → not exposed) and
+ * `lookupMcpToolApproval` (gating: `approve` → queue) so the two never drift.
+ */
+export function effectiveToolLevel(ref: McpRef, remoteName: string): ToolApprovalLevel | null {
+    if (!ref.default_tool_approval) {
+        return null
+    }
+    for (const entry of ref.tools ?? []) {
+        if (typeof entry !== 'string' && entry.name === remoteName && entry.level) {
+            return entry.level
+        }
+    }
+    return ref.default_tool_approval
+}
 
 /**
  * Per-tool approval config materialised from a `tools[]` entry. Shape
@@ -49,7 +72,19 @@ export function lookupMcpToolApproval(exposedName: string, spec: AgentSpec): Mcp
     const prefix = exposedName.slice(0, sep)
     const remoteName = exposedName.slice(sep + PREFIX_SEPARATOR.length)
     const ref = findMcpRefByPrefix(spec.mcps, prefix)
-    if (!ref || !ref.tools) {
+    if (!ref) {
+        return null
+    }
+    // New model: `default_tool_approval` set → gate iff the effective level is
+    // `approve` (the entry policy decides who/ttl). `allow` → no gate; `deny`
+    // never reaches dispatch (build-agent-tools never exposes it).
+    if (ref.default_tool_approval) {
+        return effectiveToolLevel(ref, remoteName) === 'approve'
+            ? { requires_approval: true, approval_policy: ref.approval_policy ?? DEFAULT_APPROVAL_POLICY }
+            : null
+    }
+    // Legacy allowlist model.
+    if (!ref.tools) {
         return null
     }
     for (const entry of ref.tools) {

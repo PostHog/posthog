@@ -185,6 +185,26 @@
                     "default": [],
                     "items": {
                         "properties": {
+                            "approval_policy": {
+                                "properties": {
+                                    "allow_edit": {
+                                        "default": false,
+                                        "type": "boolean"
+                                    },
+                                    "ttl_ms": {
+                                        "default": 86400000,
+                                        "maximum": 604800000,
+                                        "minimum": 60000,
+                                        "type": "number"
+                                    },
+                                    "type": {
+                                        "default": "principal",
+                                        "enum": ["principal", "agent"],
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
                             "auth": {
                                 "properties": {
                                     "provider": {
@@ -195,6 +215,10 @@
                             },
                             "connection": {
                                 "minLength": 1,
+                                "type": "string"
+                            },
+                            "default_tool_approval": {
+                                "enum": ["allow", "approve", "deny"],
                                 "type": "string"
                             },
                             "headers": {
@@ -245,6 +269,10 @@
                                                         }
                                                     },
                                                     "type": "object"
+                                                },
+                                                "level": {
+                                                    "enum": ["allow", "approve", "deny"],
+                                                    "type": "string"
                                                 },
                                                 "name": {
                                                     "minLength": 1,

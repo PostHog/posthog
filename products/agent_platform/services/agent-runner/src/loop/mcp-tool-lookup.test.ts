@@ -1,6 +1,6 @@
-import { AgentSpec, AgentSpecSchema } from '@posthog/agent-shared'
+import { AgentSpec, AgentSpecSchema, McpRef } from '@posthog/agent-shared'
 
-import { lookupMcpToolApproval } from './mcp-tool-lookup'
+import { effectiveToolLevel, lookupMcpToolApproval } from './mcp-tool-lookup'
 
 /**
  * Tests pass spec shapes in zod-input form (defaults omitted, partial
@@ -177,5 +177,118 @@ describe('lookupMcpToolApproval', () => {
         // resolves through `spec.mcps[].tools[]` only — and `create-issue`
         // isn't listed there.
         expect(lookupMcpToolApproval('linear__create-issue', spec)).toBeNull()
+    })
+})
+
+describe('effectiveToolLevel (default + per-tool override model)', () => {
+    const refOf = (mcp: Record<string, unknown>): McpRef => buildSpec({ mcps: [mcp] }).mcps[0]
+
+    it('returns null for a legacy ref (no default_tool_approval) so callers fall back to allowlist semantics', () => {
+        const ref = refOf({ id: 'demo', url: 'https://example.com/mcp', tools: ['echo'] })
+        expect(effectiveToolLevel(ref, 'echo')).toBeNull()
+    })
+
+    it('returns the connection default when there is no per-tool override', () => {
+        const ref = refOf({ id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'approve' })
+        expect(effectiveToolLevel(ref, 'anything')).toBe('approve')
+    })
+
+    it('a per-tool level overrides the default for that tool only', () => {
+        const ref = refOf({
+            id: 'demo',
+            url: 'https://example.com/mcp',
+            default_tool_approval: 'approve',
+            tools: [
+                { name: 'safe', level: 'allow' },
+                { name: 'danger', level: 'deny' },
+            ],
+        })
+        expect(effectiveToolLevel(ref, 'safe')).toBe('allow')
+        expect(effectiveToolLevel(ref, 'danger')).toBe('deny')
+        // A tool with no override falls back to the default.
+        expect(effectiveToolLevel(ref, 'other')).toBe('approve')
+    })
+
+    it('a bare-string / level-less entry does not override — the default still applies', () => {
+        const ref = refOf({
+            id: 'demo',
+            url: 'https://example.com/mcp',
+            default_tool_approval: 'allow',
+            tools: ['echo', { name: 'noop' /* no level */ }],
+        })
+        expect(effectiveToolLevel(ref, 'echo')).toBe('allow')
+        expect(effectiveToolLevel(ref, 'noop')).toBe('allow')
+    })
+})
+
+describe('lookupMcpToolApproval (default + per-tool override model)', () => {
+    it('gates an approve-level tool, falling back to the principal/24h default policy', () => {
+        const spec = buildSpec({
+            mcps: [{ id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'approve' }],
+        })
+        const result = lookupMcpToolApproval('demo__promote', spec)
+        expect(result).not.toBeNull()
+        expect(result?.requires_approval).toBe(true)
+        expect(result?.approval_policy.type).toBe('principal')
+        expect(result?.approval_policy.ttl_ms).toBe(24 * 60 * 60 * 1000)
+    })
+
+    it('uses the ref-level approval_policy for approve-level tools when set', () => {
+        const spec = buildSpec({
+            mcps: [
+                {
+                    id: 'demo',
+                    url: 'https://example.com/mcp',
+                    default_tool_approval: 'approve',
+                    approval_policy: { type: 'agent', ttl_ms: 900_000 },
+                },
+            ],
+        })
+        const result = lookupMcpToolApproval('demo__promote', spec)
+        expect(result?.requires_approval).toBe(true)
+        expect(result?.approval_policy.type).toBe('agent')
+        expect(result?.approval_policy.ttl_ms).toBe(900_000)
+    })
+
+    it('does NOT gate allow-level tools (default or override)', () => {
+        const allowDefault = buildSpec({
+            mcps: [{ id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'allow' }],
+        })
+        expect(lookupMcpToolApproval('demo__echo', allowDefault)).toBeNull()
+
+        const allowOverride = buildSpec({
+            mcps: [
+                {
+                    id: 'demo',
+                    url: 'https://example.com/mcp',
+                    default_tool_approval: 'approve',
+                    tools: [{ name: 'echo', level: 'allow' }],
+                },
+            ],
+        })
+        // The override wins: this tool is auto-allow even though the default is approve.
+        expect(lookupMcpToolApproval('demo__echo', allowOverride)).toBeNull()
+    })
+
+    it('an approve override on an allow-default ref gates that one tool', () => {
+        const spec = buildSpec({
+            mcps: [
+                {
+                    id: 'demo',
+                    url: 'https://example.com/mcp',
+                    default_tool_approval: 'allow',
+                    tools: [{ name: 'promote', level: 'approve' }],
+                },
+            ],
+        })
+        expect(lookupMcpToolApproval('demo__echo', spec)).toBeNull() // default allow
+        expect(lookupMcpToolApproval('demo__promote', spec)?.requires_approval).toBe(true)
+    })
+
+    it('returns null for deny-level tools (they are never exposed, so dispatch never asks)', () => {
+        const spec = buildSpec({
+            mcps: [{ id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'deny' }],
+        })
+        expect(lookupMcpToolApproval('demo__echo', spec)).toBeNull()
     })
 })
