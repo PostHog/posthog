@@ -104,10 +104,7 @@ class TestExperimentService(APIBaseTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_create_experiment_defers_analytics_until_after_commit(self, mock_report_user_action):
-        # The "experiment created" capture must not run while create_experiment's transaction is
-        # still open, otherwise an external SDK call holds posthog_experiment / posthog_filesystem
-        # locks (and can leak them if the worker dies mid-request). Capture callbacks queued via
-        # transaction.on_commit (instead of running inline).
+        # The capture must be deferred to on_commit, not run inside the transaction.
         service = self._service()
 
         registered_callbacks: list[Any] = []
@@ -130,8 +127,7 @@ class TestExperimentService(APIBaseTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_create_experiment_survives_post_commit_analytics_failure(self, mock_report_user_action):
-        # The capture runs after the experiment is committed, so a failure in it must not surface as
-        # a request error or roll anything back — the experiment must still exist.
+        # A post-commit capture failure must not roll back or fail the create — experiment still exists.
         mock_report_user_action.side_effect = RuntimeError("analytics down")
         service = self._service()
 

@@ -919,13 +919,8 @@ class ExperimentService:
             self._sync_saved_metrics(experiment, saved_metrics_ids, serializer_context)
 
         self._validate_metric_ordering_on_create(experiment)
-        # Report analytics after the surrounding transaction commits, not inline. create_experiment
-        # is @transaction.atomic, so at this point we hold write locks on posthog_experiment and on
-        # its posthog_filesystem entry (created by the FileSystemSyncMixin post_save signal).
-        # report_user_action calls out to the analytics SDK; keeping that external call inside the
-        # transaction holds those locks open across it, and if the web worker is killed mid-request
-        # the connection can leak "idle in transaction" while still holding them — which has blocked
-        # posthog_team DDL migrations. on_commit defers the capture until the locks are released.
+        # Defer the analytics capture until after commit so create_experiment's @transaction.atomic
+        # doesn't hold posthog_experiment / posthog_filesystem locks open across an external SDK call.
         transaction.on_commit(
             lambda: self._report_experiment_created_safe(
                 experiment,
@@ -947,8 +942,7 @@ class ExperimentService:
         allow_unknown_events: bool,
         creation_mode: ExperimentCreationMode,
     ) -> None:
-        # Runs post-commit: the experiment is already persisted, so a failure here must not surface
-        # as a request error. Analytics is fire-and-forget — log and move on.
+        # Post-commit: the experiment is already persisted, so analytics failures must not break the request.
         try:
             self._report_experiment_created(
                 experiment,
