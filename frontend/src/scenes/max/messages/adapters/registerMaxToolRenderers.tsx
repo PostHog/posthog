@@ -16,11 +16,11 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
-import { sandboxToolRegistry, type SandboxToolRendererProps } from 'products/posthog_ai/frontend'
+import { toolRegistry, type ToolRendererProps } from 'products/posthog_ai/frontend'
 
 // Product-specific tool-call renderers for the PostHog AI agent run surface. These render PostHog
 // product entities (insights, dashboards, recordings, error-tracking issues, notebooks, query results)
-// and therefore live in scenes/max — the shared `sandboxToolRegistry` must not import them. Importing
+// and therefore live in scenes/max — the shared `toolRegistry` must not import them. Importing
 // this module (done once by the Max scene, see Thread.tsx) registers them into the shared registry so
 // they're resolved when a sandbox conversation renders the matching tool call. Surfaces that never load
 // Max (tasks, signals inbox) simply fall through to the generic MCP card for these keys.
@@ -45,10 +45,10 @@ function register(
     keys: string[],
     displayName: string,
     icon: JSX.Element,
-    Renderer: ComponentType<SandboxToolRendererProps>
+    Renderer: ComponentType<ToolRendererProps>
 ): void {
     for (const key of keys) {
-        sandboxToolRegistry.register({ key, displayName, icon, Renderer })
+        toolRegistry.register({ key, displayName, icon, Renderer })
     }
 }
 
@@ -114,5 +114,5 @@ const QUERY_WRAPPER_TOOLS: { key: string; displayName: string; icon: JSX.Element
     { key: 'query-paths-actors', displayName: 'Paths persons', icon: <IconPerson /> },
 ]
 for (const { key, displayName, icon } of QUERY_WRAPPER_TOOLS) {
-    sandboxToolRegistry.register({ key, displayName, icon, Renderer: QueryRenderer })
+    toolRegistry.register({ key, displayName, icon, Renderer: QueryRenderer })
 }

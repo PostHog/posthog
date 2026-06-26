@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { IconCheck, IconPencil, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
-import type { QueuedMessage } from '../logics/taskRunInteractionLogic'
+import type { QueuedMessage } from '../logics/runInteractionLogic'
 
 interface QueuedMessageListProps {
     messages: QueuedMessage[]
