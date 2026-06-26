@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
+    FeatureFlagGroupType,
     FeatureFlagType,
     PropertyFilterType,
     PropertyOperator,
@@ -705,7 +706,13 @@ describe('featureFlagLogic', () => {
             aggregation_group_type_index: 1,
         }
 
-        async function mountNewFlag(): Promise<ReturnType<typeof featureFlagLogic.build>> {
+        async function mountNewFlag(defaultConditions: {
+            enabled: boolean
+            default_groups: FeatureFlagGroupType[]
+        }): Promise<ReturnType<typeof featureFlagLogic.build>> {
+            // Seed the shared singleton's cache before the new-flag loader reads it; useMocks lands
+            // too late since the logic is warmed to a disabled value on mount in beforeEach.
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess(defaultConditions)
             // Park at a non-matching path so the `new`-keyed logic doesn't prefetch off stale params.
             router.actions.push('/')
             const newLogic = featureFlagLogic({ id: 'new' })
@@ -715,16 +722,7 @@ describe('featureFlagLogic', () => {
         }
 
         it('applies an enabled group-targeted default and mirrors the aggregation onto the new flag', async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/default_release_conditions/': () => [
-                        200,
-                        { enabled: true, default_groups: [groupDefault] },
-                    ],
-                },
-            })
-
-            const newLogic = await mountNewFlag()
+            const newLogic = await mountNewFlag({ enabled: true, default_groups: [groupDefault] })
 
             expect(newLogic.values.featureFlag.filters.groups).toEqual([groupDefault])
             expect(newLogic.values.featureFlag.filters.aggregation_group_type_index).toBe(1)
@@ -732,16 +730,7 @@ describe('featureFlagLogic', () => {
         })
 
         it('leaves a new flag on user targeting when the default config is disabled', async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/default_release_conditions/': () => [
-                        200,
-                        { enabled: false, default_groups: [groupDefault] },
-                    ],
-                },
-            })
-
-            const newLogic = await mountNewFlag()
+            const newLogic = await mountNewFlag({ enabled: false, default_groups: [groupDefault] })
 
             expect(newLogic.values.featureFlag.filters.groups).toEqual([
                 { properties: [], rollout_percentage: 0, variant: null },
