@@ -139,6 +139,14 @@ export const NewMultivariateFlagVariantKeyError: Story = {
     play: async ({ canvasElement }) => {
         const logic = await waitForMountedFeatureFlagLogic()
 
+        // The new-flag loader now awaits default release conditions, so wait for it to settle —
+        // otherwise loadFeatureFlagSuccess resets the flag to NEW_FLAG after we set the variants below.
+        await waitFor(() => {
+            if (logic.values.featureFlagLoading) {
+                throw new Error('feature flag loader still pending')
+            }
+        })
+
         // Set filters.multivariate directly with three variants — the third has an empty key so
         // validation will fail. Going via setFeatureFlagValue('filters', …) avoids racing with
         // the setMultivariateEnabled listener, which dispatches setMultivariateOptions in a
