@@ -133,12 +133,7 @@ export function DefaultTooltip<Meta = unknown>({
                             key={s.series.key}
                             data-attr="hog-chart-tooltip-row"
                             data-closest={isClosest ? 'true' : undefined}
-                            className={`flex items-center gap-2 min-w-0 py-0.5 px-1.5${isClosest ? ' font-semibold' : ''}`}
-                            style={
-                                isClosest
-                                    ? { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '4px' }
-                                    : undefined
-                            }
+                            className={`flex items-center gap-2 min-w-0 py-0.5 px-1.5${isClosest ? ' font-semibold bg-current/8 rounded-sm' : ''}`}
                         >
                             <TooltipSwatch color={s.color} />
                             <span data-attr="hog-chart-tooltip-series" className="flex-1 min-w-0 truncate">
