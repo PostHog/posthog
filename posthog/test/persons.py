@@ -28,7 +28,6 @@ from posthog.models.person.util import (
     create_person_distinct_id as _ch_create_person_distinct_id,
 )
 from posthog.models.utils import UUIDT
-from posthog.person_db_router import persons_orm_blocked
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import (
     insert_seed_distinct_id,
@@ -292,7 +291,7 @@ def create_person(*, team: Team | None = None, distinct_ids: list[str] | None = 
 
     dids = [str(d) for d in (distinct_ids or [])]
 
-    if not persons_orm_blocked():
+    if _get_active_fake() is None:
         return _create_person_in_persons_db(create_kwargs, dids)
 
     person = _build_person(create_kwargs)
@@ -388,7 +387,7 @@ def add_distinct_id(*, person: Person, distinct_id: str, version: int = 0) -> Pe
     if existing_distinct_ids is not None and distinct_id not in existing_distinct_ids:
         existing_distinct_ids.append(distinct_id)
 
-    if not persons_orm_blocked():
+    if _get_active_fake() is None:
         with persons_db_connection(writer=True, autocommit=True) as conn:
             insert_seed_distinct_id(
                 conn, team_id=person.team_id, person_id=person.pk, distinct_id=str(distinct_id), version=version
@@ -478,7 +477,7 @@ def create_group(*, team: Team | None = None, group_type_index: int, group_key: 
     if team is not None:
         create_kwargs["team"] = team
 
-    if not persons_orm_blocked():
+    if _get_active_fake() is None:
         group = Group(**create_kwargs)
         if group.created_at is None:
             group.created_at = now()
@@ -523,7 +522,7 @@ def create_group_type_mapping(*, team: Team | None = None, **kwargs: Any) -> Gro
     if team is not None:
         kwargs["team"] = team
 
-    if not persons_orm_blocked():
+    if _get_active_fake() is None:
         mapping = GroupTypeMapping(**kwargs)
         if mapping.created_at is None:
             mapping.created_at = now()

@@ -855,7 +855,7 @@ class TestFlatten(TestCase):
 
 
 def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping":
-    from posthog.person_db_router import persons_orm_blocked  # noqa: PLC0415
+    from posthog.personhog_client.fake_client import personhog_fake_active  # noqa: PLC0415
     from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping  # noqa: PLC0415
 
     instance = create_group_type_mapping(**kwargs)
@@ -864,7 +864,7 @@ def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping"
     # it wrote a real row whose created_at defaulted to now(). Null the column with a direct UPDATE
     # over off-Django psycopg so the persons DB genuinely holds a null created_at — making this
     # helper's name true to form for the fake-off path too.
-    if not persons_orm_blocked():
+    if not personhog_fake_active():
         from posthog.persons_db import persons_db_connection  # noqa: PLC0415
 
         with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
