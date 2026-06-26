@@ -411,8 +411,13 @@ class OrganizationFeatureFlagView(
                     if destination_cohort is not None and original_cohort.name is not None:
                         name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
 
+            # Deep-copy the filters per iteration before remapping the cohort and flag-dependency
+            # references, whose target IDs are project-specific. Both remaps mutate this dict, so
+            # working on a per-target copy keeps one target's IDs from leaking into the next.
+            filters = copy.deepcopy(flag_to_copy.get_filters())
+
             # reference correct destination cohort ids in the flag
-            for group in flag_to_copy.conditions:
+            for group in filters.get("groups", []) or []:
                 props = group.get("properties", [])
                 for prop in props:
                     if isinstance(prop, dict) and prop.get("type") == "cohort":
@@ -426,10 +431,6 @@ class OrganizationFeatureFlagView(
                         except (ValueError, TypeError):
                             continue
 
-            # Retrieve filters per iteration since cohort replacement logic mutates the dict.
-            # Deep-copy before remapping flag dependencies, whose target IDs are project-specific,
-            # so one target's IDs don't leak into the next iteration.
-            filters = copy.deepcopy(flag_to_copy.get_filters())
             flag_dependency_warnings = self._remap_flag_dependencies(filters, source_dependency_keys, target_project_id)
             if flag_to_copy.has_encrypted_payloads:
                 # Decrypt payloads before copying to ensure the new flag has unencrypted payloads
@@ -527,12 +528,21 @@ class OrganizationFeatureFlagView(
         whole copy (the validator would otherwise reject a dangling or disabled dependency).
         """
         warnings: list[str] = []
+        # Resolve every source dependency key to its target flag in one query per target, rather than
+        # querying once per flag-type property (mirrors the batched source-dependency scan upstream).
+        target_flags_by_key = {
+            flag.key: flag
+            for flag in FeatureFlag.objects.filter(
+                key__in=source_dependency_keys.values(), team__project_id=target_project_id, deleted=False
+            ).only("id", "key", "active")
+        }
         for group in filters.get("groups", []) or []:
             # Leave groups without a properties key untouched so we don't change the filter shape
             # (an injected empty list would otherwise alter every copied flag's serialized filters).
             if not group.get("properties"):
                 continue
             kept_properties = []
+            dropped_dependency = False
             for prop in group.get("properties", []) or []:
                 if not (isinstance(prop, dict) and prop.get("type") == "flag"):
                     kept_properties.append(prop)
@@ -542,27 +552,37 @@ class OrganizationFeatureFlagView(
                 source_key = (
                     source_dependency_keys.get(source_dependency_id) if source_dependency_id is not None else None
                 )
-                target_flag = (
-                    FeatureFlag.objects.filter(
-                        key=source_key, team__project_id=target_project_id, deleted=False
-                    ).first()
-                    if source_key
-                    else None
-                )
 
+                if source_key is None:
+                    # The source dependency itself couldn't be resolved (e.g. it was soft-deleted), so
+                    # there's no key to match in the target — drop it and name the unresolved source id.
+                    dropped_dependency = True
+                    warnings.append(
+                        f"Removed a flag dependency (source flag id {prop.get('key')}) because the dependency flag could not be resolved in the source project."
+                    )
+                    continue
+
+                target_flag = target_flags_by_key.get(source_key)
                 if target_flag and target_flag.active:
                     # Preserve the original key type (dependencies are typically stored as strings)
                     prop["key"] = str(target_flag.id) if isinstance(prop.get("key"), str) else target_flag.id
                     kept_properties.append(prop)
                 elif target_flag and not target_flag.active:
+                    dropped_dependency = True
                     warnings.append(
                         f"Removed dependency on flag '{source_key}' because that flag is disabled in the target project."
                     )
                 else:
-                    label = source_key or prop.get("key") or "unknown"
+                    dropped_dependency = True
                     warnings.append(
-                        f"Removed dependency on flag '{label}' because no flag with that key exists in the target project."
+                        f"Removed dependency on flag '{source_key}' because no flag with that key exists in the target project."
                     )
+            # Dropping a dependency that leaves a group with no other constraints turns it into a
+            # 100%-rollout group that matches everyone, so flag it for review before re-enabling.
+            if dropped_dependency and not kept_properties:
+                warnings.append(
+                    "A condition group now has no remaining constraints and will match all users at its rollout percentage — review and re-gate it before re-enabling this flag."
+                )
             group["properties"] = kept_properties
         return warnings
 
