@@ -79,11 +79,10 @@ def increment_sandbox_created(runtime: str) -> None:
         pass
 
 
-def record_agent_server_boot_ms(boot_ms: int, used_snapshot: bool | None = None) -> None:
+def record_agent_server_boot_ms(boot_ms: int) -> None:
     try:
         attributes: Attributes = {
             "step": "agent_server_boot",
-            "used_snapshot": _bool_label(used_snapshot),
             "status": "COMPLETED",
         }
         _metric_meter(attributes).create_histogram_timedelta(

@@ -945,15 +945,7 @@ class DockerSandbox(SandboxBase):
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
 
     def read_agent_server_boot_ms(self) -> int | None:
-        try:
-            result = self.execute(
-                f"curl -s --max-time 5 http://localhost:{AGENT_SERVER_PORT}/health", timeout_seconds=10
-            )
-            payload = json.loads(result.stdout or "{}")
-            boot_ms = payload.get("bootMs")
-            return int(boot_ms) if isinstance(boot_ms, int | float) else None
-        except Exception:
-            return None
+        return self._read_health_boot_ms(AGENT_SERVER_PORT)
 
     def create_snapshot(self) -> str:
         if not self.is_running():
