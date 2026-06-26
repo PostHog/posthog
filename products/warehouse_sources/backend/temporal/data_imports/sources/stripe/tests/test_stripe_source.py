@@ -1,8 +1,11 @@
+from typing import Any, cast
+
 import pytest
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
 import stripe as stripe_lib
+from stripe import ListObject
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
     StripeAuthMethodConfig,
@@ -21,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeNestedResource,
     StripeResource,
     _all_known_webhook_events,
+    _coerce_incremental_cursor,
     get_rows,
 )
 
@@ -29,6 +33,62 @@ def _list_object(items):
     obj = MagicMock()
     obj.auto_paging_iter.return_value = iter(items)
     return obj
+
+
+class _FakeStripeList:
+    def __init__(self, objects):
+        self._objects = objects
+
+    def auto_paging_iter(self):
+        return iter(self._objects)
+
+
+class TestStripeGetRowsIncrementalCursor:
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (1700000000, 1700000000),
+            (1700000000.0, 1700000000),
+            # The persisted watermark is read back from JSON config as a numeric string.
+            ("1700000000", 1700000000),
+            (None, None),
+            ("not-a-timestamp", None),
+            (True, None),
+        ],
+    )
+    def test_coerce_incremental_cursor(self, value, expected):
+        assert _coerce_incremental_cursor(value) == expected
+
+    def test_get_rows_handles_string_incremental_watermark(self):
+        # Stripe object timestamps are ints, but the stored watermark can come back as a numeric
+        # string. The cursor comparison must not crash with `'<=' not supported between instances
+        # of 'int' and 'str'`, and must still stop once it reaches an object at/under the watermark.
+        objects = [
+            {"id": "ch_2", "created": 1700000100},
+            {"id": "ch_1", "created": 1700000040},
+        ]
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
+        resumable_source_manager = mock.MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe._build_resources",
+            return_value={"charge": resource},
+        ):
+            rows = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value="1700000050",
+                    db_incremental_field_earliest_value=None,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    should_use_incremental_field=True,
+                )
+            )
+
+        assert [obj["id"] for obj in rows] == ["ch_2"]
 
 
 class TestStripeSource:

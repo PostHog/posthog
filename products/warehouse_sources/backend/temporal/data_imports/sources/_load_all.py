@@ -268,6 +268,7 @@ from .hubspot.source import HubspotSource
 from .hugging_face.source import HuggingFaceSource
 from .humanitix.source import HumanitixSource
 from .huntr.source import HuntrSource
+from .ikas.source import IkasSource
 from .illumina_basespace.source import IlluminaBasespaceSource
 from .imagga.source import ImaggaSource
 from .incident_io.source import IncidentIoSource
