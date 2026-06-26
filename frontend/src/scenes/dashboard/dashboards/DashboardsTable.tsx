@@ -252,7 +252,13 @@ export function DashboardsTable({
                                       {showStarring && (
                                           <LemonButton
                                               onClick={() => toggleStarred(id, name)}
-                                              icon={isStarred ? <IconStarFilled /> : <IconStar />}
+                                              icon={
+                                                  isStarred ? (
+                                                      <IconStarFilled className="size-4" />
+                                                  ) : (
+                                                      <IconStar className="size-4" />
+                                                  )
+                                              }
                                               fullWidth
                                           >
                                               {isStarred ? 'Remove from starred' : 'Add to starred'}
