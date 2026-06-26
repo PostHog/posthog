@@ -1820,6 +1820,7 @@ class ExternalDataSourceType(StrEnum):
     TALKWALKER = "Talkwalker"
     NEXTDOOR_ADS = "NextdoorAds"
     APP_LOVIN = "AppLovin"
+    BASEROW = "Baserow"
 
 
 class ExternalQueryErrorCode(StrEnum):

@@ -393,6 +393,11 @@ class BasecampSourceConfig(config.Config):
 
 
 @config.config
+class BaserowSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class BeamerSourceConfig(config.Config):
     pass
 
@@ -3631,6 +3636,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BABELFORCE: BabelforceSourceConfig,
         ExternalDataSourceType.BAMBOOHR: BambooHRSourceConfig,
         ExternalDataSourceType.BASECAMP: BasecampSourceConfig,
+        ExternalDataSourceType.BASEROW: BaserowSourceConfig,
         ExternalDataSourceType.BEAMER: BeamerSourceConfig,
         ExternalDataSourceType.BIGCOMMERCE: BigCommerceSourceConfig,
         ExternalDataSourceType.BIGMAILER: BigMailerSourceConfig,
