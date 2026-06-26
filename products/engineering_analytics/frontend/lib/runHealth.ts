@@ -50,6 +50,9 @@ export interface FleetRow {
     successRate: number | null
     /** Most recent completed run failed; null when nothing has completed for that workflow. */
     latestRunFailed: boolean | null
+    /** Last decisive failure in the window, or null if there was none — so a low success rate driven by
+     *  skips/cancels (not failures) isn't mistaken for flakiness. */
+    lastFailureAt?: string | null
     billableMinutes?: number | null
     estimatedCostUsd?: number | null
 }
@@ -142,8 +145,15 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
     const workflowCount = rows.length
     const settledWorkflows = rows.filter((row) => row.latestRunFailed != null).length
     const failingNow = rows.filter((row) => row.latestRunFailed === true).length
+    // Flaky = currently green but below the success-rate floor AND it has actually failed in the window.
+    // The `lastFailureAt` gate keeps this aligned with the single-workflow verdict: a low success rate that
+    // comes from skips/cancels (no decisive failures) reads as healthy, not flaky.
     const flakyNow = rows.filter(
-        (row) => row.latestRunFailed === false && row.successRate != null && row.successRate < FLAKY_SUCCESS_RATE
+        (row) =>
+            row.latestRunFailed === false &&
+            row.successRate != null &&
+            row.successRate < FLAKY_SUCCESS_RATE &&
+            row.lastFailureAt != null
     ).length
     const totalRuns = rows.reduce((sum, row) => sum + row.runCount, 0)
 

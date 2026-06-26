@@ -216,7 +216,7 @@ export function WorkflowRunsScene(): JSX.Element {
                 />
             </div>
             <WorkflowHealthHeader summary={healthSummary} cost={costSummary} truncated={runsTruncated} />
-            <RunActivityChart runs={runRows} />
+            <RunActivityChart runs={runRows} truncated={runsTruncated} />
             {runnerCosts.length > 0 && <RunnerCostTable costs={runnerCosts} />}
             <div className="flex flex-col gap-2">
                 <h3 className="mb-0">Runs</h3>

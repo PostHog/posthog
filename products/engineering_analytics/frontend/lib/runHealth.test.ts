@@ -63,19 +63,24 @@ describe('runHealth', () => {
 
     const fleetRow = (
         latestRunFailed: boolean | null,
-        successRate: number | null = 1
+        successRate: number | null = 1,
+        lastFailureAt: string | null = null
     ): {
         runCount: number
         successRate: number | null
         latestRunFailed: boolean | null
-    } => ({ runCount: 5, successRate, latestRunFailed })
+        lastFailureAt: string | null
+    } => ({ runCount: 5, successRate, latestRunFailed, lastFailureAt })
 
     it.each([
         ['no workflows → unknown', [], 'unknown'],
         ['workflows present but none settled → unknown', [fleetRow(null), fleetRow(null)], 'unknown'],
         ['every settled workflow failing → failing', [fleetRow(true), fleetRow(true)], 'failing'],
         ['some failing, some green → degraded', [fleetRow(true), fleetRow(false)], 'degraded'],
-        ['green but flaky → degraded', [fleetRow(false, 0.7)], 'degraded'],
+        ['green but flaky (low success + a real failure) → degraded', [fleetRow(false, 0.7, at(9))], 'degraded'],
+        // Low success driven by skips/cancels, never a decisive failure → healthy, not flaky (matches the
+        // single-workflow verdict).
+        ['green, low success, no failures → healthy', [fleetRow(false, 0.7, null)], 'healthy'],
         ['all green and healthy → healthy', [fleetRow(false, 0.99), fleetRow(false)], 'healthy'],
     ])('classifies fleet state: %s', (_name, rows, expected) => {
         expect(computeFleetSummary(rows).state).toBe(expected)

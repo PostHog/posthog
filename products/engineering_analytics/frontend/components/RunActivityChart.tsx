@@ -23,6 +23,8 @@ export interface ActivityRun {
 interface RunActivityChartProps {
     runs: ActivityRun[]
     title?: string
+    /** The runs list was capped server-side, so the chart shows the most recent runs, not the full window. */
+    truncated?: boolean
     className?: string
 }
 
@@ -96,6 +98,7 @@ interface Point {
 export function RunActivityChart({
     runs,
     title = 'Run activity',
+    truncated = false,
     className,
 }: RunActivityChartProps): JSX.Element | null {
     const now = dayjs().valueOf()
@@ -228,9 +231,18 @@ export function RunActivityChart({
         <div className={cn('flex flex-col gap-2', className)}>
             <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="mb-0">{title}</h3>
-                <span className="text-xs whitespace-nowrap text-secondary tabular-nums">
-                    {plottable.length} runs · median {formatAxisMinutes(medianMin)} · peak {peak} in flight
-                </span>
+                <Tooltip
+                    title={
+                        truncated
+                            ? `Over the most recent ${plottable.length} runs — the list is capped, so this isn't the full window.`
+                            : undefined
+                    }
+                >
+                    <span className="text-xs whitespace-nowrap text-secondary tabular-nums">
+                        {truncated ? 'recent ' : ''}
+                        {plottable.length} runs · median {formatAxisMinutes(medianMin)} · peak {peak} in flight
+                    </span>
+                </Tooltip>
             </div>
             <LemonCard hoverEffect={false} className="p-4">
                 <div className="flex gap-2">
