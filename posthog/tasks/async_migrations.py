@@ -3,13 +3,15 @@ from celery.result import AsyncResult
 
 from posthog.models.instance_setting import get_instance_setting
 
-from products.async_migrations.backend.runner import (
+from products.async_migrations.backend.facade.api import (
+    force_stop_migration,
+    process_error,
     run_async_migration_operations,
     run_migration_healthcheck,
     start_async_migration,
+    trigger_migration,
     update_migration_progress,
 )
-from products.async_migrations.backend.utils import force_stop_migration, process_error, trigger_migration
 
 
 # we're hijacking an entire worker to do this - consider:

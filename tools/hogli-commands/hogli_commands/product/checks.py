@@ -496,6 +496,10 @@ class MisplacedFilesCheck(ProductCheck):
     # sandboxed execution, not importable Python — its path is referenced by
     # image-build workflows and COPY directives, so it can't follow the
     # Python-package convention and is allowed at backend root.
+    # `ch_migration_definitions` holds the async_migrations product's ClickHouse
+    # async-migration definitions — discovered by module path, not Django, and
+    # not part of the facade/logic/presentation/models pattern. `examples` holds
+    # the example async migrations exercised by that product's tests.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -511,6 +515,8 @@ class MisplacedFilesCheck(ProductCheck):
         "sandbox",
         "templates",
         "admin",
+        "ch_migration_definitions",
+        "examples",
         "__pycache__",
     }
 

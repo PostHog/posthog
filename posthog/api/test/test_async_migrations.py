@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 
-from products.async_migrations.backend.definition import AsyncMigrationDefinition
+from products.async_migrations.backend.facade.api import AsyncMigrationDefinition
 
 
 def create_async_migration(

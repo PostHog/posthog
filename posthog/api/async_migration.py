@@ -14,9 +14,14 @@ from posthog.models.async_migration import (
 from posthog.models.instance_setting import get_instance_setting
 from posthog.permissions import IsStaffUser
 
-from products.async_migrations.backend.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
-from products.async_migrations.backend.setup import get_async_migration_definition
-from products.async_migrations.backend.utils import force_stop_migration, rollback_migration, trigger_migration
+from products.async_migrations.backend.facade.api import (
+    MAX_CONCURRENT_ASYNC_MIGRATIONS,
+    force_stop_migration,
+    get_async_migration_definition,
+    is_posthog_version_compatible,
+    rollback_migration,
+    trigger_migration,
+)
 
 logger = structlog.get_logger(__name__)
 

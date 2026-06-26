@@ -8,7 +8,7 @@ from semantic_version.base import Version
 
 from posthog.constants import FROZEN_POSTHOG_VERSION
 
-from products.async_migrations.backend.setup import ALL_ASYNC_MIGRATIONS
+from products.async_migrations.backend.facade.api import ALL_ASYNC_MIGRATIONS
 
 pytestmark = pytest.mark.django_db
 

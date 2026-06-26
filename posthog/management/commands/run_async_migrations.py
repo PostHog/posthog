@@ -18,12 +18,14 @@ from posthog.models.async_migration import (
 )
 from posthog.models.instance_setting import get_instance_setting
 
-from products.async_migrations.backend.runner import (
+from products.async_migrations.backend.facade.api import (
+    ALL_ASYNC_MIGRATIONS,
     complete_migration,
     is_migration_dependency_fulfilled,
+    setup_async_migrations,
+    setup_model,
     start_async_migration,
 )
-from products.async_migrations.backend.setup import ALL_ASYNC_MIGRATIONS, setup_async_migrations, setup_model
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

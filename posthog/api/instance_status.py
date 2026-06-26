@@ -27,7 +27,7 @@ from posthog.utils import (
     is_redis_alive,
 )
 
-from products.async_migrations.backend.status import async_migrations_ok
+from products.async_migrations.backend.facade.api import async_migrations_ok
 
 
 class InstanceStatusViewSet(viewsets.ViewSet):
