@@ -25,8 +25,8 @@ import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, Prod
  *   - It always parses the body and returns a discriminated-union `ToolbarApiResult`,
  *     so every call site branches on `result.ok` the same way.
  *   - It centralizes observability: every failure is logged via `toolbarLogger`, and
- *     genuinely-unexpected failures (network errors, 5xx, malformed JSON) are reported
- *     to error tracking. Auth (401/403) and client (4xx) errors are expected outcomes —
+ *     genuinely-unexpected failures (5xx, malformed JSON) are reported to error tracking.
+ *     Auth (401/403), client (4xx), and transient network errors are expected outcomes —
  *     they are logged but not reported as exceptions.
  *   - Per-request telemetry (`toolbar api request`) is emitted by `toolbarFetch` itself.
  *
@@ -80,10 +80,11 @@ export interface ToolbarApiOptions {
      */
     reauthenticateOnForbidden?: boolean
     /**
-     * Report unexpected failures (network / 5xx / malformed JSON) to error tracking.
-     * Defaults to `true`. Set to `false` when the caller deliberately re-raises the
-     * failure (e.g. a kea loader that throws to drive its own `*Failure` reducer) so the
-     * exception is only captured once.
+     * Report unexpected failures (5xx / malformed JSON) to error tracking. Transient
+     * network errors are always treated as expected and never reported, regardless of
+     * this flag. Defaults to `true`. Set to `false` when the caller deliberately re-raises
+     * the failure (e.g. a kea loader that throws to drive its own `*Failure` reducer) so
+     * the exception is only captured once.
      */
     captureOnError?: boolean
     /**
@@ -155,7 +156,7 @@ async function request<T>(
     let response: Response
     try {
         response = await toolbarFetch(url, method, payload, urlConstruction)
-    } catch (e) {
+    } catch {
         const error: ToolbarApiErrorInfo = {
             status: 0,
             detail: 'Network error',
@@ -163,10 +164,11 @@ async function request<T>(
             isAuthError: false,
             isNetworkError: true,
         }
-        toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
-        if (captureOnError) {
-            captureToolbarException(e, context, { reason: 'network' })
-        }
+        // Transient network failures (offline, CORS, Safari's "Load failed", an aborted
+        // request) are an expected outcome, not an exception — every fetch is one flaky
+        // connection away from this. Log it and let the caller soft-fail, but don't report
+        // it to error tracking, where it would just be triage noise.
+        toolbarLogger.warn('api', `Request failed (network): ${context}`, { context, method, pathname })
         emitToast(toastOnError, error)
         return { ok: false, status: 0, data: null, error }
     }
