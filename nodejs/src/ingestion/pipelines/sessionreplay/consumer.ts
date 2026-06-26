@@ -164,7 +164,7 @@ export class SessionRecordingIngester {
             { pipeline: 'session_recordings' }
         )
 
-        const retentionService = new RetentionService(this.redisPool, this.teamService, '@posthog/replay/')
+        const retentionService = new RetentionService(this.redisPool, this.teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(outputs)

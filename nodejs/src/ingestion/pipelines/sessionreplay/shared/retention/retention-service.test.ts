@@ -1,5 +1,6 @@
 import { Redis } from 'ioredis'
 
+import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { RedisPool, TeamId } from '~/types'
 
@@ -122,6 +123,23 @@ describe('RetentionService', () => {
             const retentionPromise = retentionService.getSessionRetention(4, '654')
             await expect(retentionPromise).rejects.toThrow(
                 'Error during retention period lookup: Got invalid value foobar'
+            )
+        })
+
+        it('should fall back to team service and overwrite Redis when cached value is corrupted', async () => {
+            mockRedisClient.get.mockResolvedValue('garbage')
+
+            const retentionPeriod = await retentionService.getSessionRetention(1, '123')
+            expect(retentionPeriod).toEqual('30d')
+            expect(mockTeamService.getRetentionPeriodByTeamId).toHaveBeenCalledWith(1)
+            expect(SessionBatchMetrics.incrementRetentionRedisFallbacks).toHaveBeenCalledTimes(1)
+
+            await new Promise((resolve) => setImmediate(resolve))
+            expect(mockRedisClient.set).toHaveBeenCalledWith(
+                '@posthog/replay/session-retention-123',
+                '30d',
+                'EX',
+                24 * 60 * 60
             )
         })
     })

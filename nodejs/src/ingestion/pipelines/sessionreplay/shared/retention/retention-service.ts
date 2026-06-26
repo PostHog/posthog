@@ -65,24 +65,30 @@ export class RetentionService {
             SessionBatchMetrics.observeRetentionRedisLatency((performance.now() - startTime) / 1000)
         }
 
-        if (retentionPeriod === null) {
-            retentionPeriod = await this.getRetentionByTeamId(teamId)
-
-            this.setSessionRetentionInRedis(sessionId, retentionPeriod).catch((error) => {
-                logger.warn('🔁', 'retention_service_redis_set_error', {
-                    error: String(error),
-                    sessionId,
-                    teamId,
-                })
-            })
-        }
-
-        if (isValidRetentionPeriod(retentionPeriod)) {
+        if (retentionPeriod !== null && isValidRetentionPeriod(retentionPeriod)) {
             return retentionPeriod
         }
 
-        RetentionServiceMetrics.incrementLookupErrors()
-        throw new Error(`Error during retention period lookup: Got invalid value ${retentionPeriod}`)
+        if (retentionPeriod !== null) {
+            SessionBatchMetrics.incrementRetentionRedisFallbacks()
+            logger.warn('🔁', 'retention_service_redis_invalid_value', {
+                value: retentionPeriod,
+                sessionId,
+                teamId,
+            })
+        }
+
+        const resolved = await this.getRetentionByTeamId(teamId)
+
+        this.setSessionRetentionInRedis(sessionId, resolved).catch((error) => {
+            logger.warn('🔁', 'retention_service_redis_set_error', {
+                error: String(error),
+                sessionId,
+                teamId,
+            })
+        })
+
+        return resolved
     }
 
     public async getSessionRetentionDays(teamId: TeamId, sessionId: string): Promise<number> {
