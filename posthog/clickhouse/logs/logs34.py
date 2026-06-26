@@ -259,7 +259,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{TABLE_
     `_bytes_compressed` Nullable(Int64)
 )
 AS SELECT
-    {KAFKA_TABLE_NAME}.* EXCEPT (created_at, attribute_values, attribute_keys, attributes, attributes_map_str, attributes_map_float, attributes_map_datetime, resource_attributes),
+    {KAFKA_TABLE_NAME}.* EXCEPT (created_at, attribute_values, attribute_keys, attributes, attributes_map_str, attributes_map_float, attributes_map_datetime, resource_attributes, bytes_uncompressed),
     mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,

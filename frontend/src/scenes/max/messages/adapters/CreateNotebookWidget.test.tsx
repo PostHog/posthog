@@ -1,7 +1,8 @@
-import {
-    lookupSandboxToolRenderer,
-    sandboxToolRegistry,
-} from 'products/posthog_ai/frontend/sandbox/sandboxToolRegistry'
+// Side-effect: Max registers its product tool renderers (incl. the notebook keys) into the shared
+// registry. The bare registry no longer knows product keys, so the resolution assertions below need it.
+import './registerMaxToolRenderers'
+
+import { lookupSandboxToolRenderer, sandboxToolRegistry } from 'products/posthog_ai/frontend'
 
 import type { SandboxToolCallMessage } from '../../maxTypes'
 import { extractNotebook } from './CreateNotebookWidget'

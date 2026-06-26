@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconChevronRight, IconTerminal } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { isTerminalRunStatus, SandboxRunViewer } from 'products/posthog_ai/frontend/sandbox'
+import { isTerminalRunStatus, SandboxRunViewer } from 'products/posthog_ai/frontend'
 import { TaskRunStatus } from 'products/tasks/frontend/types'
 
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
@@ -88,7 +88,7 @@ function TaskRow({
                             <SandboxRunViewer
                                 taskId={task.id}
                                 runId={runId}
-                                replayOnly={replayOnly}
+                                interaction={replayOnly ? 'read-only' : 'live'}
                                 className="px-3 py-2"
                             />
                         </div>

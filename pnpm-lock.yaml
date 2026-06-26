@@ -1158,6 +1158,9 @@ importers:
       react-window:
         specifier: ^2.2.5
         version: 2.2.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      remark-breaks:
+        specifier: ^4.0.0
+        version: 4.0.0
       remark-gfm:
         specifier: ^4.0.0
         version: 4.0.1
@@ -1985,19 +1988,19 @@ importers:
         version: 18.3.7(@types/react@18.3.27)
       '@vitejs/plugin-react':
         specifier: ^5.1.1
-        version: 5.2.0(vite@6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
+        version: 5.2.0(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
       jest:
         specifier: ^29.7.0
-        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+        version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       typescript:
         specifier: 6.0.3
         version: 6.0.3
       vite:
         specifier: ^6.3.5
-        version: 6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
+        version: 6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
       vite-plugin-dts:
         specifier: ^4.5.4
-        version: 4.5.4(@types/node@22.18.8)(rollup@4.60.4)(typescript@6.0.3)(vite@6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
+        version: 4.5.4(@types/node@25.8.0)(rollup@4.60.4)(typescript@6.0.3)(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
 
   packages/quill/packages/components:
     dependencies:
@@ -3799,6 +3802,9 @@ importers:
       marked:
         specifier: '*'
         version: 17.0.4
+      monaco-editor:
+        specifier: ^0.55.1
+        version: 0.55.1
       posthog-js:
         specifier: 'catalog:'
         version: 1.393.4
@@ -3808,6 +3814,12 @@ importers:
       react-dom:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
+      react-intersection-observer:
+        specifier: ^9.5.3
+        version: 9.5.3(react@18.3.1)
+      react-window:
+        specifier: '*'
+        version: 2.2.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       tailwind-merge:
         specifier: '*'
         version: 2.2.2
@@ -4138,6 +4150,9 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+      msw:
+        specifier: '*'
+        version: 2.14.6(@types/node@25.8.0)(typescript@6.0.3)
 
   products/toolbar: {}
 
@@ -18225,6 +18240,9 @@ packages:
   mdast-util-mdxjs-esm@2.0.1:
     resolution: {integrity: sha512-EcmOpxsZ96CvlP03NghtH1EsLtr0n9Tm4lPUJUBccV9RwUOneqSycg19n5HGzCf+10LozMRSObtVr3ee1WoHtg==}
 
+  mdast-util-newline-to-break@2.0.0:
+    resolution: {integrity: sha512-MbgeFca0hLYIEx/2zGsszCSEJJ1JSCdiY5xQxRcLDDGa8EPvlLPupJ4DSajbMPAnC0je8jfb9TiUATnxxrHUog==}
+
   mdast-util-phrasing@4.1.0:
     resolution: {integrity: sha512-TqICwyvJJpBwvGAMZjj4J2n0X8QWp21b9l0o7eXyVJ25YNWYbJDVIyD1bZXE6WtV6RmKJVYmQAKWa0zWOABz2w==}
 
@@ -20653,6 +20671,9 @@ packages:
   release-zalgo@1.0.0:
     resolution: {integrity: sha512-gUAyHVHPPC5wdqX/LG4LWtRYtgjxyX78oanFNTMMyFEfOqdC54s3eE82imuWKbOeqYht2CrNf64Qb8vgmmtZGA==}
     engines: {node: '>=4'}
+
+  remark-breaks@4.0.0:
+    resolution: {integrity: sha512-IjEjJOkH4FuJvHZVIW0QCDWxcG96kCq7An/KVH2NfJe6rKZU2AsHeB3OEjPNRxi4QC34Xdx7I2KGYn6IpT7gxQ==}
 
   remark-gfm@4.0.1:
     resolution: {integrity: sha512-1quofZ2RQ9EWdeN34S79+KExV1764+wCUGop5CPL1WGdD0ocPpu91lzPGbwWMECpEpd42kJGQwzRfyov9j4yNg==}
@@ -27081,7 +27102,6 @@ snapshots:
       '@inquirer/type': 4.0.7(@types/node@25.8.0)
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@inquirer/core@11.2.1(@types/node@22.18.8)':
     dependencies:
@@ -27106,7 +27126,6 @@ snapshots:
       signal-exit: 4.1.0
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@inquirer/figures@2.0.7': {}
 
@@ -27117,7 +27136,6 @@ snapshots:
   '@inquirer/type@4.0.7(@types/node@25.8.0)':
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@ioredis/commands@1.10.0':
     optional: true
@@ -28098,38 +28116,11 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react'
 
-  '@microsoft/api-extractor-model@7.33.5(@types/node@22.18.8)':
-    dependencies:
-      '@microsoft/tsdoc': 0.16.0
-      '@microsoft/tsdoc-config': 0.18.1
-      '@rushstack/node-core-library': 5.21.0(@types/node@22.18.8)
-    transitivePeerDependencies:
-      - '@types/node'
-
   '@microsoft/api-extractor-model@7.33.5(@types/node@25.8.0)':
     dependencies:
       '@microsoft/tsdoc': 0.16.0
       '@microsoft/tsdoc-config': 0.18.1
       '@rushstack/node-core-library': 5.21.0(@types/node@25.8.0)
-    transitivePeerDependencies:
-      - '@types/node'
-
-  '@microsoft/api-extractor@7.58.1(@types/node@22.18.8)':
-    dependencies:
-      '@microsoft/api-extractor-model': 7.33.5(@types/node@22.18.8)
-      '@microsoft/tsdoc': 0.16.0
-      '@microsoft/tsdoc-config': 0.18.1
-      '@rushstack/node-core-library': 5.21.0(@types/node@22.18.8)
-      '@rushstack/rig-package': 0.7.2
-      '@rushstack/terminal': 0.22.4(@types/node@22.18.8)
-      '@rushstack/ts-command-line': 5.3.4(@types/node@22.18.8)
-      diff: 8.0.4
-      lodash: 4.18.1
-      minimatch: 10.2.3
-      resolve: 1.22.8
-      semver: 7.5.4
-      source-map: 0.6.1
-      typescript: 6.0.3
     transitivePeerDependencies:
       - '@types/node'
 
@@ -30814,19 +30805,6 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.60.4':
     optional: true
 
-  '@rushstack/node-core-library@5.21.0(@types/node@22.18.8)':
-    dependencies:
-      ajv: 8.18.0
-      ajv-draft-04: 1.0.0(ajv@8.18.0)
-      ajv-formats: 3.0.1(ajv@8.18.0)
-      fs-extra: 11.3.5
-      import-lazy: 4.0.0
-      jju: 1.4.0
-      resolve: 1.22.8
-      semver: 7.5.4
-    optionalDependencies:
-      '@types/node': 22.18.8
-
   '@rushstack/node-core-library@5.21.0(@types/node@25.8.0)':
     dependencies:
       ajv: 8.18.0
@@ -30840,10 +30818,6 @@ snapshots:
     optionalDependencies:
       '@types/node': 25.8.0
 
-  '@rushstack/problem-matcher@0.2.1(@types/node@22.18.8)':
-    optionalDependencies:
-      '@types/node': 22.18.8
-
   '@rushstack/problem-matcher@0.2.1(@types/node@25.8.0)':
     optionalDependencies:
       '@types/node': 25.8.0
@@ -30853,14 +30827,6 @@ snapshots:
       resolve: 1.22.8
       strip-json-comments: 3.1.1
 
-  '@rushstack/terminal@0.22.4(@types/node@22.18.8)':
-    dependencies:
-      '@rushstack/node-core-library': 5.21.0(@types/node@22.18.8)
-      '@rushstack/problem-matcher': 0.2.1(@types/node@22.18.8)
-      supports-color: 8.1.1
-    optionalDependencies:
-      '@types/node': 22.18.8
-
   '@rushstack/terminal@0.22.4(@types/node@25.8.0)':
     dependencies:
       '@rushstack/node-core-library': 5.21.0(@types/node@25.8.0)
@@ -30868,15 +30834,6 @@ snapshots:
       supports-color: 8.1.1
     optionalDependencies:
       '@types/node': 25.8.0
-
-  '@rushstack/ts-command-line@5.3.4(@types/node@22.18.8)':
-    dependencies:
-      '@rushstack/terminal': 0.22.4(@types/node@22.18.8)
-      '@types/argparse': 1.0.38
-      argparse: 1.0.10
-      string-argv: 0.3.2
-    transitivePeerDependencies:
-      - '@types/node'
 
   '@rushstack/ts-command-line@5.3.4(@types/node@25.8.0)':
     dependencies:
@@ -33956,18 +33913,6 @@ snapshots:
       '@types/babel__core': 7.20.5
       react-refresh: 0.17.0
       vite: 7.3.3(@types/node@22.18.8)(jiti@2.6.1)(less@3.13.1)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
-    transitivePeerDependencies:
-      - supports-color
-
-  '@vitejs/plugin-react@5.2.0(vite@6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))':
-    dependencies:
-      '@babel/core': 7.29.0
-      '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.29.0)
-      '@babel/plugin-transform-react-jsx-source': 7.27.1(@babel/core@7.29.0)
-      '@rolldown/pluginutils': 1.0.0-rc.3
-      '@types/babel__core': 7.20.5
-      react-refresh: 0.18.0
-      vite: 6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -41297,6 +41242,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  mdast-util-newline-to-break@2.0.0:
+    dependencies:
+      '@types/mdast': 4.0.4
+      mdast-util-find-and-replace: 3.0.2
+
   mdast-util-phrasing@4.1.0:
     dependencies:
       '@types/mdast': 4.0.4
@@ -41883,7 +41833,6 @@ snapshots:
       typescript: 6.0.3
     transitivePeerDependencies:
       - '@types/node'
-    optional: true
 
   muggle-string@0.4.1: {}
 
@@ -44388,6 +44337,12 @@ snapshots:
     dependencies:
       es6-error: 4.1.1
 
+  remark-breaks@4.0.0:
+    dependencies:
+      '@types/mdast': 4.0.4
+      mdast-util-newline-to-break: 2.0.0
+      unified: 11.0.5
+
   remark-gfm@4.0.1:
     dependencies:
       '@types/mdast': 4.0.4
@@ -46622,25 +46577,6 @@ snapshots:
       - tsx
       - yaml
 
-  vite-plugin-dts@4.5.4(@types/node@22.18.8)(rollup@4.60.4)(typescript@6.0.3)(vite@6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)):
-    dependencies:
-      '@microsoft/api-extractor': 7.58.1(@types/node@22.18.8)
-      '@rollup/pluginutils': 5.3.0(rollup@4.60.4)
-      '@volar/typescript': 2.4.28
-      '@vue/language-core': 2.2.0(typescript@6.0.3)
-      compare-versions: 6.1.1
-      debug: 4.4.3
-      kolorist: 1.8.0
-      local-pkg: 1.1.2
-      magic-string: 0.30.21
-      typescript: 6.0.3
-    optionalDependencies:
-      vite: 6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
-    transitivePeerDependencies:
-      - '@types/node'
-      - rollup
-      - supports-color
-
   vite-plugin-dts@4.5.4(@types/node@25.8.0)(rollup@4.60.4)(typescript@6.0.3)(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)):
     dependencies:
       '@microsoft/api-extractor': 7.58.1(@types/node@25.8.0)
@@ -46715,26 +46651,6 @@ snapshots:
       sass: 1.56.0
       sass-embedded: 1.70.0
       terser: 5.46.0
-
-  vite@6.4.2(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0):
-    dependencies:
-      esbuild: 0.25.12
-      fdir: 6.5.0(picomatch@4.0.4)
-      picomatch: 4.0.4
-      postcss: 8.5.15
-      rollup: 4.60.4
-      tinyglobby: 0.2.16
-    optionalDependencies:
-      '@types/node': 22.18.8
-      fsevents: 2.3.3
-      jiti: 2.6.1
-      less: 4.2.2
-      lightningcss: 1.32.0
-      sass: 1.56.0
-      sass-embedded: 1.70.0
-      terser: 5.46.0
-      tsx: 4.20.5
-      yaml: 2.9.0
 
   vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0):
     dependencies:

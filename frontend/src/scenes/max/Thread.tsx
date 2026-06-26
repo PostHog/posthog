@@ -1,3 +1,7 @@
+// Side-effect: registers Max's product-specific tool renderers (insight/dashboard/recordings/etc.) into
+// the shared sandboxToolRegistry. Imported here so they're registered whenever the Max thread renders.
+import './messages/adapters/registerMaxToolRenderers'
+
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -64,15 +68,17 @@ import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-g
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, Region } from '~/types'
 
-import { SandboxContextUsage } from 'products/posthog_ai/frontend/sandbox/components/SandboxContextUsage'
-import { SandboxResourcesBar } from 'products/posthog_ai/frontend/sandbox/components/SandboxResourcesBar'
-import { SandboxThreadView } from 'products/posthog_ai/frontend/sandbox/components/SandboxThreadView'
-import { MarkdownMessage } from 'products/posthog_ai/frontend/sandbox/MarkdownMessage'
-import { AssistantFailureMessage } from 'products/posthog_ai/frontend/sandbox/messages/AssistantFailureMessage'
-import { MessageTemplate } from 'products/posthog_ai/frontend/sandbox/messages/MessageTemplate'
-import { ReasoningAnswer } from 'products/posthog_ai/frontend/sandbox/messages/ReasoningAnswer'
-import { sandboxStreamLogic } from 'products/posthog_ai/frontend/sandbox/sandboxStreamLogic'
-import { getThinkingMessageFromResponse } from 'products/posthog_ai/frontend/sandbox/utils/thinkingMessages'
+import {
+    AssistantFailureMessage,
+    getThinkingMessageFromResponse,
+    MarkdownMessage,
+    MessageTemplate,
+    ReasoningAnswer,
+    SandboxContextUsage,
+    SandboxResourcesBar,
+    sandboxStreamLogic,
+    SandboxThreadView,
+} from 'products/posthog_ai/frontend'
 import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
@@ -136,7 +142,8 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={sandboxStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <SandboxThreadView />
+                    {/* The live Max column owns scroll via ThreadAutoScroller — render rows in flow, not virtualized. */}
+                    <SandboxThreadView virtualized={false} />
                 </BindLogic>
             </div>
         )
@@ -156,7 +163,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={sandboxStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <SandboxThreadView />
+                    <SandboxThreadView virtualized={false} />
                 </BindLogic>
             </div>
         )
