@@ -2,7 +2,7 @@ import { IconCheck, IconX } from '@posthog/icons'
 
 import { MultiQuestionForm as MultiQuestionFormType } from '~/queries/schema/schema-assistant-messages'
 
-import { MessageTemplate } from 'products/posthog_ai/frontend/sandbox/messages/MessageTemplate'
+import { MessageTemplate } from 'products/posthog_ai/frontend'
 
 interface MultiQuestionFormRecapProps {
     form: MultiQuestionFormType

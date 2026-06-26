@@ -97,6 +97,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         channelFilter: [
             'all' as TicketChannel | 'all',
+            { persist: true },
             {
                 setChannelFilter: (_, { channel }) => channel,
                 applyViewFilters: (state, { filters }) => filters.channel ?? state,
@@ -104,6 +105,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         slaFilter: [
             'all' as TicketSlaState | 'all',
+            { persist: true },
             {
                 setSlaFilter: (_, { sla }) => sla,
                 applyViewFilters: (state, { filters }) => filters.sla ?? state,
@@ -159,6 +161,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         searchQuery: [
             '' as string,
+            { persist: true },
             {
                 setSearchQuery: (_, { query }) => query,
                 applyViewFilters: (state, { filters }) => filters.search ?? state,

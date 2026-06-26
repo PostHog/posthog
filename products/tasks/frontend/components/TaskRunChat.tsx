@@ -4,7 +4,7 @@ import {
     SandboxRunViewer,
     type TaskRunInteractionLogicProps,
     taskRunInteractionLogic,
-} from 'products/posthog_ai/frontend/sandbox'
+} from 'products/posthog_ai/frontend'
 
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
 

@@ -1,8 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonCheckbox, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonCheckbox, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { FEATURE_FLAGS } from '~/lib/constants'
 
 import { aiTriageTicketTypeLabel } from '../../types'
 import { supportSettingsLogic } from './supportSettingsLogic'
@@ -38,6 +42,8 @@ export function AISection(): JSX.Element {
     } = useValues(supportSettingsLogic)
     const { setAiSuggestionsEnabled, setAiDiagnosticsEnabled, setAiResolutionChannels, setAiReplyMode } =
         useActions(supportSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const businessKnowledgeEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE]
 
     return (
         <SceneSection
@@ -57,6 +63,15 @@ export function AISection(): JSX.Element {
                     knowledge source.
                 </p>
             </LemonCard>
+            {aiSuggestionsEnabled && businessKnowledgeEnabled && (
+                <LemonBanner type="info" className="max-w-[800px]">
+                    Add your documents, links, and general context to{' '}
+                    <Link to={urls.businessKnowledge()} target="_blank">
+                        Business knowledge
+                    </Link>{' '}
+                    so the AI can ground its replies in your company's information.
+                </LemonBanner>
+            )}
             {aiSuggestionsEnabled && (
                 <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
                     <LemonSwitch

@@ -4740,6 +4740,14 @@ snapshots:
         hash: v1.k794b7964.7f0897f6244513270c3398881eda41b7aec7946bea33bf94ad76ddb271478d48.-5xSObBOfpwuWh0DqYlix54-RAG4dXTSSPgMpneXCWo
     scenes-app-annotations--annotations--light:
         hash: v1.k794b7964.c8d42c54757583ebfb46646ac6b4b91cc96fd674c2c546d618bd9a5965b7fe42.eaBpd1UcxY6uFXw7Uweda56WqjJ9GxnrdHlBmM1KH78
+    scenes-app-annotations--new-annotation-modal-lemon-ui-date-picker--dark:
+        hash: v1.k794b7964.056b9294ed36b17a9d0a34f42f99a81266f04ac1a53c4499d45eccab079eab49.b1Pt6Pw2xqi2si51j__XtHJI0VSRppoPU2wp5ZOvbuI
+    scenes-app-annotations--new-annotation-modal-lemon-ui-date-picker--light:
+        hash: v1.k794b7964.6966de6aa76362c856866a7c03cc659181f9b35c9a7aeed66818bc13d45694de.ZjF9wxmaKG3f37UEx2nBU38qnd_WEyPem9hYB1Fpzg4
+    scenes-app-annotations--new-annotation-modal-quill-date-picker--dark:
+        hash: v1.k794b7964.b944884dfa0cad1d6434d68028981276ae65ba737af88c3ec4824a43aea02273.zJHC5wSgeUR4KYXRKsgL8w7shm1bCl4OqGV_6MKP6X8
+    scenes-app-annotations--new-annotation-modal-quill-date-picker--light:
+        hash: v1.k794b7964.145485776b19a860265cd10b123a12534ba653360376177ed6732bc28f71e6bf.tOieVc4jN5LbkgTFdkj0rwGvr6Yu0KnamwRzckrlLUk
     scenes-app-batchexports--backfills-empty--dark:
         hash: v1.k794b7964.28507262548478e2d0211783c04f1078475fe387f5540c0b84a5a10bbd1e327d.5iPjqcsujNk379gMnile1JByq6y9F-64wSu3_-x_uQY
     scenes-app-batchexports--backfills-empty--light:
@@ -5361,13 +5369,13 @@ snapshots:
     scenes-app-feature-flags--new-feature-flag--light:
         hash: v1.k794b7964.727ad87e0926fee11742fcb9a3925cd8247cee3136c882319043b31ce2bec519.IMOClX-wgcfkL3mCHym-EwK4bPMzFWfC-Q1jS60AnR0
     scenes-app-feature-flags--new-multivariate-flag-variant-key-error--dark:
-        hash: v1.k794b7964.f61edcc3faee1780859338b411e5a411045cd9cdffc9c4e7c57bd36cfb688fb4.ii2nAjS44zy4OMsAN43Rv69G4pvsXrRjKX79RsLpoNs
+        hash: v1.k794b7964.a16a6e7374ab04142aa5fe22a63c96a8b03161d3365ca9f20fe2b67c5f6508ae.d4UlULDadIKoQ8Myg3tlck49AXZikj8ZELd3jv2nxZc
     scenes-app-feature-flags--new-multivariate-flag-variant-key-error--light:
-        hash: v1.k794b7964.6bfb5fb749c3dde83f973e0ad06e23ee9b7eb2f0168226631ee34dbe849ded0a.BC-syt4reSnhcPZ8PpivN5xAlcLFqTAuQu9WDSElsIA
+        hash: v1.k794b7964.ec2cef31ba38e77b273db5f31fb8ebf0ab54fd2743a4215b64546d2fb3b6befd.8cXZyn3DSEXahZUzGmBzA9klphOGrJhkzRUmbbUgdlE
     scenes-app-feature-flags--new-remote-config-flag-payload-error--dark:
-        hash: v1.k794b7964.8658214f05277d1993c4f3c3e2e26d2f7a1be4352cc9efd6459b641fe429ba61.tr0v5RTq0pkpUCq4bXSlwLYhHAwf8S3Xtn0gLOgli0Q
+        hash: v1.k794b7964.a16a6e7374ab04142aa5fe22a63c96a8b03161d3365ca9f20fe2b67c5f6508ae.2P2RmRIUmAgLjgOFWl5SxPABQeZg0TvQJC9bunJIARo
     scenes-app-feature-flags--new-remote-config-flag-payload-error--light:
-        hash: v1.k794b7964.a522d3ddca1b6cdaf3ed1cf717a3be30433b62bea3bc10a142f18ae2507be37d.wkiZVJot3pLLNeiup_v_1BHQKUv-eW_PbNms8pHZulQ
+        hash: v1.k794b7964.3cd967b3c2f64308cdd76c0e0fccb2248924a34825fce47a39b799d21ef6359a.BniHMFmxEBBoWOap-0ks83HBkfqJytE4kGffhwlUkI8
     scenes-app-feature-flags-code-examples--code-instructions-node-with-group-multivariate-flag-local-evaluation--dark:
         hash: v1.k794b7964.3ce50a6c3abbe37a320a41b9b595595f1f563ee2810f7039c1077de0de2ce541.NshMoutmoo5MZNYuOO7ESAXGz5weprcVLeWqVRJevZA
     scenes-app-feature-flags-code-examples--code-instructions-node-with-group-multivariate-flag-local-evaluation--light:
@@ -5587,7 +5595,7 @@ snapshots:
     scenes-app-inbox-scene--self-driving-onboarding--dark:
         hash: v1.k794b7964.0730c341122d1d593f4e6acf7a176e05bdd79e9ca6bf5f785a909fd57ad274f1.qRvNaIt3BFQkYn9JRfSKCXUScoTY331T7aAtb5jHXsk
     scenes-app-inbox-scene--self-driving-onboarding--light:
-        hash: v1.k794b7964.5d1b99eede40f09a93db6e36af695c7e27d47454074663e3135d8a888459e4ca.a1cAyLN75vLY3xW_GOrObWlFPBgwdREc3hDZuAhcmN4
+        hash: v1.k794b7964.90d34c77f6dfa354d95f502f7760a2f663a7a9c30de1da3a731653b59f904cb0.Cxe2TZ9k11cuJdK6Z16NsJT2jJrHWTwC_8jh7MMztE4
     scenes-app-inbox-scene--self-driving-paused--dark:
         hash: v1.k794b7964.eae93d2c506e66eb23f36e19f05bf6f07286d9a895dbad8f970c009fd98f1d53.7hksyy3ldoFdJY9rpLYMe7FNYuMAi-U1Vlh3OGhv3wY
     scenes-app-inbox-scene--self-driving-paused--light:

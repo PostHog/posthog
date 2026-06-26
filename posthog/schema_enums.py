@@ -1817,6 +1817,7 @@ class ExternalDataSourceType(StrEnum):
     HIGHTOUCH = "Hightouch"
     LEMON_SQUEEZY = "LemonSqueezy"
     IKAS = "Ikas"
+    TALKWALKER = "Talkwalker"
 
 
 class ExternalQueryErrorCode(StrEnum):

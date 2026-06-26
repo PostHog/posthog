@@ -7854,7 +7854,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
      * @nullable
      */
     export type AgentSessionSummaryTriggerMetadata = { [key: string]: unknown } | null;
@@ -7869,7 +7869,7 @@ export namespace Schemas {
       /** @nullable */
       external_key: string | null;
       /**
-         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
          * @nullable
          */
       trigger_metadata?: AgentSessionSummaryTriggerMetadata;
@@ -7892,7 +7892,7 @@ export namespace Schemas {
     }
 
     /**
-     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
      * @nullable
      */
     export type AgentApplicationSessionsRetrieveResponseTriggerMetadata = { [key: string]: unknown } | null;
@@ -7983,7 +7983,7 @@ export namespace Schemas {
       /** @nullable */
       external_key: string | null;
       /**
-         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
          * @nullable
          */
       trigger_metadata?: AgentApplicationSessionsRetrieveResponseTriggerMetadata;
@@ -8040,7 +8040,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
      * @nullable
      */
     export type AgentFleetLiveSessionSummaryTriggerMetadata = { [key: string]: unknown } | null;
@@ -8056,7 +8056,7 @@ export namespace Schemas {
       /** @nullable */
       external_key: string | null;
       /**
-         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
          * @nullable
          */
       trigger_metadata?: AgentFleetLiveSessionSummaryTriggerMetadata;
@@ -8197,6 +8197,37 @@ export namespace Schemas {
     export interface AgentNativeToolsListResponse {
       tools: AgentNativeToolEntry[];
     }
+
+    /**
+     * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
+     */
+    export type AgentRevisionSpecModels = {
+      mode: 'auto';
+      /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
+      level?: 'low' | 'medium' | 'high';
+      /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
+      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+      /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
+      optimize_for?: 'cost' | 'availability';
+    } | {
+      mode: 'manual';
+      /**
+         * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
+         * @minItems 1
+         */
+      models: ({
+      /**
+         * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
+         * @minLength 1
+         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+         */
+      model: string;
+      /** Per-model reasoning effort override (else the spec default). */
+      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+    })[];
+      /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
+      optimize_for?: 'cost' | 'availability';
+    };
 
     export type AgentRevisionSpecTriggersItem = {
       type: 'slack';
@@ -8510,11 +8541,8 @@ export namespace Schemas {
     };
 
     export type AgentRevisionSpec = {
-      /**
-         * @minLength 1
-         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
-         */
-      model: string;
+      /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
+      models: AgentRevisionSpecModels;
       triggers: AgentRevisionSpecTriggersItem[];
       tools: AgentRevisionSpecToolsItem[];
       mcps: AgentRevisionSpecMcpsItem[];
@@ -8522,7 +8550,6 @@ export namespace Schemas {
       identity_providers?: AgentRevisionSpecIdentityProvidersItem[];
       secrets: AgentRevisionSpecSecretsItem[];
       limits: AgentRevisionSpecLimits;
-      entrypoint: string;
       reasoning?: AgentRevisionSpecReasoning;
       framework_prompt?: AgentRevisionSpecFrameworkPrompt;
       resume?: AgentRevisionSpecResume;
@@ -8657,7 +8684,7 @@ export namespace Schemas {
       revision_id: string;
       /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
       framework_prompt_version: number;
-      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
+      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md`, and the skills index. Inspect before promotion to confirm the model will see what you expect. */
       system_prompt: string;
     }
 
@@ -16118,6 +16145,7 @@ export namespace Schemas {
      * * `Hightouch` - Hightouch
      * * `LemonSqueezy` - LemonSqueezy
      * * `Ikas` - Ikas
+     * * `Talkwalker` - Talkwalker
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16768,6 +16796,7 @@ export namespace Schemas {
       Hightouch: 'Hightouch',
       LemonSqueezy: 'LemonSqueezy',
       Ikas: 'Ikas',
+      Talkwalker: 'Talkwalker',
     } as const;
 
     /**
@@ -17431,7 +17460,8 @@ export namespace Schemas {
        * * `TawkTo` - TawkTo
        * * `Hightouch` - Hightouch
        * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas */
+       * * `Ikas` - Ikas
+       * * `Talkwalker` - Talkwalker */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22649,7 +22679,8 @@ export namespace Schemas {
        * * `TawkTo` - TawkTo
        * * `Hightouch` - Hightouch
        * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas */
+       * * `Ikas` - Ikas
+       * * `Talkwalker` - Talkwalker */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -34925,6 +34956,37 @@ export namespace Schemas {
       tags?: string[];
     }
 
+    /**
+     * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
+     */
+    export type PatchedAgentRevisionSpecModels = {
+      mode: 'auto';
+      /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
+      level?: 'low' | 'medium' | 'high';
+      /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
+      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+      /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
+      optimize_for?: 'cost' | 'availability';
+    } | {
+      mode: 'manual';
+      /**
+         * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
+         * @minItems 1
+         */
+      models: ({
+      /**
+         * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
+         * @minLength 1
+         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+         */
+      model: string;
+      /** Per-model reasoning effort override (else the spec default). */
+      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+    })[];
+      /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
+      optimize_for?: 'cost' | 'availability';
+    };
+
     export type PatchedAgentRevisionSpecTriggersItem = {
       type: 'slack';
       config: {
@@ -35237,11 +35299,8 @@ export namespace Schemas {
     };
 
     export type PatchedAgentRevisionSpec = {
-      /**
-         * @minLength 1
-         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
-         */
-      model: string;
+      /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
+      models: PatchedAgentRevisionSpecModels;
       triggers: PatchedAgentRevisionSpecTriggersItem[];
       tools: PatchedAgentRevisionSpecToolsItem[];
       mcps: PatchedAgentRevisionSpecMcpsItem[];
@@ -35249,7 +35308,6 @@ export namespace Schemas {
       identity_providers?: PatchedAgentRevisionSpecIdentityProvidersItem[];
       secrets: PatchedAgentRevisionSpecSecretsItem[];
       limits: PatchedAgentRevisionSpecLimits;
-      entrypoint: string;
       reasoning?: PatchedAgentRevisionSpecReasoning;
       framework_prompt?: PatchedAgentRevisionSpecFrameworkPrompt;
       resume?: PatchedAgentRevisionSpecResume;
@@ -46107,7 +46165,7 @@ export namespace Schemas {
      */
     export interface RememberRequest {
       /**
-         * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
+         * Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key and keep the timestamp in `content`.
          * @maxLength 300
          */
       key: string;
@@ -48352,7 +48410,8 @@ export namespace Schemas {
        * * `TawkTo` - TawkTo
        * * `Hightouch` - Hightouch
        * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas */
+       * * `Ikas` - Ikas
+       * * `Talkwalker` - Talkwalker */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -49042,7 +49101,8 @@ export namespace Schemas {
        * * `TawkTo` - TawkTo
        * * `Hightouch` - Hightouch
        * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas */
+       * * `Ikas` - Ikas
+       * * `Talkwalker` - Talkwalker */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -49724,7 +49784,8 @@ export namespace Schemas {
        * * `TawkTo` - TawkTo
        * * `Hightouch` - Hightouch
        * * `LemonSqueezy` - LemonSqueezy
-       * * `Ikas` - Ikas */
+       * * `Ikas` - Ikas
+       * * `Talkwalker` - Talkwalker */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -53460,6 +53521,8 @@ export namespace Schemas {
     export interface _TracingCountResponse {
       /** Number of spans matching the filters. */
       count: number;
+      /** Number of distinct traces whose root span matches the filters — the trace count shown in the Traces view. */
+      traceCount: number;
     }
 
     /**

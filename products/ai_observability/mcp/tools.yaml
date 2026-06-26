@@ -592,10 +592,33 @@ tools:
         enabled: false
     llma-provider-key-get:
         operation: llm_analytics_provider_keys_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_provider_key:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get LLM provider key
+        description: >
+            Fetch one LLM provider key by ID — its provider, name, and validation state, with a masked preview (never
+            the secret). Use when you have a key ID to resolve, e.g. the key an evaluation references.
     llma-provider-key-list:
         operation: llm_analytics_provider_keys_list
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_provider_key:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List LLM provider keys
+        description: >
+            List the team's configured LLM provider keys (OpenAI, Anthropic, Azure, etc.). Returns each key's provider,
+            name, validation state, and a masked preview — never the secret itself. Call this before creating an
+            llm_judge evaluation to discover which providers have a usable ('ok' state) key available. Creating,
+            updating, and deleting keys are intentionally UI-only.
     llma-provider-key-trial-evaluations-get:
         operation: llm_analytics_provider_keys_trial_evaluations_retrieve
         enabled: false

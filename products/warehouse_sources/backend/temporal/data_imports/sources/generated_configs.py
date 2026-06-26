@@ -3089,6 +3089,11 @@ class TaboolaSourceConfig(config.Config):
 
 
 @config.config
+class TalkwalkerSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class TavusSourceConfig(config.Config):
     pass
 
@@ -4121,6 +4126,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.TMDB: TMDbSourceConfig,
         ExternalDataSourceType.TVMAZE: TVMazeSourceConfig,
         ExternalDataSourceType.TABOOLA: TaboolaSourceConfig,
+        ExternalDataSourceType.TALKWALKER: TalkwalkerSourceConfig,
         ExternalDataSourceType.TAVUS: TavusSourceConfig,
         ExternalDataSourceType.TAWKTO: TawkToSourceConfig,
         ExternalDataSourceType.TEAMTAILOR: TeamtailorSourceConfig,
