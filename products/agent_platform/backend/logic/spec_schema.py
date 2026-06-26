@@ -676,9 +676,13 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             "additionalProperties": False,
         },
     },
-    # `model` is no longer required — `models` (or the runner's
-    # auto/medium default) covers the model choice. Mirror
-    # `AgentSpecSchema.model` (.optional()) in spec.ts.
+    # Structural required list (the RAW schema). Every entry here has a
+    # `default`, so `_relax_required_for_defaults` drops all of them from
+    # `AGENT_SPEC_JSON_SCHEMA_FOR_WRITE` — the schema authoring/validation
+    # actually runs against (serializers.validate_spec). So a spec may omit
+    # any of these, incl. `models`: the runner falls back to auto/medium.
+    # The old top-level `model` field is gone entirely; `models` replaces it.
+    # Mirror `AgentSpecSchema` in services/agent-shared/src/spec/spec.ts.
     "required": [
         "models",
         "triggers",

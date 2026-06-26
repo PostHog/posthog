@@ -539,7 +539,23 @@ export class Worker {
             // list — see `filterServableEntries`).
             const resolveModel = this.deps.resolveModel ?? resolveModelCached
             const catalogModels = this.deps.gatewayCatalog ? await this.deps.gatewayCatalog.list() : []
-            const policyEntries = filterServableEntries(modelPolicyToList(rev.spec), catalogModels)
+            const policyList = modelPolicyToList(rev.spec)
+            if (this.deps.gatewayCatalog && catalogModels.length === 0) {
+                // Fail-open: with no catalog we can't filter, so the policy list
+                // ships as-authored. An empty catalog behind a *configured*
+                // gateway is either a fetch that failed with no cached fallback
+                // or a gateway serving nothing — both can dispatch a delisted
+                // model that 400s on the first call. Surface it loudly so it's
+                // not indistinguishable from a healthy run. Cleanly refusing to
+                // start on a genuinely-empty (vs transiently-unreachable) catalog
+                // needs a freshness signal on the catalog read — tracked as a
+                // follow-up (see PR review).
+                sLog.warn(
+                    { policy_entries: policyList.length },
+                    'model.catalog_empty_fail_open — dispatching unfiltered model policy'
+                )
+            }
+            const policyEntries = filterServableEntries(policyList, catalogModels)
             const models = policyEntries.map((entry) => ({
                 model: resolveModel(entry.model),
                 reasoning: entry.reasoning,
