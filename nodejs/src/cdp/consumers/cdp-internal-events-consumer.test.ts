@@ -19,7 +19,7 @@ describe('CDP Internal Events Consumer', () => {
     let team2: Team
     let mockQueueInvocations: jest.MockedFunction<any>
 
-    const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
+    const insertHogFunction = async (hogFunction: Partial<HogFunctionType>): Promise<HogFunctionType> => {
         const teamId = hogFunction.team_id ?? team.id
         const item = await _insertHogFunction(hub.postgres, teamId, {
             ...hogFunction,
@@ -98,7 +98,7 @@ describe('CDP Internal Events Consumer', () => {
                 expect(events).toHaveLength(0)
             })
 
-            it('should parse a valid message with an existing team and hog function ', async () => {
+            it('should parse a valid message with an existing team and hog function', async () => {
                 const event = createInternalEvent(team.id, {})
                 event.event.timestamp = '2024-12-18T15:06:23.545Z'
                 event.event.uuid = 'b6da2f33-ba54-4550-9773-50d3278ad61f'
@@ -220,6 +220,33 @@ describe('CDP Internal Events Consumer', () => {
 
             expect(invocations).toHaveLength(1)
             expect(invocations[0].functionId).toBe(internalFn.id)
+        })
+
+        it('should queue only allowed billing alert destination functions when scoped', async () => {
+            const allowedFn = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const event = createInternalEvent(team.id, {})
+            event.event.event = '$billing_alert_firing'
+            event.event.properties = {
+                billing_alert_destination_ids: [allowedFn.id],
+            }
+
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
+            const { invocations, backgroundTask } = await processor.processBatch(globals)
+            await backgroundTask
+
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0].functionId).toBe(allowedFn.id)
+            expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
         })
     })
 })
