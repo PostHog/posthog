@@ -1366,13 +1366,19 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
   sets `false`. Cleanly separates "real run posts" from "eval run doesn't" — no team-wide flag, no feature flag.
 - **The endpoint is the durable reusable interface** — the label Action is its **first** client; `publish` and the PR
   ref are per-request, so other callers (manual, future automations) reuse it unchanged.
+- **Both entry points stay first-class — the label is _an_ entry, not the only one.** The existing
+  `manage.py run_review` CLI **remains fully usable** for manual / eval / debugging runs (blocking `execute_workflow`,
+  returns `report_id`, default **no-publish**, with an optional `--publish` to post); the label → endpoint path is the
+  non-blocking, `publish=true` entry. Both drive the **same** `ReviewPRWorkflow` — the trigger work **adds** an entry
+  point, it does not remove the CLI.
 
 **Build order (Phase 1 is internal — no GitHub posting — and safe to start first):**
 
-1. **Trigger-ready (internal):** add `start_review_pr_workflow` using `client.start_workflow` (non-blocking; **leave**
-   the blocking `execute_workflow` the eval CLI depends on, `client.py:45`); thread `publish: bool` as a per-run
-   workflow input (retire the global `PUBLISH_REVIEW_ENABLED`); swap the PAT → installation token **inside the fetch
-   activity** (it already has `team_id`), dropping the worker's `GITHUB_TOKEN` env dependency.
+1. **Trigger-ready (internal):** add `start_review_pr_workflow` using `client.start_workflow` (non-blocking; **keep
+   `manage.py run_review` + its blocking `execute_workflow` fully usable** for manual/eval runs, `client.py:45`);
+   thread `publish: bool` as a per-run workflow input (retire the global `PUBLISH_REVIEW_ENABLED`) **and expose it on
+   `run_review` as `--publish` (default off)** so the CLI can do everything the label can; swap the PAT → installation
+   token **inside the fetch activity** (it already has `team_id`), dropping the worker's `GITHUB_TOKEN` env dependency.
 2. **The endpoint** (shared-secret-gated, in a `review_hog` viewset + `routes.py` registration; run
    `/improving-drf-endpoints` when building it): validate repo allowlist + reject forks, resolve team-2 integration +
    run user, `start_workflow` with `publish=true`, return `202 + report_id`.
@@ -1384,10 +1390,16 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
 
 **Prerequisites the maintainer provides (gate Phases 3–4):**
 
-- **Team 2 (prod) has the `posthog` GitHub App installed** for `PostHog/posthog` (so `first_for_team_repository`
-  resolves the publish token). ✅ locally satisfied on team 1 via `posthog-local-dev`.
-- **The shared secret** `REVIEWHOG_TRIGGER_TOKEN` — set in deploy config (`settings.REVIEWHOG_TRIGGER_TOKEN`) **and**
-  as a GitHub org secret of the same name (the only secret the Action carries).
+- ✅ **Team 2 (prod) has the `posthog` GitHub App installed** for `PostHog/posthog` (maintainer-confirmed 2026-06-26;
+  also satisfied locally on team 1 via `posthog-local-dev`). **Caveat to confirm before Phase 3 publish:** the
+  `pull_requests=write` validation (the duck comment) was on the **separate `posthog-local-dev` app** — confirm the
+  **prod `posthog`** app's installation also grants `pull_requests: write` (one API write, or its Permissions page).
+  If it's read-only (e.g. the error-tracking / PR-linking integration), publishing needs a permission bump or a
+  dedicated app.
+- **The shared secret `REVIEWHOG_TRIGGER_TOKEN`** — a value **we generate** (e.g. `openssl rand -hex 32`), placed in
+  **both** the PostHog deploy config (`settings.REVIEWHOG_TRIGGER_TOKEN`, which the endpoint checks the
+  `Authorization` header against) **and** a GitHub Actions secret of the same name (which the Action sends in that
+  header). It's a shared password between CI and the app — the only secret the Action carries.
 - **The run `user_id`** decided (`integration.created_by` on team 2, or a `REVIEWHOG_RUN_USER_ID` setting).
 
 **File pointers (where the work lands):**
