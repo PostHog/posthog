@@ -33,11 +33,8 @@ class InstanceSetting(models.Model):
         return parsed
 
 
-# Instance settings are read constantly but change rarely. A permanent per-process
-# lru_cache pinned each value for the life of a worker, so a setting changed in the DB
-# (e.g. a rotated SMTP password) never reached a long-running worker until restart. A
-# short TTL lets DB changes propagate within ~a minute without a restart, while still
-# avoiding a query on every read.
+# Short TTL, not a permanent lru_cache: that pinned each value for a worker's life, so a
+# DB-changed setting (e.g. a rotated SMTP password) never reached it without a restart.
 _INSTANCE_SETTING_CACHE_TTL_SECONDS = 60
 _instance_setting_cache: dict[str, tuple[float, Any]] = {}
 _instance_setting_cache_lock = Lock()

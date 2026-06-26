@@ -1,8 +1,6 @@
-# ruff: noqa: T201 allow print statements
-
-import sys
 import html
 import uuid
+import smtplib
 import datetime
 import dataclasses
 from decimal import Decimal
@@ -20,6 +18,7 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 
 import requests
+import structlog
 import css_inline
 import posthoganalytics
 from celery import shared_task
@@ -31,6 +30,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
+
+logger = structlog.get_logger(__name__)
 
 
 def inline_css(value: str) -> str:
@@ -90,14 +91,22 @@ EMAIL_TASK_KWARGS = {
     "retry_backoff": True,
 }
 
-# Send-funnel counter so the failure rate is alertable as a time series (the gap that hid a
-# 27-day outage). Labelled only by outcome + transport to keep cardinality bounded — per-team
-# volume lives in MessagingRecord. Scraped from workers via prometheus multiprocess mode
-# (PROMETHEUS_MULTIPROC_DIR + start_http_server, see posthog/celery.py).
+# Failure rate as an alertable time series. Labelled only by outcome+transport to bound
+# cardinality (per-team volume lives in MessagingRecord); scraped via prometheus multiprocess.
 EMAIL_SEND_COUNTER = Counter(
     "posthog_email_send_total",
     "Email send attempts by outcome (sent|failed) and transport (smtp|http).",
     labelnames=["outcome", "transport"],
+)
+
+# Retryable connection/network errors only. NOT bare OSError: every smtplib exception subclasses
+# it, so OSError would also retry auth/recipient failures and re-hammer the relay's per-IP limit.
+_TRANSIENT_SMTP_ERRORS = (
+    smtplib.SMTPServerDisconnected,
+    smtplib.SMTPConnectError,
+    smtplib.SMTPHeloError,
+    TimeoutError,  # socket timeouts
+    ConnectionError,  # reset / refused / aborted
 )
 
 CUSTOMER_IO_TEMPLATE_ID_MAP = {
@@ -211,8 +220,7 @@ def _send_via_http(
                 EMAIL_SEND_COUNTER.labels(outcome="sent", transport="http").inc()
 
     except Exception as err:
-        print("Could not send email via http:", err, file=sys.stderr)
-        capture_exception(err)
+        capture_exception(err)  # already logs the traceback via logger.exception
         EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc()
 
 
@@ -272,19 +280,20 @@ def _send_via_smtp(
                 record.save()
 
             EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc(len(messages))
+        except _TRANSIENT_SMTP_ERRORS as err:
+            # Re-raise so the task's autoretry (3x + backoff) retries instead of dropping the email.
+            # warning, not capture_exception: expected + auto-retried, capturing each attempt is noise.
+            logger.warning("email_send_smtp_transient_error", error=str(err))
+            EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc(len(messages))
+            raise
         except Exception as err:
-            print("Could not send email:", err, file=sys.stderr)
-            capture_exception(err)
+            capture_exception(err)  # already logs the traceback via logger.exception
             EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc(len(messages))
         finally:
             try:
                 connection.close()  # type: ignore
             except Exception as err:
-                print(
-                    "Could not close email connection (this can be ignored):",
-                    err,
-                    file=sys.stderr,
-                )
+                logger.warning("email_connection_close_failed", error=str(err))
 
 
 # `utm_tags` carries hardcoded query-string fragments (`a=1&b=2`) and is never

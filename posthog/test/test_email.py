@@ -1,4 +1,5 @@
 import hashlib
+import smtplib
 import datetime
 import dataclasses
 from decimal import Decimal
@@ -16,9 +17,16 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from prometheus_client import REGISTRY
 
-from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email, sanitize_email_properties
+from posthog.email import (
+    CUSTOMER_IO_TEMPLATE_ID_MAP,
+    EmailMessage,
+    _send_email,
+    _send_via_smtp,
+    sanitize_email_properties,
+)
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.messaging import MessagingRecord, get_email_hash, get_email_hashes
@@ -114,6 +122,41 @@ class TestEmail(BaseTest):
 
         self.assertEqual(len(mail.outbox), 1)
         after = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    @parameterized.expand(
+        [
+            ("transient_disconnect", smtplib.SMTPServerDisconnected("dropped"), True),
+            ("transient_oserror", ConnectionResetError("reset"), True),
+            ("permanent_auth", smtplib.SMTPAuthenticationError(535, b"bad creds"), False),
+            ("permanent_recipients", smtplib.SMTPRecipientsRefused({}), False),
+        ]
+    )
+    def test_smtp_error_retry_classification(self, name, exc, should_reraise) -> None:
+        # Transient errors re-raise (autoretry fires); auth/permanent stay swallowed (no retry-storm
+        # of the relay's per-IP limit). Both record one failed metric.
+        failed_labels = {"outcome": "failed", "transport": "smtp"}
+        before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            patch("django.core.mail.backends.locmem.EmailBackend.send_messages", side_effect=exc),
+        ):
+            kwargs = {
+                "to": [{"raw_email": f"{name}@posthog.com", "recipient": f"{name}@posthog.com"}],
+                "campaign_key": f"retry_{name}",
+                "subject": "Subject",
+                "txt_body": "",
+                "html_body": "<p>hi</p>",
+                "headers": {},
+            }
+            if should_reraise:
+                with self.assertRaises(type(exc)):
+                    _send_via_smtp(**kwargs)
+            else:
+                _send_via_smtp(**kwargs)
+
+        after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
         self.assertEqual(after - before, 1.0)
 
     @patch("posthoganalytics.capture")
