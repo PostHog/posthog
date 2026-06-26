@@ -1248,6 +1248,9 @@ def update_task_run(
     from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
         update_automation_run_result,
     )
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_agent_turn_failed,
+    )
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -1315,6 +1318,8 @@ def update_task_run(
     update_automation_run_result(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        if new_status == TaskRun.Status.FAILED:
+            observe_agent_turn_failed(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
