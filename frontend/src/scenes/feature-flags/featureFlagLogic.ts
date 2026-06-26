@@ -1308,11 +1308,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             values.currentTeam?.id
                         )
                         if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
+                            // Mirror the condition aggregation onto the flag-level field so a
+                            // group-targeted default renders as group targeting on the new flag.
+                            const aggregationGroupTypeIndex =
+                                conditionsConfig.default_groups.find(
+                                    (group) => group.aggregation_group_type_index != null
+                                )?.aggregation_group_type_index ?? null
                             baseFlagConfig = {
                                 ...baseFlagConfig,
                                 filters: {
                                     ...baseFlagConfig.filters,
                                     groups: conditionsConfig.default_groups,
+                                    aggregation_group_type_index: aggregationGroupTypeIndex,
                                 },
                             }
                         }

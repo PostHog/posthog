@@ -141,3 +141,28 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
         self.assertTrue(data["enabled"])
         self.assertEqual(len(data["default_groups"]), 1)
         self.assertEqual(data["default_groups"][0]["properties"][0]["key"], "plan")
+
+    def test_put_preserves_group_aggregation_on_conditions(self):
+        groups = [
+            {
+                "properties": [
+                    {"key": "is_dev", "type": "group", "value": ["true"], "operator": "exact", "group_type_index": 1}
+                ],
+                "rollout_percentage": 100,
+                "variant": None,
+                "aggregation_group_type_index": 1,
+            }
+        ]
+
+        put_response = self.client.put(
+            self.url,
+            {"enabled": True, "default_groups": groups},
+            format="json",
+        )
+        self.assertEqual(put_response.status_code, status.HTTP_200_OK)
+
+        get_response = self.client.get(self.url)
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        stored_group = get_response.json()["default_groups"][0]
+        self.assertEqual(stored_group["aggregation_group_type_index"], 1)
+        self.assertEqual(stored_group["properties"][0]["group_type_index"], 1)
