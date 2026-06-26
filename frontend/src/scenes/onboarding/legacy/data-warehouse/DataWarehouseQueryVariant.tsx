@@ -318,6 +318,7 @@ function DataWarehouseQueryInner(): JSX.Element {
                     <InlineSourceSetup
                         onComplete={handleSourceConnected}
                         featured
+                        showWizard
                         title="Choose a source"
                         subtitle="You can always connect more sources later."
                     />

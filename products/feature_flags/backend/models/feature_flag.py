@@ -7,7 +7,7 @@ from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, models, transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest
 from django.utils import timezone
@@ -28,7 +28,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamManager, RootTeamMixin
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import live_experiment_exists
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -665,7 +665,7 @@ def get_feature_flags(
             filter=Q(flag_evaluation_contexts__isnull=False),
             distinct=True,
         ),
-        has_experiment_agg=Exists(Experiment.objects.filter(feature_flag_id=OuterRef("pk"), deleted=False)),
+        has_experiment_agg=live_experiment_exists(),
     )
 
     all_feature_flags = list(qs)

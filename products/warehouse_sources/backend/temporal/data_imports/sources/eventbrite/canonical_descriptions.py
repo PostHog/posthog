@@ -18,6 +18,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The organization's name.",
             "vertical": "The organization's business vertical.",
             "image_id": "Identifier of the organization's logo image.",
+            "_type": "String naming the Eventbrite object type.",
+            "parent_id": "ID of the parent organization, if this is a sub-organization.",
         },
     },
     "categories": {
@@ -119,7 +121,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The ticket class's name.",
             "description": "Description of the ticket class.",
             "cost": "Display price of the ticket, including currency and value.",
+            "actual_cost": "Actual price charged for the ticket, as a currency object.",
             "fee": "Eventbrite fee applied to the ticket.",
+            "on_sale_status": "Current sale status of the ticket class (e.g. AVAILABLE, SOLD_OUT, UNAVAILABLE).",
             "free": "Whether the ticket is free.",
             "quantity_total": "Total number of tickets available in this class.",
             "quantity_sold": "Number of tickets sold from this class.",

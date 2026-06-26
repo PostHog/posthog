@@ -29,21 +29,7 @@ tools:
         enabled: false
     data-warehouse-data-health-issues-retrieve:
         operation: data_warehouse_data_health_issues_retrieve
-        enabled: true
-        scopes:
-            - warehouse_view:read
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List data pipeline health issues
-        description: >
-            Return all failed or degraded items across the data pipeline: materialized saved queries that failed,
-            external data schemas in Failed or BillingLimitReached state, sources in Error state, failed batch exports,
-            and disabled/degraded transformations. Each entry includes id, name, type (materialized_view,
-            external_data_sync, source, destination, transformation), status, error message, failed_at, and url. Use
-            this for a one-shot audit of what's broken in a project's data warehouse.
+        enabled: false
     data-warehouse-data-ops-dashboard-retrieve:
         operation: data_warehouse_data_ops_dashboard_retrieve
         enabled: false
@@ -403,6 +389,12 @@ tools:
         enabled: false
     warehouse-column-annotations-update:
         operation: warehouse_column_annotations_update
+        enabled: false
+    warehouse-column-statistics-list:
+        operation: warehouse_column_statistics_list
+        enabled: false
+    warehouse-column-statistics-retrieve:
+        operation: warehouse_column_statistics_retrieve
         enabled: false
     warehouse-dag-list:
         operation: warehouse_dag_list
