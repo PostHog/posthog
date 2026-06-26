@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
-import { LemonSegmentedButton, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSelect, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import { MetricCard, useChartTheme } from '@posthog/quill-charts'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -104,11 +104,21 @@ export const MetricsViewer = (): JSX.Element => {
         sparklineValues,
         sparklineLabels,
         statTotal,
+        anomalyBadge,
         queryResultsLoading,
         hasMetricName,
     } = useValues(logic)
-    const { setMetricName, setAggregation, setDateFrom, setDateTo, setViewMode, setStatSummary, fetchQueryResults } =
-        useActions(logic)
+    const {
+        setMetricName,
+        setAggregation,
+        setDateFrom,
+        setDateTo,
+        setViewMode,
+        setStatSummary,
+        fetchQueryResults,
+        fetchAnomaly,
+        clearAnomaly,
+    } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
     const chartTheme = useChartTheme()
 
@@ -116,6 +126,15 @@ export const MetricsViewer = (): JSX.Element => {
     useEffect(() => {
         fetchQueryResults({})
     }, [metricName, aggregation, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Characterize the recent window only while the stat card is visible — the badge is stat-mode only.
+    useEffect(() => {
+        if (viewMode === 'stat' && hasMetricName) {
+            fetchAnomaly({})
+        } else {
+            clearAnomaly()
+        }
+    }, [metricName, aggregation, dateFrom, dateTo, viewMode, hasMetricName]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const selectedMetricType = useMemo(
         () => pickerItems.find((item) => item.name === metricName)?.metric_type,
@@ -219,28 +238,48 @@ export const MetricsViewer = (): JSX.Element => {
                         Pick a metric to see its time series.
                     </div>
                 ) : hasResults && viewMode === 'stat' ? (
-                    <MetricCard
-                        className="h-full"
-                        title={metricName}
-                        restingSubtitle={`${METRIC_SUMMARY_LABELS[statSummary]} · ${aggregation}`}
-                        value={computeMetricSummary(statSummary, statTotal, sparklineValues)}
-                        change={computeMetricSummaryChange(
-                            statSummary,
-                            { total: statTotal, data: sparklineValues },
-                            undefined
+                    <div className="flex flex-col h-full">
+                        {anomalyBadge && (
+                            <div className="flex justify-end">
+                                <Tooltip
+                                    title={`Baseline ${humanFriendlyNumber(anomalyBadge.baselineMean)} → recent ${humanFriendlyNumber(
+                                        anomalyBadge.anomalyMean
+                                    )}${
+                                        anomalyBadge.onsetTime
+                                            ? `, onset ${dayjs(anomalyBadge.onsetTime).format('D MMM HH:mm')}`
+                                            : ''
+                                    }`}
+                                >
+                                    <LemonTag type="warning">
+                                        {anomalyBadge.direction === 'up' ? '▲' : '▼'} {anomalyBadge.percent}% vs
+                                        baseline
+                                    </LemonTag>
+                                </Tooltip>
+                            </div>
                         )}
-                        changeTooltip={getMetricChangeTooltip(statSummary, false, null)}
-                        changeSize="md"
-                        changeInline
-                        hoverChangeFromPreviousPoint
-                        data={sparklineValues}
-                        labels={sparklineLabels.map(renderLabel)}
-                        theme={chartTheme}
-                        sparklineFill
-                        sparklineHeight={140}
-                        formatValue={(value) => humanFriendlyNumber(value)}
-                        dataAttr="metrics-stat-value"
-                    />
+                        <MetricCard
+                            className="flex-1"
+                            title={metricName}
+                            restingSubtitle={`${METRIC_SUMMARY_LABELS[statSummary]} · ${aggregation}`}
+                            value={computeMetricSummary(statSummary, statTotal, sparklineValues)}
+                            change={computeMetricSummaryChange(
+                                statSummary,
+                                { total: statTotal, data: sparklineValues },
+                                undefined
+                            )}
+                            changeTooltip={getMetricChangeTooltip(statSummary, false, null)}
+                            changeSize="md"
+                            changeInline
+                            hoverChangeFromPreviousPoint
+                            data={sparklineValues}
+                            labels={sparklineLabels.map(renderLabel)}
+                            theme={chartTheme}
+                            sparklineFill
+                            sparklineHeight={140}
+                            formatValue={(value) => humanFriendlyNumber(value)}
+                            dataAttr="metrics-stat-value"
+                        />
+                    </div>
                 ) : hasResults ? (
                     <Sparkline
                         type="line"

@@ -6,8 +6,8 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { metricsQueryCreate } from 'products/metrics/frontend/generated/api'
-import type { _MetricSeriesApi } from 'products/metrics/frontend/generated/api.schemas'
+import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
+import type { _MetricAnomalyReportApi, _MetricSeriesApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import type { metricsViewerLogicType } from './metricsViewerLogicType'
 
@@ -21,6 +21,8 @@ export type MetricsViewerSeries = _MetricSeriesApi
 const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
 const DEFAULT_DATE_FROM = '-1h'
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, cancelling the previous one'
+// The anomaly badge characterizes the most recent slice of the selected window against the rest.
+const ANOMALY_WINDOW_FRACTION = 0.2
 
 const resolveDate = (value: string | null | undefined): string | null => {
     if (!value) {
@@ -106,6 +108,38 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 },
             },
         ],
+        anomalyReport: [
+            null as _MetricAnomalyReportApi | null,
+            {
+                clearAnomaly: () => null,
+                fetchAnomaly: async (_, breakpoint) => {
+                    const trimmedName = values.metricName.trim()
+                    const fromISO = resolveDate(values.dateFrom)
+                    if (!trimmedName || !fromISO) {
+                        return null
+                    }
+                    const toISO = resolveDate(values.dateTo) ?? dayjs().toISOString()
+                    const spanMs = dayjs(toISO).diff(dayjs(fromISO))
+                    if (spanMs <= 0) {
+                        return null
+                    }
+                    const anomalyFrom = dayjs(toISO)
+                        .subtract(spanMs * ANOMALY_WINDOW_FRACTION, 'ms')
+                        .toISOString()
+                    await breakpoint(300)
+                    const report = await metricsCharacterizeCreate(String(values.currentTeamId), {
+                        query: {
+                            metricName: trimmedName,
+                            aggregation: values.aggregation,
+                            anomalyFrom,
+                            anomalyTo: toISO,
+                        },
+                    })
+                    breakpoint()
+                    return report
+                },
+            },
+        ],
     })),
     selectors({
         hasMetricName: [(s) => [s.metricName], (metricName) => metricName.trim().length > 0],
@@ -124,5 +158,19 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // The stat card summarizes the per-bucket `sparklineValues` into one headline value;
         // `statTotal` is the grand total across buckets (the basis for the 'total' summary).
         statTotal: [(s) => [s.sparklineValues], (values: number[]) => values.reduce((sum, v) => sum + v, 0)],
+        // Display shape for the anomaly badge — null when there's no report or the metric is flat.
+        anomalyBadge: [
+            (s) => [s.anomalyReport],
+            (report: _MetricAnomalyReportApi | null) =>
+                report && report.direction !== 'flat'
+                    ? {
+                          direction: report.direction,
+                          percent: Math.abs(Math.round((report.change_ratio - 1) * 100)),
+                          baselineMean: report.baseline_mean,
+                          anomalyMean: report.anomaly_mean,
+                          onsetTime: report.onset_time,
+                      }
+                    : null,
+        ],
     }),
 ])
