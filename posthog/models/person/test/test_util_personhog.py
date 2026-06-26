@@ -12,10 +12,12 @@ from posthog.models.person.util import (
     _personhog_routed,
     _validate_uuids_via_personhog,
     get_person_by_pk_or_uuid,
+    get_person_uuids_by_distinct_ids,
     get_persons_mapped_by_distinct_id,
 )
-from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
+from posthog.test.persons import create_person
 
 # ── Personhog internal logic tests ──────────────────────────────────
 # These use the fake personhog client to exercise the real proto/converter pipeline.
@@ -334,42 +336,6 @@ class TestValidateUuidsViaPersonhog(SimpleTestCase):
             fake.assert_called("get_persons_by_uuids")
 
 
-class TestPersonsMappedByDistinctIdViaPersonhog(SimpleTestCase):
-    def test_returns_mapping(self):
-        with fake_personhog_client() as fake:
-            fake.add_person(
-                team_id=1,
-                person_id=42,
-                uuid="550e8400-e29b-41d4-a716-446655440000",
-                properties={"email": "test@example.com"},
-                distinct_ids=["did-1", "did-2"],
-            )
-
-            result = get_persons_mapped_by_distinct_id(1, ["did-1"])
-
-            assert "did-1" in result
-            assert result["did-1"].id == 42
-            assert result["did-1"].distinct_ids == ["did-1"]
-            fake.assert_called("get_persons_by_distinct_ids_in_team")
-            fake.assert_not_called("get_distinct_ids_for_persons")
-
-    def test_returns_empty_for_missing_distinct_ids(self):
-        with fake_personhog_client():
-            result = get_persons_mapped_by_distinct_id(1, ["nonexistent"])
-
-            assert result == {}
-
-    def test_cross_team_isolation(self):
-        with fake_personhog_client() as fake:
-            fake.add_person(
-                team_id=999, person_id=42, uuid="550e8400-e29b-41d4-a716-446655440042", distinct_ids=["did-1"]
-            )
-
-            result = get_persons_mapped_by_distinct_id(1, ["did-1"])
-
-            assert result == {}
-
-
 # ── Delegation tests ────────────────────────────────────────────────
 
 
@@ -444,10 +410,10 @@ class TestPersonhogRouted(SimpleTestCase):
         mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name="posthog-django")
 
 
-# ── Integration tests ──────────────────────────────────
+# ── get_persons_mapped_by_distinct_id tests ────────────
 
 
-class TestGetPersonsMappedByDistinctIdIntegration(PersonhogTestMixin, BaseTest):
+class TestGetPersonsMappedByDistinctId(PersonhogTestMixin, BaseTest):
     def test_single_person_single_distinct_id(self):
         person = self._seed_person(team=self.team, distinct_ids=["did-1"], properties={"email": "a@example.com"})
 
@@ -493,3 +459,77 @@ class TestGetPersonsMappedByDistinctIdIntegration(PersonhogTestMixin, BaseTest):
         result = get_persons_mapped_by_distinct_id(self.team.pk, ["shared_did"])
 
         assert result == {}
+
+
+# ── Public get_person_uuids_by_distinct_ids tests ─────────────────────
+
+
+class TestGetPersonUuidsByDistinctIds(BaseTest):
+    def _get_uuids(self, distinct_ids: list[str]) -> list[str]:
+        return get_person_uuids_by_distinct_ids(self.team.pk, distinct_ids)
+
+    def test_returns_uuids_for_matching_distinct_ids(self):
+        p1 = create_person(team=self.team, distinct_ids=["d1", "d2"])
+        p2 = create_person(team=self.team, distinct_ids=["d3"])
+
+        result = self._get_uuids(["d1", "d3"])
+
+        assert set(result) == {str(p1.uuid), str(p2.uuid)}
+        get_active_fake().assert_called("get_persons_by_distinct_ids_in_team")
+
+    def test_returns_empty_list_for_empty_input(self):
+        result = self._get_uuids([])
+
+        assert result == []
+        get_active_fake().assert_not_called("get_persons_by_distinct_ids_in_team")
+
+    def test_returns_empty_list_when_no_persons_match(self):
+        result = self._get_uuids(["nonexistent"])
+
+        assert result == []
+
+    def test_cross_team_isolation(self):
+        other_team = self.organization.teams.create(name="Other Team")
+        create_person(team=other_team, distinct_ids=["d1"])
+
+        result = self._get_uuids(["d1"])
+
+        assert result == []
+
+    def test_deduplicates_persons_with_multiple_distinct_ids(self):
+        p = create_person(team=self.team, distinct_ids=["d1", "d2", "d3"])
+
+        result = self._get_uuids(["d1", "d2", "d3"])
+
+        assert result == [str(p.uuid)]
+
+    def test_handles_mix_of_found_and_missing_distinct_ids(self):
+        p = create_person(team=self.team, distinct_ids=["exists"])
+
+        result = self._get_uuids(["exists", "missing1", "missing2"])
+
+        assert result == [str(p.uuid)]
+
+    def test_multiple_persons_each_with_single_distinct_id(self):
+        persons = [create_person(team=self.team, distinct_ids=[f"d{i}"]) for i in range(5)]
+
+        result = self._get_uuids([f"d{i}" for i in range(5)])
+
+        assert set(result) == {str(p.uuid) for p in persons}
+
+
+class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
+    """Verify the personhog path sends a UUID-only field mask."""
+
+    def test_sends_uuid_only_field_mask(self):
+        create_person(team=self.team, distinct_ids=["d1"])
+
+        get_person_uuids_by_distinct_ids(self.team.pk, ["d1"])
+
+        fake = get_active_fake()
+        calls = fake.assert_called("get_persons_by_distinct_ids_in_team", times=1)
+        mask = list(calls[0].request.read_options.field_mask)
+        assert "uuid" in mask
+        assert "id" in mask
+        assert "team_id" in mask
+        assert "properties" not in mask

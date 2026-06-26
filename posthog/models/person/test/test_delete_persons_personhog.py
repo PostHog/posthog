@@ -1,6 +1,6 @@
 """Tests for person deletion via personhog RPC.
 
-Covers routing and integration for:
+Covers routing and RPC behavior for:
 - delete_persons_from_postgres (API delete path)
 - _delete_persons_for_teams (team deletion path)
 """
@@ -78,25 +78,10 @@ class TestDeletePersonsForTeamsRouting(SimpleTestCase):
         mock_raw_delete_batch.assert_not_called()
 
 
-# ── Integration tests (real DB) ─────────────────────────────────────
+# ── RPC behavior tests (personhog fake with real test data) ─────────
 
 
-class TestDeletePersonsFromPostgresIntegration(BaseTest):
-    def test_personhog_path_calls_rpc_with_correct_args(self):
-        person = create_person(
-            team=self.team,
-            distinct_ids=["did-1", "did-2"],
-            properties={"email": "test@example.com"},
-        )
-
-        with fake_personhog_client() as fake:
-            delete_persons_from_postgres(self.team.pk, [person])
-
-            calls = fake.assert_called("delete_persons", times=1)
-            req = calls[0].request
-            assert req.team_id == self.team.pk
-            assert list(req.person_uuids) == [str(person.uuid)]
-
+class TestDeletePersonsFromPostgresRPC(BaseTest):
     def test_multiple_persons_deleted(self):
         p1 = create_person(team=self.team, distinct_ids=["a"])
         p2 = create_person(team=self.team, distinct_ids=["b"])
@@ -109,7 +94,7 @@ class TestDeletePersonsFromPostgresIntegration(BaseTest):
         assert get_person_by_distinct_id(self.team.pk, "b") is None
 
 
-class TestDeletePersonsForTeamsIntegration(BaseTest):
+class TestDeletePersonsForTeamsRPC(BaseTest):
     def test_personhog_path_calls_batch_rpc_per_team(self):
         other_team = self.organization.teams.create(name="Other Team")
         p1 = create_person(team=self.team, distinct_ids=["a"])

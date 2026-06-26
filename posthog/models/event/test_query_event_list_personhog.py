@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import BaseTest
 
 from posthog.models.event.query_event_list import parse_request_params
-from posthog.test.personhog_fake import get_active_fake
+from posthog.personhog_client.fake_client import get_active_fake
 from posthog.test.persons import create_person
 
 UUID_NONEXISTENT = "550e8400-e29b-41d4-a716-446655440000"

@@ -1471,8 +1471,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         When splitting, the new person should use version + 101 (e.g., version 101) to ensure
         ClickHouse sees the split person as more recent than the delete event.
         """
-        from posthog.models.person.util import delete_person as ch_delete_person
-
         # Create person A with UUID derived from the distinct_id (same UUID that split will use)
         person_a_uuid = uuidFromDistinctId(self.team.pk, "deleted_user")
         person_a = create_person(
@@ -1494,7 +1492,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # Delete person A (this creates a delete event with version 100 = 0 + 100)
-        ch_delete_person(person_a)
         delete_person(person_a)
 
         # Create person B with a different distinct_id (will also have version 0 by default)
@@ -1802,6 +1799,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_202_ACCEPTED
 
+        # Verify: personhog distinct_id version was bumped
+        resolved = get_person_by_distinct_id(self.team.pk, "distinct_id")
+        assert resolved is not None
+
         # Verify: CH distinct_id is reset
         ch_pdi = sync_execute(
             f"""
@@ -1827,6 +1828,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(ch_person), 1)
         self.assertEqual(ch_person[0][0], 0)  # is_deleted
         assert ch_person[0][1] > 105  # version beats deletion
+
+        # Verify: personhog person version was bumped so future plugin-server updates aren't ignored
+        person_after = get_person_by_uuid(self.team.pk, shared_uuid)
+        assert person_after is not None
+        assert person_after.version is not None and person_after.version > 105
 
     @mock.patch(
         f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",

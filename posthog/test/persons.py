@@ -82,7 +82,7 @@ def clear_persons_cache() -> None:
 
 
 def _get_active_fake():
-    from posthog.test.personhog_fake import _active_fake  # noqa: PLC0415
+    from posthog.personhog_client.fake_client import _active_fake  # noqa: PLC0415
 
     return _active_fake
 

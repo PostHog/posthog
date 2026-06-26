@@ -2,7 +2,7 @@ import os
 import json
 import base64
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -20,8 +20,12 @@ from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, GroupTypeMapping, Organization, Team, User
+from posthog.models import EventDefinition, Organization, Team, User
 from posthog.settings.utils import get_from_env
+
+if TYPE_CHECKING:
+    from posthog.models.group_type_mapping import GroupTypeMapping
+
 from posthog.utils import (
     PotentialSecurityProblemException,
     _build_flag_provider,
@@ -851,16 +855,9 @@ class TestFlatten(TestCase):
 
 
 def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping":
-    from posthog.person_db_router import persons_orm_blocked  # noqa: PLC0415
     from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping  # noqa: PLC0415
 
     instance = create_group_type_mapping(**kwargs)
-
-    if not persons_orm_blocked():
-        GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)  # nosemgrep: no-direct-persons-db-orm
-        instance.refresh_from_db()
-        return instance
-
     instance.created_at = None
     _seed_group_type_mapping_into_fake(instance)
     return instance

@@ -1,6 +1,6 @@
 """Tests for the undelete-repair version writes via personhog RPC.
 
-Covers the two persons-DB writes in the repair flow:
+Covers the two personhog RPC writes in the repair flow:
 - _update_distinct_id_in_postgres → SetPersonDistinctIdVersionFloor
 - _set_person_version_floor (used by _reset_person_in_clickhouse) → SetPersonVersionFloor
 """
@@ -13,7 +13,7 @@ from posthog.models.person.deletion import _set_person_version_floor, _update_di
 from posthog.personhog_client.fake_client import fake_personhog_client
 
 
-class TestUpdateDistinctIdInPostgresRouting(SimpleTestCase):
+class TestUpdateDistinctIdInPostgresRPC(SimpleTestCase):
     def test_personhog_path_returns_converted_person(self):
         person_uuid = str(uuid4())
         with fake_personhog_client() as fake:
@@ -44,7 +44,7 @@ class TestUpdateDistinctIdInPostgresRouting(SimpleTestCase):
         assert result is None
 
 
-class TestSetPersonVersionFloorRouting(SimpleTestCase):
+class TestSetPersonVersionFloorRPC(SimpleTestCase):
     def test_personhog_path_calls_rpc_with_floor(self):
         with fake_personhog_client() as fake:
             _set_person_version_floor(1, 42, 500)

@@ -67,7 +67,7 @@ def _activate_personhog_fake(request):
     if any(excluded in node_path for excluded in _PERSONS_DB_DIRECT_TEST_PATHS):
         yield
         return
-    from posthog.test.personhog_fake import activate_personhog_fake  # noqa: PLC0415, I001 — lazy import avoids connecting signals before Django is ready
+    from posthog.personhog_client.fake_client import activate_personhog_fake  # noqa: PLC0415, I001 — lazy import avoids connecting signals before Django is ready
 
     with activate_personhog_fake():
         yield
@@ -76,11 +76,8 @@ def _activate_personhog_fake(request):
 # Tests that operate on the persons DB directly (not as person-data consumers) and
 # so must NOT have the personhog fake / ORM block active.
 _PERSONS_DB_DIRECT_TEST_PATHS = (
-    "personhog_client",
     "sync_person_distinct_ids",
     "backfill_group_type_created_at",
-    "test_person_schema",
-    "test_person_override_model",
     "test_seed_customer_analytics_accounts",
     "management/commands/test/test_sync_persons_to_clickhouse",
     "ee/hogai/test/test_snapshot_loader",

@@ -11,7 +11,7 @@ from posthog.models.group_type_mapping import GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
-from posthog.test.personhog_fake import get_active_fake
+from posthog.personhog_client.fake_client import get_active_fake
 from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete

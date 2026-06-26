@@ -1,6 +1,6 @@
 """Tests for personless distinct ID deletion via personhog RPC.
 
-Covers routing and integration for _delete_personless_distinct_ids_for_teams
+Covers routing and RPC behavior for _delete_personless_distinct_ids_for_teams
 (team deletion path), which routes through delete_personless_distinct_ids_batch_for_team.
 """
 
@@ -34,7 +34,7 @@ class TestDeletePersonlessDistinctIdsForTeamsRouting(SimpleTestCase):
             assert fake.delete_personless_distinct_ids_batch_for_team.call_count == 3
 
 
-class TestDeletePersonlessDistinctIdsForTeamsIntegration(BaseTest):
+class TestDeletePersonlessDistinctIdsForTeamsRPC(BaseTest):
     def test_personhog_path_calls_batch_rpc_per_team(self):
         other_team = self.organization.teams.create(name="Other Team")
 
