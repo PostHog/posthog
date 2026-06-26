@@ -844,6 +844,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "Re-enter the secret" in str(res.json())
         obj = HogFunction.objects.get(id=function_id)
         assert obj.encrypted_inputs["apiKey"]["value"] == "I AM SECRET"
+        assert obj.inputs is not None
         assert obj.inputs["endpoint"]["value"] == "https://api.us.example.com"
 
     def test_can_change_hog_when_resupplying_secret(self, *args):
