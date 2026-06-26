@@ -8,10 +8,34 @@ import { percentage } from 'lib/utils/numbers'
 
 import type { CostSummary, HealthSummary } from '../lib/runHealth'
 import { HealthKpi, STATE_META } from './healthVerdict'
+import { RangeBar } from './RangeBar'
 import { formatCost } from './runTables'
 
 function formatDuration(seconds: number | null): string {
     return seconds == null ? '—' : humanFriendlyDuration(seconds, { maxUnits: 2 })
+}
+
+/** Duration spread as a compact range bar: the median is the fill, p95 the tick — "typically fast, with
+ *  a long tail" reads in one glance, where two separate p50/p95 numbers didn't. */
+function DurationRange({ median, p95 }: { median: number | null; p95: number | null }): JSX.Element {
+    // Scale a touch past p95 so its tick sits inside the bar rather than hard against the end.
+    const scale = p95 ? p95 * 1.25 : 0
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="text-xs text-tertiary">Duration p50 → p95</span>
+            <div className="flex items-center gap-2">
+                <RangeBar
+                    className="w-20"
+                    fraction={scale ? Math.min(1, (median ?? 0) / scale) : 0}
+                    tickFraction={scale ? p95! / scale : null}
+                    tooltip={`median ${formatDuration(median)} · p95 ${formatDuration(p95)}`}
+                />
+                <span className="text-xs whitespace-nowrap tabular-nums text-secondary">
+                    {formatDuration(median)} → {formatDuration(p95)}
+                </span>
+            </div>
+        </div>
+    )
 }
 
 interface WorkflowHealthHeaderProps {
@@ -101,7 +125,7 @@ export function WorkflowHealthHeader({ summary, cost, truncated, className }: Wo
                 />
                 <HealthKpi label="Failures" value={summary.failures.toLocaleString()} danger={summary.failures > 0} />
                 <HealthKpi label="Re-runs" value={summary.reruns.toLocaleString()} danger={summary.reruns > 0} />
-                <HealthKpi label="p95 duration" value={formatDuration(summary.p95Seconds)} />
+                <DurationRange median={summary.medianSeconds} p95={summary.p95Seconds} />
                 {hasCost && <HealthKpi label="CI cost" value={`≈ ${formatCost(cost?.estimatedCostUsd ?? null)}`} />}
             </div>
         </LemonCard>
