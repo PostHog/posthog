@@ -115,7 +115,7 @@ def _read_created_at(project_id: int, index: int) -> datetime | None:
         return row[0] if row else None
 
 
-@pytest.mark.django_db(transaction=True, databases=["default", "persons_db_writer", "persons_db_reader"])
+@pytest.mark.django_db(transaction=True)
 class TestPlanGroupTypeCreatedAtBackfillIntegration:
     @pytest.fixture(autouse=True)
     def setup(self, team, activity_environment):
@@ -252,7 +252,7 @@ class TestPlanGroupTypeCreatedAtBackfillIntegration:
         assert datetime.fromisoformat(result["updates"][0]["new_created_at"]) == datetime(2023, 3, 1, tzinfo=UTC)
 
 
-@pytest.mark.django_db(transaction=True, databases=["default", "persons_db_writer", "persons_db_reader"])
+@pytest.mark.django_db(transaction=True)
 class TestApplyGroupTypeCreatedAtBackfillIntegration:
     @pytest.fixture(autouse=True)
     def setup(self, team, activity_environment):

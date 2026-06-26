@@ -16,7 +16,6 @@ except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpat
 
 from django.conf import settings
 from django.core.management.commands.flush import Command as FlushCommand
-from django.db import connections
 
 from infi.clickhouse_orm import Database
 
@@ -240,11 +239,6 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     test_db_name = connection.settings_dict["NAME"]
     test_persons_db_name = test_db_name + "_persons"
 
-    # Update the persons database NAME to use the correct test database name
-    # The database configuration already exists from settings, we just need to update the NAME
-    settings.DATABASES["persons_db_writer"]["NAME"] = test_persons_db_name
-    settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
-
     # Point the off-ORM persons_db util (posthog/persons_db.py) at the test persons DB. It reads
     # only PERSONS_DB_{WRITER,READER}_URL from the environment, never Django settings. Derive the
     # URL from the DEFAULT connection's config (the persons DB lives on the same server, just a
@@ -365,21 +359,6 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
         terminalreporter.write_line(f"[flush-lock-guard] {flush_lock_guard.reports.pop(0)}", yellow=True)
 
 
-def _truncate_persons_db_tables(database: str) -> None:
-    conn = connections[database]
-    with conn.cursor() as cursor:
-        cursor.execute("""
-            SELECT tablename FROM pg_tables
-            WHERE schemaname = 'public'
-            AND tablename NOT LIKE 'pg_%'
-            AND tablename NOT LIKE '_sqlx_%'
-            AND tablename NOT LIKE '_persons_migrations'
-        """)
-        tables = [row[0] for row in cursor.fetchall()]
-        if tables:
-            cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
-
-
 def _patched_flush_handle(self, **options: Any) -> None:
     """
     Patched Django flush command for three reasons:
@@ -402,11 +381,8 @@ def _patched_flush_handle(self, **options: Any) -> None:
     """
     database = options["database"]
 
-    if database in ("persons_db_writer", "persons_db_reader"):
-        flush: Callable[[], None] = partial(_truncate_persons_db_tables, database)
-    else:
-        options["allow_cascade"] = True
-        flush = partial(_original_flush_handle, self, **options)
+    options["allow_cascade"] = True
+    flush: Callable[[], None] = partial(_original_flush_handle, self, **options)
 
     flush_lock_guard.flush_with_lock_guard(database, flush)
 
@@ -555,8 +531,8 @@ def pytest_configure(config):
     from django.test import TestCase, TransactionTestCase
 
     # Set default databases for Django test classes
-    TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
-    TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+    TestCase.databases = {"default"}
+    TransactionTestCase.databases = {"default"}
 
     if not config.pluginmanager.hasplugin("posthog-junit-timings"):
         config.pluginmanager.register(_JUnitTimingsPlugin(), "posthog-junit-timings")
