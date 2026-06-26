@@ -39,6 +39,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+# Default incremental overlap re-read window for Google Ads stats tables (the 12 schemas
+# carrying a `segments.date` filter). Google reports recent-day cost/conversion data as
+# provisional and keeps revising it for days after the fact (see "About data freshness":
+# https://support.google.com/google-ads/answer/2544985), so an incremental sync that only
+# re-fetches the newest day freezes each day at its first-imported, not-yet-final value.
+# Re-reading a 30-day trailing window each run lets those days catch up as Google finalizes
+# them; merge-by-primary-key makes the overlap idempotent. 30 days also covers the App-
+# campaign conversion attribution window for the conversion metrics in these tables. These
+# tables are small, so the extra re-read is negligible. Tunable; stays under the 60-day cap
+# enforced at the creation/update endpoints.
+GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
+
 
 @SourceRegistry.register
 class GoogleAdsSource(
@@ -122,6 +134,13 @@ class GoogleAdsSource(
                 ],
                 description=endpoint_config.description,
                 should_sync_default=endpoint_config.should_sync_default,
+                # Only the incremental stats tables (those with a segments.date filter) need the
+                # lookback; the full-refresh dimension tables re-read everything each run anyway.
+                default_incremental_lookback_seconds=(
+                    GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS
+                    if ads_incremental_fields.get(endpoint, None) is not None
+                    else None
+                ),
             )
             for endpoint, endpoint_config in google_ads_schemas.items()
         ]
