@@ -255,14 +255,14 @@ def org_quota_limited_until(
     summary = organization.usage.get(resource.value, {})
     if not summary:
         return None
-    usage = summary.get("usage", 0)
-    todays_usage = summary.get("todays_usage", 0)
+    usage = summary.get("usage") or 0
+    todays_usage = summary.get("todays_usage") or 0
     limit = summary.get("limit")
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
 
     if limit is None:
-        if quota_limiting_suspended_until or quota_limited_until:
+        if quota_limiting_suspended_until is not None or quota_limited_until is not None:
             report_organization_action(
                 organization,
                 "org_quota_limited_until",

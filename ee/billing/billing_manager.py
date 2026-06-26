@@ -50,7 +50,7 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
 
     for value in usage.values():
         if isinstance(value, dict) and (
-            value.get("quota_limited_until") or value.get("quota_limiting_suspended_until")
+            value.get("quota_limited_until") is not None or value.get("quota_limiting_suspended_until") is not None
         ):
             return True
 

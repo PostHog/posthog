@@ -2240,9 +2240,10 @@ class TestQuotaLimiting(BaseTest):
         self.organization.usage = {
             "events": {"usage": 0, "limit": 100, "todays_usage": 0},
             "recordings": {
-                "usage": 314,
+                # Legacy/partial usage blobs can store explicit JSON null counters.
+                "usage": None,
                 "limit": None,
-                "todays_usage": 32,
+                "todays_usage": None,
                 "quota_limited_until": score,
             },
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
