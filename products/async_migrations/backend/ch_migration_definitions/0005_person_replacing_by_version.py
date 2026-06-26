@@ -53,7 +53,9 @@ Constraints:
     roll everything back.
 """
 
-REDIS_HIGHWATERMARK_KEY = "products.async_migrations.backend.0005.highwatermark"
+# Persisted Redis key — must stay stable across code moves so an in-progress person
+# backfill on an upgraded instance resumes from its saved high-watermark.
+REDIS_HIGHWATERMARK_KEY = "posthog.async_migrations.0005.highwatermark"
 
 TEMPORARY_TABLE_NAME = f"{settings.CLICKHOUSE_DATABASE}.tmp_person_0005_person_replacing_by_version"
 TEMPORARY_PERSON_MV = f"{settings.CLICKHOUSE_DATABASE}.tmp_person_mv_0005_person_replacing_by_version"
