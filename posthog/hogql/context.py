@@ -124,6 +124,14 @@ class HogQLContext:
     # FieldType.get_child() can raise QueryError for restricted properties.
     restricted_properties: Optional[set[tuple[str, int]]] = None
 
+    # Cohort-gated events data retention: when set, the ClickHouse printer floors every events-table scan to
+    # now() - toIntervalMonth(this). Computed once per query in prepare_ast_for_printing; None means not enforced.
+    events_retention_months: Optional[int] = None
+    # Backend-only switch for the events-retention floor. Defaults on; server-side paths that must act on all rows
+    # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
+    # HogQLQueryModifier, so a query can't disable enforcement.
+    apply_events_retention_floor: bool = True
+
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id
