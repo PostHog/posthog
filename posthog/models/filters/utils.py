@@ -16,9 +16,11 @@ GroupTypeIndex = Literal[0, 1, 2, 3, 4]
 
 
 def earliest_timestamp_func(team_id: int):
-    from posthog.queries.util import get_earliest_timestamp
+    # Imported here to break a circular import: hogql_queries pulls in filter machinery.
+    from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_unfiltered  # noqa: PLC0415
+    from posthog.models.team import Team  # noqa: PLC0415
 
-    return get_earliest_timestamp(team_id)
+    return get_earliest_timestamp_unfiltered(Team.objects.get(pk=team_id))
 
 
 def get_filter(team, data: Optional[dict] = None, request: Optional[Request] = None):

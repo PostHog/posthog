@@ -21,6 +21,7 @@ import google.auth.exceptions
 import google.auth.transport.requests
 import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
+    Aborted,
     BadRequest,
     Forbidden,
     GatewayTimeout,
@@ -1220,7 +1221,7 @@ class BigQueryStorageConsumer(Consumer):
                 stream = self.stream or self.start_stream()
                 send = stream.send(req)
                 return send.result()
-            except ServiceUnavailable:
+            except (ServiceUnavailable, Aborted, InternalServerError):
                 attempt += 1
                 if attempt >= max_attempts:
                     raise
