@@ -1305,6 +1305,108 @@ validation skills from feedback_ (learning across PRs) is a much larger effort, 
 
 ---
 
+### 🚀 Stage 5 — production trigger: label → review → publish (design — not yet built)
+
+> **Status: design locked 2026-06-26 with the maintainer, NOT coded.** This is the **immediate next build** (it
+> precedes the Stage 4 loop) and **resolves Stage 4's deferred "triggers + publish identity" note**. The single-turn
+> `ReviewPRWorkflow` (Stage 3, step 15) is the body; this section is how it gets **started** in prod and how it
+> **publishes**. **Publish capability was validated 2026-06-26**: the GitHub App installation token posted a comment
+> to PR #64651 → HTTP 201, response header `X-Accepted-GitHub-Permissions: issues=write; pull_requests=write`. So
+> **no dedicated ReviewHog GitHub App is needed** — the existing integration's installation token can post reviews.
+
+**Goal (maintainer).** A maintainer adds the `reviewhog` label to a **non-fork** PR in `PostHog/posthog` → ReviewHog
+reviews it and **posts the review back to the PR**. v1 scope: **team 2** (the main team) in prod, `PostHog/posthog`
+only, **non-fork only**, **trigger + publish together** (not shadow-first).
+
+**Architecture — "Action calls the app" (Path A).** ReviewHog is **app-embedded** (Temporal workflow + the Tasks
+Modal sandbox + Postgres + DB-synced LLMA skills) — it **cannot** run on a GitHub Actions runner the way Stamphog
+does. So the label trigger is a **thin GitHub Action** that calls a **PostHog endpoint**, which starts the Temporal
+workflow; the workflow fetches + publishes **server-side** via the GitHub App installation token. Rejected:
+**Path B** (label → the existing `webhooks/github/pr` dispatcher → Temporal, no CI — diverges from the team's
+Stamphog model) and **Path C** (re-platform ReviewHog as a standalone CI script — discards the whole Temporal
+pipeline just built + hardened).
+
+```text
+reviewhog label on a non-fork PostHog/posthog PR
+  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog, head.repo==base.repo, non-bot, non-draft, concurrency)
+       └─ one authenticated curl  →  POST /<review_hog>/trigger  {repo, pr_number}
+            └─ endpoint: verify shared secret · validate repo allowlist · reject forks
+                 · resolve team-2 integration + run user · start_workflow (NON-blocking) · 202 + report_id
+                      └─ ReviewPRWorkflow (Stage 3, unchanged)  — fetch/publish via the App installation token
+                           └─ publish: head_sha-pinned COMMENT review posted to the PR
+```
+
+**Why ReviewHog ≠ Stamphog (and what we borrow).** Stamphog (`.github/workflows/pr-approval-agent.yml` +
+`tools/pr-approval-agent/`) is **self-contained in CI**: `uv run` a standalone Claude-Agent-SDK script on the runner;
+its own dedicated GitHub App (`GH_APP_PR_APPROVAL_AGENT_*`), its own `STAMPHOG_ANTHROPIC_API_KEY`, and `github.token`
+(github-actions[bot]) **for approvals** (App-bot approvals show `author_association: NONE`, so don't count toward
+branch protection). Its `POSTHOG_API_TOKEN` is an **analytics ingestion key** (`posthoganalytics.capture`) — **not**
+endpoint auth, so **Stamphog is no precedent for the trigger credential** (it never calls an app endpoint).
+**Borrowed:** the label trigger, the non-fork + bot-author gates, run-script-from-master untrusted-code safety,
+**`head_sha`-pinned review posting** (`commit_id=` avoids force-push drift), and the v2 label lifecycle. **Differs:**
+ReviewHog runs the LLM + fetch + publish **server-side**, only posts **COMMENT** reviews (no approve → no
+github-actions[bot] trick), and its Action carries **one** secret (no Anthropic / GitHub-app keys in CI).
+
+**Decisions locked (maintainer):**
+
+- **Auth = a plain shared secret, NOT PSAK.** The endpoint compares the `Authorization` header to a
+  `settings.REVIEWHOG_TRIGGER_TOKEN` — exactly how the existing GitHub webhook endpoint is gated by
+  `GITHUB_WEBHOOK_SECRET`. A PSAK + a new `review_hog:run` scope is over-engineered for a single-team dogfood (and the
+  "only `endpoint:read` exists today" is just because PSAK is new, not a reason). **Graduate to PSAK** only if this
+  becomes a multi-caller service needing per-key rotation / throttles / audit (`adding-project-secret-api-key-auth`).
+- **GitHub identity = the existing App installation token** — no dedicated ReviewHog GitHub App. Local =
+  `posthog-local-dev` app (Integration row `id=6`, **team 1**, installation `142734631`, `created_by=user 1`); prod =
+  the real `posthog` App **on team 2**. Resolved **server-side** via
+  `GitHubIntegration.first_for_team_repository(team_id, "PostHog/posthog").get_access_token()` — never a CI secret.
+- **Run `user_id` = resolved server-side** (team-2 `integration.created_by`, or a `REVIEWHOG_RUN_USER_ID` setting).
+  The sandbox fan-out needs a **real** PostHog user; the CI caller never carries or chooses it. (A new dedicated
+  service user is optional polish, not required.)
+- **Publish control = a per-run `publish: bool` input** that **replaces the global `PUBLISH_REVIEW_ENABLED` constant**
+  (`constants.py:11`, checked in `publish_review_activity`). The trigger endpoint sets `publish=true`; the eval CLI
+  sets `false`. Cleanly separates "real run posts" from "eval run doesn't" — no team-wide flag, no feature flag.
+- **The endpoint is the durable reusable interface** — the label Action is its **first** client; `publish` and the PR
+  ref are per-request, so other callers (manual, future automations) reuse it unchanged.
+
+**Build order (Phase 1 is internal — no GitHub posting — and safe to start first):**
+
+1. **Trigger-ready (internal):** add `start_review_pr_workflow` using `client.start_workflow` (non-blocking; **leave**
+   the blocking `execute_workflow` the eval CLI depends on, `client.py:45`); thread `publish: bool` as a per-run
+   workflow input (retire the global `PUBLISH_REVIEW_ENABLED`); swap the PAT → installation token **inside the fetch
+   activity** (it already has `team_id`), dropping the worker's `GITHUB_TOKEN` env dependency.
+2. **The endpoint** (shared-secret-gated, in a `review_hog` viewset + `routes.py` registration; run
+   `/improving-drf-endpoints` when building it): validate repo allowlist + reject forks, resolve team-2 integration +
+   run user, `start_workflow` with `publish=true`, return `202 + report_id`.
+3. **Publish for real:** swap the PAT → installation token in `_post_github_review` (`publish_review.py:202-214`) and
+   `PRFetcher` (`github_meta.py:228-235`); post the review **pinned to the reviewed `head_sha`**.
+4. **The Action:** `.github/workflows/review-hog.yml` (model on `pr-approval-agent.yml`).
+5. **Later (v2):** label lifecycle (strip-on-non-approval / keep-on-error / dismiss-stale-on-push) +
+   `synchronize` / `ready_for_review` events — copy Stamphog.
+
+**Prerequisites the maintainer provides (gate Phases 3–4):**
+
+- **Team 2 (prod) has the `posthog` GitHub App installed** for `PostHog/posthog` (so `first_for_team_repository`
+  resolves the publish token). ✅ locally satisfied on team 1 via `posthog-local-dev`.
+- **The shared secret** `REVIEWHOG_TRIGGER_TOKEN` — set in deploy config (`settings.REVIEWHOG_TRIGGER_TOKEN`) **and**
+  as a GitHub org secret of the same name (the only secret the Action carries).
+- **The run `user_id`** decided (`integration.created_by` on team 2, or a `REVIEWHOG_RUN_USER_ID` setting).
+
+**File pointers (where the work lands):**
+
+- `backend/temporal/client.py:45` — `execute_workflow` (blocking, CLI) → add `start_review_pr_workflow`
+  (`start_workflow`, non-blocking).
+- `backend/reviewer/constants.py:11` — `PUBLISH_REVIEW_ENABLED` → per-run `publish` input on the workflow / activities.
+- `backend/temporal/activities.py` — `publish_review_activity` (publish gate), the fetch activity (resolve the
+  installation token from the team's integration).
+- `backend/reviewer/tools/github_meta.py:228-235` (`PRFetcher`) and `backend/reviewer/tools/publish_review.py:202-214`
+  (`_post_github_review`) — `os.environ['GITHUB_TOKEN']` PyGithub → installation token.
+- `posthog/models/github_integration_base.py:1433` (`get_access_token`, auto-refresh) ·
+  `posthog/models/integration.py:2504` (`first_for_team_repository`) · `_github_api_post` at
+  `github_integration_base.py:324` (POST primitive if a new review-create helper is wanted).
+- **New:** `products/review_hog/backend/api/` viewset + `routes.py` `register_routes`; `.github/workflows/review-hog.yml`.
+- **Reference:** `.github/workflows/pr-approval-agent.yml` + `tools/pr-approval-agent/` (Stamphog).
+
+---
+
 ## Pipeline
 
 The orchestration lives in `backend/reviewer/run.py` (`async def main(pr_url, *, team_id, user_id)`), a flat
