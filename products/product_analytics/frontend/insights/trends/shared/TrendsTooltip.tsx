@@ -3,9 +3,7 @@ import { useCallback, useMemo } from 'react'
 
 import { DefaultTooltip, type TooltipContext } from '@posthog/quill-charts'
 
-import { dayjs } from 'lib/dayjs'
 import { percentage } from 'lib/utils/numbers'
-import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
     getDatumTitle,
@@ -156,11 +154,7 @@ export function TrendsTooltip({
         if (altTitle) {
             return getTooltipTitle([...datumByKey.values()], altTitle, formattedDate) ?? formattedDate
         }
-        if (date === undefined) {
-            return formattedDate
-        }
-        const weekdayPrefix = interval === 'day' ? `${dayjs.tz(date, timezone).format('dddd')}, ` : ''
-        return `${weekdayPrefix}${formattedDate} (${shortTimeZone(timezone)})`
+        return formattedDate
     }, [context.seriesData, datumByKey, interval, dateRange, timezone, weekStartDay, altTitle])
 
     const onRowClickEntry = useCallback(
