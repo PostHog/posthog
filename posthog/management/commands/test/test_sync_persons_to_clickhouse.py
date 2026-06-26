@@ -26,6 +26,8 @@ from posthog.models.person.sql import (
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.signals import mute_selected_signals
 
+pytestmark = pytest.mark.persons_db_direct
+
 
 @pytest.mark.ee
 class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):

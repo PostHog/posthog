@@ -58,28 +58,14 @@ def _activate_personhog_fake(request):
     persons-DB models raises (PersonsDBORMBlockedError) so nothing can silently
     fall back to the persons DB.
 
-    Excluded paths manage their own client or genuinely exercise the persons DB
-    layer itself (the gRPC client/gate's own tests, and the temporal/dagster/
-    schema tests that read & write the persons DB directly to verify sync,
-    backfill, and orphan-cleanup plumbing).  Those keep direct persons-DB access.
+    Tests that exercise the persons DB layer itself (sync, backfill, maintenance
+    commands) opt out with ``@pytest.mark.persons_db_direct`` — either on the
+    class/function or as a module-level ``pytestmark``.
     """
-    node_path = str(request.node.path)
-    if any(excluded in node_path for excluded in _PERSONS_DB_DIRECT_TEST_PATHS):
+    if request.node.get_closest_marker("persons_db_direct"):
         yield
         return
     from posthog.personhog_client.fake_client import activate_personhog_fake  # noqa: PLC0415, I001 — lazy import avoids connecting signals before Django is ready
 
     with activate_personhog_fake():
         yield
-
-
-# Tests that operate on the persons DB directly (not as person-data consumers) and
-# so must NOT have the personhog fake / ORM block active.
-_PERSONS_DB_DIRECT_TEST_PATHS = (
-    "sync_person_distinct_ids",
-    "backfill_group_type_created_at",
-    "test_seed_customer_analytics_accounts",
-    "management/commands/test/test_sync_persons_to_clickhouse",
-    "ee/hogai/test/test_snapshot_loader",
-    "management/commands/test/test_background_delete_model",
-)

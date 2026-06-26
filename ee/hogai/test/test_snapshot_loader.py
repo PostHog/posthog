@@ -4,6 +4,7 @@ import json
 from io import BytesIO
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -41,6 +42,8 @@ from ee.hogai.eval.schema import (
     TeamSnapshot,
     TeamTaxonomyItemSnapshot,
 )
+
+pytestmark = pytest.mark.persons_db_direct
 
 
 class TestSnapshotLoader(BaseTest):
