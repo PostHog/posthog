@@ -43,37 +43,24 @@ function renderExported(legendPosition?: string): HTMLElement {
 }
 
 describe('ExportedInsight legend position', () => {
-    it('places a vertical legend after the chart when position is unset (defaults to right)', () => {
-        const container = renderExported()
+    // position → orientation ('true' = horizontal, for top/bottom) and whether the legend sits
+    // before the chart in document order (top/left) vs after it (bottom/right). Covers all four
+    // positions plus the unset default, which falls back to 'right'.
+    it.each([
+        ['unset (defaults to right)', undefined, 'false', 'after'],
+        ['right', 'right', 'false', 'after'],
+        ['left', 'left', 'false', 'before'],
+        ['bottom', 'bottom', 'true', 'after'],
+        ['top', 'top', 'true', 'before'],
+    ])('places the legend correctly when position is %s', (_desc, position, horizontal, order) => {
+        const container = renderExported(position)
 
         const chart = container.querySelector('[data-testid="chart"]')!
         const legend = container.querySelector('[data-testid="legend"]')!
         expect(chart).not.toBeNull()
         expect(legend).not.toBeNull()
-        // vertical (side) legend
-        expect(legend.getAttribute('data-horizontal')).toBe('false')
-        // legend comes after the chart in document order -> right side
-        expect(chart.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    })
-
-    it('places a horizontal legend below the chart when position is bottom', () => {
-        const container = renderExported('bottom')
-
-        const chart = container.querySelector('[data-testid="chart"]')!
-        const legend = container.querySelector('[data-testid="legend"]')!
-        // horizontal legend
-        expect(legend.getAttribute('data-horizontal')).toBe('true')
-        // legend after the chart -> below
-        expect(chart.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    })
-
-    it('places a horizontal legend before the chart when position is top', () => {
-        const container = renderExported('top')
-
-        const chart = container.querySelector('[data-testid="chart"]')!
-        const legend = container.querySelector('[data-testid="legend"]')!
-        expect(legend.getAttribute('data-horizontal')).toBe('true')
-        // legend before the chart -> above
-        expect(chart.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+        expect(legend.getAttribute('data-horizontal')).toBe(horizontal)
+        const relation = order === 'before' ? Node.DOCUMENT_POSITION_PRECEDING : Node.DOCUMENT_POSITION_FOLLOWING
+        expect(chart.compareDocumentPosition(legend) & relation).toBeTruthy()
     })
 })
