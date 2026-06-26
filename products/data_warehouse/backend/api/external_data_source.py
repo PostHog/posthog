@@ -2712,22 +2712,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         `dwh-custom-source-ai-builder` flag, and requires the org to have approved AI data processing,
         since the docs are sent to the LLM gateway.
         """
-        # Feature gate first, so the (paid) AI path stays hidden from orgs not in the rollout.
+        # Gate on access (flag) then consent before validating input shape, so a caller without the
+        # rollout or AI-data-processing opt-in is turned away before learning the request schema.
         if not is_custom_source_ai_builder_enabled_for_team(self.team):
             return Response(
                 status=status.HTTP_404_NOT_FOUND,
                 data={"message": "AI manifest drafting is not enabled for this organization."},
             )
 
-        serializer = DraftCustomManifestRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
         if self.team.organization.is_ai_data_processing_approved is not True:
             return Response(
                 status=status.HTTP_403_FORBIDDEN,
                 data={"message": "Enable AI data processing for this organization to use AI manifest drafting."},
             )
+
+        serializer = DraftCustomManifestRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
         docs_text = (data.get("docs_text") or "").strip()
         if not docs_text:
