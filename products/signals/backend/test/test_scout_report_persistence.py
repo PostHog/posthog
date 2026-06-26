@@ -214,18 +214,68 @@ class TestScoutReportPersistence(BaseTest):
     def test_soft_delete_re_emits_tombstone_preserving_id_and_timestamp(self) -> None:
         # Soft-delete is a re-emit of the same document_id with metadata.deleted=True; the original
         # timestamp must be preserved so the tombstone lands in the same ReplacingMergeTree partition
-        # and supersedes the live row rather than adding a sibling.
+        # and supersedes the live row rather than adding a sibling. The target report must be one the
+        # team owns (team-scoped fail-closed), so author a real report first.
+        report = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.system(),
+        )
+        document_id = report.signal_document_ids[0]
+        self.emit_mock.reset_mock()
+
         ts = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
         soft_delete_scout_signal(
             team_id=self.team.id,
-            report_id="rep-1",
-            document_id="doc-1",
+            report_id=report.report_id,
+            document_id=document_id,
             description="p99 doubled on /checkout",
             timestamp=ts,
             source_id="obs-1",
         )
         kwargs = self.emit_mock.call_args.kwargs
-        assert kwargs["document_id"] == "doc-1"
+        assert kwargs["document_id"] == document_id
         assert kwargs["timestamp"] == ts
         assert kwargs["metadata"]["deleted"] is True
-        assert kwargs["metadata"]["report_id"] == "rep-1"
+        assert kwargs["metadata"]["report_id"] == report.report_id
+
+    def test_create_rejects_duplicate_supplied_document_ids(self) -> None:
+        # Two backing signals sharing a document_id would collapse in the ReplacingMergeTree, leaving
+        # the report claiming more evidence than reads can resolve — reject at validation time.
+        with pytest.raises(InvalidScoutReportError):
+            create_scout_report(
+                team_id=self.team.id,
+                title="t",
+                summary="s",
+                signals=[
+                    ScoutReportSignal(description="a", source_id="obs-1", document_id="dup"),
+                    ScoutReportSignal(description="b", source_id="obs-2", document_id="dup"),
+                ],
+                attribution=ArtefactAttribution.system(),
+            )
+
+    def test_soft_delete_rejects_report_another_team_owns(self) -> None:
+        # Fail-closed: a report_id the team doesn't own must raise before any tombstone is emitted,
+        # so a foreign report_id + known document_id can't soft-delete another tenant's signal.
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other"), name="other")
+        with team_scope(other_team.id):
+            foreign = create_scout_report(
+                team_id=other_team.id,
+                title="Other team report",
+                summary="Belongs to a different tenant.",
+                signals=[ScoutReportSignal(description="obs", source_id="obs-x", weight=1.0)],
+                attribution=ArtefactAttribution.system(),
+            )
+        self.emit_mock.reset_mock()
+        with pytest.raises(InvalidScoutReportError):
+            soft_delete_scout_signal(
+                team_id=self.team.id,
+                report_id=foreign.report_id,
+                document_id=foreign.signal_document_ids[0],
+                description="obs",
+                timestamp=datetime(2026, 6, 1, 12, 0, tzinfo=UTC),
+                source_id="obs-x",
+            )
+        self.emit_mock.assert_not_called()

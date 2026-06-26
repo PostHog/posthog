@@ -54,6 +54,25 @@ def resolve_authored_report_status(*, safe: bool, actionability: ActionabilityCh
             return SignalReport.Status.PENDING_INPUT
         case ActionabilityChoice.NOT_ACTIONABLE:
             return SignalReport.Status.SUPPRESSED
+        case _:
+            raise ValueError(f"unhandled actionability choice: {actionability}")
+
+
+def _report_content_signal(title: str, summary: str) -> SignalData:
+    """Wrap the authored `title` + `summary` as a `SignalData` so the safety judge evaluates the exact
+    prose that will surface (and feed autostart), not just the backing evidence. Prompt-injection can
+    land in the report body itself while the evidence descriptions look benign — this makes the judge
+    see the report text too, so an unsafe title/summary suppresses the report."""
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content=f"{title}\n\n{summary}",
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id="report_content",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
 
 
 def _to_signal_data(signals: list[ScoutReportSignal]) -> list[SignalData]:
@@ -76,15 +95,20 @@ def _to_signal_data(signals: list[ScoutReportSignal]) -> list[SignalData]:
 async def judge_scout_report(
     *,
     team_id: int,
+    title: str,
+    summary: str,
     signals: list[ScoutReportSignal],
     actionability: ActionabilityAssessment,
 ) -> ScoutReportJudgement:
-    """Run the safety judge on the authored report's signals and resolve the birth status.
+    """Run the safety judge on the authored report and resolve the birth status.
 
-    The safety judge is a plain LLM call (`judge_report_safety`) — no Temporal workflow, no sandbox —
-    so this runs inline on whatever worker is authoring the report.
+    The judge sees the authored `title`/`summary` *and* the backing observations — so prompt-injection
+    in the report prose itself (not just the evidence) is caught before the report can surface or feed
+    autostart. The safety judge is a plain LLM call (`judge_report_safety`) — no Temporal workflow, no
+    sandbox — so this runs inline on whatever worker is authoring the report.
     """
-    safety_response = await judge_report_safety(team_id=team_id, signals=_to_signal_data(signals))
+    safety_input = [_report_content_signal(title, summary), *_to_signal_data(signals)]
+    safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)
     safety = SafetyJudgment(
         choice=safety_response.choice,
         explanation=safety_response.explanation if not safety_response.choice else None,

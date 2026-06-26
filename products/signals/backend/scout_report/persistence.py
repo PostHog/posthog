@@ -108,6 +108,7 @@ def create_scout_report(
     repo_selection: RepoSelectionResult | None = None,
     priority: PriorityAssessment | None = None,
     suggested_reviewers: SuggestedReviewers | None = None,
+    emit_signals: bool = True,
     run: SignalScoutRun | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
@@ -130,8 +131,20 @@ def create_scout_report(
     open a draft PR — the autostart hook itself is fired by the caller *after* this returns (never
     in-txn, since it spawns a Task), so the `suggested_reviewers` append opts out of the model's
     autostart re-evaluation hook, mirroring `create_custom_agent_ready_report`.
+
+    `emit_signals` gates whether the backing observations are written to `document_embeddings`. It
+    defaults to True; callers pass False for a report the safety judge marked unsafe (born SUPPRESSED)
+    so the adversarial-looking descriptions are never indexed — an unsafe report's signals must not
+    become semantic-search candidates or matching context for unrelated signals, mirroring how the
+    pipeline buffer drops unsafe signals before grouping. The report row still records the authored
+    `signal_count`/`total_weight`; it just stays invisible with no indexed evidence.
     """
     _validate_create_inputs(title, summary, signals)
+    # Defense-in-depth: refuse to author against a run another team owns, so the tally write below
+    # can't corrupt a foreign team's `emitted_report_ids`. The harness tool already gates this with
+    # `_assert_team_owns_run`; this guards a future direct caller that bypasses it (mirrors `emit`).
+    if run is not None and run.team_id != team_id:
+        raise RuntimeError(f"create_scout_report: team {team_id} does not own run {run.id} (team {run.team_id})")
 
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
@@ -188,10 +201,12 @@ def create_scout_report(
                 reevaluate_autostart=False,
             )
 
-    # Committed: now emit the backing signals. Sequential (not on_commit) so the call is observable
-    # and so a Kafka failure surfaces to the caller rather than being swallowed by a commit hook.
-    for signal, document_id in zip(signals, document_ids):
-        _emit_bound_signal(team_id=team_id, report_id=report_id, signal=signal, document_id=document_id)
+    # Committed: now emit the backing signals (unless suppressed-unsafe — see `emit_signals`).
+    # Sequential (not on_commit) so the call is observable and so a Kafka failure surfaces to the
+    # caller rather than being swallowed by a commit hook.
+    if emit_signals:
+        for signal, document_id in zip(signals, document_ids):
+            _emit_bound_signal(team_id=team_id, report_id=report_id, signal=signal, document_id=document_id)
 
     if run is not None:
         _record_report_emit(run_id=run.id, report_id=report_id)
@@ -214,15 +229,23 @@ def update_scout_report(
     report_id: str,
     title: str | None = None,
     summary: str | None = None,
+    attribution: ArtefactAttribution | None = None,
+    author: str | None = None,
 ) -> list[str]:
     """Rewrite an existing report's `title`/`summary` in place (the `edit_report` content path).
 
     Team-scoped fail-closed: a `report_id` the team doesn't own raises, never silently no-ops. Returns
     the modified field names. Title/summary edits are best-effort authorship — the pipeline may later
     re-research and overwrite them (decision #6); that is documented in the scout-facing contract.
+
+    When `attribution` is supplied and the content actually changes, an audit note is appended to the
+    report's work log recording who rewrote what — `edit_report` can target ANY inbox report (pipeline-
+    authored included), so a core-content rewrite must leave a durable, attributable trail, not just a
+    silent field mutation.
     """
     if title is None and summary is None:
         return []
+    _validate_report_id(report_id)
     _validate_optional_text("title", title)
     _validate_optional_text("summary", summary)
 
@@ -233,6 +256,13 @@ def update_scout_report(
         updated_fields = report.update_authored_content(title=title, summary=summary)
         if updated_fields:
             report.save(update_fields=updated_fields)
+            if attribution is not None:
+                SignalReportArtefact.add_log(
+                    team_id=team_id,
+                    report_id=report_id,
+                    content=NoteArtefact(note=_content_edit_note(updated_fields), author=author),
+                    attribution=attribution,
+                )
 
     logger.info(
         "signals_scout.edit_report: content updated",
@@ -258,6 +288,7 @@ def append_report_note(
     """
     if not note or not note.strip():
         raise InvalidScoutReportError("note must not be empty")
+    _validate_report_id(report_id)
     with transaction.atomic():
         # Existence is the team-scoped gate; the artefact append itself is keyed by report_id.
         if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
@@ -289,7 +320,14 @@ def soft_delete_scout_signal(
     later `inserted_at` supersedes the live row. The original `timestamp` is preserved (the table
     partitions on it) so the tombstone lands in the same partition as the row it replaces — matching
     how the grouping pipeline soft-deletes stale signals on a deleted report.
+
+    Team-scoped fail-closed, like the other edit paths: validate the `report_id` and confirm the team
+    owns it before emitting the tombstone, so a caller with a foreign `report_id` + known `document_id`
+    can't soft-delete another tenant's backing signal.
     """
+    _validate_report_id(report_id)
+    if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+        raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
     metadata = _signal_metadata(report_id=report_id, source_id=source_id, weight=weight, extra=extra)
     metadata["deleted"] = True
     emit_embedding_request(
@@ -387,10 +425,30 @@ def _validate_create_inputs(title: str, summary: str, signals: Sequence[ScoutRep
     for signal in signals:
         if not signal.description or not signal.description.strip():
             raise InvalidScoutReportError("every backing signal must have a non-empty description")
-        if not 0.0 <= signal.weight:
+        if signal.weight < 0.0:
             raise InvalidScoutReportError(f"signal weight must be non-negative, got {signal.weight}")
+    # Reject duplicate caller-supplied `document_id`s. The embeddings table is a ReplacingMergeTree
+    # keyed on `document_id`, so two rows sharing one id would collapse to one — the report would claim
+    # `signal_count=N` while a read resolves fewer. Unset ids are generated fresh and never collide.
+    supplied_ids = [s.document_id for s in signals if s.document_id is not None]
+    if len(supplied_ids) != len(set(supplied_ids)):
+        raise InvalidScoutReportError("backing signals must have unique document_ids")
 
 
 def _validate_optional_text(field_name: str, value: str | None) -> None:
     if value is not None and not value.strip():
         raise InvalidScoutReportError(f"{field_name} must not be empty when provided")
+
+
+def _content_edit_note(updated_fields: list[str]) -> str:
+    return f"Edited report {' and '.join(updated_fields)} via edit_report."
+
+
+def _validate_report_id(report_id: str) -> None:
+    """Reject a malformed `report_id` at the service boundary with a caller error, so the later
+    `id=report_id` filter doesn't raise Django's UUID `ValidationError` as an uncaught 500. Covers
+    both the DRF path (CharField) and the async Temporal path, which don't go through a UUID field."""
+    try:
+        uuid.UUID(str(report_id))
+    except (ValueError, AttributeError, TypeError):
+        raise InvalidScoutReportError(f"report_id is not a valid UUID: {report_id!r}")
