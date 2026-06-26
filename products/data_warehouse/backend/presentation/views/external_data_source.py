@@ -96,6 +96,11 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
 )
 from products.data_warehouse.backend.presentation.views.public_source_configs import build_source_configs
 from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
+from products.warehouse_sources.backend.facade.api import (
+    mysql_columns_to_dwh_columns,
+    postgres_columns_to_dwh_columns,
+    validate_source_prefix,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -142,11 +147,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
-from products.warehouse_sources.backend.models.util import (
-    mysql_columns_to_dwh_columns,
-    postgres_columns_to_dwh_columns,
-    validate_source_prefix,
-)
 
 logger = structlog.get_logger(__name__)
 
