@@ -690,18 +690,6 @@ class ExperimentQueryBuilder:
         """
         return self._funnel_query_builder().build_funnel_aggregation_expr()
 
-    def _build_uuid_to_session_map(self) -> ast.Expr:
-        """
-        Creates a map from event UUID to session ID for funnel metrics.
-        """
-        return self._funnel_query_builder().build_uuid_to_session_map()
-
-    def _build_uuid_to_timestamp_map(self) -> ast.Expr:
-        """
-        Creates a map from event UUID to timestamp for funnel metrics.
-        """
-        return self._funnel_query_builder().build_uuid_to_timestamp_map()
-
     def _has_datawarehouse_steps(self) -> bool:
         """
         Check if funnel metric has any datawarehouse steps.
@@ -800,18 +788,6 @@ class ExperimentQueryBuilder:
         Funnel aggregation for the optimized path. References base_events instead of metric_events.
         """
         return self._funnel_query_builder().build_funnel_aggregation_expr_optimized()
-
-    def _build_uuid_to_session_map_optimized(self) -> ast.Expr:
-        """
-        UUID-to-session map for the optimized path. References base_events columns.
-        """
-        return self._funnel_query_builder().build_uuid_to_session_map_optimized()
-
-    def _build_uuid_to_timestamp_map_optimized(self) -> ast.Expr:
-        """
-        UUID-to-timestamp map for the optimized path. References base_events columns.
-        """
-        return self._funnel_query_builder().build_uuid_to_timestamp_map_optimized()
 
     def _build_maturity_having_clause_optimized(self) -> Optional[ast.Expr]:
         """
