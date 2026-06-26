@@ -45,6 +45,13 @@ class TestWarehouseColumnStatistics(APIBaseTest):
         assert results[0]["null_fraction"] == 0.05
         assert results[0]["min_value"] == "1"
 
+    def test_invalid_table_id_returns_empty_not_500(self):
+        # A malformed table_id must not 500 (ValueError from the UUID cast) — it should filter to nothing.
+        self._make_stat(self.table, "amount", row_count=1)
+        response = self.client.get(self._url("?table_id=not-a-uuid"))
+        assert response.status_code == 200, response.json()
+        assert response.json()["results"] == []
+
     def test_read_only_rejects_writes(self):
         # Statistics are system-owned: the endpoint must never accept create/update/delete.
         stat = self._make_stat(self.table, "amount", row_count=1)

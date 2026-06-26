@@ -133,8 +133,10 @@ def _aggregate_add_action_stats(add_actions: "pa.Table", columns: dict[str, Any]
     for name, definition in (columns or {}).items():
         null_key, min_key, max_key = f"null_count.{name}", f"min.{name}", f"max.{name}"
 
+        # `null_count = None` (unknown) when the log carried no per-file null counts — either the key is
+        # absent or every file's value is None. Mirrors the min/max guard below; a real zero stays 0.
         null_values = [v for v in data.get(null_key, []) if v is not None] if null_key in data else []
-        null_count = sum(null_values) if null_key in data else None
+        null_count = sum(null_values) if null_values else None
 
         mins = [v for v in data.get(min_key, []) if v is not None] if min_key in data else []
         maxs = [v for v in data.get(max_key, []) if v is not None] if max_key in data else []

@@ -73,6 +73,18 @@ class TestAggregateAddActionStats:
         assert stats["x"].min_value == "4"
         assert stats["x"].max_value == "7"
 
+    def test_null_count_unknown_when_all_per_file_values_are_none(self) -> None:
+        # The log carries the null_count key but every file's value is None (missing stats). That's
+        # "unknown", not "zero nulls" — returning 0 would mislead the agent into "no nulls".
+        add_actions = pa.table({"num_records": [5, 5], "null_count.x": [None, None], "min.x": [1, 2]})
+        _, stats = _aggregate_add_action_stats(add_actions, {"x": "Int64"})
+        assert stats["x"].null_count is None
+
+    def test_real_zero_null_count_is_preserved(self) -> None:
+        add_actions = pa.table({"num_records": [5, 5], "null_count.x": [0, 0]})
+        _, stats = _aggregate_add_action_stats(add_actions, {"x": "Int64"})
+        assert stats["x"].null_count == 0
+
     @pytest.mark.parametrize(
         "definition,expected_type",
         [

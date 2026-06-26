@@ -1,3 +1,4 @@
+import uuid
 from typing import Any
 
 from drf_spectacular.types import OpenApiTypes
@@ -112,5 +113,11 @@ class WarehouseColumnStatisticsViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnly
         queryset = queryset.filter(table__in=accessible_tables)
         table_id = self.request.query_params.get("table_id")
         if table_id:
+            # Guard the UUID cast: a malformed table_id would otherwise raise ValueError deep in the ORM
+            # and surface as a 500. Treat an unparseable id as "no such table" (empty result).
+            try:
+                uuid.UUID(table_id)
+            except ValueError:
+                return queryset.none()
             queryset = queryset.filter(table_id=table_id)
         return queryset.order_by(self.ordering)
