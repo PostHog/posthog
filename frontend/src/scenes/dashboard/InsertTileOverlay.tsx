@@ -151,7 +151,6 @@ function InsertionStrip({
                         type="primary"
                         icon={<IconPlusSmall />}
                         data-attr="dashboard-inline-add-tile"
-                        tooltip="Add a tile here"
                     />
                 </LemonMenu>
             </div>
