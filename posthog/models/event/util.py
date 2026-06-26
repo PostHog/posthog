@@ -105,7 +105,10 @@ def format_clickhouse_timestamp(
 
 def _resolve_person_for_bulk_event(team_id: int, distinct_id: str) -> Optional[Person]:
     """Resolve the person for a test event by distinct_id via personhog."""
-    return get_person_by_distinct_id(int(team_id), str(distinct_id))
+    try:
+        return get_person_by_distinct_id(int(team_id), str(distinct_id))
+    except Exception:
+        return None
 
 
 def bulk_create_events(
