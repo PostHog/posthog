@@ -7193,8 +7193,10 @@ SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
     ("startsWith", "startsWith('a', 'b')", "STARTSWITH(%(hogql_val_0)s, %(hogql_val_1)s)"),
     ("now", "now()", "CURRENT_TIMESTAMP()"),
     ("pow", "pow(2, 3)", "POWER(2, 3)"),
+    # count() means "count all rows"; Snowflake rejects a bare COUNT(), so emit COUNT(*).
+    ("count_star", "count()", "count(*)"),
+    ("count_expr", "count(event)", 'count(events."event")'),
     # Passthrough (valid Snowflake verbatim)
-    ("count", "count()", "count()"),
     ("avg", "avg(1)", "avg(1)"),
     ("coalesce", "coalesce(1, 2)", "coalesce(1, 2)"),
     ("power", "power(2, 3)", "power(2, 3)"),

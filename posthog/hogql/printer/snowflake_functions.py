@@ -154,6 +154,12 @@ def _make_agg_if_handler(snowflake_fn: str) -> Callable[[list[str]], str]:
     return handler
 
 
+def _handle_count(args: list[str]) -> str:
+    # HogQL's argless count() means "count all rows", but Snowflake rejects a bare COUNT() —
+    # it must be COUNT(*). count(expr) passes through unchanged.
+    return "count(*)" if not args else f"count({', '.join(args)})"
+
+
 def _handle_count_if(args: list[str]) -> str:
     if len(args) == 1:
         return f"COUNT_IF({args[0]})"
@@ -265,6 +271,7 @@ SNOWFLAKE_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     # Aggregation
     "uniq": _handle_uniq,
     "uniqExact": _handle_uniq,
+    "count": _handle_count,
     "countIf": _handle_count_if,
     "sumIf": _make_agg_if_handler("SUM"),
     "avgIf": _make_agg_if_handler("AVG"),
@@ -281,7 +288,6 @@ SNOWFLAKE_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
 SNOWFLAKE_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(
     {
         # Aggregates
-        "count",
         "sum",
         "avg",
         "min",
