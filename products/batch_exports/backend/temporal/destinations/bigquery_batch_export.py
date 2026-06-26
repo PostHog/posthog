@@ -120,16 +120,7 @@ def _cast_to_lossless_timestamp(arr: pa.Array, *, unit: typing.Literal["s", "us"
 
 def _cast_as_type(arr: pa.Array, *, type: pa.DataType) -> pa.Array:
     """Wrapper around an array's cast."""
-    return arr.cast(type)
-
-
-def _view_as_type(arr: pa.Array, *, type: pa.DataType) -> pa.Array:
-    """View provided array as a different type.
-
-    View works like a zero-copy 'cast' but requires the types to have the same
-    memory layout and does not do any safety checks.
-    """
-    return arr.view(type)
+    return arr.cast(type, safe=True)
 
 
 FileFormat = typing.Literal["Parquet", "JSONLines"]
@@ -1275,9 +1266,8 @@ async def run_consumers(
                             table=table,
                             extra_compatible_types={
                                 # BigQuery Storage requires INTEGER columns be signed
-                                # WARNING: This could cause an overflow, but our uint columns are, for now, small enough values
-                                (pa.uint64(), pa.int64()): functools.partial(_view_as_type, type=pa.int64()),
-                                # uint8 is 1 byte and int64 is 8 bytes so we can't just view
+                                # Cast is safe and will throw on overflow.
+                                (pa.uint64(), pa.int64()): functools.partial(_cast_as_type, type=pa.int64()),
                                 (pa.uint8(), pa.int64()): functools.partial(_cast_as_type, type=pa.int64()),
                                 # BigQuery Storage requires that TIMESTAMP columns be 'us'
                                 (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
@@ -1600,9 +1590,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                     table=bigquery_consumer_table,
                                     extra_compatible_types={
                                         # BigQuery Storage requires INTEGER columns be signed
-                                        # WARNING: This could cause an overflow, but our uint columns are, for now, small enough values
-                                        (pa.uint64(), pa.int64()): functools.partial(_view_as_type, type=pa.int64()),
-                                        # uint8 is 1 byte and int64 is 8 bytes so we can't just view
+                                        # Cast is safe and will throw on overflow.
+                                        (pa.uint64(), pa.int64()): functools.partial(_cast_as_type, type=pa.int64()),
                                         (pa.uint8(), pa.int64()): functools.partial(_cast_as_type, type=pa.int64()),
                                         # BigQuery Storage requires that TIMESTAMP columns be 'us'
                                         (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
