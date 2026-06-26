@@ -1156,13 +1156,6 @@ class CDCExtractActivity:
                 self._create_failure_visibility_jobs(friendly)
             except Exception:
                 self.log.warning("cdc_failure_visibility_jobs_failed", exc_info=True)
-        # A missing slot/publication won't recover on retry, so don't just fail this run — move the
-        # source to the broken state and pause the schedule (mark_cdc_broken also records the
-        # cdc_broken marker the UI/health check read). Otherwise the schedule keeps firing hourly
-        # against a resource that is gone — the same zombie the lag safety net produces.
-        if info.category in (CDCErrorCategory.SLOT_MISSING, CDCErrorCategory.PUBLICATION_MISSING):
-            assert self.source is not None
-            mark_cdc_broken(self.source, info.category.value, friendly)
         self._emit_run_duration("failed")
         return info
 
