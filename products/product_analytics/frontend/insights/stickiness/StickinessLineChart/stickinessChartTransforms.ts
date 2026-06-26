@@ -7,6 +7,7 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import { ChartDisplayType } from '~/types'
 
 import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../../trends/shared/compareDimming'
+import { humanizeSeriesLabel } from '../../trends/shared/humanizeSeriesLabel'
 
 // Shape both IndexedTrendResult (kea) and StickinessResultItem (MCP) satisfy.
 export interface StickinessResultLike {
@@ -32,6 +33,9 @@ export interface BuildStickinessSeriesOpts<R extends StickinessResultLike, M = u
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
+    // Resolves the legend/series label (custom name + breakdown formatting). Hosts that lack the
+    // breakdown/cohort deps (e.g. MCP) omit it and fall back to the raw humanized event name.
+    getLabel?: (r: R) => string
 }
 
 /** Convert raw counts to percentages of `count`. Mirrors the legacy `showPercentView`
@@ -56,7 +60,7 @@ export function buildStickinessMainSeries<R extends StickinessResultLike, M = un
     const color = r.compare_label === 'previous' ? dimHexColor(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
     return {
         key: String(r.id),
-        label: r.label ?? '',
+        label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
         data: toPercentData(r.data, r.count),
         color,
         yAxisId,

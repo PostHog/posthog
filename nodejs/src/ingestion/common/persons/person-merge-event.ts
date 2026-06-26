@@ -1,4 +1,4 @@
-import { murmur2Partition } from '~/kafka/murmur2'
+import { murmur2Partition } from '~/common/kafka/murmur2'
 
 /**
  * Wire shape of a committed `P_old -> P_new` person merge event.

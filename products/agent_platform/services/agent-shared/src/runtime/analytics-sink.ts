@@ -60,17 +60,6 @@ interface AnalyticsEventBase {
     is_error?: boolean
     /** Free-form failure detail; only set when `is_error` is true. */
     error?: string
-    /**
-     * `true` when emitted from a preview-mode session
-     * (`agent_session.is_preview = true`). Stamped onto every `$ai_*` event
-     * as `$agent_is_preview` so PostHog's LLM Analytics dashboards can
-     * filter author-iteration noise out of production observability — the
-     * preview run still emits events (so the author can inspect their own
-     * generations), but it's marked for downstream filtering. Optional so
-     * tests + the analytics-sink unit tests can omit it; missing reads as
-     * "not preview" via a truthy check.
-     */
-    is_preview?: boolean
 }
 
 export interface AnalyticsGenerationEvent extends AnalyticsEventBase {
@@ -98,6 +87,10 @@ export interface AnalyticsGenerationEvent extends AnalyticsEventBase {
     cost_usd?: number
     /** pi-ai stopReason — `stop`, `length`, `toolUse`, `error`, `aborted`. */
     stop_reason?: string
+    /** 0-based index of the model in the policy list that answered. >0 means a fallback. */
+    model_attempt?: number
+    /** Model id we fell back FROM (the primary that failed), when a fallback happened. */
+    fallback_from?: string
 }
 
 export interface AnalyticsSpanEvent extends AnalyticsEventBase {
@@ -201,13 +194,6 @@ export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, 
             base.$ai_error = event.error
         }
     }
-    if (event.is_preview) {
-        // Preview-mode marker. PostHog's LLM Analytics dashboards filter on
-        // this so author iteration doesn't skew production observability.
-        // Emitted only when true (absent ≡ live), keeping the property bag
-        // tight and the dashboard default uncluttered.
-        base.$agent_is_preview = true
-    }
     if (event.kind === 'generation') {
         base.$ai_model = event.model
         base.$ai_provider = event.provider
@@ -230,6 +216,12 @@ export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, 
         }
         if (event.stop_reason) {
             base.$ai_stop_reason = event.stop_reason
+        }
+        if (event.model_attempt !== undefined) {
+            base.$agent_model_attempt = event.model_attempt
+        }
+        if (event.fallback_from) {
+            base.$ai_fallback_from = event.fallback_from
         }
     } else if (event.kind === 'span') {
         base.$ai_span_name = event.tool_name

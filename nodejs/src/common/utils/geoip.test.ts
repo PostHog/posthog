@@ -1,0 +1,105 @@
+import { Reader } from '@maxmind/geoip2-node'
+
+import { PluginsServerConfig } from '~/types'
+
+import { defaultConfig } from '../config/config'
+import { GeoIPService, GeoIp } from './geoip'
+
+describe('GeoIp', () => {
+    let service: GeoIPService
+    let config: PluginsServerConfig
+
+    jest.setTimeout(1000)
+
+    beforeEach(() => {
+        config = { ...defaultConfig }
+        service = new GeoIPService(config.MMDB_FILE_LOCATION)
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    const commonCheck = (geoip: GeoIp) => {
+        expect(geoip.city('216.160.83.56')).toMatchObject({ city: { names: { en: 'Milton' } } })
+    }
+
+    describe('from disk', () => {
+        it('should load the mmdb from disk if set', async () => {
+            const geoip = await service.get()
+            expect(geoip).toBeTruthy()
+            commonCheck(geoip)
+        })
+
+        it('should return null for lookups if MMDB file is missing', async () => {
+            service = new GeoIPService('non-existent-file.mmdb')
+            const geoip = await service.get()
+            expect(geoip).toBeTruthy()
+            expect(geoip.city('216.160.83.56')).toBeNull()
+        })
+
+        it('should only load mmdb from disk once', async () => {
+            const getSpy = jest.spyOn(Reader, 'open')
+            const res = await Promise.all([service.get(), service.get()])
+            expect(getSpy).toHaveBeenCalledTimes(1)
+
+            commonCheck(res[0])
+            commonCheck(res[1])
+        })
+    })
+
+    describe('background refresh', () => {
+        beforeEach(() => {
+            jest.spyOn(service as any, 'loadMmdb')
+        })
+
+        it('should not refresh the mmdb if there is no metadata', async () => {
+            jest.spyOn(service as any, 'loadMmdbMetadata').mockResolvedValue(undefined)
+            const geoip = await service.get()
+            expect(geoip).toBeTruthy()
+            expect(service['_mmdbMetadata']).toBeUndefined()
+            expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(1)
+
+            jest.spyOn(service as any, 'loadMmdbMetadata').mockResolvedValue({
+                date: '2025-01-01',
+            })
+
+            // Simulate the background refresh
+            await service['backgroundRefreshMmdb']()
+            expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(1)
+        })
+
+        it('should not refresh the mmdb if the metadata is the same', async () => {
+            jest.spyOn(service as any, 'loadMmdbMetadata').mockResolvedValue({
+                date: '2025-01-01',
+            })
+            const geoip = await service.get()
+            expect(geoip).toBeTruthy()
+            expect(service['_mmdbMetadata']).toEqual({ date: '2025-01-01' })
+            expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(1)
+
+            // Simulate the background refresh
+            await service['backgroundRefreshMmdb']()
+            expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(1)
+        })
+
+        it('should refresh the mmdb if the metadata is different', async () => {
+            jest.spyOn(service as any, 'loadMmdbMetadata').mockResolvedValue({
+                date: '2025-01-01',
+            })
+            const geoip = await service.get()
+            expect(geoip).toBeTruthy()
+            expect(service['_mmdbMetadata']).toEqual({ date: '2025-01-01' })
+            expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(1)
+
+            jest.spyOn(service as any, 'loadMmdbMetadata').mockResolvedValue({
+                date: '2025-01-02',
+            })
+
+            // Simulate the background refresh
+            await service['backgroundRefreshMmdb']()
+            expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(2)
+            expect(service['_mmdbMetadata']).toEqual({ date: '2025-01-02' })
+        })
+    })
+})

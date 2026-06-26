@@ -11,6 +11,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
+import { retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -21,7 +22,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
-const AuthenticatedShell = React.lazy(() => import('./AuthenticatedShell'))
+const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
 window.process = MOCK_NODE_PROCESS
 

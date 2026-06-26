@@ -238,24 +238,6 @@ tools:
     desktop-file-system-update:
         operation: desktop_file_system_update
         enabled: false
-    desktop-persisted-folder-create:
-        operation: desktop_persisted_folder_create
-        enabled: false
-    desktop-persisted-folder-destroy:
-        operation: desktop_persisted_folder_destroy
-        enabled: false
-    desktop-persisted-folder-list:
-        operation: desktop_persisted_folder_list
-        enabled: false
-    desktop-persisted-folder-partial-update:
-        operation: desktop_persisted_folder_partial_update
-        enabled: false
-    desktop-persisted-folder-retrieve:
-        operation: desktop_persisted_folder_retrieve
-        enabled: false
-    desktop-persisted-folder-update:
-        operation: desktop_persisted_folder_update
-        enabled: false
     domains-create:
         operation: domains_create
         enabled: false
@@ -436,29 +418,8 @@ tools:
     organizations-projects-logs-config-retrieve:
         operation: organizations_projects_logs_config_retrieve
         enabled: false
-    organizations-projects-promoted-product-intent-retrieve:
-        operation: organizations_projects_promoted_product_intent_retrieve
-        enabled: false
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
-        enabled: false
-    persisted-folder-create:
-        operation: persisted_folder_create
-        enabled: false
-    persisted-folder-destroy:
-        operation: persisted_folder_destroy
-        enabled: false
-    persisted-folder-list:
-        operation: persisted_folder_list
-        enabled: false
-    persisted-folder-partial-update:
-        operation: persisted_folder_partial_update
-        enabled: false
-    persisted-folder-retrieve:
-        operation: persisted_folder_retrieve
-        enabled: false
-    persisted-folder-update:
-        operation: persisted_folder_update
         enabled: false
     project-get:
         operation: organizations_projects_retrieve
@@ -707,6 +668,9 @@ tools:
         enabled: false
     users-integrations-github-destroy:
         operation: users_integrations_github_destroy
+        enabled: false
+    users-integrations-github-prepare-callback-create:
+        operation: users_integrations_github_prepare_callback_create
         enabled: false
     users-integrations-github-repos-refresh-create:
         operation: users_integrations_github_repos_refresh_create

@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
@@ -19,7 +19,7 @@ jest.mock('lib/hooks/useFeatureFlag', () => ({
 }))
 
 const QUILL_STUB_DATE = new Date(2023, 0, 20)
-const mockQuillPanelProps: { maxDate?: Date } = {}
+const mockQuillPanelProps: { maxDate?: Date; showTime?: boolean; showTimeToggle?: boolean } = {}
 jest.mock('@posthog/quill', () => {
     const react = require('react')
     return {
@@ -27,16 +27,29 @@ jest.mock('@posthog/quill', () => {
         DatePicker: ({
             onApply,
             onCancel,
+            onIncludeTimeChange,
             maxDate,
+            showTime,
+            showTimeToggle,
         }: {
             onApply: (value: Date) => void
             onCancel: () => void
+            onIncludeTimeChange?: (includeTime: boolean) => void
             maxDate?: Date
+            showTime?: boolean
+            showTimeToggle?: boolean
         }) => {
             mockQuillPanelProps.maxDate = maxDate
+            mockQuillPanelProps.showTime = showTime
+            mockQuillPanelProps.showTimeToggle = showTimeToggle
             return react.createElement('div', null, [
                 react.createElement('button', { key: 'apply', onClick: () => onApply(QUILL_STUB_DATE) }, 'stub-apply'),
                 react.createElement('button', { key: 'cancel', onClick: onCancel }, 'stub-cancel'),
+                react.createElement(
+                    'button',
+                    { key: 'time-on', onClick: () => onIncludeTimeChange?.(true) },
+                    'stub-time-on'
+                ),
             ])
         },
     }
@@ -67,6 +80,8 @@ const renderDatePicker = (
 }
 
 describe('DatePicker', () => {
+    afterEach(cleanup)
+
     beforeEach(() => {
         mockQuillDatePickerFlag = false
     })
@@ -114,13 +129,34 @@ describe('DatePicker', () => {
         })
 
         it.each<[string, Partial<DatePickerProps>]>([
-            ['granularity', { granularity: 'minute' }],
+            ['hour granularity', { granularity: 'hour' }],
+            ['12-hour time', { granularity: 'minute', use24HourFormat: false }],
             ['selectionPeriod', { selectionPeriod: 'past' }],
             ['months', { months: 2 }],
         ])('falls back to LemonUI when %s is requested', (_name, props) => {
             const { container } = renderDatePicker(dayjs('2023-01-15'), props)
 
             expect(container.querySelector('[data-quill]')).toBeNull()
+        })
+
+        it('renders minute granularity in Quill with a time-bearing label', () => {
+            const { container } = renderDatePicker(dayjs('2023-01-15T09:30'), { granularity: 'minute' })
+
+            expect(container.querySelector('[data-quill]')).toBeTruthy()
+            expect(within(container).getByText('January 15, 2023 09:30')).toBeTruthy()
+        })
+
+        it.each<[string, Partial<DatePickerProps>, boolean, boolean]>([
+            ['fixed minute (no toggle)', { granularity: 'minute' }, true, false],
+            ['day with toggle', { granularity: 'day', showTimeToggle: true }, false, true],
+            ['minute with toggle', { granularity: 'minute', showTimeToggle: true }, true, true],
+        ])('maps %s onto the Quill panel time props', async (_name, props, showTime, showTimeToggle) => {
+            const { container } = renderDatePicker(dayjs('2023-01-15'), props)
+
+            await userEvent.click(within(container).getByRole('button', { name: /January 15, 2023/ }))
+
+            expect(mockQuillPanelProps.showTime).toBe(showTime)
+            expect(mockQuillPanelProps.showTimeToggle).toBe(showTimeToggle)
         })
 
         it('applying a date in the Quill panel calls onChange with a dayjs value', async () => {
@@ -131,6 +167,24 @@ describe('DatePicker', () => {
 
             expect(onChange).toHaveBeenCalledTimes(1)
             expect(onChange.mock.calls[0][0].format('YYYY-MM-DD')).toBe('2023-01-20')
+        })
+
+        it('updates the trigger label when time is toggled on in the panel', async () => {
+            const { container } = renderDatePicker(dayjs('2023-01-15T09:30'), {
+                granularity: 'day',
+                showTimeToggle: true,
+            })
+
+            const trigger = within(container).getByRole('button', { name: /January 15, 2023/ })
+            expect(trigger.textContent).toBe('January 15, 2023')
+
+            await userEvent.click(trigger)
+            await userEvent.click(await screen.findByText('stub-time-on'))
+
+            expect(within(container).getByRole('button', { name: /January 15, 2023/ }).textContent).toBe(
+                'January 15, 2023 09:30'
+            )
+            expect(mockQuillPanelProps.showTime).toBe(true)
         })
 
         it('forwards maxDate to the Quill panel so future dates can be selected', async () => {

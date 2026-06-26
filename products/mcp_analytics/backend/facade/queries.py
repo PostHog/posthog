@@ -6,5 +6,13 @@ mcp_analytics is tach-isolated to expose only `backend.facade.*`, so core's
 """
 
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+from products.mcp_analytics.backend.hogql_queries.tool_tables import (
+    MCPToolFailuresQueryRunner,
+    MCPToolTopUsersQueryRunner,
+)
 
-__all__ = ["MCPHarnessBreakdownQueryRunner"]
+__all__ = [
+    "MCPHarnessBreakdownQueryRunner",
+    "MCPToolFailuresQueryRunner",
+    "MCPToolTopUsersQueryRunner",
+]

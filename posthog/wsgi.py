@@ -17,6 +17,7 @@ import structlog
 from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
 from posthog.continuous_profiling import start_continuous_profiling
 from posthog.otel_instrumentation import initialize_otel
+from posthog.web_memory_sampler import start_web_memory_sampler
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 os.environ.setdefault("SERVER_GATEWAY_INTERFACE", "WSGI")
@@ -35,11 +36,10 @@ try:
     # Resolve the URLconf now, at module load. The lazy API router otherwise builds on
     # each worker's FIRST LIVE REQUEST — k8s probes (/_livez, /_readyz) short-circuit in
     # middleware and never warm it — costing seconds per worker after every deploy.
-    # Building it here keeps the cost at worker boot, behind readiness. (Verified against
-    # the production image: Unit 1.35 loads this module once per application process — no
-    # prototype fork/COW — so each worker pays its own boot, exactly like before the lazy
-    # router.) Non-web processes (celery, temporal, migrate, shell) never load this module
-    # and keep the lazy win.
+    # Building it here keeps the cost to the prototype-process boot: Unit forks workers
+    # from that prototype after the module loads, so the built router lands in the frozen
+    # heap and is copy-on-write shared across all forked workers. Non-web processes
+    # (celery, temporal, migrate, shell) never load this module and keep the lazy win.
     from django.urls import get_resolver
 
     _ = get_resolver().url_patterns  # property access triggers the build
@@ -94,5 +94,10 @@ def application(environ, start_response):
     global _prewarmed
     if not _prewarmed:
         prewarm_query_cache_cluster_in_background()
+        # Start the RSS sampler post-fork, here in the worker. Unit forks workers from a
+        # prototype that already imported this module, and a thread started pre-fork does
+        # not survive into the worker — starting it on the worker's first call samples the
+        # process that actually serves requests and grows toward the OOM limit.
+        start_web_memory_sampler()
         _prewarmed = True
     return _django_application(environ, start_response)

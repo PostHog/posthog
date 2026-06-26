@@ -212,6 +212,11 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     return False, None
 
 
+def _groups_from_org_id(team: Team, organization_id: str) -> dict:
+    """Rebuild minimal $groups from a stored org id, skipping the expensive resolver."""
+    return {"instance": SITE_URL, "project": str(team.uuid), "organization": organization_id}
+
+
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
     return {
         "ticket_id": str(ticket.id),
@@ -246,6 +251,10 @@ def capture_ticket_created(ticket: Ticket) -> None:
         process_person, groups = _resolve_org_groups(ticket, team)
         if groups is not None:
             properties["$groups"] = groups
+            org_id = groups.get("organization")
+            if org_id and not ticket.organization_id:
+                Ticket.objects.filter(id=ticket.id).update(organization_id=org_id)
+                ticket.organization_id = org_id
     except Exception:
         logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
 
@@ -361,9 +370,13 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     team = ticket.team
     process_person = False
     try:
-        process_person, groups = _resolve_org_groups(ticket, team)
-        if groups is not None:
-            properties["$groups"] = groups
+        if ticket.organization_id:
+            properties["$groups"] = _groups_from_org_id(team, ticket.organization_id)
+            process_person = True
+        else:
+            process_person, groups = _resolve_org_groups(ticket, team)
+            if groups is not None:
+                properties["$groups"] = groups
     except Exception:
         logger.exception("message_received_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
 
