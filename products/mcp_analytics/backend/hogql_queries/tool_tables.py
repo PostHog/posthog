@@ -9,11 +9,23 @@ from functools import cached_property
 from typing import TYPE_CHECKING
 
 from posthog.schema import (
+    CachedMCPToolDailyStatsQueryResponse,
+    CachedMCPToolDescriptionsQueryResponse,
     CachedMCPToolFailuresQueryResponse,
+    CachedMCPToolStatsQueryResponse,
     CachedMCPToolTopUsersQueryResponse,
+    MCPToolDailyStatItem,
+    MCPToolDailyStatsQuery,
+    MCPToolDailyStatsQueryResponse,
+    MCPToolDescriptionItem,
+    MCPToolDescriptionsQuery,
+    MCPToolDescriptionsQueryResponse,
     MCPToolFailureItem,
     MCPToolFailuresQuery,
     MCPToolFailuresQueryResponse,
+    MCPToolStatsItem,
+    MCPToolStatsQuery,
+    MCPToolStatsQueryResponse,
     MCPToolTopUserItem,
     MCPToolTopUsersQuery,
     MCPToolTopUsersQueryResponse,
@@ -48,6 +60,27 @@ _EFFECTIVE_TOOL = (
 _HARNESS_LABELS_AGG = f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_label_sql('h')})))"
 
 
+def _tool_call_where(tool: str, date_range: QueryDateRange, *, extra: list[ast.Expr] | None = None) -> ast.Expr:
+    """WHERE for new-SDK $mcp_tool_call events scoped to one effective tool and window.
+
+    `tool` is bound as an ast.Constant, never interpolated. `extra` appends
+    query-specific predicates (e.g. notEmpty(description)).
+    """
+    exprs: list[ast.Expr] = [
+        parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
+        parse_expr("timestamp >= {date_from}", placeholders={"date_from": date_range.date_from_as_hogql()}),
+        parse_expr("timestamp <= {date_to}", placeholders={"date_to": date_range.date_to_as_hogql()}),
+        parse_expr(
+            "{_EFFECTIVE_TOOL} = {tool}",
+            placeholders={"_EFFECTIVE_TOOL": parse_expr(_EFFECTIVE_TOOL), "tool": ast.Constant(value=tool)},
+        ),
+        parse_expr("properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=_NEW_SDK_SOURCE)}),
+    ]
+    if extra:
+        exprs.extend(extra)
+    return ast.And(exprs=exprs)
+
+
 class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryResponse]):
     query: MCPToolTopUsersQuery
     cached_response: CachedMCPToolTopUsersQueryResponse
@@ -60,27 +93,7 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     def _where(self) -> ast.Expr:
-        return ast.And(
-            exprs=[
-                parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
-                parse_expr(
-                    "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
-                ),
-                parse_expr(
-                    "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
-                ),
-                parse_expr(
-                    "{effective_tool} = {tool}",
-                    placeholders={
-                        "effective_tool": parse_expr(_EFFECTIVE_TOOL),
-                        "tool": ast.Constant(value=self.query.toolName),
-                    },
-                ),
-                parse_expr(
-                    "properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=_NEW_SDK_SOURCE)}
-                ),
-            ]
-        )
+        return _tool_call_where(self.query.toolName, self.query_date_range)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
@@ -91,7 +104,7 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
                 count() AS calls,
                 countIf(is_error) AS errors,
                 round(countIf(is_error) * 100.0 / count(), 1) AS error_rate_pct,
-                {labels_agg} AS harnesses,
+                {_HARNESS_LABELS_AGG} AS harnesses,
                 max(timestamp) AS last_seen
             FROM (
                 SELECT
@@ -108,7 +121,7 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
             LIMIT 5
             """,
             placeholders={
-                "labels_agg": parse_expr(_HARNESS_LABELS_AGG),
+                "_HARNESS_LABELS_AGG": parse_expr(_HARNESS_LABELS_AGG),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": self._where(),
             },
@@ -188,7 +201,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
                 message,
                 count() AS occurrences,
                 max(timestamp) AS last_seen,
-                {labels_agg} AS harnesses
+                {_HARNESS_LABELS_AGG} AS harnesses
             FROM (
                 SELECT
                     substring(toString(properties.$exception_message), 1, 200) AS message,
@@ -202,7 +215,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
             LIMIT 20
             """,
             placeholders={
-                "labels_agg": parse_expr(_HARNESS_LABELS_AGG),
+                "_HARNESS_LABELS_AGG": parse_expr(_HARNESS_LABELS_AGG),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": self._where(),
             },
@@ -234,6 +247,217 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
             for row in (response.results or [])
         ]
         return MCPToolFailuresQueryResponse(
+            results=results,
+            timings=response.timings,
+            hogql=response.hogql,
+            modifiers=self.modifiers,
+        )
+
+
+_CONVERSATION_ID = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
+_IS_ERROR = "countIf(toBool(properties.$mcp_is_error))"
+_P50 = "round(quantile(0.5)(toFloat(properties.$mcp_duration_ms)))"
+_P95 = "round(quantile(0.95)(toFloat(properties.$mcp_duration_ms)))"
+
+
+class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
+    query: MCPToolStatsQuery
+    cached_response: CachedMCPToolStatsQueryResponse
+
+    def validate_query_runner_access(self, user: "User") -> bool:
+        return validate_mcp_analytics_access(self.team, user)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        return mcp_query_date_range(self.team, self.query.dateRange)
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT
+                count() AS calls,
+                {_IS_ERROR} AS errors,
+                {_P50} AS p50_ms,
+                {_P95} AS p95_ms,
+                uniq(distinct_id) AS users,
+                uniq({_CONVERSATION_ID}) AS conversations,
+                countIf(notEmpty(toString(properties.$mcp_intent)) AND toString(properties.$mcp_intent) != '{}') AS with_intent
+            FROM events
+            WHERE {where}
+            """,
+            placeholders={
+                "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
+                "_IS_ERROR": parse_expr(_IS_ERROR),
+                "_P50": parse_expr(_P50),
+                "_P95": parse_expr(_P95),
+                "where": _tool_call_where(self.query.toolName, self.query_date_range),
+            },
+        )
+
+    def _calculate(self) -> MCPToolStatsQueryResponse:
+        with tags_context(
+            product=Product.MCP_ANALYTICS,
+            feature=Feature.QUERY,
+            team_id=self.team.id,
+            name="mcp_tool_stats_query",
+        ):
+            response = execute_hogql_query(
+                query=self.to_query(),
+                team=self.team,
+                query_type="mcp_tool_stats_query",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+
+        row = (response.results or [None])[0]
+        results = (
+            [
+                MCPToolStatsItem(
+                    calls=int(row[0] or 0),
+                    errors=int(row[1] or 0),
+                    p50_ms=None if row[2] is None else float(row[2]),
+                    p95_ms=None if row[3] is None else float(row[3]),
+                    users=int(row[4] or 0),
+                    conversations=int(row[5] or 0),
+                    with_intent=int(row[6] or 0),
+                )
+            ]
+            if row and int(row[0] or 0) > 0
+            else []
+        )
+        return MCPToolStatsQueryResponse(
+            results=results,
+            timings=response.timings,
+            hogql=response.hogql,
+            modifiers=self.modifiers,
+        )
+
+
+class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryResponse]):
+    query: MCPToolDailyStatsQuery
+    cached_response: CachedMCPToolDailyStatsQueryResponse
+
+    def validate_query_runner_access(self, user: "User") -> bool:
+        return validate_mcp_analytics_access(self.team, user)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        return mcp_query_date_range(self.team, self.query.dateRange)
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT
+                toString(toDate(timestamp)) AS day,
+                count() AS calls,
+                {_IS_ERROR} AS errors,
+                {_P50} AS p50,
+                {_P95} AS p95,
+                uniq(distinct_id) AS users,
+                uniq({_CONVERSATION_ID}) AS sessions
+            FROM events
+            WHERE {where}
+            GROUP BY day
+            ORDER BY day
+            """,
+            placeholders={
+                "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
+                "_IS_ERROR": parse_expr(_IS_ERROR),
+                "_P50": parse_expr(_P50),
+                "_P95": parse_expr(_P95),
+                "where": _tool_call_where(self.query.toolName, self.query_date_range),
+            },
+        )
+
+    def _calculate(self) -> MCPToolDailyStatsQueryResponse:
+        with tags_context(
+            product=Product.MCP_ANALYTICS,
+            feature=Feature.QUERY,
+            team_id=self.team.id,
+            name="mcp_tool_daily_stats_query",
+        ):
+            response = execute_hogql_query(
+                query=self.to_query(),
+                team=self.team,
+                query_type="mcp_tool_daily_stats_query",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+
+        results = [
+            MCPToolDailyStatItem(
+                day=str(row[0] or ""),
+                calls=int(row[1] or 0),
+                errors=int(row[2] or 0),
+                p50=float(row[3] or 0),
+                p95=float(row[4] or 0),
+                users=int(row[5] or 0),
+                sessions=int(row[6] or 0),
+            )
+            for row in (response.results or [])
+        ]
+        return MCPToolDailyStatsQueryResponse(
+            results=results,
+            timings=response.timings,
+            hogql=response.hogql,
+            modifiers=self.modifiers,
+        )
+
+
+class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQueryResponse]):
+    query: MCPToolDescriptionsQuery
+    cached_response: CachedMCPToolDescriptionsQueryResponse
+
+    def validate_query_runner_access(self, user: "User") -> bool:
+        return validate_mcp_analytics_access(self.team, user)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        return mcp_query_date_range(self.team, self.query.dateRange)
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        where = _tool_call_where(
+            self.query.toolName,
+            self.query_date_range,
+            extra=[parse_expr("notEmpty(toString(properties.$mcp_tool_description))")],
+        )
+        return parse_select(
+            """
+            SELECT
+                toString(properties.$mcp_tool_description) AS description,
+                toString(max(timestamp)) AS last_seen
+            FROM events
+            WHERE {where}
+            GROUP BY description
+            ORDER BY last_seen DESC
+            LIMIT 5
+            """,
+            placeholders={"where": where},
+        )
+
+    def _calculate(self) -> MCPToolDescriptionsQueryResponse:
+        with tags_context(
+            product=Product.MCP_ANALYTICS,
+            feature=Feature.QUERY,
+            team_id=self.team.id,
+            name="mcp_tool_descriptions_query",
+        ):
+            response = execute_hogql_query(
+                query=self.to_query(),
+                team=self.team,
+                query_type="mcp_tool_descriptions_query",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+
+        results = [
+            MCPToolDescriptionItem(description=str(row[0] or ""), last_seen=str(row[1] or ""))
+            for row in (response.results or [])
+        ]
+        return MCPToolDescriptionsQueryResponse(
             results=results,
             timings=response.timings,
             hogql=response.hogql,
