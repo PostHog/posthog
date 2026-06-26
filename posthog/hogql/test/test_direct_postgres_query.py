@@ -1264,7 +1264,9 @@ class TestDirectPostgresQuery(APIBaseTest):
             'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function',
         )
 
-    @override_settings(CLOUD_DEPLOYMENT="US")
+    # DEV (not US/EU) keeps the host guard active without the internal-team allowlist, which the
+    # test team's auto-assigned id can otherwise collide with (US team_id 2 / EU team_id 1).
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_blocks_internal_host(self, mock_connect):
         source = ExternalDataSource.objects.create(

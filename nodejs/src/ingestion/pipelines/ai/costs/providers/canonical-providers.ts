@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-25 20:36:39 UTC
+// Generated at: 2026-06-26 01:47:37 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -52,6 +52,7 @@ export type CanonicalProvider =
     | 'dekallm-fp8'
     | 'digitalocean'
     | 'fireworks'
+    | 'fireworks-fast'
     | 'friendli'
     | 'gmicloud-bf16'
     | 'gmicloud-fp8'
@@ -143,6 +144,7 @@ export type CanonicalProvider =
     | 'venice-fp4'
     | 'venice-fp8'
     | 'venice-int4'
+    | 'wafer-fast'
     | 'wafer-fp4'
     | 'wafer-fp8'
     | 'wandb-bf16'
@@ -150,6 +152,7 @@ export type CanonicalProvider =
     | 'wandb-fp4'
     | 'wandb-fp8'
     | 'xai'
+    | 'xai-zdr'
     | 'xiaomi-fp8'
     | 'z-ai'
     | 'z-ai-fp4'
