@@ -7,7 +7,7 @@ from typing import Optional, cast
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import QuerySet
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -15,7 +15,6 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -68,12 +67,7 @@ from products.feature_flags.backend.user_blast_radius import (
     get_user_blast_radius_persons,
 )
 from products.notifications.backend.facade.api import publish_resource_edited
-from products.workflows.backend.api.assets_storage import (
-    BrowserlessUnavailable,
-    presigned_content_url,
-    read_html,
-    render_html_to_pdf,
-)
+from products.workflows.backend.api.assets_storage import presigned_content_url
 from products.workflows.backend.api.graph_operations import apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
@@ -1197,7 +1191,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "user_blast_radius",
         "assets",
         "asset_content",
-        "asset_pdf",
     ]
     scope_object_write_actions = [
         "create",
@@ -1239,7 +1232,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # Asset listing/serving returns recipient/distinct_id/person_id and the rendered email a
         # person received — person-data access. Require person:read on top of workflow read so a
         # hog_flow:read-only token can't enumerate who a workflow emailed or read their messages.
-        if self.action in ("assets", "asset_content", "asset_pdf"):
+        if self.action in ("assets", "asset_content"):
             return ["hog_flow:read", "person:read"]
         # A test invocation resolves the event's $groups into real group properties server-side, so a
         # hog_flow:write-only token could branch on group_0.properties and read the returned logs/variables
@@ -1657,35 +1650,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             raise exceptions.NotFound("Asset content is no longer available.")
         return HttpResponseRedirect(url)
 
-    @extend_schema(
-        operation_id="hog_flows_asset_pdf_retrieve",
-        parameters=[MessageAssetContentRequestSerializer],
-        responses={(200, "application/pdf"): OpenApiTypes.BINARY},
-    )
-    @action(detail=True, methods=["GET"], url_path="assets/pdf", pagination_class=None, filter_backends=[])
-    def asset_pdf(self, request: Request, *args, **kwargs):
-        # On-demand PDF render of the stored HTML snapshot. We never render at send time.
-        obj = self.get_object()
-        asset = self._get_asset_for_request(request, obj)
-
-        html = read_html(asset.s3_key)
-        if html is None:
-            raise exceptions.NotFound("Asset content is no longer available.")
-
-        try:
-            pdf = render_html_to_pdf(html)
-        except BrowserlessUnavailable as e:
-            return Response({"error": str(e)}, status=503)
-
-        response = HttpResponse(pdf, content_type="application/pdf")
-        filename = f"email-{asset.invocation_id}.pdf"
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        return response
-
     def _get_asset_for_request(self, request: Request, hog_flow: HogFlow):
         param_serializer = MessageAssetContentRequestSerializer(data=request.query_params)
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
+
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
 
         asset = fetch_message_asset(
             team_id=self.team_id,

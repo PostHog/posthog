@@ -1,4 +1,4 @@
-import api, { ApiRequest } from 'lib/api'
+import { ApiRequest } from 'lib/api'
 
 import { HogFlow } from './hogflows/types'
 
@@ -49,18 +49,4 @@ export function getMessageAssetContentUrl(hogFlowId: HogFlow['id'], invocationId
         .withAction('assets/content')
         .withQueryString({ invocation_id: invocationId, action_id: actionId })
         .assembleFullUrl(true)
-}
-
-export async function getMessageAssetPdf(
-    hogFlowId: HogFlow['id'],
-    invocationId: string,
-    actionId: string
-): Promise<Blob> {
-    const url = new ApiRequest()
-        .hogFlow(hogFlowId)
-        .withAction('assets/pdf')
-        .withQueryString({ invocation_id: invocationId, action_id: actionId })
-        .assembleFullUrl(true)
-    const response = await api.getResponse(url)
-    return await response.blob()
 }

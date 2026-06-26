@@ -1,9 +1,7 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-
-import { getMessageAssetContentUrl, getMessageAssetPdf, getMessageAssets, MessageAsset } from './messageAssetsApi'
+import { getMessageAssetContentUrl, getMessageAssets, MessageAsset } from './messageAssetsApi'
 import type { workflowAssetsLogicType } from './workflowAssetsLogicType'
 
 export interface WorkflowAssetsLogicProps {
@@ -18,7 +16,6 @@ export const workflowAssetsLogic = kea<workflowAssetsLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowAssetsLogic']),
     props({ id: 'new' } as WorkflowAssetsLogicProps),
     key((props) => `${props.id || 'new'}-${props.parentRunId ?? 'all'}-${props.actionId ?? 'all'}`),
-    // `downloadPdf` and `loadAssets` are created by the loaders below.
     actions({
         setSearch: (search: string) => ({ search }),
         openAsset: (asset: MessageAsset) => ({ asset }),
@@ -47,27 +44,6 @@ export const workflowAssetsLogic = kea<workflowAssetsLogicType>([
                         action_id: props.actionId,
                         search: values.search || undefined,
                     })
-                },
-            },
-        ],
-        pdf: [
-            null as null,
-            {
-                // Fetch the on-demand PDF as a blob and hand it to the browser as a download.
-                downloadPdf: async (asset: MessageAsset) => {
-                    try {
-                        const blob = await getMessageAssetPdf(props.id, asset.invocation_id, asset.action_id)
-                        const url = URL.createObjectURL(blob)
-                        const link = document.createElement('a')
-                        link.href = url
-                        link.download = `email-${asset.recipient || asset.invocation_id}.pdf`
-                        link.click()
-                        // Defer revoke so the click-initiated download can read the blob first.
-                        setTimeout(() => URL.revokeObjectURL(url), 1000)
-                    } catch {
-                        lemonToast.error('Could not generate a PDF for this email. Please try again.')
-                    }
-                    return null
                 },
             },
         ],

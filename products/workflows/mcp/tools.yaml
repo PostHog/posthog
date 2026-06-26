@@ -39,9 +39,6 @@ tools:
     hog-flows-asset-content-retrieve:
         operation: hog_flows_asset_content_retrieve
         enabled: false
-    hog-flows-asset-pdf-retrieve:
-        operation: hog_flows_asset_pdf_retrieve
-        enabled: false
     hog-flows-assets-retrieve:
         operation: hog_flows_assets_retrieve
         enabled: false

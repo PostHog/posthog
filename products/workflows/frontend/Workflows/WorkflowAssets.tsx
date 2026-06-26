@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import {
-    LemonButton,
-    LemonCollapse,
-    LemonInput,
-    LemonModal,
-    LemonTable,
-    ProfilePicture,
-    Spinner,
-} from '@posthog/lemon-ui'
+import { LemonCollapse, LemonInput, LemonModal, LemonTable, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { ListHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -34,8 +26,8 @@ function EmptyAssets(): JSX.Element {
 
 function AssetViewerModal({ workflowId, parentRunId, actionId }: AssetsTableProps): JSX.Element {
     const logic = workflowAssetsLogic({ id: workflowId, parentRunId, actionId })
-    const { selectedAsset, contentUrl, pdfLoading } = useValues(logic)
-    const { closeAsset, downloadPdf } = useActions(logic)
+    const { selectedAsset, contentUrl } = useValues(logic)
+    const { closeAsset } = useActions(logic)
 
     return (
         <LemonModal
@@ -44,18 +36,6 @@ function AssetViewerModal({ workflowId, parentRunId, actionId }: AssetsTableProp
             width={720}
             title={selectedAsset?.subject || 'Email'}
             description={selectedAsset ? `Sent to ${selectedAsset.recipient}` : undefined}
-            footer={
-                selectedAsset ? (
-                    <LemonButton
-                        type="primary"
-                        loading={pdfLoading}
-                        disabledReason={pdfLoading ? 'Generating PDF…' : undefined}
-                        onClick={() => downloadPdf(selectedAsset)}
-                    >
-                        Download PDF
-                    </LemonButton>
-                ) : undefined
-            }
         >
             {selectedAsset ? (
                 // sandbox with no allow-scripts: render the email HTML + images but neutralize any JS.

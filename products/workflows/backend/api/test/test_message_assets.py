@@ -12,7 +12,6 @@ from posthog.models.message_assets.sql import INSERT_MESSAGE_ASSET_SQL
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.workflows.backend.api.assets_storage import BrowserlessUnavailable
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 _STORAGE_PATH = "products.workflows.backend.api.hog_flow"
@@ -178,38 +177,10 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=nope&action_id=step-a")
         assert res.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_pdf_returns_pdf_bytes(self):
-        self._seed("inv-1", action_id="step-a")
-        with (
-            patch(f"{_STORAGE_PATH}.read_html", return_value=b"<html></html>"),
-            patch(f"{_STORAGE_PATH}.render_html_to_pdf", return_value=b"%PDF-1.4 fake") as mock_render,
-        ):
-            res = self.client.get(f"{self._base()}/assets/pdf/?invocation_id=inv-1&action_id=step-a")
-        assert res.status_code == status.HTTP_200_OK
-        assert res["Content-Type"] == "application/pdf"
-        assert res.content == b"%PDF-1.4 fake"
-        mock_render.assert_called_once_with(b"<html></html>")
-
-    def test_pdf_503_when_browserless_unavailable(self):
-        self._seed("inv-1", action_id="step-a")
-        with (
-            patch(f"{_STORAGE_PATH}.read_html", return_value=b"<html></html>"),
-            patch(f"{_STORAGE_PATH}.render_html_to_pdf", side_effect=BrowserlessUnavailable("no browserless")),
-        ):
-            res = self.client.get(f"{self._base()}/assets/pdf/?invocation_id=inv-1&action_id=step-a")
-        assert res.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-
-    def test_pdf_404_when_content_missing(self):
-        self._seed("inv-1", action_id="step-a")
-        with patch(f"{_STORAGE_PATH}.read_html", return_value=None):
-            res = self.client.get(f"{self._base()}/assets/pdf/?invocation_id=inv-1&action_id=step-a")
-        assert res.status_code == status.HTTP_404_NOT_FOUND
-
     @parameterized.expand(
         [
             "assets/",
             "assets/content/?invocation_id=inv-1&action_id=step-a",
-            "assets/pdf/?invocation_id=inv-1&action_id=step-a",
         ]
     )
     def test_personal_api_key_requires_person_read_scope(self, path: str):
