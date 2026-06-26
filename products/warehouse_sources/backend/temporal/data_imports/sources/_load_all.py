@@ -563,6 +563,7 @@ from .survicate.source import SurvicateSource
 from .svix.source import SvixSource
 from .systeme.source import SystemeSource
 from .taboola.source import TaboolaSource
+from .talkwalker.source import TalkwalkerSource
 from .tavus.source import TavusSource
 from .tawk_to.source import TawkToSource
 from .teamtailor.source import TeamtailorSource

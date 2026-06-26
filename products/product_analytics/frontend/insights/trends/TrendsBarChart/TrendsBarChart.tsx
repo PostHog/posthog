@@ -33,6 +33,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
+import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
 import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
@@ -150,6 +151,16 @@ export function TrendsBarChart({
         [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
+    const getLabel = useCallback(
+        (r: IndexedTrendResult): string =>
+            getTrendsSeriesDisplayLabel(r, {
+                breakdownFilter,
+                cohorts: allCohorts?.results,
+                formatPropertyValueForDisplay,
+            }),
+        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+    )
+
     const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -165,6 +176,7 @@ export function TrendsBarChart({
             // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
             // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
             getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+            getLabel,
             buildMeta: buildTrendsSeriesMeta,
             showMultipleYAxes: applyMultipleYAxes,
         })
@@ -181,6 +193,7 @@ export function TrendsBarChart({
         currentPeriodResult?.labels,
         stackBreakdowns,
         getAggregatedDisplayLabel,
+        getLabel,
         applyMultipleYAxes,
         quillLegendEnabled,
     ])

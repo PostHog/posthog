@@ -6,7 +6,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { identifierToHuman } from 'lib/utils/strings'
 
-import { isTerminalRunStatus, SandboxRunViewer } from 'products/posthog_ai/frontend/sandbox'
+import { isTerminalRunStatus, RunViewer } from 'products/posthog_ai/frontend'
 import { Task, TaskRunStatus } from 'products/tasks/frontend/types'
 
 import { isCustomAgentTaskRun, taskRunTypeLabel, TaskRunArtefactContent } from './artefactTypes'
@@ -15,7 +15,7 @@ import { TaskRunStatusDot } from './taskRunDisplay'
 /**
  * A `task_run` artefact: the linked task badged from its `(product, type)` (signals-pipeline runs
  * show Research / Implementation / Repo selection; custom agents show their humanized product +
- * type), expanding to the task's run transcript via the shared `SandboxRunViewer`. Mirrors desktop
+ * type), expanding to the task's run transcript via the shared `RunViewer`. Mirrors desktop
  * `ArtefactTaskRun` (which embeds `TaskLogsPanel`). The task is resolved lazily and the row is
  * disabled until it loads.
  */
@@ -106,7 +106,7 @@ export function ArtefactTaskRun({
 
             {expanded && task && runId ? (
                 <div className="mt-2 h-[420px] overflow-hidden rounded border border-primary bg-surface-primary">
-                    <SandboxRunViewer taskId={task.id} runId={runId} interaction={replayOnly ? 'read-only' : 'live'} />
+                    <RunViewer taskId={task.id} runId={runId} interaction={replayOnly ? 'read-only' : 'live'} />
                 </div>
             ) : null}
         </div>
