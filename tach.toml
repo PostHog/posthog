@@ -795,6 +795,13 @@ from = [
     "products.warehouse_sources",
 ]
 
+# NOTE: data_warehouse is NOT yet added to [[interfaces]]. Its Phase 2 facade is in
+# place and external consumers route through backend.facade.* now, but the facade is
+# operational wiring (no facade/contracts.py), so it cannot join the canonical facade
+# interface — that requires contracts + a real (non-re-export) facade.api, which land
+# with the presentation wave. Until then dw stays un-enforced (consumers reach it via
+# the declared depends_on).
+
 # legal_documents has a non-standard public surface — posthog/urls registers its pandadoc
 # webhook (presentation.webhook), not the canonical presentation.views — so it gets a dedicated
 # block rather than joining the canonical alternation above.

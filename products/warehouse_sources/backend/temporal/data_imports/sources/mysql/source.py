@@ -19,7 +19,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
-from products.data_warehouse.backend.mysql_helpers import reconcile_mysql_schemas
+from products.data_warehouse.backend.facade.api import reconcile_mysql_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
