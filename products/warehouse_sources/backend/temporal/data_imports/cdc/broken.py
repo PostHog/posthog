@@ -86,7 +86,7 @@ def mark_cdc_broken(
 def _pause_schedule(source: ExternalDataSource, log: typing.Any) -> None:
     try:
         # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
-        from products.data_warehouse.backend.logic.data_load.service import pause_cdc_extraction_schedule
+        from products.data_warehouse.backend.facade.api import pause_cdc_extraction_schedule
 
         pause_cdc_extraction_schedule(str(source.id))
     except Exception:
