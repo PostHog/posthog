@@ -281,13 +281,13 @@
             <div class="partitioning-controls" id="change_mode_count_row">
                 <label for="new_partition_count_input">Partition count (md5):</label>
                 <input id="new_partition_count_input" name="partition_count" form="change-partition-mode-action-form"
-                       type="number" min="1" step="1" value="{{ current_partition_count|default_if_none:'' }}"
+                       type="number" min="1" step="1" required value="{{ current_partition_count|default_if_none:'' }}"
                        placeholder="number of buckets">
             </div>
             <div class="partitioning-controls" id="change_mode_size_row">
                 <label for="new_partition_size_input">Partition size (numerical):</label>
                 <input id="new_partition_size_input" name="partition_size" form="change-partition-mode-action-form"
-                       type="number" min="1" step="1" value="{{ current_partition_size|default_if_none:'' }}"
+                       type="number" min="1" step="1" required value="{{ current_partition_size|default_if_none:'' }}"
                        placeholder="rows per bucket">
             </div>
             <div class="partitioning-controls">
