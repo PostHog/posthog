@@ -18,6 +18,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
+from posthog.event_usage import EventSource
 from posthog.models import Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -112,7 +113,7 @@ class TestExperimentService(APIBaseTest):
             service.create_experiment(
                 name="Deferred Analytics",
                 feature_flag_key="deferred-flag",
-                serializer_context={"request": self._make_request()},
+                event_source=EventSource.API,
             )
 
         # Nothing captured yet — it's deferred, not run inside the transaction.
@@ -135,7 +136,7 @@ class TestExperimentService(APIBaseTest):
             experiment = service.create_experiment(
                 name="Resilient Analytics",
                 feature_flag_key="resilient-flag",
-                serializer_context={"request": self._make_request()},
+                event_source=EventSource.API,
             )
 
         mock_report_user_action.assert_called_once()
