@@ -269,7 +269,15 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             access_token = self._get_access_token(config, team_id)
             return validate_github_credentials(access_token, config.repository)
         except Exception as e:
-            return False, str(e)
+            # `_get_access_token` and the OAuth mixin raise deterministic config/credential errors
+            # (missing integration ID, missing token, integration deleted). The user-facing wording
+            # already lives in `get_non_retryable_errors`; reuse it so this path doesn't leak the
+            # internal developer string to the wizard. Fall back to the raw message if unmapped.
+            raw = str(e)
+            for pattern, friendly in self.get_non_retryable_errors().items():
+                if friendly and pattern in raw:
+                    return False, friendly
+            return False, raw
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GithubResumeConfig]:
         return ResumableSourceManager[GithubResumeConfig](inputs, GithubResumeConfig)

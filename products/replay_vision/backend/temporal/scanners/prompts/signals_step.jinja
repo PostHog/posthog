@@ -1,0 +1,7 @@
+One more pass — a different job from the work above. Watch for product issues that hurt the user — a bug, a crash, or a design flaw that clearly blocked or slowed them — and put each in the `signals` list.
+
+What makes a finding belong here is that you *saw* it: the visual observation drives it — a spinner overlapping the button, a broken layout, an error toast that flashed, a visible hesitation before a click. The `description` must lead with that on-screen detail. If you can't point to something you saw, don't list it.
+
+Corroboration from the event log *raises* your confidence — call `get_events_around` at the moment of a finding to look for an `$exception`, a failed request, or a `$rageclick`/`$dead_click` at that `REC_T` that backs up what you saw. But the finding has to stand on the visual: never report an issue you only know about from the events, with nothing on screen to show for it.
+
+One recording can surface several distinct issues; list each separately. The bar is high — most sessions have nothing worth flagging, so `signals` is usually empty. Don't repeat the earlier turns' conclusions. Skip anything below {{ min_signal_confidence }} confidence.

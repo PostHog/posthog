@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest import mock
 
 import posthog.management.commands.sync_persons_to_clickhouse
@@ -15,16 +15,30 @@ from posthog.management.commands.sync_persons_to_clickhouse import (
     run_person_sync,
 )
 from posthog.models.group.group import Group
+from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.group.util import create_group
 from posthog.models.person.person import Person, PersonDistinctId
-from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
+from posthog.models.person.sql import (
+    PERSON_DISTINCT_ID2_TABLE,
+    TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+    TRUNCATE_PERSON_TABLE_SQL,
+)
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.signals import mute_selected_signals
 
 
 @pytest.mark.ee
-class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
+class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
     CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        # NonAtomicBaseTest (TransactionTestCase) commits ORM fixtures so the command's raw
+        # persons-DB read can see them, but it doesn't trigger the per-test ClickHouse reset the
+        # atomic base provided — so clear the tables this command reconciles to isolate each test.
+        sync_execute(TRUNCATE_PERSON_TABLE_SQL)
+        sync_execute(TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL)
+        sync_execute(TRUNCATE_GROUPS_TABLE_SQL)
 
     def test_persons_sync(self):
         with mute_selected_signals():  # without creating/updating in clickhouse

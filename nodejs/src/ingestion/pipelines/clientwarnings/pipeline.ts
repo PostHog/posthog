@@ -2,6 +2,9 @@ import { Message } from 'node-rdkafka'
 
 import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { TeamManager } from '~/common/utils/team-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { createAllowEventsStep } from '~/ingestion/common/steps/allow-events'
 import {
@@ -26,9 +29,6 @@ import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-in
 import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
 
 export interface ClientWarningsPipelineConfig {
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | AppMetricsOutput>

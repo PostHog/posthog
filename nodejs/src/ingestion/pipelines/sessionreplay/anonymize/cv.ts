@@ -1,7 +1,7 @@
 /** Decode/scrub/re-encode per-event `cv` compression (gzip stored as latin-1 codepoints). */
 import { gunzipSync, gzipSync } from 'zlib'
 
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { ScrubContext, isObject } from './config'
 import { scrubFullSnapshot, scrubMutation } from './dom'

@@ -2,7 +2,7 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { randomUUID } from 'crypto'
 
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { rowsToParquetBuffer } from './parquet-writer'

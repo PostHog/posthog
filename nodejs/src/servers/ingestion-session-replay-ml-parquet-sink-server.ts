@@ -1,12 +1,12 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
+import { initializePrometheusLabels } from '~/common/api/router'
+import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
+import { logger } from '~/common/utils/logger'
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
 import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
-import { KafkaConsumer, KafkaConsumerConfig } from '~/kafka/consumer/consumer-v1'
 
-import { initializePrometheusLabels } from '../api/router'
-import { logger } from '../utils/logger'
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 import {
     IngestionSessionReplayMlMirrorServerConfig,

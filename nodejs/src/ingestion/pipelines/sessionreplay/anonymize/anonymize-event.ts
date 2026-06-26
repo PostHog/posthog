@@ -1,7 +1,7 @@
 /** Routes each parsed rrweb event to the right scrubber by type/source. */
+import { logger } from '~/common/utils/logger'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
-import { logger } from '~/utils/logger'
 
 import { runBlurJobs } from './blur'
 import { scrubCanvasMutation } from './canvas'

@@ -3,10 +3,13 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import AlertConditionType
 
+from posthog.api.services.query import ExecutionMode
+
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 
 CALC_PATH = "products.alerts.backend.evaluation.funnels.calculate_for_query_based_insight"
+IF_STALE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
 def _steps(*counts: int) -> list[dict]:
@@ -35,7 +38,7 @@ def _extract(
 ):
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=result)
-        return FunnelsExtractor().extract(_alert(config, condition_type), MagicMock(), _query(viz))
+        return FunnelsExtractor().extract(_alert(config, condition_type), MagicMock(), _query(viz), IF_STALE)
 
 
 def _config(metric: str = "conversion_from_start", funnel_step: int | None = None) -> dict:

@@ -3,22 +3,10 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 17 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-/**
- * Returns failed/disabled data pipeline items for the Pipeline status side panel.
- * Includes: materializations, syncs, sources, destinations, and transformations.
- */
-export const DataWarehouseDataHealthIssuesRetrieveParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
 
 export const InsightVariablesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod

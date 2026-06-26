@@ -1,6 +1,6 @@
 import { gunzipSync, gzipSync } from 'zlib'
 
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { anonymizeEvent } from './anonymize-event'
 import { defaultAllowLists } from './default-dict'
