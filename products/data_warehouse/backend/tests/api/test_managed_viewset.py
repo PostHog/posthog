@@ -6,7 +6,7 @@ from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyCon
 
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 
 # Define child classes for each managed viewset kind
