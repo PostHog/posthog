@@ -1064,6 +1064,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cancelDashboardRefresh: () => ({}),
             },
         ],
+        // The number of insights enrolled in the current refresh cycle, captured up front when the
+        // batch is registered. Pinning the "X out of Y" denominator to this keeps Y constant for the
+        // whole cycle instead of letting it track the live, still-populating refreshStatus map.
+        refreshTilesTotal: [
+            0 as number,
+            {
+                setRefreshStatuses: (_, { shortIds }) => shortIds.length,
+                refreshDashboardItems: () => 0,
+                abortQuery: () => 0,
+                cancelDashboardRefresh: () => 0,
+            },
+        ],
         columns: [
             null as number | null,
             {
@@ -1829,11 +1841,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         refreshMetrics: [
-            (s) => [s.refreshStatus],
-            (refreshStatus) => {
-                const total = Object.keys(refreshStatus).length ?? 0
+            (s) => [s.refreshStatus, s.refreshTilesTotal],
+            (refreshStatus, refreshTilesTotal) => {
+                const inFlight = Object.values(refreshStatus).filter((s) => s.loading || s.queued).length
+                // Pin the denominator to the count captured when the batch was enrolled so Y stays
+                // fixed for the cycle. Fall back to the live map size for one-off single-insight
+                // refreshes that don't register a batch.
+                const total = refreshTilesTotal || Object.keys(refreshStatus).length
                 return {
-                    completed: total - (Object.values(refreshStatus).filter((s) => s.loading || s.queued).length ?? 0),
+                    completed: Math.max(0, total - inFlight),
                     total,
                 }
             },

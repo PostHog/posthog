@@ -1065,6 +1065,9 @@ describe('dashboardLogic', () => {
                                 timer: null,
                             },
                         },
+                        // Y is captured up front when the batch is enrolled, so it stays fixed
+                        // for the whole cycle rather than tracking the still-populating map.
+                        refreshTilesTotal: 2,
                         refreshMetrics: {
                             completed: 0,
                             total: 2,
