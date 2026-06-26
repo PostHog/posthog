@@ -6,6 +6,7 @@ import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonSelectOptio
 
 import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { shortTimeZone } from 'lib/utils/timezones'
@@ -159,7 +160,14 @@ export function AnnotationModal({
                         }
                         className="flex-1"
                     >
-                        {({ value, onChange }) => <DatePicker value={value} onChange={onChange} granularity="minute" />}
+                        {({ value, onChange }) => (
+                            <DatePicker
+                                value={value}
+                                onChange={onChange}
+                                granularity="minute"
+                                maxDate={dayjs().add(1, 'year')}
+                            />
+                        )}
                     </LemonField>
                     <LemonField name="scope" label="Scope" className="flex-1">
                         <LemonSelect options={scopeOptions} fullWidth />
