@@ -5,12 +5,14 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.logs.backend.patterns_query_runner import PatternsQueryRunner
+from products.logs.backend.patterns_query_runner import PatternsQueryRunner, _sample_divisor
 
 _FROZEN_NOW = "2026-06-23T13:00:00Z"
 _WINDOW = DateRange(date_from="2026-06-23T00:00:00Z", date_to="2026-06-23T13:00:00Z")
@@ -75,6 +77,21 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["scanned_count"] <= 5
         # total_count reports the full window size even though the sample is capped.
         assert results["total_count"] == 20
+
+    @parameterized.expand(
+        [
+            (0, 1),
+            (5, 1),
+            (10, 1),
+            (11, 2),
+            (15, 2),
+            (20, 2),
+            (21, 3),
+            (100, 10),
+        ]
+    )
+    def test_sample_divisor_rounds_up_to_keep_sample_within_limit(self, total: int, expected: int) -> None:
+        assert _sample_divisor(total, sample_limit=10) == expected
 
     @freeze_time(_FROZEN_NOW)
     def test_respects_service_filter(self) -> None:

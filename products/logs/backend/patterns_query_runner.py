@@ -1,5 +1,6 @@
 import datetime as dt
 from functools import cached_property
+from math import ceil
 from typing import TYPE_CHECKING
 
 from posthog.schema import CachedLogsQueryResponse, LogsQuery
@@ -57,7 +58,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     def _calculate(self) -> LogsQueryResponse:
         total = self._count()
         sampled = total > self._sample_limit
-        divisor = max(1, total // self._sample_limit) if sampled else 1
+        divisor = _sample_divisor(total, self._sample_limit)
 
         response = self._execute(self._sample_query(divisor))
         samples = [
@@ -78,6 +79,11 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 "sampled": sampled,
             }
         )
+
+    def run(self, *args, **kwargs) -> LogsQueryResponse | CachedLogsQueryResponse:
+        response = super().run(*args, **kwargs)
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        return response
 
     def to_query(self) -> ast.SelectQuery:
         # Canonical (unsampled) form for the base runner's query contract; _calculate picks
@@ -144,6 +150,14 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         )
         assert isinstance(query, ast.SelectQuery)
         return query
+
+
+def _sample_divisor(total: int, sample_limit: int) -> int:
+    # Round up so total / divisor <= sample_limit: the rand()-modulo predicate alone bounds the
+    # sample and LIMIT never truncates the random subset in (biased) read order.
+    if total <= sample_limit:
+        return 1
+    return ceil(total / sample_limit)
 
 
 def _serialize(pattern: MinedPattern) -> dict:
