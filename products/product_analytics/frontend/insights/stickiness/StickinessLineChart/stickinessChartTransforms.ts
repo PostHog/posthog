@@ -35,7 +35,7 @@ export interface BuildStickinessSeriesOpts<R extends StickinessResultLike, M = u
     buildMeta?: (r: R, index: number) => M
     // Resolves the legend/series label (custom name + breakdown formatting). Hosts that lack the
     // breakdown/cohort deps (e.g. MCP) omit it and fall back to the raw humanized event name.
-    getLabel?: (r: R, index: number) => string
+    getLabel?: (r: R) => string
 }
 
 /** Convert raw counts to percentages of `count`. Mirrors the legacy `showPercentView`
@@ -60,7 +60,7 @@ export function buildStickinessMainSeries<R extends StickinessResultLike, M = un
     const color = r.compare_label === 'previous' ? dimHexColor(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
     return {
         key: String(r.id),
-        label: opts.getLabel ? opts.getLabel(r, index) : humanizeSeriesLabel(r.label),
+        label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
         data: toPercentData(r.data, r.count),
         color,
         yAxisId,

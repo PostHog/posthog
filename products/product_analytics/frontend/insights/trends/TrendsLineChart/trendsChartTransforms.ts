@@ -39,7 +39,7 @@ export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> 
     buildMeta?: (r: R, index: number) => M
     // Resolves the legend/series label (custom name + breakdown formatting). Hosts that lack the
     // breakdown/cohort deps (e.g. MCP) omit it and fall back to the raw humanized event name.
-    getLabel?: (r: R, index: number) => string
+    getLabel?: (r: R) => string
 }
 
 // Shared between buildMainTrendsSeries (stroke.partial.fromIndex) and buildDerivedConfigs
@@ -68,7 +68,7 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     return {
         key: String(r.id),
-        label: opts.getLabel ? opts.getLabel(r, index) : humanizeSeriesLabel(r.label),
+        label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
         data: r.data,
         color: opts.getColor(r, index),
         yAxisId,
