@@ -44,6 +44,19 @@ class BillingServiceOpenInvoicesError(Exception):
         super().__init__(message)
 
 
+def _has_quota_limiting_markers(usage: dict | None) -> bool:
+    if not usage:
+        return False
+
+    for value in usage.values():
+        if isinstance(value, dict) and (
+            value.get("quota_limited_until") or value.get("quota_limiting_suspended_until")
+        ):
+            return True
+
+    return False
+
+
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
     """
     Get a user role display string in a given organization, if membership doesn't exist return None.
@@ -440,8 +453,13 @@ class BillingManager:
                 ],
             )
 
-            if set_org_usage_summary(organization, new_usage=usage_info):
+            had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
+            usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
+
+            if usage_changed:
                 org_modified = True
+
+            if usage_changed or had_quota_limiting_markers:
                 update_org_billing_quotas(organization)
 
         available_product_features = data.get("available_product_features", None)

@@ -147,7 +147,7 @@ class TestBillingManager(BaseTest):
         ]
 
     @patch("posthoganalytics.capture")
-    def test_update_org_details_preserves_quota_limits(self, patch_capture):
+    def test_update_org_details_recomputes_existing_quota_limits(self, patch_capture):
         organization = self.organization
         organization.usage = {
             "events": {
@@ -228,19 +228,16 @@ class TestBillingManager(BaseTest):
                 "usage": 90,
                 "limit": 1000,
                 "todays_usage": 10,
-                "quota_limited_until": 1612137599,
             },
             "exceptions": {
                 "usage": 10,
                 "limit": 100,
                 "todays_usage": 5,
-                "quota_limiting_suspended_until": 1611705600,
             },
             "recordings": {
                 "usage": 15,
                 "limit": 100,
                 "todays_usage": 5,
-                "quota_limiting_suspended_until": 1611705600,
             },
             "rows_synced": {"usage": 45, "limit": 500, "todays_usage": 5},
             "rows_exported": {"usage": 10, "limit": 1000, "todays_usage": 5},
@@ -258,7 +255,6 @@ class TestBillingManager(BaseTest):
                 "usage": 10,
                 "limit": 100,
                 "todays_usage": 5,
-                "quota_limiting_suspended_until": 1611705600,
             },
         }
 
