@@ -209,7 +209,7 @@ export function DashboardItems(): JSX.Element {
     const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
 
     const getInsertMenuItems = useCallback(
-        (targetY: number): LemonMenuItem[] =>
+        (targetX: number, targetY: number): LemonMenuItem[] =>
             dashboard
                 ? getAddTileMenuItems({
                       dashboardId: dashboard.id,
@@ -217,7 +217,7 @@ export function DashboardItems(): JSX.Element {
                       showAddInsightToDashboardModal,
                       push,
                       setAddWidgetModalOpen,
-                      onBeforeSelect: () => setPendingInsertionY(targetY),
+                      onBeforeSelect: () => setPendingInsertionY(targetY, targetX),
                   })
                 : [],
         [

@@ -245,14 +245,41 @@ describe('calculateInsertionLayout', () => {
 
     it.each([
         {
-            name: 'insert at top pushes all existing tiles down',
+            name: 'inserting into the left column leaves the right column untouched',
             layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 6, 0, 6, 5)],
             newTileId: 9,
+            targetX: 0,
             targetY: 0,
             w: 6,
             h: 2,
             expected: {
                 newTileLayout: { sm: { x: 0, y: 0, w: 6, h: 2 } },
+                tilesToUpdate: [{ id: 1, layouts: { sm: { x: 0, y: 2, w: 6, h: 5 } } }],
+            },
+        },
+        {
+            name: 'inserting into the right column pushes only the right column',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 6, 0, 6, 5)],
+            newTileId: 9,
+            targetX: 6,
+            targetY: 0,
+            w: 6,
+            h: 2,
+            expected: {
+                newTileLayout: { sm: { x: 6, y: 0, w: 6, h: 2 } },
+                tilesToUpdate: [{ id: 2, layouts: { sm: { x: 6, y: 2, w: 6, h: 5 } } }],
+            },
+        },
+        {
+            name: 'a full-width insert pushes both columns down',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 6, 0, 6, 5)],
+            newTileId: 9,
+            targetX: 0,
+            targetY: 0,
+            w: 12,
+            h: 2,
+            expected: {
+                newTileLayout: { sm: { x: 0, y: 0, w: 12, h: 2 } },
                 tilesToUpdate: [
                     { id: 1, layouts: { sm: { x: 0, y: 2, w: 6, h: 5 } } },
                     { id: 2, layouts: { sm: { x: 6, y: 2, w: 6, h: 5 } } },
@@ -260,9 +287,10 @@ describe('calculateInsertionLayout', () => {
             },
         },
         {
-            name: 'insert in the middle only pushes tiles at or below the row',
+            name: 'insert in the middle only pushes same-column tiles at or below the row',
             layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 0, 5, 6, 5), smLayout('3', 0, 10, 6, 5)],
             newTileId: 9,
+            targetX: 0,
             targetY: 5,
             w: 6,
             h: 3,
@@ -278,6 +306,7 @@ describe('calculateInsertionLayout', () => {
             name: 'insert at the bottom shifts nothing',
             layout: [smLayout('1', 0, 0, 6, 5)],
             newTileId: 9,
+            targetX: 0,
             targetY: 5,
             w: 2,
             h: 2,
@@ -287,21 +316,10 @@ describe('calculateInsertionLayout', () => {
             },
         },
         {
-            name: 'a tile straddling the boundary (y below targetY) is pushed down',
-            layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 0, 3, 6, 5)],
-            newTileId: 9,
-            targetY: 3,
-            w: 6,
-            h: 2,
-            expected: {
-                newTileLayout: { sm: { x: 0, y: 3, w: 6, h: 2 } },
-                tilesToUpdate: [{ id: 2, layouts: { sm: { x: 0, y: 5, w: 6, h: 5 } } }],
-            },
-        },
-        {
             name: 'ignores the newly-added tile already present in the layout',
             layout: [smLayout('1', 0, 0, 6, 5), smLayout('9', 0, 5, 6, 5)],
             newTileId: 9,
+            targetX: 0,
             targetY: 0,
             w: 6,
             h: 5,
@@ -310,15 +328,15 @@ describe('calculateInsertionLayout', () => {
                 tilesToUpdate: [{ id: 1, layouts: { sm: { x: 0, y: 5, w: 6, h: 5 } } }],
             },
         },
-    ])('$name', ({ layout, newTileId, targetY, w, h, expected }) => {
-        const result = calculateInsertionLayout(layout, newTileId, targetY, w, h)
+    ])('$name', ({ layout, newTileId, targetX, targetY, w, h, expected }) => {
+        const result = calculateInsertionLayout(layout, newTileId, targetY, targetX, w, h)
 
         expect(result.newTileLayout).toEqual(expected.newTileLayout)
         expect(result.tilesToUpdate).toEqual(expected.tilesToUpdate)
     })
 
     it('handles an undefined layout (first tile on an empty dashboard)', () => {
-        const result = calculateInsertionLayout(undefined, 1, 0, 6, 5)
+        const result = calculateInsertionLayout(undefined, 1, 0, 0, 6, 5)
 
         expect(result.newTileLayout).toEqual({ sm: { x: 0, y: 0, w: 6, h: 5 } })
         expect(result.tilesToUpdate).toEqual([])

@@ -1,11 +1,12 @@
 import clsx from 'clsx'
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 
 import { IconPlusSmall } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { DEFAULT_INSERTED_TILE_SIZE } from 'scenes/dashboard/tileLayouts'
 
 interface InsertTileOverlayProps {
     /** The current breakpoint's tile layout (sm) — used to find the gaps between rows. */
@@ -22,8 +23,8 @@ interface InsertTileOverlayProps {
     isMobileView: boolean
     /** Hide while a drag/resize gesture is in progress. */
     disabled?: boolean
-    /** Builds the add-tile menu for an insertion at the given grid row. */
-    getMenuItems: (targetY: number) => LemonMenuItem[]
+    /** Builds the add-tile menu for an insertion at the given grid column + row. */
+    getMenuItems: (targetX: number, targetY: number) => LemonMenuItem[]
 }
 
 /** A visible run of the boundary line (px), between the tiles a row cuts across. */
@@ -112,6 +113,26 @@ export function InsertTileOverlay({
         return byRow
     }, [boundaryRows, layout, gridWidth, cols, marginX])
 
+    // Resolve which grid column the cursor (px from the grid's left edge) sits over at a given row, so
+    // the inserted tile lands under the "+" rather than always full-left. Prefer the column of the tile
+    // the cursor is over near the row; fall back to snapping the cursor to the nearest column.
+    const resolveTargetX = useCallback(
+        (targetY: number, pxX: number): number => {
+            const colWidth = (gridWidth - marginX * (cols - 1)) / cols
+            for (const item of layout || []) {
+                const left = item.x * (colWidth + marginX)
+                const right = left + item.w * colWidth + (item.w - 1) * marginX
+                const touchesRow = item.y <= targetY && item.y + item.h >= targetY
+                if (touchesRow && pxX >= left && pxX <= right) {
+                    return item.x
+                }
+            }
+            const snapped = Math.round(pxX / (colWidth + marginX))
+            return Math.min(Math.max(snapped, 0), Math.max(0, cols - DEFAULT_INSERTED_TILE_SIZE.w))
+        },
+        [layout, gridWidth, cols, marginX]
+    )
+
     if (!canEditDashboard || isMobileView || disabled) {
         return null
     }
@@ -128,6 +149,7 @@ export function InsertTileOverlay({
                     topPx={Math.max(marginY / 2, targetY * (rowHeight + marginY) - marginY / 2)}
                     gridWidth={gridWidth}
                     segments={segmentsByRow.get(targetY) ?? [{ left: 0, width: gridWidth }]}
+                    resolveTargetX={resolveTargetX}
                     getMenuItems={getMenuItems}
                 />
             ))}
@@ -147,16 +169,21 @@ function InsertionStrip({
     topPx,
     gridWidth,
     segments,
+    resolveTargetX,
     getMenuItems,
 }: {
     targetY: number
     topPx: number
     gridWidth: number
     segments: LineSegment[]
-    getMenuItems: (targetY: number) => LemonMenuItem[]
+    resolveTargetX: (targetY: number, pxX: number) => number
+    getMenuItems: (targetX: number, targetY: number) => LemonMenuItem[]
 }): JSX.Element {
     const stripRef = useRef<HTMLDivElement>(null)
     const buttonRef = useRef<HTMLDivElement>(null)
+    // Latest "+" position along the strip (px). Frozen with the button while the menu is open, so it
+    // holds the column the user opened the menu over — that's the column we insert into.
+    const lastXRef = useRef(BUTTON_EDGE_PADDING)
     // Freeze the follow while the pointer is pressed: a click emits tiny mousemoves between mousedown
     // and mouseup, and repositioning the button mid-press moves it out from under the stationary cursor
     // so mouseup lands elsewhere and the browser never fires `click` — that's the lost first click.
@@ -175,14 +202,20 @@ function InsertionStrip({
         const rect = stripRef.current?.getBoundingClientRect()
         if (rect) {
             const x = Math.min(Math.max(clientX - rect.left, BUTTON_EDGE_PADDING), gridWidth - BUTTON_EDGE_PADDING)
+            lastXRef.current = x
             // Our Tailwind config sets `important: true`, so the `left-4` class is `left !important` and
             // would beat a plain inline `left`. Write with priority so the follow position actually wins.
             buttonRef.current.style.setProperty('left', `${x}px`, 'important')
         }
     }
 
-    // Stable items so the dropdown overlay isn't rebuilt under the pointer on unrelated re-renders.
-    const menuItems = useMemo(() => getMenuItems(targetY), [getMenuItems, targetY])
+    // Build items when the menu opens, resolving the column from the frozen "+" position. Stable
+    // otherwise so the dropdown overlay isn't rebuilt under the pointer on unrelated re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const menuItems = useMemo(
+        () => getMenuItems(resolveTargetX(targetY, lastXRef.current), targetY),
+        [getMenuItems, resolveTargetX, targetY, menuOpen]
+    )
 
     return (
         <div
