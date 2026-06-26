@@ -717,8 +717,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # SCHEDULED delivery right after the immediate TARGET_CHANGE confirmation.
         if was_disabled and instance.enabled:
             instance.set_next_delivery_date()
-            with attribute_subscription_saves(analytics_props):
-                instance.save(update_fields=["next_delivery_date"])
+            instance.save(update_fields=["next_delivery_date"])
 
         # Skip the workflow trigger when the resulting state is disabled. No delivery
         # should fire for a disabled subscription regardless of whether it was just

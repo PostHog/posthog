@@ -412,6 +412,12 @@ class Subscription(ModelActivityMixin, models.Model):
 def subscription_saved(sender, instance, created, raw, using, **kwargs):
     from posthog.event_usage import report_user_action
 
+    # Partial-field saves are internal bookkeeping (e.g. next_delivery_date rescheduling), not a
+    # user create/update — a real API save writes the whole row. Skip them so re-enabling or the
+    # scheduler doesn't emit a second "<kind> subscription updated" event.
+    if kwargs.get("update_fields"):
+        return
+
     if instance.created_by and instance.resource_info:
         event_name: str = f"{instance.resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
         report_user_action(
