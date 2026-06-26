@@ -5396,6 +5396,51 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         if expected_detail_fragment is not None:
             self.assertIn(expected_detail_fragment, response.json()["detail"])
 
+    def test_snapshot_cohort_referencing_behavioral_cohort_is_allowed_in_flag(self):
+        # A snapshot cohort is is_static=True but retains its populating criteria,
+        # which can reference another (behavioral) cohort. The dependency walk must
+        # be skipped for static cohorts so the referenced behavioral cohort doesn't
+        # block flag creation — matching the Rust engine, whose extract_dependencies
+        # returns an empty set for static cohorts.
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team,
+            name="behavioral-dep",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+        )
+        snapshot_cohort = Cohort.objects.create(
+            team=self.team,
+            name="snapshot",
+            is_static=True,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "type": "cohort", "value": behavioral_cohort.id},
+                    ],
+                }
+            },
+        )
+
+        self._create_flag_with_properties(
+            "snapshot-cohort-flag",
+            [{"key": "id", "type": "cohort", "value": snapshot_cohort.id}],
+            expected_status=status.HTTP_201_CREATED,
+        )
+
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
             "groups-flag",
