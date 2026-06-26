@@ -1,6 +1,7 @@
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
@@ -215,7 +216,7 @@ export function RunActivityChart({
                     {plottable.length} runs · median {formatAxisMinutes(medianMin)} · peak {peak} in flight
                 </span>
             </div>
-            <div className="rounded-lg border bg-surface-primary p-4">
+            <LemonCard hoverEffect={false} className="p-4">
                 <div className="flex gap-2">
                     {/* Y axis: duration tick labels in their own gutter, aligned to the scatter gridlines. */}
                     <div className="relative w-12 shrink-0" style={{ height: SCATTER_HEIGHT }}>
@@ -324,7 +325,7 @@ export function RunActivityChart({
                         In flight
                     </span>
                 </div>
-            </div>
+            </LemonCard>
         </div>
     )
 }

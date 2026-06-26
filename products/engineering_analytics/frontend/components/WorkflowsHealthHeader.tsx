@@ -1,5 +1,6 @@
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
 import { percentage } from 'lib/utils/numbers'
 
@@ -27,12 +28,14 @@ export function WorkflowsHealthHeader({ summary, truncated, className }: Workflo
     const hasCost = summary.estimatedCostUsd != null
 
     return (
-        <div
+        <LemonCard
+            hoverEffect={false}
+            // Left accent in the state color (border-l-4 + the state's token class).
             className={cn(
-                'flex flex-wrap items-center gap-x-6 gap-y-4 rounded-lg border bg-surface-primary px-5 py-4',
+                'flex flex-wrap items-center gap-x-6 gap-y-4 border-l-4 px-5 py-4',
+                meta.borderClass,
                 className
             )}
-            style={{ borderLeftWidth: 4, borderLeftColor: meta.color }}
         >
             <div className="flex flex-col">
                 <div className="flex items-center gap-2">
@@ -88,6 +91,6 @@ export function WorkflowsHealthHeader({ summary, truncated, className }: Workflo
                 <HealthKpi label="Total runs" value={summary.totalRuns.toLocaleString()} />
                 {hasCost && <HealthKpi label="CI cost" value={`≈ ${formatCost(summary.estimatedCostUsd)}`} />}
             </div>
-        </div>
+        </LemonCard>
     )
 }

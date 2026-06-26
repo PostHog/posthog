@@ -1,6 +1,7 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { percentage } from 'lib/utils/numbers'
@@ -34,13 +35,15 @@ export function WorkflowHealthHeader({ summary, cost, truncated, className }: Wo
     const hasCost = cost?.estimatedCostUsd != null
 
     return (
-        <div
+        <LemonCard
+            hoverEffect={false}
+            // Left accent in the state color (border-l-4 + the state's token class) — the strip reads as
+            // healthy/degraded/failing at the edge.
             className={cn(
-                'flex flex-wrap items-center gap-x-6 gap-y-4 rounded-lg border bg-surface-primary px-5 py-4',
+                'flex flex-wrap items-center gap-x-6 gap-y-4 border-l-4 px-5 py-4',
+                meta.borderClass,
                 className
             )}
-            // Left accent in the state color — the strip reads as healthy/degraded/failing at the edge.
-            style={{ borderLeftWidth: 4, borderLeftColor: meta.color }}
         >
             <div className="flex flex-col">
                 <div className="flex items-center gap-2">
@@ -101,6 +104,6 @@ export function WorkflowHealthHeader({ summary, cost, truncated, className }: Wo
                 <HealthKpi label="p95 duration" value={formatDuration(summary.p95Seconds)} />
                 {hasCost && <HealthKpi label="CI cost" value={`≈ ${formatCost(cost?.estimatedCostUsd ?? null)}`} />}
             </div>
-        </div>
+        </LemonCard>
     )
 }
