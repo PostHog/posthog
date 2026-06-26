@@ -37,6 +37,7 @@ export type ValidationCode =
     | 'unknown_cron_placeholder'
     | 'secret_no_host_binding'
     | 'invalid_model'
+    | 'required_client_tool_with_non_chat_trigger'
 
 /**
  * Non-blocking soft signals — surface to the author before freeze, but the
@@ -166,6 +167,30 @@ export async function validateRevisionBundle(
             }
         }
         // kind:'custom' / kind:'client' need no presence check — see above.
+    }
+
+    // `kind:'client'` `required:true` tools need a chat trigger: only the chat
+    // /run body carries `supported_client_tools`. Webhook/slack/cron/mcp
+    // sessions have no client to declare support, so the runner hides every
+    // client tool there (see build-agent-tools.ts). A `required` client tool
+    // combined with any non-chat trigger would fail every non-chat session,
+    // so reject the combination at freeze.
+    const nonChatTriggers = rev.spec.triggers.filter((t) => t.type !== 'chat')
+    if (nonChatTriggers.length > 0) {
+        for (const [i, tool] of rev.spec.tools.entries()) {
+            if (tool.kind === 'client' && tool.required) {
+                const kinds = [...new Set(nonChatTriggers.map((t) => t.type))].join(', ')
+                errors.push({
+                    code: 'required_client_tool_with_non_chat_trigger',
+                    message:
+                        `client tool "${tool.id}" is required:true but spec.triggers includes non-chat trigger(s) ` +
+                        `(${kinds}). Non-chat triggers have no connecting client to declare support, so every ` +
+                        `non-chat session would fail session open. Either mark the tool required:false or ` +
+                        `remove the non-chat trigger(s).`,
+                    pointer: `spec.tools[${i}].required`,
+                })
+            }
+        }
     }
 
     // Cron-specific freeze-time checks. Zod has already validated the field
