@@ -79,6 +79,21 @@ def increment_sandbox_created(runtime: str) -> None:
         pass
 
 
+def record_agent_server_boot_ms(boot_ms: int) -> None:
+    try:
+        attributes: Attributes = {
+            "step": "agent_server_boot",
+            "status": "COMPLETED",
+        }
+        _metric_meter(attributes).create_histogram_timedelta(
+            "tasks_process_sandbox_step_latency",
+            "Latency for get_sandbox_for_repository sub-steps",
+            unit="ms",
+        ).record(dt.timedelta(milliseconds=boot_ms))
+    except Exception:
+        pass
+
+
 class StepTimer:
     def __init__(self, step: str, used_snapshot: bool | None = None) -> None:
         self.step = step

@@ -15,7 +15,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
 
@@ -49,7 +49,7 @@ from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, sen
 from .activities.start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
-from .credential_refresh import run_credential_refresh_loop
+from .credential_refresh import SANDBOX_GONE_ERROR_MESSAGE, CredentialRefreshExitReason, run_credential_refresh_loop
 
 
 @dataclass
@@ -58,6 +58,7 @@ class ProcessTaskInput:
     create_pr: bool = True
     slack_thread_context: Optional[dict[str, Any]] = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
+    prewarmed: bool = False
 
 
 @dataclass
@@ -78,6 +79,7 @@ class TaskEvent(StrEnum):
     SIGNAL_RECEIVED = "signal_received"
     TIMEOUT_REACHED = "timeout_reached"
     CI_FOLLOW_UP = "ci_follow_up"
+    SANDBOX_GONE = "sandbox_gone"
 
 
 class CIFollowUpDecision(StrEnum):
@@ -87,7 +89,7 @@ class CIFollowUpDecision(StrEnum):
 
 
 # Legacy re-exports kept while process_task is still on the worker. New
-# workers should import these directly from `products.tasks.backend.temporal.constants`.
+# workers should import them directly from `products.tasks.backend.temporal.constants`.
 from products.tasks.backend.temporal.constants import (  # noqa: E402
     CI_FOLLOW_UP_DELAY,
     DEFAULT_CI_MESSAGE,
@@ -95,6 +97,7 @@ from products.tasks.backend.temporal.constants import (  # noqa: E402
     MAX_CI_REPETITIONS,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+    WARM_IDLE_TIMEOUT,
 )
 
 # Rolling-deploy deprecation bundle (TODO slug: tasks-ci-follow-up-pr-context-cleanup)
@@ -147,6 +150,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
         self._heartbeat_received: bool = False
+        self._prewarmed: bool = False
+        self._first_user_message_received: bool = False
+        self._sandbox_gone: bool = False
         self._pending_followup: PendingFollowup | None = None
         self._pending_followups: list[PendingFollowup] = []
         self._ci_repetitions: int = 0
@@ -175,6 +181,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             create_pr=loaded.get("create_pr", True),
             slack_thread_context=loaded.get("slack_thread_context"),
             posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
+            prewarmed=loaded.get("prewarmed", False),
         )
 
     @staticmethod
@@ -206,11 +213,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await workflow.wait_condition(
             lambda: (
                 self._task_completed
+                or self._sandbox_gone
                 or self._heartbeat_received
                 or self._pending_followup is not None
                 or len(self._pending_followups) > 0
             )
         )
+        if self._sandbox_gone and not self._task_completed:
+            return TaskEvent.SANDBOX_GONE
         return TaskEvent.SIGNAL_RECEIVED
 
     async def _wait_for_inactivity(self, timeout: timedelta = INACTIVITY_TIMEOUT):
@@ -236,8 +246,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return TaskEvent.CI_FOLLOW_UP
 
     async def _wait_for_event(self) -> TaskEvent:
+        warm_idle = self._prewarmed and not self._first_user_message_received
+
         ci_follow_up_scheduled = (
-            self._context is not None
+            not warm_idle
+            and self._context is not None
             and self._context.create_pr
             and self._context.pr_loop_enabled
             and self._ci_repetitions < MAX_CI_REPETITIONS
@@ -246,15 +259,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # CI_FOLLOW_UP_DELAY. The testing-only `TASKS_INACTIVITY_TIMEOUT_SECONDS`
         # env var bypasses the floor, but only when explicitly set AND short —
         # so a misconfigured large value still respects the CI floor.
+        base_timeout = self.context.inactivity_timeout()
         ci_follow_up_floor = CI_FOLLOW_UP_DELAY + timedelta(minutes=1)
         testing_override_active = bool(settings.TASKS_INACTIVITY_TIMEOUT_SECONDS) and (
-            INACTIVITY_TIMEOUT < ci_follow_up_floor
+            base_timeout < ci_follow_up_floor
         )
-        inactivity_timeout = (
-            max(INACTIVITY_TIMEOUT, ci_follow_up_floor)
-            if ci_follow_up_scheduled and not testing_override_active
-            else INACTIVITY_TIMEOUT
-        )
+        if warm_idle:
+            inactivity_timeout = min(WARM_IDLE_TIMEOUT, base_timeout)
+        elif ci_follow_up_scheduled and not testing_override_active:
+            inactivity_timeout = max(base_timeout, ci_follow_up_floor)
+        else:
+            inactivity_timeout = base_timeout
         possible_events: list[asyncio.Task[TaskEvent]] = [
             asyncio.create_task(self._wait_for_task_external_event()),
             asyncio.create_task(self._wait_for_inactivity(inactivity_timeout)),
@@ -370,6 +385,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         run_id = input.run_id
         self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
+        self._prewarmed = input.prewarmed
         credential_refresh_task: asyncio.Task[None] | None = None
         try:
             self._context = await self._get_task_processing_context(input)
@@ -429,7 +445,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
 
             if self.context.has_github_credentials:
-                credential_refresh_task = asyncio.ensure_future(run_credential_refresh_loop(self.context, sandbox_id))
+                credential_refresh_task = asyncio.ensure_future(
+                    self._run_credential_refresh_until_sandbox_gone(sandbox_id)
+                )
 
             if self._should_forward_pending_user_message():
                 await self._forward_pending_user_message()
@@ -464,6 +482,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                 self._last_active_time = workflow.now()
                             case _:
                                 raise ValueError(f"Unknown CIFollowUpDecision: {follow_up_result}")
+                    case TaskEvent.SANDBOX_GONE:
+                        self._mark_sandbox_gone()
                     case TaskEvent.SIGNAL_RECEIVED:
                         pending_followup_count = len(self._pending_followups) + (
                             1 if self._pending_followup is not None else 0
@@ -482,6 +502,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             else:
                                 pending_followup = self._pending_followups.pop(0)
                             self._last_active_time = workflow.now()
+                            self._first_user_message_received = True
                             message = pending_followup.message
                             artifact_ids = pending_followup.artifact_ids
                             if self._should_skip_followup(message, artifact_ids):
@@ -507,8 +528,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     case _:
                         raise ValueError(f"Unknown event type: {event}")
 
+            # Cancel background loops as soon as the run ends, not just in `finally` —
+            # a hang in the cleanup path below must not leave credential refresh running.
             if relay_task is not None:
                 await self._cancel_relay(relay_task)
+            if credential_refresh_task is not None:
+                await self._cancel_relay(credential_refresh_task)
+                credential_refresh_task = None
 
             if self._task_completed:
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
@@ -851,6 +877,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _run_credential_refresh_until_sandbox_gone(self, sandbox_id: str) -> None:
+        exit_reason = await run_credential_refresh_loop(self.context, sandbox_id)
+        if exit_reason == CredentialRefreshExitReason.SANDBOX_GONE:
+            workflow.logger.warning(
+                "sandbox_gone_detected",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+            )
+            self._sandbox_gone = True
+
+    def _mark_sandbox_gone(self) -> None:
+        self._completion_status = "completed"
+        self._completion_error = SANDBOX_GONE_ERROR_MESSAGE
+        self._task_completed = True
 
     async def _relay_sandbox_events(
         self, agent_server_output: StartAgentServerOutput, sandbox_id: str | None = None

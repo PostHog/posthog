@@ -23,7 +23,7 @@ from posthog.schema import (
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import User
-from posthog.tasks.alerts.utils import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, AlertEvaluationResult
+from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
@@ -33,6 +33,7 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
+from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
 

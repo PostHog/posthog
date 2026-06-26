@@ -5,6 +5,7 @@ import structlog
 from posthog.temporal.health_checks.alerts import emit_health_check_alert
 from posthog.temporal.health_checks.db import resolve_stale_issues_with_deltas, upsert_issues_with_deltas
 from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult
+from posthog.temporal.health_checks.signal_emitter import emit_health_check_signals
 from posthog.temporal.health_checks.validation import _validate_batch_output
 
 logger = structlog.get_logger(__name__)
@@ -54,6 +55,7 @@ def _process_batch_detection(
 
     for issue in newly_active:
         emit_health_check_alert(issue, status="firing")
+    emit_health_check_signals(newly_active)
     for issue in newly_resolved:
         emit_health_check_alert(issue, status="resolved")
 

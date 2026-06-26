@@ -1,7 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 
 import api from 'lib/api'
-import { isEmptyObject } from 'lib/utils'
+import { isEmptyObject } from 'lib/utils/guards'
 import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { NotebookNodeType, NotebookType } from 'scenes/notebooks/types'
 import { convertLegacyFiltersToUniversalFilters } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'

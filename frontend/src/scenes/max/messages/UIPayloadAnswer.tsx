@@ -31,6 +31,7 @@ import {
     issueQueryOptionsLogic,
 } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ERROR_TRACKING_SCENE_LOGIC_KEY } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 import { isDangerousOperationResponse, normalizeDangerousOperationResponse } from '../approvalOperationUtils'
 import { DangerousOperationApprovalCard } from '../DangerousOperationApprovalCard'
@@ -38,7 +39,6 @@ import { maxLogic } from '../maxLogic'
 import { ErrorTrackingFiltersSummary } from './ErrorTrackingFiltersSummary'
 import { ErrorTrackingIssueCard } from './ErrorTrackingIssueCard'
 import { MaxErrorTrackingWidgetLogicProps, maxErrorTrackingWidgetLogic } from './maxErrorTrackingWidgetLogic'
-import { MessageTemplate } from './MessageTemplate'
 import { RecordingsFiltersSummary } from './RecordingsFiltersSummary'
 
 export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [
@@ -61,20 +61,22 @@ export function UIPayloadAnswer({
     toolCallId,
     toolName,
     toolPayload,
+    embedded = false,
 }: {
     toolCallId: string
     toolName: string
     toolPayload: any
+    embedded?: boolean
 }): JSX.Element | null {
     const { conversationId } = useValues(maxLogic)
 
     if (toolName === 'search_session_recordings') {
         const filters = toolPayload as RecordingUniversalFilters
-        return <RecordingsWidget toolCallId={toolCallId} filters={filters} />
+        return <RecordingsWidget toolCallId={toolCallId} filters={filters} embedded={embedded} />
     }
     if (toolName === 'search_error_tracking_issues') {
         const filters = toolPayload as MaxErrorTrackingSearchResponse
-        return <ErrorTrackingFiltersWidget toolCallId={toolCallId} filters={filters} />
+        return <ErrorTrackingFiltersWidget toolCallId={toolCallId} filters={filters} embedded={embedded} />
     }
 
     // Check if this is a dangerous operation requiring approval
@@ -94,9 +96,11 @@ export function UIPayloadAnswer({
 export function RecordingsWidget({
     toolCallId,
     filters,
+    embedded = false,
 }: {
     toolCallId: string
     filters: RecordingUniversalFilters
+    embedded?: boolean
 }): JSX.Element {
     const { onAcceptSessionFilters } = useValues(maxLogic)
     const logicProps: SessionRecordingPlaylistLogicProps = {
@@ -105,14 +109,23 @@ export function RecordingsWidget({
         updateSearchParams: false,
         autoPlay: false,
     }
+    const content = (
+        <>
+            <RecordingsFiltersSummary filters={filters} />
+            <RecordingsListContent />
+            {onAcceptSessionFilters && <AcceptFiltersBar filters={filters} onAccept={onAcceptSessionFilters} />}
+        </>
+    )
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
-                <RecordingsFiltersSummary filters={filters} />
-                <RecordingsListContent />
-                {onAcceptSessionFilters && <AcceptFiltersBar filters={filters} onAccept={onAcceptSessionFilters} />}
-            </MessageTemplate>
+            {embedded ? (
+                <div className="overflow-hidden rounded border bg-surface-primary">{content}</div>
+            ) : (
+                <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
+                    {content}
+                </MessageTemplate>
+            )}
         </BindLogic>
     )
 }
@@ -186,33 +199,47 @@ function RecordingsListContent(): JSX.Element {
 export function ErrorTrackingFiltersWidget({
     toolCallId,
     filters,
+    embedded = false,
 }: {
     toolCallId: string
     filters: MaxErrorTrackingSearchResponse | null | undefined
+    embedded?: boolean
 }): JSX.Element {
     const logicProps: MaxErrorTrackingWidgetLogicProps = { toolCallId, filters }
 
     if (!filters) {
+        const emptyState = (
+            <div className="py-2">
+                <EmptyMessage
+                    title="Error tracking data unavailable"
+                    description="The error tracking search could not be completed"
+                />
+            </div>
+        )
+        if (embedded) {
+            return <div className="overflow-hidden rounded border bg-surface-primary">{emptyState}</div>
+        }
         return (
             <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
-                <div className="py-2">
-                    <EmptyMessage
-                        title="Error tracking data unavailable"
-                        description="The error tracking search could not be completed"
-                    />
-                </div>
+                {emptyState}
             </MessageTemplate>
         )
     }
 
     return (
         <BindLogic logic={maxErrorTrackingWidgetLogic} props={logicProps}>
-            <ErrorTrackingFiltersWidgetContent filters={filters} />
+            <ErrorTrackingFiltersWidgetContent filters={filters} embedded={embedded} />
         </BindLogic>
     )
 }
 
-function ErrorTrackingFiltersWidgetContent({ filters }: { filters: MaxErrorTrackingSearchResponse }): JSX.Element {
+function ErrorTrackingFiltersWidgetContent({
+    filters,
+    embedded,
+}: {
+    filters: MaxErrorTrackingSearchResponse
+    embedded: boolean
+}): JSX.Element {
     const { activeSceneId } = useValues(sceneLogic)
     const isOnErrorTrackingPage = activeSceneId === Scene.ErrorTracking
 
@@ -280,8 +307,8 @@ function ErrorTrackingFiltersWidgetContent({ filters }: { filters: MaxErrorTrack
     const hasIssues = issues.length > 0
     const errorTrackingUrl = buildErrorTrackingUrl()
 
-    return (
-        <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
+    const content = (
+        <>
             {!isOnErrorTrackingPage && (
                 <div className="flex items-center justify-between px-2 pt-2">
                     <span className="text-xs font-semibold text-secondary">Error tracking</span>
@@ -314,6 +341,16 @@ function ErrorTrackingFiltersWidgetContent({ filters }: { filters: MaxErrorTrack
                     </div>
                 )}
             </div>
+        </>
+    )
+
+    if (embedded) {
+        return <div className="overflow-hidden rounded border bg-surface-primary">{content}</div>
+    }
+
+    return (
+        <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
+            {content}
         </MessageTemplate>
     )
 }

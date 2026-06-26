@@ -232,6 +232,11 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
+export interface OrganizationAIAccessRequestResponseApi {
+    /** Whether the access request was accepted and the organization admins were notified. */
+    success: boolean
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -786,14 +791,6 @@ export interface PatchedCommentApi {
     source_comment?: string | null
 }
 
-export interface PromotedProductIntentApi {
-    /**
-     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-     * @nullable
-     */
-    product_key: string | null
-}
-
 export interface PinnedSceneTabApi {
     /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
     id?: string
@@ -961,6 +958,7 @@ export type ActivityLogListParams = {
      * * `UserGroup` - UserGroup
      * * `BatchExport` - BatchExport
      * * `BatchImport` - BatchImport
+     * * `ExportedAsset` - ExportedAsset
      * * `Integration` - Integration
      * * `Annotation` - Annotation
      * * `Tag` - Tag
@@ -1040,6 +1038,7 @@ export const ActivityLogListScope = {
     UserGroup: 'UserGroup',
     BatchExport: 'BatchExport',
     BatchImport: 'BatchImport',
+    ExportedAsset: 'ExportedAsset',
     Integration: 'Integration',
     Annotation: 'Annotation',
     Tag: 'Tag',
@@ -1106,6 +1105,7 @@ export const ActivityLogListScope = {
  * * `UserGroup` - UserGroup
  * * `BatchExport` - BatchExport
  * * `BatchImport` - BatchImport
+ * * `ExportedAsset` - ExportedAsset
  * * `Integration` - Integration
  * * `Annotation` - Annotation
  * * `Tag` - Tag
@@ -1173,6 +1173,7 @@ export const ActivityLogListScopesItem = {
     UserGroup: 'UserGroup',
     BatchExport: 'BatchExport',
     BatchImport: 'BatchImport',
+    ExportedAsset: 'ExportedAsset',
     Integration: 'Integration',
     Annotation: 'Annotation',
     Tag: 'Tag',

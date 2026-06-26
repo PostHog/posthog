@@ -6,7 +6,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, Link } fr
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { cimdVerificationTokensLogic, CIMDVerificationToken } from './cimdVerificationTokensLogic'
 

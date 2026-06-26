@@ -32,8 +32,8 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
 from products.data_modeling.backend.models import DAG, Node, NodeType
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.data_load.create_table import CreateTableResult
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.data_warehouse.backend.facade.api import CreateTableResult
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -612,6 +612,65 @@ class TestMaterializeViewActivity:
                 pa.RecordBatch.from_arrays(
                     [pa.array([f"b{i}r0", f"b{i}r1"], type=pa.string()) for _ in camel_case_names],
                     names=camel_case_names,
+                )
+                for i in range(3)
+            ]
+
+            async def async_generator():
+                for batch in batches:
+                    yield batch, [(name, "String") for name in camel_case_names]
+
+            return async_generator()
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
+                return_value=6,
+            ),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            result = await activity_environment.run(materialize_view_activity, inputs)
+
+            assert result.row_count == 6
+            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=_get_aws_storage_options())
+            materialized = delta_table.to_pyarrow_table()
+            assert materialized.column_names == camel_case_names
+            assert materialized.num_rows == 6
+
+    async def test_preserves_column_casing_for_non_nullable_columns_across_batches(
+        self, activity_environment, ateam, anode, ajob, bucket_name, adag
+    ):
+        # regression: ClickHouse emits NON-nullable columns for expressions, constants,
+        # concat()/toString(), and non-Nullable source columns. When such a query spans more
+        # than one batch, the first batch's overwrite pins a non-nullable delta schema and the
+        # later append (schema_mode="merge") routes through delta-rs's DataFusion writer, which
+        # lowercases identifiers and fails with:
+        #   "Schema error: No field named userid. ... Did you mean 'userId'?"
+        # for any column containing uppercase characters. This mirrors the customer query whose
+        # camelCase columns (userId, portfolioId, pHuniqueId, aumDKK, ...) are all non-nullable.
+        camel_case_names = ["date", "userId", "portfolioId", "pHuniqueId", "aumDKK", "aum_ETF"]
+        non_nullable_schema = pa.schema([pa.field(name, pa.string(), nullable=False) for name in camel_case_names])
+
+        def mock_hogql_table(*args, **kwargs):
+            del args, kwargs
+            batches = [
+                pa.RecordBatch.from_arrays(
+                    [pa.array([f"b{i}r0", f"b{i}r1"], type=pa.string()) for _ in camel_case_names],
+                    schema=non_nullable_schema,
                 )
                 for i in range(3)
             ]

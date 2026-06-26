@@ -1,0 +1,47 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "agent_md": {
+            "type": "string"
+        },
+        "application_id": {
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this agent revision.",
+            "type": "string"
+        },
+        "spec": {
+            "additionalProperties": {},
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "tools": {
+            "items": {
+                "description": "Body shape for PUT /revisions/<id>/tools/<tool_id>/.",
+                "properties": {
+                    "args_schema": {
+                        "additionalProperties": {},
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "type": "string"
+                    }
+                },
+                "required": ["description", "args_schema", "source"],
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["application_id", "id", "agent_md", "spec"],
+    "type": "object"
+}

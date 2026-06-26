@@ -2,6 +2,7 @@ import hmac
 import uuid
 import hashlib
 
+from django.db import transaction
 from django.http import HttpResponse
 
 import structlog
@@ -116,6 +117,22 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         run_id=str(task_run.id) if task_run else None,
     )
 
+    # Backstop the agent-side PR detector: when we matched the run (by branch+repo)
+    # but its output carries no PR URL yet, persist it so the inbox-notification
+    # gate, CI follow-up loop, and later webhook lookups can resolve the PR.
+    # Only trust the match when the PR originates from a branch in the installed
+    # repo itself — never a fork. For fork PRs, head.ref is attacker-controlled
+    # while repository.full_name stays the base repo, so a branch+repo match could
+    # otherwise bind an unrelated PR to the run.
+    head_repo_full_name = ((pull_request.get("head") or {}).get("repo") or {}).get("full_name")
+    is_internal_branch = (
+        head_repo_full_name is not None
+        and repository_full_name is not None
+        and head_repo_full_name.strip().lower() == repository_full_name.strip().lower()
+    )
+    if task_run is not None and is_internal_branch:
+        _record_run_pr_url(task_run, pr_url)
+
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
     _capture_pr_event(payload, task_run, analytics_event, event_uuid)
@@ -124,6 +141,32 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         _resolve_signal_reports_for_task(task_run.task_id, pr_url)
 
     return HttpResponse(status=200)
+
+
+def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
+    """Persist ``output.pr_url`` for a webhook-matched run when it isn't set yet.
+
+    The agent server normally records the PR URL when it observes the agent open
+    the PR. When that detection misses, a branch+repo webhook match is the
+    backstop — without this the run is recognized for analytics but its
+    ``output.pr_url`` stays empty, so inbox notifications, the CI follow-up loop,
+    and later webhook lookups never resolve the PR. Tolerant: a failure here must
+    not fail the webhook (GitHub retries 5xx, and the event is already handled).
+    """
+    if isinstance(task_run.output, dict) and task_run.output.get("pr_url"):
+        return
+    try:
+        with transaction.atomic():
+            locked = TaskRun.objects.select_for_update().get(id=task_run.id)
+            output = locked.output if isinstance(locked.output, dict) else {}
+            if output.get("pr_url"):
+                return
+            locked.output = {**output, "pr_url": pr_url}
+            locked.save(update_fields=["output", "updated_at"])
+        # Keep the in-memory instance consistent for the rest of this request.
+        task_run.output = {**(task_run.output if isinstance(task_run.output, dict) else {}), "pr_url": pr_url}
+    except Exception:
+        logger.warning("github_pr_webhook_record_pr_url_failed", run_id=str(task_run.id), exc_info=True)
 
 
 # Nulled on external PRs so their schema matches task-originated PR events.
@@ -196,7 +239,7 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
     since GitHub retries 5xx responses and we've already acknowledged the PR event.
     """
     reports = (
-        SignalReport.objects.filter(report_tasks__task_id=task_id)
+        SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id))
         .exclude(
             status__in=[
                 SignalReport.Status.RESOLVED,

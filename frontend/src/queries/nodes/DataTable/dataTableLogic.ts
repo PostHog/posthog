@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-import { objectsEqual, sortedKeys } from 'lib/utils'
+import { objectsEqual, sortedKeys } from 'lib/utils/objects'
 import { RequiredExcept } from 'lib/utils/types'
 import { teamLogic } from 'scenes/teamLogic'
 

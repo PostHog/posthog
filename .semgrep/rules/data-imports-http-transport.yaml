@@ -1,6 +1,6 @@
 # Warehouse-source HTTP calls must go through `make_tracked_session()` so they
 # participate in HTTP logging, metrics, and sample capture (see
-# posthog/temporal/data_imports/sources/common/http/). Direct `requests.<verb>`
+# products/warehouse_sources/backend/temporal/data_imports/sources/common/http/). Direct `requests.<verb>`
 # / `requests.Session()` / `httpx.Client(...)` calls bypass the transport.
 # Type and exception imports (`from requests import Response`,
 # `from requests.exceptions import ...`) remain allowed — only the network-call
@@ -10,7 +10,7 @@ rules:
       pattern: requests.Session(...)
       message: |
           Use `make_tracked_session(...)` from
-          `posthog.temporal.data_imports.sources.common.http` instead of
+          `products.warehouse_sources.backend.temporal.data_imports.sources.common.http` instead of
           `requests.Session()`. The tracked session attaches `team_id`,
           `source_type`, schema/job IDs to logs and metrics for every
           outbound request, and participates in opt-in sample capture.
@@ -26,9 +26,9 @@ rules:
           confidence: HIGH
       paths:
           include:
-              - '**/posthog/temporal/data_imports/sources/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
           exclude:
-              - '**/posthog/temporal/data_imports/sources/common/http/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/http/**'
               - '**/test/**'
               - '**/tests/**'
               - '**/test_*.py'
@@ -45,7 +45,7 @@ rules:
           - pattern: requests.request(...)
       message: |
           Use `make_tracked_session(...)` from
-          `posthog.temporal.data_imports.sources.common.http` instead of the
+          `products.warehouse_sources.backend.temporal.data_imports.sources.common.http` instead of the
           module-level `requests.<verb>` shortcut. Each tracked session
           participates in HTTP logging, metrics, and sample capture.
 
@@ -60,9 +60,9 @@ rules:
           confidence: HIGH
       paths:
           include:
-              - '**/posthog/temporal/data_imports/sources/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
           exclude:
-              - '**/posthog/temporal/data_imports/sources/common/http/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/http/**'
               - '**/test/**'
               - '**/tests/**'
               - '**/test_*.py'
@@ -83,7 +83,7 @@ rules:
           `httpx` is not currently routed through the warehouse-source
           tracked transport. Use `make_tracked_session(...)` (a
           `requests.Session`) from
-          `posthog.temporal.data_imports.sources.common.http` instead.
+          `products.warehouse_sources.backend.temporal.data_imports.sources.common.http` instead.
 
           If you must use `httpx` here for some reason, add a
           `# nosemgrep: data-imports-http-transport-httpx-client` comment
@@ -96,9 +96,9 @@ rules:
           confidence: HIGH
       paths:
           include:
-              - '**/posthog/temporal/data_imports/sources/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
           exclude:
-              - '**/posthog/temporal/data_imports/sources/common/http/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/http/**'
               - '**/test/**'
               - '**/tests/**'
               - '**/test_*.py'

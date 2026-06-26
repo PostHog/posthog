@@ -7,7 +7,9 @@ import React from 'react'
 import { SourceLoadingState } from '@posthog/replay-shared'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { playerMetaLogic } from '../player-meta/playerMetaLogic'
@@ -75,7 +77,8 @@ const SeekbarSources = React.memo(function SeekbarSourcesRaw({
 })
 
 export function Seekbar(): JSX.Element {
-    const { sessionRecordingId, logicProps, hasSnapshots } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps, hasSnapshots, hasLateFullSnapshot, leadingUnplayableMs } =
+        useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
     const { endTimeMs, thumbLeftPos, isScrubbing } = useValues(seekbarLogic(logicProps))
@@ -133,6 +136,20 @@ export function Seekbar(): JSX.Element {
                         endTimeMs={endTimeMs}
                         onSeekToSegment={seekToTime}
                     />
+                    {hasLateFullSnapshot && endTimeMs > 0 ? (
+                        <Tooltip
+                            title={`The first ${humanFriendlyDuration(leadingUnplayableMs / 1000, {
+                                maxUnits: 2,
+                            })} can't be played — the initial screen snapshot arrived late`}
+                            placement="top"
+                        >
+                            <div
+                                className="PlayerSeekbar__unplayable"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ width: `${Math.min(100, (leadingUnplayableMs / endTimeMs) * 100)}%` }}
+                            />
+                        </Tooltip>
+                    ) : null}
                     <div
                         className="PlayerSeekbar__played"
                         // eslint-disable-next-line react/forbid-dom-props

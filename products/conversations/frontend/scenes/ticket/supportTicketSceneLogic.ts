@@ -156,10 +156,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Draft message state (persists across tab switches)
         setDraftContent: (content: JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
-
-        // AI suggestion
-        suggestReply: true,
-        setSuggesting: (suggesting: boolean) => ({ suggesting }),
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -320,13 +316,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             false,
             {
                 setDraftIsPrivate: (_, { isPrivate }) => isPrivate,
-            },
-        ],
-        suggesting: [
-            false,
-            {
-                suggestReply: () => true,
-                setSuggesting: (_, { suggesting }) => suggesting,
             },
         ],
     }),
@@ -547,30 +536,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
-        suggestReply: async () => {
-            try {
-                await api.conversationsTickets.suggestReply(props.id.toString())
-                actions.loadMessages()
-            } catch (error: any) {
-                // Parse error response for specific error messages
-                const errorData = error?.data || {}
-                const errorDetail = errorData.detail || 'Failed to generate AI suggestion'
-                const errorType = errorData.error_type
-
-                // Show more specific error messages based on error type
-                if (errorType === 'timeout') {
-                    lemonToast.error('AI service timed out. Please try again.')
-                } else if (errorType === 'rate_limit') {
-                    lemonToast.error('Too many requests. Please wait a moment and try again.')
-                } else if (errorType === 'validation_error') {
-                    lemonToast.error('AI returned an invalid response. Please try again.')
-                } else {
-                    lemonToast.error(errorDetail)
-                }
-            } finally {
-                actions.setSuggesting(false)
-            }
-        },
         sendMessage: async ({ content, richContent, isPrivate, onSuccess }) => {
             if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessageSending(false)
@@ -615,8 +580,24 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         cache.disposables.disposeAll()
         impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
-    beforeUnload(({ values }) => ({
-        enabled: () => values.hasPendingWork,
+    beforeUnload(({ values, actions }) => ({
+        enabled: (newLocation) => {
+            if (!values.hasPendingWork) {
+                return false
+            }
+            // Ignore in-page navigations (e.g. opening a side panel) that keep the same path
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
         message: 'You have unsaved changes. Are you sure you want to leave?',
+        onConfirm: () => {
+            // Re-sync local form reducers to the last-known server ticket so hasUnsavedChanges
+            // recomputes to false and the prompt does not re-fire on the next navigation.
+            if (values.ticket) {
+                actions.setTicket(values.ticket)
+            }
+        },
     })),
 ])

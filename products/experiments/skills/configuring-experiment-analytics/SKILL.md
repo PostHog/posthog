@@ -53,13 +53,54 @@ skill to resolve it to a concrete ID before proceeding.
 
 ## Metrics
 
-Metrics are added via `experiment-update` after creation. The `metrics` array **replaces** the entire list, so always get the current experiment first via `experiment-get` to preserve existing metrics.
+A metric reaches an experiment one of two ways, both via `experiment-update`:
 
-### Step 1: Discover available events (REQUIRED — always do this first)
+- **Inline metric** — defined directly on the experiment. Sent in the `metrics` array, which
+  **replaces** the entire inline list, so always get the current experiment first via `experiment-get`
+  to preserve existing metrics.
+- **Shared (saved) metric** — a reusable metric object that can be attached to many experiments.
+  Attached by ID via `saved_metrics_ids` (this list also **replaces** the experiment's existing
+  saved-metric links, so resend the full set — see Step 1).
 
-Before suggesting or configuring ANY metric, you MUST call `read-data-schema` to discover
+**Prefer reusing a shared metric over duplicating it inline.** Build a new inline metric only when
+no suitable shared metric already exists.
+
+### Step 1: Check for an existing shared metric (REQUIRED — always do this first)
+
+Before building any new inline metric, you MUST call `experiment-saved-metrics-list` to see what
+reusable metrics already exist in the project. Do NOT skip this step — duplicating a metric that is
+already set up as a shared metric fragments measurement and is exactly what we want to avoid.
+
+**Workflow:**
+
+1. Call `experiment-saved-metrics-list` (pass `search` to resolve by name, e.g.
+   `{ "search": "checkout conversion" }`) and scan the results (`id`, `name`, `description`, `query`)
+   for one that matches the user's intent. Results are paginated — if you're browsing without a
+   `search` term and the project has many, page through with `limit`/`offset` before concluding
+   nothing matches.
+2. **If a shared metric clearly matches** — confirm the match with the user by name/description,
+   then attach it instead of building a new one:
+   - Call `experiment-get` to read the experiment's current `saved_metrics`.
+   - Call `experiment-update` with `saved_metrics_ids` set to the full desired set — it **replaces**
+     existing links, so include the already-attached ones plus the new entry. Each entry has shape
+     `{ "id": <saved-metric id>, "metadata": { "type": "primary" } }` — set `type` to `"primary"` or
+     `"secondary"`. `metadata` is optional and defaults to primary.
+   - **Watch the id when rebuilding the set:** each item in the `saved_metrics` you just read has a
+     top-level `id` (the _link_ id) AND a `saved_metric` field (the _metric_ id). `saved_metrics_ids`
+     wants the **`saved_metric`** value, not the link `id` — sending the link `id` attaches the wrong
+     metric or fails validation.
+   - You do not need to discover events (Step 2) — the shared metric already encodes them.
+3. **If the list is empty or nothing matches** — fall through to Step 2 and build an inline metric.
+
+When a new inline metric you're about to build is likely to be reused across experiments, offer to
+create it as a shared metric instead, via `experiment-saved-metrics-create`, then attach it as above.
+
+### Step 2: Discover available events (REQUIRED before building an inline metric)
+
+Before suggesting or building any new inline metric, you MUST call `read-data-schema` to discover
 what events actually exist in the project. Do NOT skip this step. Do NOT suggest event names
 based on what you think the project might track — only use events you have confirmed exist.
+(Attaching an existing shared metric from Step 1 does not need this — it already encodes its events.)
 
 This applies even when:
 
@@ -90,7 +131,7 @@ RIGHT: *calls read-data-schema* → "Here are the events in your project
   `order_confirmed`. Which of these represents a successful checkout?"
 ```
 
-### Step 2: Choose metric type
+### Step 3: Choose metric type
 
 There are four metric types. Each has `kind: "ExperimentMetric"`:
 
@@ -120,9 +161,17 @@ Examples:
 
 Both can reference the same event — the difference is whether you care about count/magnitude (mean) or yes/no conversion (funnel).
 
+**Retention: same vs different start/completion event**
+
+The retention window is measured from the start event, so the events you pick decide what's measured:
+The start occurrence never counts as its own completion (only a distinct later event does), so both shapes are valid:
+
+- **Different** start and completion events → conversion-style retention ("did they reach the target action within the window?").
+- **Same** event → repeat retention ("did they fire it _again_?"). `From 0` counts a repeat from the same period onward (same-day repeats included); `From ≥ 1` requires an occurrence later. Use `start_handling: "first_seen"`. When a user says "retention of `<event>`" they usually mean repeat retention.
+
 See `references/metric-configuration.md` for the full rendered `ExperimentMetric` schema (all four metric types, with required fields per type) plus WRONG/RIGHT JSON pairs for the failure modes that come up most often (ratio with `is_set` filter instead of `math: "sum"` + `math_property`; retention without `retention_window_start` / `start_handling`). Read it before assembling a ratio or retention payload — the required fields are authoritative.
 
-### Step 3: Primary vs secondary
+### Step 4: Primary vs secondary
 
 - **Primary metrics** — the main success criteria for the experiment. These drive the ship/end decision.
 - **Secondary metrics** — additional measurements for context. Useful for guardrail metrics (e.g., ensuring a conversion improvement doesn't increase error rates).

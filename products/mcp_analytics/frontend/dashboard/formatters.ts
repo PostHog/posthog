@@ -1,4 +1,5 @@
-import { humanFriendlyDuration, humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 const EMPTY = '—'
 

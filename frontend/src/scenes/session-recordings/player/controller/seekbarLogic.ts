@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { MutableRefObject } from 'react'
 
-import { clamp } from 'lib/utils'
+import { clamp } from 'lib/utils/numbers'
 import {
     SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,

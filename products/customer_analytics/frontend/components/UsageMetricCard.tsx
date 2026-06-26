@@ -3,7 +3,12 @@ import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { formatPercentage, humanFriendlyCurrency, humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
+import {
+    formatPercentage,
+    humanFriendlyCurrency,
+    humanFriendlyLargeNumber,
+    humanFriendlyNumber,
+} from 'lib/utils/numbers'
 
 import { UsageMetric } from '~/queries/schema/schema-general'
 

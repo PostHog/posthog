@@ -29,6 +29,8 @@ _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 class PostgresPrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "postgres"
+    # Human-readable dialect name used in error messages; subclasses override.
+    DIALECT_LABEL: ClassVar[str] = "Postgres"
 
     def __init__(
         self,
@@ -44,6 +46,9 @@ class PostgresPrinter(BasePrinter):
 
     def _min_function_name(self) -> str:
         return "least"
+
+    def _dialect_error_suffix(self) -> str:
+        return f"in {self.DIALECT_LABEL} mode"
 
     def _assert_set_operator_supported(self, set_operator: str) -> None:
         return
@@ -121,18 +126,13 @@ class PostgresPrinter(BasePrinter):
 
         if node.name in {"toStartOfFiveMinutes", "toStartOfTenMinutes", "toStartOfFifteenMinutes"}:
             if len(node.args) != 1:
-                raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+                raise QueryError(f"{node.name} expects exactly 1 argument {self._dialect_error_suffix()}.")
             minute_bucket_sizes: dict[str, int] = {
                 "toStartOfFiveMinutes": 5,
                 "toStartOfTenMinutes": 10,
                 "toStartOfFifteenMinutes": 15,
             }
-            bucket_arg = self.visit(node.args[0])
-            bucket_size = minute_bucket_sizes[node.name]
-            return (
-                f"date_trunc('hour', {bucket_arg}) + "
-                f"(floor(extract(minute from {bucket_arg}) / {bucket_size})::int * {bucket_size} * interval '1 minute')"
-            )
+            return self._render_minute_bucket(self.visit(node.args[0]), minute_bucket_sizes[node.name])
 
         function_renames = self._get_function_renames()
         function_handlers = self._get_function_handlers()
@@ -146,7 +146,9 @@ class PostgresPrinter(BasePrinter):
                 and func_name not in function_handlers
                 and func_name not in function_renames
             ):
-                raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
+                raise QueryError(
+                    f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect."
+                )
 
         # Validate function name characters to prevent SQL injection via
         # backtick-quoted identifiers that can contain arbitrary characters.
@@ -161,7 +163,9 @@ class PostgresPrinter(BasePrinter):
         handler = function_handlers.get(func_name)
         if handler is not None:
             if node.order_by:
-                raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
+                raise QueryError(
+                    f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect."
+                )
             return handler(args)
 
         renamed = function_renames.get(func_name)
@@ -175,7 +179,7 @@ class PostgresPrinter(BasePrinter):
             # Use the validated name — never the raw node.name
             return f"{func_name}({', '.join(args)})"
 
-        raise QueryError(f"Function '{node.name}' is not supported in the Postgres dialect.")
+        raise QueryError(f"Function '{node.name}' is not supported in the {self.DIALECT_LABEL} dialect.")
 
     def _get_function_renames(self) -> dict[str, str]:
         """Lowercased HogQL-name → target-name map for simple function renames. Overridable by subclasses."""
@@ -245,35 +249,28 @@ class PostgresPrinter(BasePrinter):
 
     def _visit_to_start_of_call(self, node: ast.Call) -> str:
         if len(node.args) == 0:
-            raise QueryError(f"{node.name} expects at least 1 argument in Postgres mode.")
+            raise QueryError(f"{node.name} expects at least 1 argument {self._dialect_error_suffix()}.")
 
         truncated_arg = self.visit(node.args[0])
 
-        if node.name in {
-            "toStartOfSecond",
-            "toStartOfMinute",
-            "toStartOfHour",
-            "toStartOfMonth",
-            "toStartOfQuarter",
-            "toStartOfYear",
-        }:
-            if len(node.args) != 1:
-                raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+        start_of_units: dict[str, str] = {
+            "toStartOfSecond": "second",
+            "toStartOfMinute": "minute",
+            "toStartOfHour": "hour",
+            "toStartOfMonth": "month",
+            "toStartOfQuarter": "quarter",
+            "toStartOfYear": "year",
+        }
 
-            start_of_units: dict[str, str] = {
-                "toStartOfSecond": "second",
-                "toStartOfMinute": "minute",
-                "toStartOfHour": "hour",
-                "toStartOfMonth": "month",
-                "toStartOfQuarter": "quarter",
-                "toStartOfYear": "year",
-            }
-            return f"date_trunc('{start_of_units[node.name]}', {truncated_arg})"
+        if node.name in start_of_units:
+            if len(node.args) != 1:
+                raise QueryError(f"{node.name} expects exactly 1 argument {self._dialect_error_suffix()}.")
+            return self._render_start_of(start_of_units[node.name], truncated_arg)
 
         if node.name == "toStartOfDay":
             if len(node.args) == 1:
-                return f"date_trunc('day', {truncated_arg})"
-            raise QueryError("toStartOfDay with a timezone override is not supported in Postgres mode.")
+                return self._render_start_of("day", truncated_arg)
+            raise QueryError(f"toStartOfDay with a timezone override is not supported {self._dialect_error_suffix()}.")
 
         if node.name == "toStartOfWeek":
             if len(node.args) == 1:
@@ -281,24 +278,35 @@ class PostgresPrinter(BasePrinter):
             elif len(node.args) == 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, int):
                 week_mode = node.args[1].value
             else:
-                raise QueryError("toStartOfWeek only supports literal week modes in Postgres mode.")
-
-            if week_mode in {1, 3}:
-                return f"date_trunc('week', {truncated_arg})"
-            if week_mode == 0:
-                return f"(date_trunc('week', ({truncated_arg} + interval '1 day')) - interval '1 day')"
-            raise QueryError(f"Unsupported toStartOfWeek mode `{week_mode}` in Postgres mode.")
+                raise QueryError(f"toStartOfWeek only supports literal week modes {self._dialect_error_suffix()}.")
+            return self._render_start_of("week", truncated_arg, week_mode=week_mode)
 
         if node.name == "toStartOfISOYear":
             if len(node.args) != 1:
-                raise QueryError("toStartOfISOYear expects exactly 1 argument in Postgres mode.")
-
-            return f"date_trunc('week', make_date(extract(isoyear from {truncated_arg})::int, 1, 4)::timestamp)"
+                raise QueryError(f"toStartOfISOYear expects exactly 1 argument {self._dialect_error_suffix()}.")
+            return self._render_start_of("isoyear", truncated_arg)
 
         if len(node.args) != 1:
-            raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+            raise QueryError(f"{node.name} expects exactly 1 argument {self._dialect_error_suffix()}.")
 
-        return f"date_trunc('day', {truncated_arg})"
+        return self._render_start_of("day", truncated_arg)
+
+    def _render_start_of(self, unit: str, arg: str, week_mode: int = 3) -> str:
+        if unit == "week":
+            if week_mode in {1, 3}:
+                return f"date_trunc('week', {arg})"
+            if week_mode == 0:
+                return f"(date_trunc('week', ({arg} + interval '1 day')) - interval '1 day')"
+            raise QueryError(f"Unsupported toStartOfWeek mode `{week_mode}` {self._dialect_error_suffix()}.")
+        if unit == "isoyear":
+            return f"date_trunc('week', make_date(extract(isoyear from {arg})::int, 1, 4)::timestamp)"
+        return f"date_trunc('{unit}', {arg})"
+
+    def _render_minute_bucket(self, arg: str, bucket_size: int) -> str:
+        return (
+            f"date_trunc('hour', {arg}) + "
+            f"(floor(extract(minute from {arg}) / {bucket_size})::int * {bucket_size} * interval '1 minute')"
+        )
 
     def visit_and(self, node):
         return f"({' AND '.join([f'({self.visit(expr)})' for expr in node.exprs])})"
@@ -386,6 +394,14 @@ class PostgresPrinter(BasePrinter):
         # Team ID filtering is not required for Postgres queries
         pass
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ):
+        # Access control is not implemented for Postgres dialect yet
+        return None
+
     def _print_identifier(self, name: str) -> str:
         if len(name) > 63 and "__" in name:
             name = self._truncate_identifier(name)
@@ -412,7 +428,12 @@ class PostgresPrinter(BasePrinter):
         return candidate
 
     def _json_property_args(self, chain):
-        return [self._print_escaped_string(name) for name in chain]
+        # Parameterize JSON property keys via ``context.add_value`` so psycopg binds them
+        # safely. Inlining them through ``_print_escaped_string`` would emit ClickHouse-style
+        # ``\'`` escapes, which Postgres/DuckDB do not recognize (``standard_conforming_strings``
+        # defaults to ``on``), allowing statement-terminator SQL injection. Same reasoning as
+        # ``visit_constant`` above.
+        return [self.context.add_value(name) for name in chain]
 
     def _print_table(self, table) -> str:
         if isinstance(table, DirectPostgresTable):

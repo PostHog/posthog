@@ -37,7 +37,14 @@ idle(() => {
 //
 // NOTE: The first argument is the name of the polyfill to use. This is used to set the font family in our CSS.
 // Make sure to update the font family in the CSS if you change this.
-polyfillCountryFlagEmojis('Emoji Flags Polyfill')
+//
+// The polyfill runs canvas-based feature detection (getImageData) which can throw on some browser
+// states (e.g. Safari/macOS). It's purely cosmetic and best-effort, so swallow any failure.
+try {
+    polyfillCountryFlagEmojis('Emoji Flags Polyfill')
+} catch (error) {
+    console.warn('[index] Country flag emoji polyfill detection failed:', error)
+}
 
 // Expose `window.getReduxState()` to make snapshots to storybook easy
 if (typeof window !== 'undefined') {

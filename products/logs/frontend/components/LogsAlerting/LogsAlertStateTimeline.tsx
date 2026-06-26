@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom'
 
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { shortTimeZone } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { shortTimeZone } from 'lib/utils/timezones'
 
 import {
     LogsAlertConfigurationStateEnumApi,

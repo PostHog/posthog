@@ -1,4 +1,4 @@
-import { matchesDataAttribute } from 'lib/actionUtils'
+import { matchesDataAttribute } from 'lib/utils/actions'
 
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { ElementType } from '~/types'

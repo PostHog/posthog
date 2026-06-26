@@ -1,16 +1,17 @@
 # Sentiment classification
 
-On-demand sentiment analysis for AI observability traces.
-Classifies user messages from `$ai_generation` events using an ONNX model
-(`cardiffnlp/twitter-roberta-base-sentiment-latest`).
+Sentiment classification for AI observability workflows.
+The classifier analyzes user messages from `$ai_generation` events using an ONNX model
+(`cardiffnlp/twitter-roberta-base-sentiment-latest`), and callers persist the result as `$ai_evaluation` events when sentiment is configured as an AI evaluation.
 
 ## How it works
 
-1. Frontend calls the sentiment API with one or more trace IDs
-2. Django starts a Temporal workflow (`llma-sentiment-classify`)
-3. The activity fetches `$ai_generation` events via HogQL,
-   extracts user messages, and classifies them in a single batch
-4. Results are cached (24h TTL) and returned to the frontend
+There are two call paths:
+
+1. Sentiment AI evaluations run through the evaluation workflow, classify the target generation's user messages, and emit stored `$ai_evaluation` events with `$ai_sentiment_*` properties.
+2. Trace clustering can still call the `llma-sentiment-classify` Temporal workflow for best-effort aggregate sentiment.
+
+The AI observability UI reads stored sentiment evaluation events. It does not trigger on-read sentiment classification.
 
 ## Package structure
 
@@ -60,6 +61,18 @@ uv run --group sentiment bin/download-sentiment-model
 
 This is a no-op if the model already exists.
 
+### Runtime CPU controls
+
+The ONNX Runtime session defaults to one intra-op and one inter-op thread to
+avoid CPU oversubscription when Temporal runs multiple
+sentiment activities concurrently.
+Override these only for a dedicated worker with measured headroom:
+
+```bash
+POSTHOG_SENTIMENT_ONNX_INTRA_OP_NUM_THREADS=2
+POSTHOG_SENTIMENT_ONNX_INTER_OP_NUM_THREADS=1
+```
+
 ## Running tests
 
 ```bash
@@ -69,7 +82,7 @@ pytest posthog/temporal/ai_observability/sentiment/ -x -q
 Tests mock the model and HogQL layer so the sentiment dependency group
 is not required to run them.
 
-## API endpoints
+## UI data flow
 
-- `POST /api/environments/:team_id/llm_analytics/sentiment/` -- single trace
-- `POST /api/environments/:team_id/llm_analytics/sentiment/batch/` -- up to 25 traces
+The Sentiment tab and trace/generation sentiment displays read `$ai_evaluation` events where `$ai_evaluation_runtime = 'sentiment'`.
+If a project has no sentiment evaluation configured, the Sentiment tab shows onboarding instead of running classification on read.

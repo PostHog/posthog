@@ -16,7 +16,10 @@ import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
 import { dayjs } from 'lib/dayjs'
-import { RGBToHex, compactNumber, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
+import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
+import { uuid } from 'lib/utils/dom'
+import { compactNumber } from 'lib/utils/numbers'
+import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -118,6 +121,13 @@ const DefaultAxisSettings = (): AxisSeriesSettings => ({
         suffix: '',
     },
 })
+
+/** Deep clone settings to prevent shared references between Y-axis entries */
+const cloneSettings = (settings: AxisSeriesSettings): AxisSeriesSettings =>
+    mergeObject({}, settings) as AxisSeriesSettings
+
+const cloneOrDefaultSettings = (settings?: AxisSeriesSettings): AxisSeriesSettings =>
+    settings ? cloneSettings(settings) : DefaultAxisSettings()
 
 const TRANSPOSED_FIELD_COLUMN_NAME = '__transpose_field__'
 const TRANSPOSED_ROW_COLUMN_PREFIX = '__transpose_row__'
@@ -335,6 +345,13 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
                       ...settings.heatmap,
                   }
                 : undefined,
+        pie:
+            state.pie || settings.pie
+                ? {
+                      ...state.pie,
+                      ...settings.pie,
+                  }
+                : undefined,
         leftYAxisSettings:
             state.leftYAxisSettings || settings.leftYAxisSettings
                 ? {
@@ -485,7 +502,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     if (node.tableSettings?.columns) {
                         return node.tableSettings.columns.map((column) => ({
                             name: column.column,
-                            settings: column.settings ?? DefaultAxisSettings(),
+                            settings: cloneOrDefaultSettings(column.settings),
                         }))
                     }
                     return state
@@ -561,14 +578,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         selectedYAxis: [
             (props.query.chartSettings?.yAxis?.map((axis) => ({
                 name: axis.column,
-                settings: axis.settings ?? DefaultAxisSettings(),
+                settings: cloneOrDefaultSettings(axis.settings),
             })) ?? null) as (SelectedYAxis | null)[] | null,
             {
                 _setQuery: (state, { node }) => {
                     if (node.chartSettings?.yAxis) {
                         return node.chartSettings.yAxis.map((axis) => ({
                             name: axis.column,
-                            settings: axis.settings ?? DefaultAxisSettings(),
+                            settings: cloneOrDefaultSettings(axis.settings),
                         }))
                     }
                     return state
@@ -1192,12 +1209,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 ...query,
                 chartSettings: {
                     ...query.chartSettings,
-                    yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
+                    yAxis: yColumns.map((n) => ({ column: n.name, settings: cloneSettings(n.settings) })),
                     xAxis: xColumn,
                 },
                 tableSettings: {
                     ...query.tableSettings,
-                    columns: columns.map((n) => ({ column: n.name, settings: n.settings })),
+                    columns: columns.map((n) => ({ column: n.name, settings: cloneSettings(n.settings) })),
                 },
             }))
         },
@@ -1240,6 +1257,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 ...query,
                 display: visualizationType,
             }))
+
+            // Newly-picked pies default to labels on slices; existing pies (loaded with the type
+            // already set, so this listener never fires) keep the legacy value-on-slice default.
+            if (
+                visualizationType === ChartDisplayType.ActionsPie &&
+                values.chartSettings.pie?.sliceContent === undefined
+            ) {
+                actions.updateChartSettings({ pie: { sliceContent: 'labels' } })
+            }
 
             if (
                 [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&
