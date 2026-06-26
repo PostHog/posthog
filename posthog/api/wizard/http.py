@@ -384,8 +384,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             project = Project.objects.get(id=project_id)
 
             # Verify user has access to this project
-            visible_teams_ids = UserPermissions(request.user).team_ids_visible_for_user
-            if project.id not in visible_teams_ids:
+            visible_project_ids = UserPermissions(request.user).project_ids_visible_for_user
+            if project.id not in visible_project_ids:
                 raise serializers.ValidationError(
                     {"projectId": ["You don't have access to this project."]}, code="permission_denied"
                 )
@@ -442,13 +442,13 @@ class SetupWizardViewSet(viewsets.ViewSet):
         repository = serializer.validated_data["repository"]
         branch = serializer.validated_data.get("branch") or None
 
-        visible_team_ids = UserPermissions(cast(User, request.user)).team_ids_visible_for_user
+        visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check below)
             project = Project.objects.get(id=project_id)
         except Project.DoesNotExist:
             raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
-        if project.id not in visible_team_ids:
+        if project.id not in visible_project_ids:
             raise exceptions.PermissionDenied("You don't have access to this project.")
 
         try:
