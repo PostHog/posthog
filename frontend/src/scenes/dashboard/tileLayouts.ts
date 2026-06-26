@@ -122,25 +122,33 @@ export interface InsertionLayoutResult {
 }
 
 /**
- * Layout for inserting a tile at a given grid row: the new tile lands full-left at `targetY`
- * and every existing tile at or below `targetY` is pushed down by `h` rows to make room.
- * Mirrors `calculateDuplicateLayout`'s `tilesToUpdate` shape so persistence is shared.
+ * Layout for inserting a tile into a column gap: the new tile lands at (`targetX`, `targetY`) and
+ * only tiles in the same column span (those horizontally overlapping the new tile) that sit at or
+ * below `targetY` are pushed down by `h` rows. Tiles in other columns stay put, so inserting into
+ * one column doesn't shove an unrelated neighbour. Mirrors `calculateDuplicateLayout`'s
+ * `tilesToUpdate` shape so persistence is shared.
  */
 export function calculateInsertionLayout(
     currentSmLayout: Layout | undefined,
     newTileId: number,
     targetY: number,
+    targetX: number,
     w: number,
     h: number
 ): InsertionLayoutResult {
     const result: InsertionLayoutResult = {
-        newTileLayout: { sm: { x: 0, y: targetY, w, h } },
+        newTileLayout: { sm: { x: targetX, y: targetY, w, h } },
         tilesToUpdate: [],
     }
 
     for (const smLayout of currentSmLayout || []) {
         // leave the new tile and anything above the insertion point untouched
         if (String(smLayout.i) === String(newTileId) || smLayout.y < targetY) {
+            continue
+        }
+        // only push tiles that share horizontal space with the inserted tile's column span
+        const overlapsColumn = smLayout.x < targetX + w && smLayout.x + smLayout.w > targetX
+        if (!overlapsColumn) {
             continue
         }
 
