@@ -1,8 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { useChartLayout } from '../core/chart-context'
 import type { TooltipContext } from '../core/types'
 import { TooltipSurface, TooltipSwatch } from './TooltipSurface'
 import { findClosestSeriesKey } from './tooltipUtils'
+
+/** Returns true when a CSS hex color string represents a dark colour (luminance < 0.5). */
+function isTooltipDark(color: string | undefined): boolean {
+    if (!color) {
+        return true
+    }
+    const hex = color.replace('#', '')
+    if (hex.length < 6) {
+        return true
+    }
+    const r = parseInt(hex.slice(0, 2), 16) / 255
+    const g = parseInt(hex.slice(2, 4), 16) / 255
+    const b = parseInt(hex.slice(4, 6), 16) / 255
+    return r * 0.299 + g * 0.587 + b * 0.114 < 0.5
+}
 
 type SeriesDatum<Meta> = TooltipContext<Meta>['seriesData'][number]
 
@@ -59,6 +75,11 @@ export function DefaultTooltip<Meta = unknown>({
     onRowClick,
     footer,
 }: DefaultTooltipProps<Meta>): React.ReactElement {
+    const { theme } = useChartLayout()
+    // Pick a highlight that's visible on both dark and light tooltip backgrounds.
+    const rowHighlightBg = isTooltipDark(theme.tooltipBackground)
+        ? 'rgba(255,255,255,0.08)'
+        : 'rgba(0,0,0,0.07)'
     const format = valueFormatter ?? ((value: number): React.ReactNode => value.toLocaleString())
     const rows = sortedByValue ? [...seriesData].sort((a, b) => b.value - a.value) : seriesData
     const summable = rows.filter((s) => !s.series.overlay)
@@ -149,11 +170,7 @@ export function DefaultTooltip<Meta = unknown>({
                             data-attr="hog-chart-tooltip-row"
                             data-closest={isClosest ? 'true' : undefined}
                             className={`flex items-center gap-2 min-w-0 py-0.5 px-1.5${isClosest ? ' font-semibold' : ''}${clickable}`}
-                            style={
-                                isClosest
-                                    ? { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '4px' }
-                                    : undefined
-                            }
+                            style={isClosest ? { backgroundColor: rowHighlightBg, borderRadius: '4px' } : undefined}
                             onClick={onRowClick ? () => onRowClick(s) : undefined}
                         >
                             <TooltipSwatch color={s.color} />
