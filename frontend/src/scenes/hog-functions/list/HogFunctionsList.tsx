@@ -3,21 +3,10 @@ import { combineUrl, router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { IconBell } from '@posthog/icons'
-import {
-    LemonBadge,
-    LemonButton,
-    LemonCheckbox,
-    LemonInput,
-    LemonSelect,
-    LemonTable,
-    LemonTableColumn,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonSelect, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AlertingListToolbar, AlertingTable } from 'lib/components/Alerting'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -323,48 +312,30 @@ export function HogFunctionList({
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex gap-2 items-center">
-                <LemonInput
-                    type="search"
-                    placeholder="Search..."
-                    value={filters.search ?? ''}
-                    onChange={(e) => setFilters({ search: e })}
-                />
-                {!hideFeedback ? (
-                    <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
-                        Can't find what you're looking for?
-                    </Link>
-                ) : null}
-                <div className="flex-1" />
-                <div className="flex flex-col xl:flex-row items-center gap-0.5 xl:gap-2 shrink-0">
-                    <span className="text-xs xl:text-sm">Created by:</span>
-                    <MemberSelect
-                        value={filters.createdBy || null}
-                        onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
-                    />
-                </div>
-                {props.type === 'destination' && (
-                    <LemonSelect
-                        size="small"
-                        value={filters.deliveryType ?? null}
-                        onChange={(value) => setFilters({ deliveryType: value ?? undefined })}
-                        options={DELIVERY_TYPE_FILTER_OPTIONS}
-                    />
-                )}
-                <LemonCheckbox
-                    label="Show paused"
-                    bordered
-                    size="small"
-                    checked={filters.showPaused}
-                    onChange={(e) => setFilters({ showPaused: e ?? undefined })}
-                />
-                {extraControls}
-            </div>
+            <AlertingListToolbar
+                searchValue={filters.search ?? ''}
+                onSearchChange={(search) => setFilters({ search })}
+                onFeedbackClick={!hideFeedback ? () => openFeedbackDialog(props.type) : undefined}
+                createdByValue={filters.createdBy || null}
+                onCreatedByChange={(user) => setFilters({ createdBy: user?.uuid || null })}
+                secondaryControls={
+                    props.type === 'destination' ? (
+                        <LemonSelect
+                            size="small"
+                            value={filters.deliveryType ?? null}
+                            onChange={(value) => setFilters({ deliveryType: value ?? undefined })}
+                            options={DELIVERY_TYPE_FILTER_OPTIONS}
+                        />
+                    ) : null
+                }
+                showPaused={filters.showPaused}
+                onShowPausedChange={(showPaused) => setFilters({ showPaused: showPaused ?? undefined })}
+                extraControls={extraControls}
+            />
 
             <BindLogic logic={hogFunctionsListLogic} props={props}>
-                <LemonTable
+                <AlertingTable
                     dataSource={filteredHogFunctions}
-                    size="small"
                     loading={loading}
                     columns={columns}
                     pagination={{ pageSize: 30 }}

@@ -16,6 +16,26 @@ import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
+const BILLING_ALERT_DESTINATION_IDS_PROPERTY = 'billing_alert_destination_ids'
+
+function billingAlertDestinationIds(invocation: CyclotronJobInvocation): Set<string> | null {
+    const value = invocation.state?.globals?.event?.properties?.[BILLING_ALERT_DESTINATION_IDS_PROPERTY]
+    if (value === undefined || value === null) {
+        return null
+    }
+    if (!Array.isArray(value)) {
+        return new Set()
+    }
+    return new Set(value.filter((destinationId): destinationId is string => typeof destinationId === 'string'))
+}
+
+function filterBillingAlertScopedInvocations(invocations: CyclotronJobInvocation[]): CyclotronJobInvocation[] {
+    return invocations.filter((invocation) => {
+        const allowedDestinationIds = billingAlertDestinationIds(invocation)
+        return allowedDestinationIds === null || allowedDestinationIds.has(invocation.functionId)
+    })
+}
+
 export class CdpInternalEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpInternalEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['internal_destination']
@@ -57,11 +77,12 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             hogTypes: this.hogTypes,
             filterFn: () => true,
         })
+        const scopedInvocations = filterBillingAlertScopedInvocations(invocationsToBeQueued)
 
         return {
             backgroundTask: Promise.all([
                 instrumentFn({ key: 'cdp.background_task.queue_invocations', sendException: false }, () =>
-                    this.hogQueue.queueInvocations(invocationsToBeQueued)
+                    this.hogQueue.queueInvocations(scopedInvocations)
                 ),
                 instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
                     try {
@@ -72,7 +93,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
                     }
                 }),
             ]),
-            invocations: invocationsToBeQueued,
+            invocations: scopedInvocations,
         }
     }
 

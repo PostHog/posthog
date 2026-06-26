@@ -41,6 +41,7 @@ from posthog.temporal.alerts.schedule import (
     create_run_investigation_safety_net_schedule,
     create_schedule_due_alert_checks_schedule,
 )
+from posthog.temporal.billing_alerts.schedule import create_schedule_due_billing_alert_checks_schedule
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
@@ -692,6 +693,7 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 schedules = [
     cleanup_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
+    create_schedule_due_billing_alert_checks_schedule,
     create_upgrade_queries_schedule,
     create_count_all_playlists_schedule,
     create_error_tracking_recommendations_refresh_schedule,

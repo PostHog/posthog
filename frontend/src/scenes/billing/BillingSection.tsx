@@ -9,6 +9,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Billing } from './Billing'
+import { BillingAlerts } from './BillingAlerts'
 import { billingLogic } from './billingLogic'
 import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
@@ -23,6 +24,7 @@ const tabs: { key: BillingSectionId; label: string }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'usage', label: 'Usage' },
     { key: 'spend', label: 'Spend' },
+    { key: 'alerts', label: 'Alerts' },
 ]
 
 export function BillingSection(): JSX.Element {
@@ -32,7 +34,9 @@ export function BillingSection(): JSX.Element {
         ? 'spend'
         : location.pathname.includes('usage')
           ? 'usage'
-          : 'overview'
+          : location.pathname.includes('alerts')
+            ? 'alerts'
+            : 'overview'
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)
@@ -68,6 +72,7 @@ export function BillingSection(): JSX.Element {
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}
             {section === 'spend' && <BillingSpendView />}
+            {section === 'alerts' && <BillingAlerts />}
         </div>
     )
 }
