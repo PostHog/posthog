@@ -696,7 +696,7 @@ class HogFunctionViewSet(
 
         if res.status_code != 200:
             return Response(
-                {"queued_count": 0, "skipped_count": 0, "error": res.text},
+                {"queued_count": 0, "skipped_count": 0, "detail": res.text},
                 status=res.status_code,
             )
 

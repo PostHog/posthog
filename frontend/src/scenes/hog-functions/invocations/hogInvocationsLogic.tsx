@@ -884,7 +884,11 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     window_start: windowStart,
                     window_end: windowEnd,
                     invocation_ids: invocationIds,
-                    status: filters.status as HogInvocationRerunFilterStatusEnumApi[] | undefined,
+                    // When rerunning specific IDs, don't restrict by status — the worker
+                    // defaults a missing status to ['failed'], which would silently drop
+                    // succeeded rows the user explicitly selected. The ID restriction
+                    // alone determines what gets rerun (the worker still skips in-flight).
+                    status: ['running', 'succeeded', 'failed'] as HogInvocationRerunFilterStatusEnumApi[],
                 },
             }
 

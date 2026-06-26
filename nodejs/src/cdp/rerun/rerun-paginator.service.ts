@@ -183,6 +183,7 @@ export class RerunPaginatorService {
                     // this page aren't flushed yet, so this reflects prior state.
                     const runningIds = await this.fetchRunningInvocationIds(
                         teamId,
+                        function_kind,
                         function_id,
                         invocationsToEnqueue.map((i) => i.id)
                     )
@@ -395,6 +396,7 @@ export class RerunPaginatorService {
      */
     private async fetchRunningInvocationIds(
         teamId: number,
+        functionKind: RerunFunctionKind,
         functionId: string,
         invocationIds: string[]
     ): Promise<Set<string>> {
@@ -414,7 +416,7 @@ export class RerunPaginatorService {
                    AND argMax(status, version) = 'running'`,
             query_params: {
                 team_id: teamId,
-                function_kind: 'hog_function',
+                function_kind: functionKind,
                 function_id: functionId,
                 invocation_ids: invocationIds,
             },
