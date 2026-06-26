@@ -4,6 +4,7 @@ from django.core.cache import cache
 from django.views.decorators.debug import sensitive_variables
 
 from drf_spectacular.utils import extend_schema
+from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.response import Response
 
@@ -100,7 +101,7 @@ class CIMDVerificationTokenViewSet(
             organization_id=self.organization.id,
             team_id=None,
             user=request.user if request.user.is_authenticated else None,
-            was_impersonated=getattr(request, "impersonated_session", False),
+            was_impersonated=is_impersonated_session(request),
             item_id=str(token.id),
             scope="CIMDVerificationToken",
             activity="created",
@@ -136,7 +137,7 @@ class CIMDVerificationTokenViewSet(
             organization_id=org_id,
             team_id=None,
             user=request.user if request.user.is_authenticated else None,
-            was_impersonated=getattr(request, "impersonated_session", False),
+            was_impersonated=is_impersonated_session(request),
             item_id=token_id,
             scope="CIMDVerificationToken",
             activity="deleted",

@@ -10,6 +10,7 @@ import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, status, viewsets
 
@@ -1085,7 +1086,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             scope="Heatmap",
             activity="created",
             detail=Detail(name=screenshot.name or screenshot.url, short_id=screenshot.short_id, type=screenshot.type),
-            was_impersonated=getattr(request, "was_impersonated", False),
+            was_impersonated=is_impersonated_session(request),
         )
 
         if heatmap_type == SavedHeatmap.Type.SCREENSHOT:
@@ -1161,6 +1162,6 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             scope="Heatmap",
             activity="updated",
             detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
-            was_impersonated=getattr(request, "was_impersonated", False),
+            was_impersonated=is_impersonated_session(request),
         )
         return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)
