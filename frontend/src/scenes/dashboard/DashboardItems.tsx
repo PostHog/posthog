@@ -640,7 +640,9 @@ export function DashboardItems(): JSX.Element {
                         <InsertTileOverlay
                             layout={layouts['sm']}
                             gridWidth={gridWidth}
+                            cols={BREAKPOINT_COLUMN_COUNTS.sm}
                             rowHeight={rowHeight}
+                            marginX={margin[0]}
                             marginY={margin[1]}
                             canEditDashboard={canEditDashboard}
                             isMobileView={isMobileView}

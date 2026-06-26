@@ -11,7 +11,11 @@ interface InsertTileOverlayProps {
     /** The current breakpoint's tile layout (sm) — used to find the gaps between rows. */
     layout: Layout | undefined
     gridWidth: number
+    /** Grid column count (sm breakpoint). */
+    cols: number
     rowHeight: number
+    /** Horizontal grid margin (px) between columns. */
+    marginX: number
     /** Vertical grid margin (px) — the gap between rows where the "+" affordance sits. */
     marginY: number
     canEditDashboard: boolean
@@ -22,6 +26,12 @@ interface InsertTileOverlayProps {
     getMenuItems: (targetY: number) => LemonMenuItem[]
 }
 
+/** A visible run of the boundary line (px), between the tiles a row cuts across. */
+interface LineSegment {
+    left: number
+    width: number
+}
+
 /**
  * Overlays thin hover strips in the gaps between dashboard grid rows. Hovering a strip reveals a
  * "+" that opens the same add-tile menu as the header — but the new tile is inserted at that row
@@ -30,7 +40,9 @@ interface InsertTileOverlayProps {
 export function InsertTileOverlay({
     layout,
     gridWidth,
+    cols,
     rowHeight,
+    marginX,
     marginY,
     canEditDashboard,
     isMobileView,
@@ -51,6 +63,55 @@ export function InsertTileOverlay({
         return Array.from(rows).sort((a, b) => a - b)
     }, [layout])
 
+    // For each boundary, the visible runs of the line: the full width minus any tile the row cuts
+    // through. Drawing only in the gaps makes the line read as passing *behind* tiles instead of
+    // slicing across them, while the hover strip + "+" still span the whole row.
+    const segmentsByRow = useMemo(() => {
+        const colWidth = (gridWidth - marginX * (cols - 1)) / cols
+        const leftPx = (x: number): number => x * (colWidth + marginX)
+        const widthPx = (w: number): number => w * colWidth + (w - 1) * marginX
+
+        const byRow = new Map<number, LineSegment[]>()
+        for (const targetY of boundaryRows) {
+            // Tiles whose body crosses this row, padded into the column gutter so the line doesn't peek
+            // through the margin right next to a covered tile.
+            const covered = (layout || [])
+                .filter((item) => item.y < targetY && item.y + item.h > targetY)
+                .map(
+                    (item) =>
+                        [
+                            Math.max(0, leftPx(item.x) - marginX / 2),
+                            Math.min(gridWidth, leftPx(item.x) + widthPx(item.w) + marginX / 2),
+                        ] as [number, number]
+                )
+                .sort((a, b) => a[0] - b[0])
+
+            const merged: Array<[number, number]> = []
+            for (const interval of covered) {
+                const last = merged[merged.length - 1]
+                if (last && interval[0] <= last[1]) {
+                    last[1] = Math.max(last[1], interval[1])
+                } else {
+                    merged.push([...interval])
+                }
+            }
+
+            const segments: LineSegment[] = []
+            let cursor = 0
+            for (const [start, end] of merged) {
+                if (start > cursor) {
+                    segments.push({ left: cursor, width: start - cursor })
+                }
+                cursor = Math.max(cursor, end)
+            }
+            if (cursor < gridWidth) {
+                segments.push({ left: cursor, width: gridWidth - cursor })
+            }
+            byRow.set(targetY, segments)
+        }
+        return byRow
+    }, [boundaryRows, layout, gridWidth, cols, marginX])
+
     if (!canEditDashboard || isMobileView || disabled) {
         return null
     }
@@ -66,6 +127,7 @@ export function InsertTileOverlay({
                     // keeps the targetY=0 strip inside the top gap rather than clipped above the container.
                     topPx={Math.max(marginY / 2, targetY * (rowHeight + marginY) - marginY / 2)}
                     gridWidth={gridWidth}
+                    segments={segmentsByRow.get(targetY) ?? [{ left: 0, width: gridWidth }]}
                     getMenuItems={getMenuItems}
                 />
             ))}
@@ -84,11 +146,13 @@ function InsertionStrip({
     targetY,
     topPx,
     gridWidth,
+    segments,
     getMenuItems,
 }: {
     targetY: number
     topPx: number
     gridWidth: number
+    segments: LineSegment[]
     getMenuItems: (targetY: number) => LemonMenuItem[]
 }): JSX.Element {
     const stripRef = useRef<HTMLDivElement>(null)
@@ -132,12 +196,17 @@ function InsertionStrip({
             onMouseUp={() => (pointerDownRef.current = false)}
             onMouseLeave={() => (pointerDownRef.current = false)}
         >
-            <div
-                className={clsx(
-                    'absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-accent transition-opacity',
-                    revealClass
-                )}
-            />
+            {segments.map((segment, index) => (
+                <div
+                    key={index}
+                    className={clsx(
+                        'absolute top-1/2 -translate-y-1/2 h-0.5 bg-accent transition-opacity',
+                        revealClass
+                    )}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ left: segment.left, width: segment.width }}
+                />
+            ))}
             <div
                 ref={buttonRef}
                 // `left` is set imperatively in followCursor (not via the style prop) so the followed
