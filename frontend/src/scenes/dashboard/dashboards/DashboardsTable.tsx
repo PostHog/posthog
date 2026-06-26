@@ -84,41 +84,22 @@ export function DashboardsTable({
     const { itemsByRef, shortcutData } = useValues(projectTreeDataLogic)
     const showStarring = useFeatureFlag('DASHBOARDS_LIST_STARRING', 'test')
 
-    const starColumn: LemonTableColumn<DashboardType, keyof DashboardType | undefined> = {
-        width: 0,
-        render: function Render(_, { id, name }) {
-            const isStarred = starredDashboardRefs.has(String(id))
-            return (
-                <LemonButton
-                    size="small"
-                    onClick={
-                        isStarred
-                            ? () => {
-                                  const shortcut = shortcutData.find(
-                                      (s) => s.type === 'dashboard' && s.ref === String(id)
-                                  )
-                                  if (shortcut?.id) {
-                                      deleteShortcut(shortcut.id)
-                                  }
-                              }
-                            : () => {
-                                  // Reuse the file-system "shortcuts" feature for starring. Prefer the real
-                                  // tree entry when it's loaded; otherwise build a minimal one from the row.
-                                  const entry: FileSystemEntry = itemsByRef[`dashboard::${id}`] ?? {
-                                      id: `dashboard::${id}`,
-                                      path: name || 'Untitled',
-                                      type: 'dashboard',
-                                      ref: String(id),
-                                      href: urls.dashboard(id),
-                                  }
-                                  addShortcutItem(entry, 'dashboards_list')
-                              }
-                    }
-                    tooltip={isStarred ? 'Remove from starred' : 'Add to starred'}
-                    icon={isStarred ? <IconStarFilled /> : <IconStar />}
-                />
-            )
-        },
+    // Reuse the file-system "shortcuts" feature for starring. Prefer the real tree entry when it's
+    // loaded; otherwise build a minimal one from the dashboard row.
+    const toggleStarred = (id: number, name: string): void => {
+        const shortcut = shortcutData.find((s) => s.type === 'dashboard' && s.ref === String(id))
+        if (shortcut?.id) {
+            deleteShortcut(shortcut.id)
+            return
+        }
+        const entry: FileSystemEntry = itemsByRef[`dashboard::${id}`] ?? {
+            id: `dashboard::${id}`,
+            path: name || 'Untitled',
+            type: 'dashboard',
+            ref: String(id),
+            href: urls.dashboard(id),
+        }
+        addShortcutItem(entry, 'dashboards_list')
     }
 
     const columns: LemonTableColumns<DashboardType> = [
@@ -140,7 +121,6 @@ export function DashboardsTable({
                 )
             },
         },
-        ...(showStarring ? [starColumn] : []),
         {
             title: 'Name',
             dataIndex: 'name',
@@ -221,6 +201,7 @@ export function DashboardsTable({
             : {
                   width: 0,
                   render: function RenderActions(_, { id, name, user_access_level }: DashboardType) {
+                      const isStarred = starredDashboardRefs.has(String(id))
                       return (
                           <More
                               overlay={
@@ -267,6 +248,16 @@ export function DashboardsTable({
                                       >
                                           Duplicate
                                       </LemonButton>
+
+                                      {showStarring && (
+                                          <LemonButton
+                                              onClick={() => toggleStarred(id, name)}
+                                              icon={isStarred ? <IconStarFilled /> : <IconStar />}
+                                              fullWidth
+                                          >
+                                              {isStarred ? 'Remove from starred' : 'Add to starred'}
+                                          </LemonButton>
+                                      )}
 
                                       {itemsByRef[`dashboard::${id}`] && (
                                           <AccessControlAction
