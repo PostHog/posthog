@@ -2938,6 +2938,9 @@ const api = {
                 limit?: number
                 after?: string
                 offset?: number
+                // Select traces by their root span only (true) vs. by any matching span (false). When
+                // false, traces matched via a child span are returned with their root span included.
+                rootSpans?: boolean
                 prefetchSpans?: number
             },
             signal?: AbortSignal

@@ -1,6 +1,7 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 
 import { DateRange } from '~/queries/schema/schema-general'
@@ -12,6 +13,16 @@ export const DEFAULT_DATE_RANGE: DateRange = { date_from: '-1h', date_to: null }
 export const DEFAULT_SERVICE_NAMES: string[] = []
 export const DEFAULT_ORDER_BY = 'timestamp' as const
 export const DEFAULT_ORDER_DIRECTION = 'DESC' as const
+export const DEFAULT_HIDE_NON_MATCHING_SPANS = false
+
+// True when the filter group holds at least one real (non-group) property filter. Used to decide
+// whether to expand trace selection to any matching span (see tracingDataLogic) — there's nothing to
+// match against, and no perf reason to leave the cheap root-only path, when no span filter is set.
+export function groupFilterHasValues(group: UniversalFiltersGroup): boolean {
+    return group.values.some((value) =>
+        isUniversalGroupFilterLike(value) ? groupFilterHasValues(value) : true
+    )
+}
 
 // Column the list is ordered by, and its direction. timestamp+DESC is "latest" (keyset paginated via
 // the `after` cursor); duration+DESC/ASC is slowest/fastest (offset paginated). See tracingDataLogic.
@@ -30,6 +41,12 @@ export interface TracingFilters {
     orderBy: TracingOrderBy
     orderDirection: TracingOrderDirection
     compareMode: boolean
+    /**
+     * When a span filter is set we surface every trace with a matching span (root or child) and grey
+     * out the non-matching ones. Flipping this on reverts to root-only selection — only traces whose
+     * root span matches are listed.
+     */
+    hideNonMatchingSpans: boolean
     /** User-positioned overrides for the two compare windows. Null until the overlay is dragged. */
     currentWindowOverride: OverlayWindow | null
     previousWindowOverride: OverlayWindow | null
@@ -44,6 +61,7 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setSort: (orderBy: TracingOrderBy, orderDirection: TracingOrderDirection) => ({ orderBy, orderDirection }),
         setCompareMode: (compareMode: boolean) => ({ compareMode }),
+        setHideNonMatchingSpans: (hideNonMatchingSpans: boolean) => ({ hideNonMatchingSpans }),
         /**
          * Persist the user-dragged overlay windows. Both must be supplied. Setting these
          * never touches dateRange — the sparkline range is locked once compare mode is on.
@@ -97,6 +115,13 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 setFilters: (state, { filters }) => filters.compareMode ?? state,
             },
         ],
+        hideNonMatchingSpans: [
+            DEFAULT_HIDE_NON_MATCHING_SPANS as boolean,
+            {
+                setHideNonMatchingSpans: (_, { hideNonMatchingSpans }) => hideNonMatchingSpans,
+                setFilters: (state, { filters }) => filters.hideNonMatchingSpans ?? state,
+            },
+        ],
         currentWindowOverride: [
             null as OverlayWindow | null,
             {
@@ -128,6 +153,7 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 s.orderBy,
                 s.orderDirection,
                 s.compareMode,
+                s.hideNonMatchingSpans,
                 s.currentWindowOverride,
                 s.previousWindowOverride,
             ],
@@ -138,6 +164,7 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 orderBy,
                 orderDirection,
                 compareMode,
+                hideNonMatchingSpans,
                 currentWindowOverride,
                 previousWindowOverride
             ): TracingFilters => ({
@@ -147,9 +174,18 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 orderBy,
                 orderDirection,
                 compareMode,
+                hideNonMatchingSpans,
                 currentWindowOverride,
                 previousWindowOverride,
             }),
+        ],
+        // Whether any span-level filter is active (a property filter or a service selection). Drives
+        // the "match any span" trace selection and the visibility of the "Hide non-matching" toggle —
+        // with no span filter, every span trivially matches, so there's nothing to grey or hide.
+        hasSpanFilters: [
+            (s) => [s.filterGroup, s.serviceNames],
+            (filterGroup: UniversalFiltersGroup, serviceNames: string[]): boolean =>
+                groupFilterHasValues(filterGroup) || serviceNames.length > 0,
         ],
         utcDateRange: [
             (s) => [s.dateRange],

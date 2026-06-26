@@ -81,9 +81,10 @@ const dateMapping: DateMappingOption[] = [
 export function TracingFilterBar(): JSX.Element {
     const { spansLoading } = useValues(tracingDataLogic())
     const { runQuery } = useActions(tracingDataLogic())
-    const { filters, utcDateRange } = useValues(tracingFiltersLogic())
-    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode } = useActions(tracingFiltersLogic())
-    const { dateRange, serviceNames, filterGroup, compareMode } = filters
+    const { filters, utcDateRange, hasSpanFilters } = useValues(tracingFiltersLogic())
+    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode, setHideNonMatchingSpans } =
+        useActions(tracingFiltersLogic())
+    const { dateRange, serviceNames, filterGroup, compareMode, hideNonMatchingSpans } = filters
 
     return (
         <TracingFilterGroup filterGroup={filterGroup} onFilterGroupChange={setFilterGroup}>
@@ -145,6 +146,16 @@ export function TracingFilterBar(): JSX.Element {
                                 }}
                             />
                         </div>
+                        {hasSpanFilters && !compareMode && (
+                            <LemonSwitch
+                                label="Hide non-matching"
+                                tooltip="Only show traces whose root span matches the filters. When off, traces that match via a child span are also shown, with the non-matching root greyed out."
+                                checked={hideNonMatchingSpans}
+                                onChange={setHideNonMatchingSpans}
+                                bordered
+                                size="small"
+                            />
+                        )}
                         <LemonSwitch
                             label="Compare"
                             checked={compareMode}

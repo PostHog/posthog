@@ -13,6 +13,7 @@ import { Breadcrumb } from '~/types'
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
 import {
     DEFAULT_DATE_RANGE,
+    DEFAULT_HIDE_NON_MATCHING_SPANS,
     DEFAULT_ORDER_BY,
     DEFAULT_ORDER_DIRECTION,
     DEFAULT_SERVICE_NAMES,
@@ -71,6 +72,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'setFilterGroup',
                 'setSort',
                 'setCompareMode',
+                'setHideNonMatchingSpans',
                 'setOverlayWindows',
                 'setFilters',
             ],
@@ -218,6 +220,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         setSort: ({ orderBy, orderDirection }) =>
             actions.handleFilterChange('sort', { column: orderBy, direction: orderDirection }),
         setCompareMode: ({ compareMode }) => actions.handleFilterChange('compare_mode', { enabled: compareMode }),
+        setHideNonMatchingSpans: ({ hideNonMatchingSpans }) =>
+            actions.handleFilterChange('hide_non_matching_spans', { enabled: hideNonMatchingSpans }),
         setOverlayWindows: () => {
             // Overlay drags only refetch the aggregation — the sparkline canvas range
             // stays fixed while the user moves windows around within it. If the compare-flame
@@ -304,6 +308,13 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 hasChanges = true
             }
 
+            const hideNonMatchingFromUrl =
+                searchParams.hideNonMatching === 'true' || searchParams.hideNonMatching === true
+            if (hideNonMatchingFromUrl !== values.filters.hideNonMatchingSpans) {
+                filtersFromUrl.hideNonMatchingSpans = hideNonMatchingFromUrl
+                hasChanges = true
+            }
+
             if (hasChanges) {
                 actions.setFilters(filtersFromUrl)
             } else if (!values.hasRunQuery) {
@@ -367,6 +378,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             }
             if (values.filters.compareMode) {
                 searchParams.compare = 'true'
+            }
+            if (values.filters.hideNonMatchingSpans !== DEFAULT_HIDE_NON_MATCHING_SPANS) {
+                searchParams.hideNonMatching = String(values.filters.hideNonMatchingSpans)
             }
 
             actions.runQuery()

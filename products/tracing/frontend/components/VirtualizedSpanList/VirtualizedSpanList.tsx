@@ -2,7 +2,7 @@ import { CSSProperties, ReactNode, useCallback, useEffect, useMemo, useRef } fro
 import { List, useDynamicRowHeight, useListRef } from 'react-window'
 
 import { IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
@@ -153,6 +153,9 @@ function SpanRow({
     onClick: () => void
 }): JSX.Element {
     const status = STATUS_CODE_LABELS[span.status_code] ?? { label: String(span.status_code), type: 'default' as const }
+    // The root span itself didn't match the filter — its trace surfaced via a matching child span.
+    // Dim the row so matching traces stand out, mirroring the greyed-out spans in the waterfall.
+    const isUnmatched = !span.matched_filter
 
     return (
         <div
@@ -182,12 +185,19 @@ function SpanRow({
             </Cell>
             <Cell width={COL_WIDTH.timestamp}>{new Date(span.timestamp).toLocaleString()}</Cell>
             <Cell>
-                <span className="flex items-center gap-2 truncate">
+                <span className={cn('flex items-center gap-2 truncate', isUnmatched && 'opacity-50')}>
                     <span className="truncate">{span.name}</span>
                     {isRootSpan(span) && (
                         <LemonTag type="highlight" size="small">
                             trace
                         </LemonTag>
+                    )}
+                    {isUnmatched && (
+                        <Tooltip title="This trace matched your filters via a child span, not its root span. Open it to see the matching spans.">
+                            <LemonTag type="muted" size="small">
+                                matched in child
+                            </LemonTag>
+                        </Tooltip>
                     )}
                 </span>
             </Cell>

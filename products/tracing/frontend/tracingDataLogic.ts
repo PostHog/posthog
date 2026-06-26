@@ -84,7 +84,10 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     path(['products', 'tracing', 'frontend', 'tracingDataLogic']),
 
     connect(() => ({
-        values: [tracingFiltersLogic(), ['filters', 'orderBy', 'utcDateRange', 'currentWindowMs', 'previousWindowMs']],
+        values: [
+            tracingFiltersLogic(),
+            ['filters', 'orderBy', 'hasSpanFilters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs'],
+        ],
     })),
 
     actions({
@@ -280,6 +283,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            rootSpans: values.rootSpansOnly,
                             prefetchSpans: PREFETCH_SPANS,
                             limit: DEFAULT_PAGE_SIZE,
                         },
@@ -314,6 +318,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            rootSpans: values.rootSpansOnly,
                             prefetchSpans: PREFETCH_SPANS,
                             limit: DEFAULT_PAGE_SIZE,
                             ...pagination,
@@ -580,6 +585,16 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             (spans: Span[]): Span[] => {
                 return spans.filter((s) => s.is_root_span)
             },
+        ],
+        // Trace-selection mode for the list query. With a span filter active we match traces on ANY
+        // span (root or child) so a filter on a non-root span still surfaces its trace — non-matching
+        // root rows are then greyed out. "Hide non-matching" flips back to root-only selection. Without
+        // a span filter we stay root-only: every span matches anyway, and the root-only subquery is
+        // cheaper than grouping across all spans.
+        rootSpansOnly: [
+            (s) => [s.hasSpanFilters, s.filters],
+            (hasSpanFilters: boolean, filters: TracingFilters): boolean =>
+                !hasSpanFilters || filters.hideNonMatchingSpans,
         ],
         // Memoized separately so visibleRowDurationRange (recomputed on every scroll tick) doesn't
         // re-allocate the durations array — this only changes when the loaded spans do.

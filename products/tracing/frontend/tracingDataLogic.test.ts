@@ -2,10 +2,28 @@ import posthog from 'posthog-js'
 
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
+
+const filterGroupWithValue: UniversalFiltersGroup = {
+    type: FilterLogicalOperator.And,
+    values: [
+        {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    key: 'span_name',
+                    value: 'redis',
+                    operator: PropertyOperator.IContains,
+                    type: PropertyFilterType.Event,
+                },
+            ],
+        },
+    ],
+}
 
 const createMockAggregatedRow = (name: string): AggregatedSpanRow => ({
     service_name: 'svc',
@@ -138,6 +156,30 @@ describe('tracingDataLogic', () => {
             logic.actions.clearSpans()
             expect(logic.values.visibleRowRange).toBeNull()
             expect(logic.values.visibleRowDateRange).toBeNull()
+        })
+    })
+
+    describe('rootSpansOnly trace-selection mode', () => {
+        beforeEach(() => {
+            logic = mountWithSpans([])
+        })
+
+        it('stays root-only when no span filter is set', () => {
+            expect(logic.values.rootSpansOnly).toBe(true)
+        })
+
+        it.each([
+            { name: 'a service filter', apply: () => tracingFiltersLogic().actions.setServiceNames(['web']) },
+            { name: 'a property filter', apply: () => tracingFiltersLogic().actions.setFilterGroup(filterGroupWithValue) },
+        ])('matches any span once $name is set', ({ apply }) => {
+            apply()
+            expect(logic.values.rootSpansOnly).toBe(false)
+        })
+
+        it('reverts to root-only when "hide non-matching" is on, even with a filter', () => {
+            tracingFiltersLogic().actions.setServiceNames(['web'])
+            tracingFiltersLogic().actions.setHideNonMatchingSpans(true)
+            expect(logic.values.rootSpansOnly).toBe(true)
         })
     })
 
