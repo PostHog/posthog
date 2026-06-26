@@ -17,7 +17,7 @@ export default function CyclotronJobInputAccountProperties({
     onChange,
     sampleGlobalsWithInputs,
 }: CustomInputRendererProps): JSX.Element {
-    const { definitions, nameById } = useValues(accountPropertiesInputLogic)
+    const { definitions, nameById, definitionsLoading } = useValues(accountPropertiesInputLogic)
 
     // Keys are custom property definition ids (stable across renames); values are Hog expressions.
     const properties: Record<string, string> = value ?? {}
@@ -54,7 +54,7 @@ export default function CyclotronJobInputAccountProperties({
                     </div>
                 )
             })}
-            <AddPropertyDropdown available={available} onSelect={addProperty} />
+            <AddPropertyDropdown available={available} onSelect={addProperty} loading={definitionsLoading} />
         </div>
     )
 }
@@ -62,9 +62,11 @@ export default function CyclotronJobInputAccountProperties({
 function AddPropertyDropdown({
     available,
     onSelect,
+    loading,
 }: {
     available: CustomPropertyDefinitionApi[]
     onSelect: (id: string) => void
+    loading: boolean
 }): JSX.Element {
     const [open, setOpen] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
@@ -88,6 +90,8 @@ function AddPropertyDropdown({
                 type="secondary"
                 size="small"
                 icon={<IconPlus />}
+                loading={loading}
+                disabledReason={loading ? 'Loading properties…' : undefined}
                 onClick={() => setOpen(true)}
             >
                 Add property
