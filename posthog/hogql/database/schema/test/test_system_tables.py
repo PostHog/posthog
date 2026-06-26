@@ -61,8 +61,12 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 if TYPE_CHECKING:
     from products.customer_analytics.backend.models.account import Account
+    from products.customer_analytics.backend.models.custom_property_definition import CustomPropertyDefinition
+    from products.customer_analytics.backend.models.custom_property_value import CustomPropertyValue
 else:
     Account = apps.get_model("customer_analytics", "Account")
+    CustomPropertyDefinition = apps.get_model("customer_analytics", "CustomPropertyDefinition")
+    CustomPropertyValue = apps.get_model("customer_analytics", "CustomPropertyValue")
 
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
@@ -76,6 +80,7 @@ TEAM_ID_FILTER_PATTERNS = {
     # Junction tables without team_id; isolation is enforced via an account_id IN system.accounts predicate
     "_account_resource_notebooks": "system__accounts.team_id",
     "_account_tagged_items": "system__accounts.team_id",
+    "_account_custom_property_values": "system__accounts.team_id",
 }
 
 
@@ -108,6 +113,7 @@ class TestSystemTablesTeamScoping(BaseTest):
             # isolation is covered by TestSystemAccountsLazyJoins.
             "_account_resource_notebooks",
             "_account_tagged_items",
+            "_account_custom_property_values",
             # information_schema is a namespace of virtual catalog tables (tables/columns/
             # relationships/data_types) computed per-query from the caller's own Database object,
             # so it has no team_id column to isolate; behaviour is covered by TestInformationSchema.
@@ -838,3 +844,50 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         rows_by_id = {str(row[0]): row[1] for row in response.results}
 
         assert rows_by_id[str(account.id)] == 3
+
+    def _custom_property_value(self, account, definition, **value_kwargs):
+        return CustomPropertyValue.objects.unscoped().create(
+            team=self.team, account=account, definition=definition, **value_kwargs
+        )
+
+    def test_custom_properties_lazy_join_returns_value_by_definition_id(self):
+        account = Account.objects.unscoped().create(team=self.team, name="A")
+        definition = CustomPropertyDefinition.objects.unscoped().create(team=self.team, name="Plan")
+        self._custom_property_value(account, definition, value_str="enterprise")
+
+        response = execute_hogql_query(
+            f"SELECT id, accounts.custom_properties.values.`{definition.id}` "
+            "FROM system.accounts AS accounts ORDER BY name",
+            team=self.team,
+            user=self.user,
+        )
+        rows_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert rows_by_id[str(account.id)] == "enterprise"
+
+    def test_custom_properties_lazy_join_excludes_deleted_values(self):
+        account = Account.objects.unscoped().create(team=self.team, name="A")
+        definition = CustomPropertyDefinition.objects.unscoped().create(team=self.team, name="Plan")
+        self._custom_property_value(account, definition, value_str="old", is_deleted=True)
+        self._custom_property_value(account, definition, value_str="current")
+
+        response = execute_hogql_query(
+            f"SELECT accounts.custom_properties.values.`{definition.id}` FROM system.accounts AS accounts",
+            team=self.team,
+            user=self.user,
+        )
+        assert response.results[0][0] == "current"
+
+    def test_custom_properties_lazy_join_isolated_per_team(self):
+        other_account = Account.objects.unscoped().create(team=self.other_team, name="Theirs")
+        other_definition = CustomPropertyDefinition.objects.unscoped().create(team=self.other_team, name="Plan")
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.other_team, account=other_account, definition=other_definition, value_str="secret"
+        )
+
+        response = execute_hogql_query(
+            f"SELECT accounts.custom_properties.values.`{other_definition.id}` FROM system.accounts AS accounts",
+            team=self.team,
+            user=self.user,
+        )
+        assert response.results == []
