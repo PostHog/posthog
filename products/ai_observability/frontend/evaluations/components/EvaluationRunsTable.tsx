@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -12,8 +12,32 @@ import { EvaluationResultTag, getEvaluationResultSortValue } from '../../compone
 import { sanitizeTraceUrlSearchParams } from '../../utils'
 import { evaluationSupportsReports } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationRun } from '../types'
+import { EvaluationRun, SentimentEvaluationRunsFilter } from '../types'
 import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
+
+const SENTIMENT_FILTER_OPTIONS: { value: SentimentEvaluationRunsFilter; label: string }[] = [
+    { value: 'negative', label: 'Negative' },
+    { value: 'positive', label: 'Positive' },
+    { value: 'neutral', label: 'Neutral' },
+    { value: 'all', label: 'All' },
+]
+
+function SentimentEvaluationRunsFilters(): JSX.Element {
+    const { evaluationSummaryFilter } = useValues(llmEvaluationLogic)
+    const { setEvaluationSummaryFilter } = useActions(llmEvaluationLogic)
+
+    return (
+        <LemonSegmentedButton
+            value={evaluationSummaryFilter as SentimentEvaluationRunsFilter}
+            onChange={(value) => {
+                setEvaluationSummaryFilter(value as SentimentEvaluationRunsFilter, evaluationSummaryFilter)
+            }}
+            options={SENTIMENT_FILTER_OPTIONS}
+            size="small"
+            data-attr="llma-sentiment-evaluation-runs-filter"
+        />
+    )
+}
 
 export function EvaluationRunsTable(): JSX.Element {
     const { filteredEvaluationRuns, evaluation, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
@@ -21,6 +45,7 @@ export function EvaluationRunsTable(): JSX.Element {
     const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
     const showSummary = evaluationSupportsReports(evaluation)
+    const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
@@ -90,7 +115,13 @@ export function EvaluationRunsTable(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
-                {showSummary ? <EvaluationSummaryControls /> : <div />}
+                {showSummary ? (
+                    <EvaluationSummaryControls />
+                ) : showSentimentFilters ? (
+                    <SentimentEvaluationRunsFilters />
+                ) : (
+                    <div />
+                )}
                 <LemonButton
                     type="secondary"
                     icon={<IconRefresh />}

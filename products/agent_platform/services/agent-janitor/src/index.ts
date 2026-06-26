@@ -25,9 +25,11 @@ import {
     createModalSandboxTerminator,
     initMetrics,
     installProcessHandlers,
+    isDev,
     MemoryStore,
     MultiBackendSandboxTerminator,
     PgApprovalStore,
+    PgIdentityAdminStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -49,11 +51,14 @@ async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentJanitorConfig()
 
-    // Prometheus: Node process defaults + the dedicated scrape server. The
+    // Prometheus: Node process defaults. Prod runs a dedicated scrape server; the
     // sweep/cron metrics below let an alert catch a wedged singleton (rate of
-    // *_runs_total → 0); the queue-depth gauge is sampled once per tick.
+    // *_runs_total → 0). Dev mounts /metrics on the request port inside
+    // buildJanitorApp (no dedicated port — three services on one host collide).
     initMetrics({ service: 'agent-janitor' })
-    createMetricsServer({ port: config.metricsPort, log })
+    if (!isDev()) {
+        createMetricsServer({ port: config.metricsPort, log })
+    }
 
     // S3 bundle storage is required (enforced on `bundleS3Bucket` in config —
     // dev default, fails closed at config-load in prod). Endpoint is optional:
@@ -94,6 +99,9 @@ async function main(): Promise<void> {
     // (same secret_env entries the runner reads).
     const sandboxInstances = new PgSandboxInstanceStore(agentDb)
     const sandboxTerminator = new MultiBackendSandboxTerminator(createModalSandboxTerminator())
+    // Keyless admin view over agent_user + agent_identity_credential for the
+    // console "Users" pane. No decryption key — metadata only.
+    const identityAdmin = new PgIdentityAdminStore(agentDb)
 
     const sweep = {
         queue,
@@ -154,6 +162,7 @@ async function main(): Promise<void> {
         bundles,
         memoryStore,
         tabularStore,
+        identityAdmin,
         internalSigningKey: config.internalSigningKey,
     })
     app.listen(config.port, () => {

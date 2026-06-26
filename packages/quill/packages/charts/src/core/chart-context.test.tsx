@@ -16,6 +16,7 @@ const LAYOUT: ChartLayoutContextValue = {
     resolvePositionValue: (s, i) => s.data[i] ?? 0,
     canvasBounds: () => null,
     axis: { orientation: 'vertical', xTickFormatter: undefined, isPercent: false },
+    yGutters: [],
 }
 
 describe('chart-context split', () => {

@@ -19,7 +19,7 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRunStatus,
     default_selection,
 )
-from products.replay_vision.backend.rrule import compute_next_occurrences, validate_rrule
+from products.replay_vision.backend.rrule import compute_next_occurrences, validate_rrule, validate_timezone
 
 DAILY_9AM = "FREQ=DAILY;BYHOUR=9;BYMINUTE=0;BYSECOND=0"
 
@@ -250,6 +250,15 @@ class TestRruleHelper(BaseTest):
 
     def test_validate_accepts_valid(self) -> None:
         validate_rrule("FREQ=WEEKLY;BYDAY=MO,WE,FR;BYHOUR=9")
+
+    def test_validate_timezone_accepts_valid(self) -> None:
+        validate_timezone("Europe/Prague")
+        validate_timezone("UTC")
+
+    @parameterized.expand([("unknown", "Mars/Phobos"), ("garbage", "not a tz"), ("empty", "")])
+    def test_validate_timezone_rejects_invalid(self, _label: str, tz: str) -> None:
+        with self.assertRaises(ValueError):
+            validate_timezone(tz)
 
     def test_occurrences_are_future_and_utc(self) -> None:
         starts = datetime(2026, 1, 1, tzinfo=UTC)

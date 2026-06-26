@@ -62,6 +62,7 @@ PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     "$current_url",
     "$pathname",
     "$os",
+    "$os_name",
     "$os_version",
     "$referring_domain",
     "$referrer",
@@ -411,7 +412,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "mcp feedback submitted": {
             "label": "MCP feedback submitted",
-            "description": "Fires when a user submits feedback through the MCP server's feedback tool.",
+            "description": "Fires when feedback is submitted through the MCP server's feedback tool — about any PostHog product, the MCP server itself, or the docs.",
         },
         "$snapshot": {
             "label": "Session recording snapshot",
@@ -554,6 +555,60 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The status of the recording url trigger.",
             "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
             "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_trigger_groups_count": {
+            "label": "Recording trigger groups count",
+            "description": "The number of V2 recording trigger groups configured for this project.",
+            "examples": [2],
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_matched_recording_trigger_groups": {
+            "label": "Matched recording trigger groups",
+            "description": "The V2 recording trigger groups evaluated for this session, including each group's name and whether it matched and was sampled.",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_rrweb_start_attempted": {
+            "label": "rrweb start attempted",
+            "description": "Whether the SDK attempted to start the rrweb recorder for this session.",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_rrweb_attached": {
+            "label": "rrweb attached",
+            "description": "Whether the rrweb recorder is currently attached and capturing for this session.",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_error_capturing_properties": {
+            "label": "Error capturing properties",
+            "description": "An error message recorded if the SDK threw while gathering properties for an event.",
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$replay_override_sampling": {
+            "label": "Replay sampling overridden",
+            "description": "Recording was force-started, ignoring the sampling config (e.g. via startSessionRecording({ sampling: true })).",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
+        "$replay_override_linked_flag": {
+            "label": "Replay linked flag overridden",
+            "description": "Recording was force-started, ignoring the linked flag config (e.g. via startSessionRecording({ linked_flag: true })).",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
+        "$replay_override_url_trigger": {
+            "label": "Replay URL trigger overridden",
+            "description": "Recording was force-started, ignoring the URL trigger config (e.g. via startSessionRecording({ trigger: 'url' })).",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
+        "$replay_override_event_trigger": {
+            "label": "Replay event trigger overridden",
+            "description": "Recording was force-started, ignoring the event trigger config (e.g. via startSessionRecording({ trigger: 'event' })).",
+            "type": "Boolean",
             "used_for_debug": True,
         },
         "$sdk_debug_replay_full_snapshots": {
@@ -1119,6 +1174,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "used_for_debug": True,
         },
+        "$session_recording_event_trigger_activated_session": {
+            "label": "Session recording event trigger activated session",
+            "description": "Session recording event trigger activated session config. Used by posthog-js to track event activation of session replay.",
+            "system": True,
+            "used_for_debug": True,
+        },
         "$session_recording_url_trigger_status": {
             "label": "Session recording URL trigger status",
             "description": "Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.",
@@ -1300,7 +1361,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$os_name": {
             "label": "OS name",
-            "description": "The Operating System name",
+            "description": "The Operating System name.",
             "examples": ["iOS", "Android"],
         },
         "$os_version": {
@@ -2611,6 +2672,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",
             "examples": ["execute-sql", "feature-flag-get-all"],
         },
+        "$mcp_tool_category": {
+            "label": "MCP tool category",
+            "description": "The product category the invoked tool belongs to — the grouping dimension the MCP analytics dashboard buckets tool calls by. Stamped server-side from the tool catalog (PostHog's server) or declared per tool (external servers). Omitted when the tool has no catalogued category (e.g. the `exec` dispatcher), which the dashboard buckets as 'Uncategorized'. Present on mcp_tool_call.",
+            "examples": ["Error tracking", "Logs", "Feature flags", "Session replays"],
+        },
         "$mcp_tool_description": {
             "label": "MCP tool description",
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do — descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
@@ -2700,6 +2766,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 "Run a HogQL/SQL query against PostHog.",
                 "List feature flags in the project.",
             ],
+        },
+        "$mcp_listed_tool_names": {
+            "label": "MCP listed tool names",
+            "description": "Array of every tool name advertised to the agent on a tools/list request, in multi-tool mode. Stored as a JSON array — filter with `contains` against a single tool name (e.g. 'execute-sql'). Lets you compute zombie tools (advertised but never called) by diffing against $mcp_tool_name from mcp_tool_call events. In single-exec mode the catalog rides on $mcp_exec_inner_tool_names instead. Only present on mcp_tools_list.",
+            "examples": ["execute-sql", "feature-flag-get-all"],
         },
         "$mcp_exec_inner_tool_names": {
             "label": "MCP exec inner tool catalog",
@@ -2823,6 +2894,40 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "is_error": {
             "label": "Is error (unprefixed)",
             "description": "Older unprefixed variant of $mcp_is_error. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_is_error for new dashboards.",
+        },
+        "mcp_runtime": {
+            "label": "MCP runtime",
+            "description": "Server runtime that handled the MCP request. 'hono' means it was served by the Hono-based MCP server.",
+            "examples": ["hono"],
+        },
+        "mcp_vendor_client": {
+            "label": "MCP vendor client",
+            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "examples": ["ClaudeCode", "ClaudeAI"],
+        },
+        "mcp_session_client_name": {
+            "label": "MCP session client name",
+            "description": "MCP client name captured at session initialize and carried across every request in that session. Session-scoped counterpart of $mcp_client_name.",
+            "examples": ["claude-code", "codex-mcp-client"],
+        },
+        "mcp_session_client_version": {
+            "label": "MCP session client version",
+            "description": "MCP client version captured at session initialize and carried across every request in that session.",
+        },
+        "mcp_session_protocol_version": {
+            "label": "MCP session protocol version",
+            "description": "MCP protocol version negotiated at session initialize and carried across every request in that session.",
+            "examples": ["2025-11-25", "2025-06-18"],
+        },
+        "mcp_session_consumer": {
+            "label": "MCP session consumer",
+            "description": "Upstream surface that initiated the MCP session, captured at session initialize. Session-scoped counterpart of $mcp_consumer.",
+            "examples": ["posthog-code", "slack"],
+        },
+        "mcp_session_vendor_client": {
+            "label": "MCP session vendor client",
+            "description": "Vendor client captured at session initialize and carried across every request in that session.",
+            "examples": ["ClaudeCode", "ClaudeAI"],
         },
         "$csp_document_url": {
             "label": "Document URL",

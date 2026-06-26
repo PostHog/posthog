@@ -27,8 +27,8 @@ top-level `required` array.
 - `AGENT_SPEC_JSON_SCHEMA` — full shape, used for OpenAPI annotation so the
   MCP tool surface advertises every field plus its default.
 - `AGENT_SPEC_JSON_SCHEMA_FOR_WRITE` — relaxed required list, used for
-  Django `validate_spec` so the same `{"model": "x"}` that zod accepts also
-  passes Django.
+  Django `validate_spec` so the same `{"model": "anthropic/claude-haiku-4-5"}`
+  that zod accepts also passes Django.
 """
 
 from __future__ import annotations
@@ -42,12 +42,10 @@ from typing import Any
 _APPROVAL_POLICY_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "approvers": {
-            "type": "array",
-            "minItems": 1,
-            "items": {"type": "string", "enum": ["team_admins", "session_principal"]},
-            "default": ["team_admins"],
-        },
+        # `principal` (default) — the session's principal clears it (a generic
+        # identity match, decided at the lightweight ingress API). `agent` — the
+        # agent's owners (created_by + team admins) clear it in the console.
+        "type": {"type": "string", "enum": ["principal", "agent"], "default": "principal"},
         "allow_edit": {"type": "boolean", "default": False},
         "ttl_ms": {
             "type": "integer",
@@ -55,7 +53,6 @@ _APPROVAL_POLICY_JSON_SCHEMA: dict[str, Any] = {
             "maximum": 7 * 24 * 60 * 60 * 1000,
             "default": 24 * 60 * 60 * 1000,
         },
-        "allow_agent_approver": {"type": "boolean", "default": False},
     },
     "additionalProperties": False,
 }
@@ -134,7 +131,15 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
-        "model": {"type": "string", "minLength": 1},
+        "model": {
+            "type": "string",
+            "minLength": 1,
+            # Mirror of `ModelIdSchema` in agent-shared/src/spec/spec.ts. Runtime
+            # `resolveModel` demands `<provider>/<model-id>`; rejecting bare ids
+            # at authoring time keeps the node side from failing every session
+            # against a freshly-promoted revision.
+            "pattern": r"^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$",
+        },
         "triggers": {
             "default": [],
             "type": "array",
@@ -290,6 +295,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "path": {"type": "string"},
                             "requires_approval": {"type": "boolean", "default": False},
                             "approval_policy": _APPROVAL_POLICY_JSON_SCHEMA,
+                            "requires_identity": {"type": "string"},
                         },
                         "required": ["kind", "id", "path"],
                         "additionalProperties": False,
@@ -304,7 +310,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "kind": {"type": "string", "const": "custom_template"},
                             "from_template": {"type": "string"},
                             "alias": {"type": "string"},
-                            "version": {"type": "integer", "minimum": 0},
+                            "version": {"type": "integer", "minimum": 1},
                         },
                         "required": ["kind", "from_template", "alias"],
                         "additionalProperties": False,
@@ -348,7 +354,9 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "url": {"type": "string", "format": "uri"},
                     "auth": {
                         "type": "object",
-                        "properties": {"integration": {"type": "string"}},
+                        "properties": {
+                            "provider": {"type": "string"},
+                        },
                         "additionalProperties": False,
                     },
                     "secrets": {
@@ -383,32 +391,8 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                     "properties": {
                                         "name": {"type": "string", "minLength": 1},
                                         "requires_approval": {"type": "boolean", "default": False},
-                                        "approval_policy": {
-                                            "type": "object",
-                                            "properties": {
-                                                "approvers": {
-                                                    "type": "array",
-                                                    "minItems": 1,
-                                                    "items": {
-                                                        "type": "string",
-                                                        "enum": ["team_admins", "session_principal"],
-                                                    },
-                                                    "default": ["team_admins"],
-                                                },
-                                                "allow_edit": {"type": "boolean", "default": False},
-                                                "ttl_ms": {
-                                                    "type": "integer",
-                                                    "minimum": 60000,
-                                                    "maximum": 7 * 24 * 60 * 60 * 1000,
-                                                    "default": 24 * 60 * 60 * 1000,
-                                                },
-                                                "allow_agent_approver": {
-                                                    "type": "boolean",
-                                                    "default": False,
-                                                },
-                                            },
-                                            "additionalProperties": False,
-                                        },
+                                        # Same block as the native/custom tool refs — keep in sync.
+                                        "approval_policy": _APPROVAL_POLICY_JSON_SCHEMA,
                                     },
                                     "required": ["name"],
                                     "additionalProperties": False,
@@ -432,16 +416,68 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "description": {"type": "string"},
                     # Registry lineage for a skill pinned from a template.
                     # Present on a draft spec; freeze resolves `from_template`,
-                    # assembles `skills/<alias>/SKILL.md`, and stamps id/path.
+                    # assembles `skills/<alias>/SKILL.md`, and stamps id/path +
+                    # `source_version_id`. Allowed here so a forked frozen spec
+                    # (which carries the stamped provenance) round-trips through
+                    # the write path — authors can't set skills[] regardless, the
+                    # serializer pins it to the server value.
                     "from_template": {"type": "string"},
                     "alias": {"type": "string"},
-                    "version": {"type": "integer", "minimum": 0},
+                    "version": {"type": "integer", "minimum": 1},
+                    "source_version_id": {"type": "string"},
                 },
                 "required": ["id", "path"],
                 "additionalProperties": False,
             },
         },
-        "integrations": {"default": [], "type": "array", "items": {"type": "string"}},
+        # Identity providers users can link against. Mirror IdentityProviderConfigSchema
+        # in services/agent-shared/src/spec/spec.ts.
+        "identity_providers": {
+            "default": [],
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "const": "posthog"},
+                            "id": {"type": "string", "minLength": 1, "default": "posthog"},
+                            # `agent` (one app-scoped credential shared by every asker)
+                            # isn't implemented at runtime yet, so it's rejected here
+                            # until it lands — the runtime seam exists, but no spec can
+                            # select it. Keep in lockstep with the zod enum in spec.ts.
+                            "binding": {"type": "string", "enum": ["principal"], "default": "principal"},
+                            "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
+                            # Backend-injected on promote (the provisioned
+                            # OAuthApplication's client_id). Authors never set it.
+                            "client_id": {"type": "string"},
+                        },
+                        "required": ["kind"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "const": "oauth2"},
+                            "id": {"type": "string", "minLength": 1},
+                            # `agent` (one app-scoped credential shared by every asker)
+                            # isn't implemented at runtime yet, so it's rejected here
+                            # until it lands — the runtime seam exists, but no spec can
+                            # select it. Keep in lockstep with the zod enum in spec.ts.
+                            "binding": {"type": "string", "enum": ["principal"], "default": "principal"},
+                            "authorize_url": {"type": "string", "format": "uri"},
+                            "token_url": {"type": "string", "format": "uri"},
+                            "client_id": {"type": "string", "minLength": 1},
+                            "client_secret_ref": {"type": "string"},
+                            "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
+                            "userinfo_url": {"type": "string", "format": "uri"},
+                        },
+                        "required": ["kind", "id", "authorize_url", "token_url", "client_id"],
+                        "additionalProperties": False,
+                    },
+                ]
+            },
+        },
         # Two accepted forms — mirrors `SecretRefSchema` in
         # services/agent-shared/src/spec/spec.ts. The bare-string form
         # declares a resolvable name without authority to be sent over the
@@ -555,7 +591,6 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         "tools",
         "mcps",
         "skills",
-        "integrations",
         "secrets",
         "limits",
         "entrypoint",

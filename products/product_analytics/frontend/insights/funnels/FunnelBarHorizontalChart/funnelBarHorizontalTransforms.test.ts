@@ -383,6 +383,57 @@ describe('buildFunnelBarHorizontalData', () => {
             expect(step.bars[1].series[0].meta).toEqual({ isDropOff: false, breakdownIndex: 1 })
             expect(step.bars[1].series[1].meta).toEqual({ isDropOff: true, breakdownIndex: 1 })
         })
+
+        describe('with breakdown', () => {
+            // Breakdown + compare: nested_breakdown is paired [value0 current, value0 previous, …], so each
+            // (value, period) gets its own full-track bar — no overflow from stacking variants scaled to the
+            // grouped-bar baseline — and bars read paired by breakdown value with the previous one dimmed.
+            const breakdownCompareSteps: FunnelStepWithConversionMetrics[] = [
+                makeStep({
+                    count: 140,
+                    fromBasisStep: 1,
+                    compare_label: 'current',
+                    nested_breakdown: [
+                        makeStep({ count: 100, fromBasisStep: 1, breakdown_value: 'mobile', compare_label: 'current' }),
+                        makeStep({
+                            count: 80,
+                            fromBasisStep: 0.8,
+                            breakdown_value: 'mobile',
+                            compare_label: 'previous',
+                        }),
+                        makeStep({
+                            count: 40,
+                            fromBasisStep: 0.4,
+                            breakdown_value: 'desktop',
+                            compare_label: 'current',
+                        }),
+                        makeStep({
+                            count: 25,
+                            fromBasisStep: 0.25,
+                            breakdown_value: 'desktop',
+                            compare_label: 'previous',
+                        }),
+                    ],
+                }),
+            ]
+
+            it('renders one full-track bar per (breakdown value, period)', () => {
+                const [step] = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, options)
+
+                expect(step.bars).toHaveLength(4)
+                expect(step.bars.map((bar) => bar.series[0].data[0])).toEqual([100, 80, 40, 25])
+                expect(step.bars.map((bar) => bar.series[0].meta?.breakdownIndex)).toEqual([0, 1, 2, 3])
+            })
+
+            it('dims each breakdown value’s previous-period bar', () => {
+                const getColor = jest.fn((v: FunnelStepWithConversionMetrics) =>
+                    v.compare_label === 'previous' ? '#dimmed' : '#solid'
+                )
+                const [step] = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, { ...options, getColor })
+
+                expect(step.bars.map((bar) => bar.series[0].color)).toEqual(['#solid', '#dimmed', '#solid', '#dimmed'])
+            })
+        })
     })
 
     describe('series keys', () => {
