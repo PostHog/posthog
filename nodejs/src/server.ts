@@ -298,25 +298,19 @@ export class PluginServer implements NodeServer {
                 // the env var (typical for local dev outside k8s) we fall back to the
                 // plain queue and dequeue is unthrottled.
                 //
-                // Fair dequeue (per-team round-robin) is independent — it's wired
-                // into the worker via workerOptions and applies regardless of whether
-                // rate limiting is on.
+                // Fair dequeue (per-team round-robin) is intrinsic to the email queue —
+                // the worker derives it from its queue name — and applies regardless of
+                // whether rate limiting is on.
                 const sesValkey = createSesRateLimiterValkeyPool(this.config)
-                const workerOptions = { fairDequeue: this.config.CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE }
                 const queue = sesValkey
-                    ? new CyclotronJobQueueRateLimitedPostgresV2(
-                          this.config.CONSUMER_BATCH_SIZE,
-                          this.config,
-                          {
-                              limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
-                              key: '@posthog/ses/global',
-                              capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
-                              refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
-                              throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
-                          },
-                          workerOptions
-                      )
-                    : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, workerOptions)
+                    ? new CyclotronJobQueueRateLimitedPostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, {
+                          limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
+                          key: '@posthog/ses/global',
+                          capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
+                          refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
+                          throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
+                      })
+                    : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, queue)
                 await worker.start()
                 return worker.service

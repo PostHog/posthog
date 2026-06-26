@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { userLogic } from 'scenes/userLogic'
 
-import { Task, TaskRunStatus } from 'products/tasks/frontend/types'
+import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import {
     deriveTaskPurpose,

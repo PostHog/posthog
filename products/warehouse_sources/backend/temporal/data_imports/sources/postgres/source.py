@@ -21,7 +21,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
-from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
+from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -440,6 +440,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "max_standby_streaming_delay on the replica, enable hot_standby_feedback, or point the "
                 "connection at the primary database, then re-enable the sync."
             ),
+            # Activity-layer twin of the `QueryTimeoutException` key above, for the read-replica path:
+            # when a recovery conflict forces the offset-chunking fallback and a chunk then hits the
+            # 10-minute statement_timeout, `get_rows` raises `QueryTimeoutException` with this message.
+            # The class-name key only matches once Temporal wraps the failure; the activity-level check
+            # sees the raw `str(e)`, which is the bare message with no class name. Without a message key
+            # the timeout goes unrecognised there and the activity burns its full retry budget re-reading
+            # from the start into the same conflicting, overloaded replica before the workflow gives up.
+            # Match the stable leading phrase of our own crafted message.
+            "Reading from your read replica timed out": None,
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             # The source server itself ran out of memory (PostgreSQL SQLSTATE 53200, psycopg's
@@ -518,7 +527,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return
 
         # Lazy: data_load.service pulls in Temporal client / Celery setup we don't want at module load.
-        from products.data_warehouse.backend.logic.data_load.service import delete_cdc_extraction_schedule
+        from products.data_warehouse.backend.facade.api import delete_cdc_extraction_schedule
 
         # Schedule key = source id. NotFound is a no-op.
         try:

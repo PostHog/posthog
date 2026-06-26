@@ -687,6 +687,8 @@ class ExternalDataSourceType(models.TextChoices):
     HIGHTOUCH = "Hightouch", "Hightouch"
     LEMONSQUEEZY = "LemonSqueezy", "LemonSqueezy"
     IKAS = "Ikas", "Ikas"
+    TALKWALKER = "Talkwalker", "Talkwalker"
+    NEXTDOORADS = "NextdoorAds", "NextdoorAds"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
