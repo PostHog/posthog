@@ -58,7 +58,7 @@ pub struct Config {
 
     #[envconfig(
         from = "RECENT_IDS_DYNAMODB_TABLE",
-        default = "embedding-recently-seen"
+        default = "embedding_worker_recently_seen"
     )]
     pub recent_ids_dynamodb_table: String,
 
