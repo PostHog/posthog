@@ -197,7 +197,10 @@ def main() -> None:
         mig_dir = os.path.join(REPO_ROOT, "posthog", "clickhouse", "migrations")
         max_file = os.path.join(mig_dir, "max_migration.txt")
         last = open(max_file).read().strip()
-        num = int(re.match(r"(\d+)", last).group(1)) + 1
+        m = re.match(r"(\d+)", last)
+        if not m:
+            raise SystemExit(f"ERROR: can't parse a migration number from max_migration.txt: {last!r}")
+        num = int(m.group(1)) + 1
         name = f"{num:04d}_{args.name}"
         path = os.path.join(mig_dir, f"{name}.py")
         if os.path.exists(path):
