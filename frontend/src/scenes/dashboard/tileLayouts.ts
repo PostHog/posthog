@@ -106,7 +106,7 @@ export function calculateDuplicateLayout(
         }
 
         result.tilesToUpdate.push({
-            id: parseInt(smLayout.i),
+            id: Number(smLayout.i),
             layouts: {
                 sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
             },
@@ -153,7 +153,7 @@ export function calculateInsertionLayout(
         }
 
         result.tilesToUpdate.push({
-            id: parseInt(smLayout.i),
+            id: Number(smLayout.i),
             layouts: {
                 sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
             },
@@ -353,7 +353,7 @@ export const calculateLayouts = (
         if (breakpoint === 'sm') {
             referenceOrder = [...cleanLayouts]
                 .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y))
-                .map((l) => parseInt(l.i))
+                .map((l) => Number(l.i))
         }
 
         allLayouts[breakpoint] = cleanLayouts
