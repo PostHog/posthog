@@ -336,6 +336,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-models": {
+        "description": "Read-only model catalog for `spec.models`. Returns every model the gateway serves (id, provider, display name, per-Mtok input/output cost) plus `levels` — the concrete, priority-ordered model list each `auto` level (`low` / `medium` / `high`) currently resolves to. Use this to answer \"what will auto/medium actually run?\" and to pick ids for a `manual` policy instead of guessing. The level membership is resolved live against the catalog, so it reflects what the runner picks today, not a hardcoded list.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "List models + what each auto level resolves to",
+        "title": "List models + what each auto level resolves to",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-partial-update": {
         "description": "Edit `name` / `description`. The env block is managed separately (raw secret entry goes through the agent console's secret editor, not MCP), and `live_revision` is set by promoting a revision.",
         "category": "Agent stack",
@@ -4432,7 +4447,7 @@
         }
     },
     "llma-evaluation-config-get": {
-        "description": "Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the team has either trial credits available or an active provider key configured — without one, llm_judge runs will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.",
+        "description": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get evaluation config",
@@ -4460,7 +4475,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create a new AI observability evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). For 'sentiment' type, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'. When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
+        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration (provider + model + provider_key_id from llma-provider-key-list, preferring a provider the team already has a key for). 'hog': evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. When enabled, runs on new $ai_generation events; results are '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -4502,7 +4517,7 @@
         }
     },
     "llma-evaluation-judge-models": {
-        "description": "List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry returns the model id and whether it is available on PostHog trial credits. Call this before creating an llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is chosen.",
+        "description": "List provider+model combinations supported for llm_judge. Pass `provider` (openai, anthropic, gemini, openrouter, fireworks, azure_openai); optional `key_id` scopes to a key's reachable deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a provider the team already has a key for (see llma-provider-key-list).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
@@ -6793,6 +6808,34 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-edit-report": {
+        "description": "The report channel's edit half: rewrite a report's `title`/`summary` and/or append a note. Can target ANY of the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Edit an existing report for a run",
+        "title": "Edit an existing report for a run",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-emit-report": {
+        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list` to find a prior report and `signals-scout-edit-report` to update it instead. For a concrete, fixable issue you can also open a draft PR automatically by passing `repository` + `priority` + `suggested_reviewers` (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Author a full report for a run",
+        "title": "Author a full report for a run",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }

@@ -18,7 +18,7 @@ describe('@posthog/agent-applications-spec-schema', () => {
         expect(result.section).toBeNull()
         const schema = result.spec_json_schema as Record<string, unknown>
         expect(schema.type).toBe('object')
-        expect((schema.required as string[]) ?? []).toContain('model')
+        expect((schema.required as string[]) ?? []).toContain('models')
         expect(schema.properties).toHaveProperty('triggers')
         expect(schema.properties).toHaveProperty('tools')
         expect(schema.properties).toHaveProperty('secrets')

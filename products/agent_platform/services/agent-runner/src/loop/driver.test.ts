@@ -1,6 +1,8 @@
 import type { S3Client } from '@aws-sdk/client-s3'
 import {
     type AssistantMessage,
+    type AssistantMessageEvent,
+    createAssistantMessageEventStream,
     fauxAssistantMessage,
     fauxToolCall,
     type Model,
@@ -168,7 +170,7 @@ async function run(
         await seedSessionRow(session)
     }
     return runSession(rev, session, {
-        model: fauxModel((over.script as AssistantMessage[]) ?? [stop('ok')]),
+        models: [{ model: fauxModel((over.script as AssistantMessage[]) ?? [stop('ok')]) }],
         bundle,
         sandbox: null,
         secrets: {},
@@ -785,6 +787,162 @@ describe('driver runSession', () => {
             // No Idempotency-Key / X-Request-Id injected when no gateway path.
             expect(calls[0].headers ?? {}).not.toHaveProperty('Idempotency-Key')
             expect(calls[0].headers ?? {}).not.toHaveProperty('X-Request-Id')
+        })
+    })
+
+    /**
+     * Multi-model fallback. The driver wraps the base streamFn with
+     * `fallbackStreamFn` whenever `models.length > 1`. A pre-commit transient
+     * failure on the primary falls over to the next model; a single-model spec
+     * skips the wrapper entirely (legacy behaviour).
+     */
+    describe('multi-model fallback', () => {
+        // A streamFn that fails model `a` once (pre-commit 429) then answers on
+        // model `b`. Mirrors the faux provider's `start`→`error` shape so the
+        // commit guard treats it as a pre-commit failure.
+        const fallbackStreamFn = (): Parameters<typeof runSession>[2]['streamFn'] => {
+            return (model) => {
+                const stream = createAssistantMessageEventStream()
+                queueMicrotask(() => {
+                    if (model.id === 'a') {
+                        const errored = fauxAssistantMessage('', {
+                            stopReason: 'error',
+                            errorMessage: '429 rate limit',
+                        })
+                        const evs: AssistantMessageEvent[] = [
+                            { type: 'start', partial: fauxAssistantMessage('') },
+                            { type: 'error', reason: 'error', error: errored },
+                        ]
+                        for (const e of evs) {
+                            stream.push(e)
+                        }
+                        stream.end(errored)
+                        return
+                    }
+                    const done = fauxAssistantMessage('recovered', { stopReason: 'stop' })
+                    const partial = { ...done }
+                    const evs: AssistantMessageEvent[] = [
+                        { type: 'start', partial: fauxAssistantMessage('') },
+                        { type: 'text_delta', contentIndex: 0, delta: 'recovered', partial },
+                        { type: 'done', reason: 'stop', message: done },
+                    ]
+                    for (const e of evs) {
+                        stream.push(e)
+                    }
+                    stream.end(done)
+                })
+                return stream
+            }
+        }
+
+        it('falls over to the second model on a transient primary failure', async () => {
+            const session = makeSession()
+            const out = await run(makeRev(), session, {
+                models: [{ model: fauxModel([stop('x')]) }, { model: fauxModel([stop('y')]) }].map((m, i) => ({
+                    // Distinct ids so the streamFn can route per attempt.
+                    model: { ...m.model, id: i === 0 ? 'a' : 'b' },
+                })),
+                streamFn: fallbackStreamFn(),
+            })
+            // The session completed on the fallback model's answer.
+            expect(out.state).toBe('completed')
+            const last = session.conversation.at(-1) as { role: string; content: unknown }
+            expect(last.role).toBe('assistant')
+        })
+
+        it('tags the direct-path $ai_generation with the fallback attempt + fallback_from', async () => {
+            // The observability contract for the feature: after a fallover the
+            // emitted generation must carry which attempt answered (>0) and the
+            // primary it fell back from, so AI observability can answer "did it
+            // fall back, and off which model".
+            const events: AnalyticsEvent[] = []
+            const out = await run(makeRev(), makeSession(), {
+                models: [{ model: fauxModel([stop('x')]) }, { model: fauxModel([stop('y')]) }].map((m, i) => ({
+                    model: { ...m.model, id: i === 0 ? 'a' : 'b' },
+                })),
+                streamFn: fallbackStreamFn(),
+                analytics: { write: async (batch: AnalyticsEvent[]) => void events.push(...batch) },
+            })
+            expect(out.state).toBe('completed')
+            const gens = events.filter((e): e is AnalyticsGenerationEvent => e.kind === 'generation')
+            expect(gens).toHaveLength(1)
+            expect(gens[0].model_attempt).toBe(1)
+            expect(gens[0].fallback_from).toBe('a')
+        })
+
+        it('cost mode pins to the conversation last-served model on resume (no primary probe)', async () => {
+            // A resumed session whose last assistant turn ran on `b`. With the
+            // default `optimize_for: cost`, the next turn must dispatch ONLY `b`
+            // — not probe the priority primary `a` — so the cache stays warm.
+            const dispatched: string[] = []
+            const recordFn: Parameters<typeof runSession>[2]['streamFn'] = (model) => {
+                dispatched.push(model.id)
+                const stream = createAssistantMessageEventStream()
+                queueMicrotask(() => {
+                    const done = fauxAssistantMessage('ok', { stopReason: 'stop' })
+                    stream.push({ type: 'start', partial: fauxAssistantMessage('') })
+                    stream.push({ type: 'done', reason: 'stop', message: done })
+                    stream.end(done)
+                })
+                return stream
+            }
+            const session = makeSession({
+                conversation: [
+                    { role: 'user', content: 'hi', timestamp: Date.now() },
+                    { role: 'assistant', content: [], model: 'b', timestamp: Date.now() } as never,
+                ],
+            })
+            const out = await run(makeRev(), session, {
+                models: [{ model: fauxModel([stop('x')]) }, { model: fauxModel([stop('y')]) }].map((m, i) => ({
+                    model: { ...m.model, id: i === 0 ? 'a' : 'b' },
+                })),
+                streamFn: recordFn,
+            })
+            expect(out.state).toBe('completed')
+            expect(dispatched).toEqual(['b'])
+        })
+
+        // Regression: a real provider echoes the PROVIDER-SAFE tool name
+        // (`posthog_meta-end-turn`), not the `@posthog/...` original. The
+        // sanitizing wrapper must translate it back, and on the multi-model path
+        // it must run OUTSIDE the fallback wrapper — the fallback re-emits the
+        // `done` event (safe name) into a fresh stream, so an inner sanitizing
+        // result() never reaches the loop. The faux provider can't exercise this
+        // (it echoes the original verbatim), so we emit the safe name by hand.
+        it('translates a provider-safe tool name echoed through the fallback wrapper', async () => {
+            let calls = 0
+            const safeEndTurn = (): Parameters<typeof runSession>[2]['streamFn'] => {
+                return () => {
+                    calls++
+                    const stream = createAssistantMessageEventStream()
+                    queueMicrotask(() => {
+                        // First turn: end_turn under its provider-safe name. If the
+                        // map misses, the loop returns "tool not found" and keeps
+                        // going — a second call. With the fix it's intercepted and
+                        // the turn terminates after one call.
+                        const done =
+                            calls === 1
+                                ? fauxAssistantMessage([fauxToolCall('posthog_meta-end-turn', {})], {
+                                      stopReason: 'toolUse',
+                                  })
+                                : fauxAssistantMessage('fallthrough', { stopReason: 'stop' })
+                        stream.push({ type: 'start', partial: fauxAssistantMessage('') })
+                        stream.push({ type: 'done', reason: calls === 1 ? 'toolUse' : 'stop', message: done })
+                        stream.end(done)
+                    })
+                    return stream
+                }
+            }
+            const out = await run(makeRev(), makeSession(), {
+                models: [{ model: fauxModel([stop('x')]) }, { model: fauxModel([stop('y')]) }].map((m, i) => ({
+                    model: { ...m.model, id: i === 0 ? 'a' : 'b' },
+                })),
+                streamFn: safeEndTurn(),
+            })
+            expect(out.state).toBe('completed')
+            // The safe name resolved to @posthog/meta-end-turn and terminated the
+            // turn on the first model call — no "not found" + retry.
+            expect(calls).toBe(1)
         })
     })
 
