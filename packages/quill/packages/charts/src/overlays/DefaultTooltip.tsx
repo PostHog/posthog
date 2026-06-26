@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { TooltipContext } from '../core/types'
 import { TooltipSurface, TooltipSwatch } from './TooltipSurface'
@@ -53,6 +53,21 @@ export function DefaultTooltip<Meta = unknown>({
     const total = summable.reduce((acc, s) => acc + s.value, 0)
     const formatTotal = totalFormatter ?? ((value: number): string => format(value, summable[0]))
     const scrollContainerRef = useRef<HTMLDivElement>(null)
+    const [canScrollUp, setCanScrollUp] = useState(false)
+    const [canScrollDown, setCanScrollDown] = useState(false)
+
+    const updateScrollFades = useCallback(() => {
+        const el = scrollContainerRef.current
+        if (!el) {
+            return
+        }
+        setCanScrollUp(el.scrollTop > 0)
+        setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 1)
+    }, [])
+
+    useEffect(() => {
+        updateScrollFades()
+    }, [rows, updateScrollFades])
 
     useEffect(() => {
         if (!closestKey || !scrollContainerRef.current) {
@@ -75,6 +90,19 @@ export function DefaultTooltip<Meta = unknown>({
         }
     }, [closestKey])
 
+    const maskImage = (() => {
+        if (canScrollUp && canScrollDown) {
+            return 'linear-gradient(to bottom, transparent, black 20%, black 80%, transparent)'
+        }
+        if (canScrollUp) {
+            return 'linear-gradient(to bottom, transparent, black 20%)'
+        }
+        if (canScrollDown) {
+            return 'linear-gradient(to bottom, black 80%, transparent)'
+        }
+        return undefined
+    })()
+
     return (
         <TooltipSurface>
             <div data-attr="hog-chart-tooltip-label" className="font-semibold mb-1 opacity-60">
@@ -82,7 +110,14 @@ export function DefaultTooltip<Meta = unknown>({
             </div>
             <div
                 ref={scrollContainerRef}
-                style={{ maxHeight: ROWS_MAX_HEIGHT, overflowY: 'auto', scrollbarWidth: 'none' }}
+                onScroll={updateScrollFades}
+                style={{
+                    maxHeight: ROWS_MAX_HEIGHT,
+                    overflowY: 'auto',
+                    scrollbarWidth: 'none',
+                    maskImage,
+                    WebkitMaskImage: maskImage,
+                }}
             >
                 {rows.map((s) => {
                     const isClosest = s.series.key === closestKey
