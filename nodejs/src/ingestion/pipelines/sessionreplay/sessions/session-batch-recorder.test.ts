@@ -1643,7 +1643,7 @@ describe('SessionBatchRecorder', () => {
     })
 
     describe('error handling', () => {
-        it('should drop session and continue flush when session stream errors', async () => {
+        it('should propagate session stream errors so the batch retries', async () => {
             const events = [
                 {
                     type: EventType.FullSnapshot,
@@ -1664,12 +1664,8 @@ describe('SessionBatchRecorder', () => {
 
             await recorder.record(createMessage('session', events))
 
-            const result = await recorder.flush()
-
-            expect(result).toEqual([])
-            expect(SessionBatchMetrics.incrementSessionsDroppedDuringFlush).toHaveBeenCalledTimes(1)
-            expect(mockWriter.finish).toHaveBeenCalled()
-            expect(mockOffsetManager.commit).toHaveBeenCalled()
+            await expect(recorder.flush()).rejects.toThrow('Stream read error')
+            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
 
         it('should drop session and continue flush on RetentionLookupError', async () => {
