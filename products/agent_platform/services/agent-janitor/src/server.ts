@@ -49,7 +49,6 @@ import {
     AgentRevision,
     AgentRevisionRaw,
     AgentSession,
-    buildSearchText,
     AgentSpec,
     AgentSpecSchema,
     ApprovalRequest,
@@ -286,13 +285,6 @@ const BackfillUsageBodySchema = z.object({
     /** Count what would change without writing. Default true to keep accidents cheap. */
     dry_run: z.boolean().default(true),
     /** Cap on rows scanned per call so a giant backlog doesn't tie up the request. */
-    limit: z.coerce.number().int().positive().max(5000).default(500),
-})
-
-const BackfillSearchTextBodySchema = z.object({
-    /** Per-application, like backfill_usage — call repeatedly across apps. */
-    application_id: z.string().min(1, 'missing_application_id'),
-    dry_run: z.boolean().default(true),
     limit: z.coerce.number().int().positive().max(5000).default(500),
 })
 
@@ -574,31 +566,6 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 updated++
                 if (!body.dry_run) {
                     await opts.queue.update(s.id, { usage_total: recomputed })
-                }
-            }
-            res.json({ scanned, updated, dry_run: body.dry_run })
-        })
-    )
-
-    // Backfill `search_text` + `turn_count` for sessions created before the
-    // columns existed, so transcript search + the list preview cover them.
-    app.post(
-        '/sessions/backfill_search_text',
-        asyncHandler(async (req, res) => {
-            const body = BackfillSearchTextBodySchema.parse(req.body)
-            const sessions = await opts.queue.listByApplication(body.application_id, { limit: body.limit })
-            let scanned = 0
-            let updated = 0
-            for (const s of sessions) {
-                scanned++
-                const changed = await opts.queue.applySearchSummary(
-                    s.id,
-                    buildSearchText(s.conversation),
-                    s.conversation.length,
-                    { dryRun: body.dry_run }
-                )
-                if (changed) {
-                    updated++
                 }
             }
             res.json({ scanned, updated, dry_run: body.dry_run })

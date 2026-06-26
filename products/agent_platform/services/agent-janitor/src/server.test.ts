@@ -397,57 +397,6 @@ describe('janitor HTTP', () => {
         expect(repeat.body).toMatchObject({ scanned: 1, updated: 0 })
     })
 
-    it('POST /sessions/backfill_search_text repopulates search_text + turn_count', async () => {
-        const { queue, app } = mk()
-        await queue.enqueue({
-            ...session('s-bf'),
-            application_id: uuidFor('app-bf'),
-            conversation: [
-                { role: 'user', content: 'find the WIDGET', timestamp: 1 },
-                {
-                    role: 'assistant',
-                    content: [{ type: 'text', text: 'sure' }],
-                    api: 'a',
-                    provider: 'a',
-                    model: 'm',
-                    usage: { input: 1, output: 1, cost: { input: 0, output: 0, total: 0 } },
-                    timestamp: 2,
-                },
-            ],
-        })
-        // Simulate a row created before the columns existed.
-        await pool.query(`UPDATE agent_session SET search_text = NULL, turn_count = 0 WHERE id = $1`, [uuidFor('s-bf')])
-        const before = await request(app)
-            .get('/sessions')
-            .query({ application_id: uuidFor('app-bf'), search: 'widget' })
-        expect(before.body.count).toBe(0)
-
-        const dry = await request(app)
-            .post('/sessions/backfill_search_text')
-            .send({ application_id: uuidFor('app-bf'), dry_run: true })
-        expect(dry.body).toMatchObject({ scanned: 1, updated: 1, dry_run: true })
-        const stillEmpty = await request(app)
-            .get('/sessions')
-            .query({ application_id: uuidFor('app-bf'), search: 'widget' })
-        expect(stillEmpty.body.count).toBe(0)
-
-        const real = await request(app)
-            .post('/sessions/backfill_search_text')
-            .send({ application_id: uuidFor('app-bf'), dry_run: false })
-        expect(real.body).toMatchObject({ scanned: 1, updated: 1, dry_run: false })
-        const after = await request(app)
-            .get('/sessions')
-            .query({ application_id: uuidFor('app-bf'), search: 'widget' })
-        expect((after.body.results as Array<{ id: string; turns: number }>).map((s) => s.id)).toEqual([uuidFor('s-bf')])
-        expect(after.body.results[0].turns).toBe(2)
-
-        // Converges: a second run finds nothing changed.
-        const repeat = await request(app)
-            .post('/sessions/backfill_search_text')
-            .send({ application_id: uuidFor('app-bf'), dry_run: false })
-        expect(repeat.body).toMatchObject({ scanned: 1, updated: 0 })
-    })
-
     it('POST /sessions/:id/cancel marks cancelled', async () => {
         const { queue, app } = mk()
         await queue.enqueue(session('s2'))
