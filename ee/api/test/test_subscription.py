@@ -121,6 +121,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "next_delivery_date": data["next_delivery_date"],
             "integration_id": None,
             "invite_message": None,
+            "delivery_config": {"post_all_insights_in_main_message": False},
             "summary": "sent every week",
             "summary_enabled": False,
             "summary_prompt_guide": "",

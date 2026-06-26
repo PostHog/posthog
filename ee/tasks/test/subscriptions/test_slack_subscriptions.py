@@ -637,8 +637,6 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert result.main_message_sent is True
 
     def test_deliver_slack_gallery_empty_uploads_sends_plain_message(self, MockSlackIntegration: MagicMock) -> None:
-        """When all assets fail (file_uploads=[]), deliver_slack_gallery must send a plain chat message
-        via chat_postMessage and must NOT call files_upload_v2."""
         mock_async = self._setup_async_mock(MockSlackIntegration)
         mock_async.files_upload_v2 = AsyncMock()
         mock_async.chat_postMessage.return_value = {"ts": "1.234"}
