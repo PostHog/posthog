@@ -1,7 +1,9 @@
 from unittest.mock import AsyncMock, patch
 
+import litellm
 import pytest
 from fastapi import HTTPException
+from litellm.types.utils import ModelResponse
 
 from llm_gateway.cloudflare import (
     CLOUDFLARE_ALLOWED_MODELS,
@@ -64,9 +66,9 @@ def test_litellm_anthropic_messages_adapter_contract() -> None:
 
 
 async def test_make_cloudflare_responses_call_injects_params_and_forces_bridge() -> None:
-    """The CF responses adapter must inject CF creds/model and force litellm's
-    Responses->chat/completions bridge (`use_chat_completions_api=True`), since CF's
-    OpenAI-compatible endpoint has no native /responses route."""
+    # The CF responses adapter must inject CF creds/model and force litellm's
+    # Responses->chat/completions bridge (use_chat_completions_api=True), since CF's
+    # OpenAI-compatible endpoint has no native /responses route.
     llm_call = make_cloudflare_responses_call("https://api.cloudflare.com/test/ai/v1", "secret")
 
     with patch("llm_gateway.cloudflare.litellm.aresponses", new=AsyncMock(return_value="ok")) as mock_aresponses:
@@ -81,9 +83,9 @@ async def test_make_cloudflare_responses_call_injects_params_and_forces_bridge()
 
 
 async def test_make_cloudflare_responses_call_ignores_caller_supplied_bridge_flag() -> None:
-    """`ResponsesRequest` allows extra fields, so a caller can smuggle `use_chat_completions_api`
-    into the request body. The adapter must overwrite it (not pass it twice → TypeError, and not
-    let `False` escape the bridge onto CF's missing /responses route)."""
+    # ResponsesRequest allows extra fields, so a caller can smuggle use_chat_completions_api into
+    # the request body. The adapter must overwrite it (not pass it twice -> TypeError, and not let
+    # False escape the bridge onto CF's missing /responses route).
     llm_call = make_cloudflare_responses_call("https://api.cloudflare.com/test/ai/v1", "secret")
 
     with patch("llm_gateway.cloudflare.litellm.aresponses", new=AsyncMock(return_value="ok")) as mock_aresponses:
@@ -94,13 +96,10 @@ async def test_make_cloudflare_responses_call_ignores_caller_supplied_bridge_fla
 
 
 async def test_litellm_responses_completion_bridge_contract() -> None:
-    """Load-bearing: `litellm.aresponses(use_chat_completions_api=True, ...)` must route a CF-style
-    model through the chat/completions bridge (i.e. call litellm.acompletion), not the native
-    Responses API. Fails fast if a litellm bump drops/renames the flag — which would silently send
-    CF responses traffic back to the broken native path."""
-    import litellm
-    from litellm.types.utils import ModelResponse
-
+    # Load-bearing: litellm.aresponses(use_chat_completions_api=True, ...) must route a CF-style
+    # model through the chat/completions bridge (i.e. call litellm.acompletion), not the native
+    # Responses API. Fails fast if a litellm bump drops/renames the flag — which would silently
+    # send CF responses traffic back to the broken native path.
     fake = ModelResponse(choices=[{"message": {"role": "assistant", "content": "hi from cf"}}])
 
     with patch("litellm.acompletion", new=AsyncMock(return_value=fake)) as mock_acompletion:

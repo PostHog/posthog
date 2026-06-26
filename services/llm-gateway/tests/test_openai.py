@@ -377,12 +377,11 @@ class TestChatCompletionsEndpoint:
         mock_make_call.assert_not_called()
 
 
+# CF-served models (@cf/...) on the Responses endpoint must route through the CF responses adapter,
+# not litellm.aresponses (which prefixes openai/ and hits the real OpenAI Responses API ->
+# model_not_supported). This is the codex/Responses gap that left every GLM-routed scout run making
+# zero generations.
 class TestResponsesCloudflareRouting:
-    """CF-served models (`@cf/...`) on the Responses endpoint must route through the CF
-    responses adapter, not litellm.aresponses (which prefixes `openai/` and hits the real
-    OpenAI Responses API → model_not_supported). This is the codex/Responses gap that left
-    every GLM-routed scout run making zero generations."""
-
     @patch("llm_gateway.api.openai.litellm.aresponses")
     @patch("llm_gateway.api.openai.make_cloudflare_responses_call")
     @patch("llm_gateway.api.openai.ensure_cloudflare_configured")
@@ -422,8 +421,8 @@ class TestResponsesCloudflareRouting:
         mock_aresponses: MagicMock,
         authenticated_client: TestClient,
     ) -> None:
-        """Streaming branch of the CF Responses route: the routed llm_call returns an async
-        iterator, format_sse_stream wraps it, and the gateway emits SSE chunks back."""
+        # Streaming branch of the CF Responses route: the routed llm_call returns an async iterator,
+        # format_sse_stream wraps it, and the gateway emits SSE chunks back.
         mock_ensure_configured.return_value = ("https://api.cloudflare.com/ai/v1", "test-key")
 
         async def fake_stream():
@@ -486,9 +485,9 @@ class TestResponsesCloudflareRouting:
         mock_make_call: MagicMock,
         authenticated_client: TestClient,
     ) -> None:
-        """The Responses->chat/completions bridge rebuilds prior turns from litellm proxy spend
-        logs, which this SDK-mode gateway doesn't have — so `previous_response_id` would silently
-        drop conversation context. Reject it explicitly rather than answer with lost history."""
+        # The Responses->chat/completions bridge rebuilds prior turns from litellm proxy spend logs,
+        # which this SDK-mode gateway doesn't have — so previous_response_id would silently drop
+        # conversation context. Reject it explicitly rather than answer with lost history.
         response = authenticated_client.post(
             "/v1/responses",
             json={
