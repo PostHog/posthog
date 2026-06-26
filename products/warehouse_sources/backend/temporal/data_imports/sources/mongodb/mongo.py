@@ -197,11 +197,21 @@ def _build_query(
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     if incremental_field_type == IncrementalFieldType.ObjectID:
-        query = {incremental_field: {"$gt": ObjectId(str(db_incremental_field_last_value)), "$exists": True}}
+        query = {incremental_field: {"$gt": _coerce_object_id_cursor(db_incremental_field_last_value), "$exists": True}}
     else:
         query = {incremental_field: {"$gt": db_incremental_field_last_value, "$exists": True}}
 
     return query
+
+
+def _coerce_object_id_cursor(last_value: Any) -> Any:
+    """`_id` is offered as an ObjectID incremental cursor, but MongoDB `_id` values aren't
+    always ObjectIds — collections frequently key on UUIDs or other strings. Only wrap the
+    cursor in ObjectId when it's a valid 24-char hex id; otherwise compare the raw string so
+    a non-ObjectId `_id` doesn't raise InvalidId and permanently break every incremental sync.
+    """
+    value = str(last_value)
+    return ObjectId(value) if ObjectId.is_valid(value) else value
 
 
 def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription]], list[ServerDescription]]:
