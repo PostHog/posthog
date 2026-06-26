@@ -71,7 +71,7 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     result_data = models.JSONField(null=True, blank=True)
 
     class Meta:
-        db_table = "posthog_changerequest"
+        db_table = "posthog_changerequest"  # pinned to pre-move physical table name, do not rename
         indexes = [
             models.Index(fields=["team", "state"]),
             models.Index(fields=["action_key", "state"]),
@@ -126,7 +126,7 @@ class Approval(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     reason = models.TextField(blank=True)
 
     class Meta:
-        db_table = "posthog_approval"
+        db_table = "posthog_approval"  # pinned to pre-move physical table name, do not rename
         unique_together = [["change_request", "created_by"]]
         indexes = [
             models.Index(fields=["change_request", "decision"]),
@@ -170,7 +170,7 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         "ee.Role",
         blank=True,
         related_name="bypass_policies",
-        db_table="posthog_approvalpolicy_bypass_roles",
+        db_table="posthog_approvalpolicy_bypass_roles",  # pinned to pre-move physical M2M table name, do not rename
     )
 
     expires_after = models.DurationField(
@@ -183,7 +183,7 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     objects = ApprovalPolicyManager()
 
     class Meta:
-        db_table = "posthog_approvalpolicy"
+        db_table = "posthog_approvalpolicy"  # pinned to pre-move physical table name, do not rename
         unique_together = [["organization", "team", "action_key"]]
         indexes = [
             models.Index(fields=["action_key", "enabled"]),
