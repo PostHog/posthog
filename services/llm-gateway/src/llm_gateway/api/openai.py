@@ -80,6 +80,20 @@ async def _handle_responses(
         # CF-served models (`@cf/...`) can't use the native OpenAI Responses path below: it would
         # prefix `openai/` and call the real OpenAI Responses API. Route through CF's endpoint via
         # litellm's Responses->chat/completions bridge instead (see make_cloudflare_responses_call).
+        if body.previous_response_id is not None:
+            # The bridge rebuilds prior turns from litellm proxy spend logs; we run litellm as an
+            # SDK (no proxy DB), so it would silently resolve to empty history and drop the
+            # conversation. Reject explicitly rather than answer with lost context.
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": {
+                        "message": "previous_response_id is not supported for Cloudflare models on the Responses API",
+                        "type": "invalid_request_error",
+                        "code": None,
+                    }
+                },
+            )
         ensure_cloudflare_model_allowed(body.model)
         settings = get_settings()
         api_base, api_key = ensure_cloudflare_configured(settings)

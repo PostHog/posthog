@@ -103,6 +103,12 @@ def make_cloudflare_responses_call(api_base: str, api_key: str) -> Callable[...,
 
     async def llm_call(**kwargs: Any) -> Any:
         _inject_cloudflare_params(kwargs, api_base, api_key)
-        return await litellm.aresponses(use_chat_completions_api=True, **kwargs)
+        # Assign into kwargs rather than passing as an explicit keyword: `ResponsesRequest` allows
+        # extra fields, so a caller could smuggle `use_chat_completions_api` in the request body —
+        # passing it both ways would raise `TypeError: got multiple values for keyword argument`,
+        # and this also stops a caller flipping it to False to escape the bridge onto CF's missing
+        # /responses route.
+        kwargs["use_chat_completions_api"] = True
+        return await litellm.aresponses(**kwargs)
 
     return llm_call
