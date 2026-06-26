@@ -19,7 +19,7 @@ import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { getLegendPosition, isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
 
 export function ExportedInsight({
@@ -77,6 +77,21 @@ export function ExportedInsight({
         isTrendsQuery(query.source) &&
         !DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS.includes(query.source.trendsFilter?.display as ChartDisplayType)
 
+    // Match the in-app default fallback of 'right' when the position is unset.
+    const legendPosition = (isInsightVizNode(query) ? getLegendPosition(query.source) : undefined) ?? 'right'
+    const legendIsHorizontal = legendPosition === 'top' || legendPosition === 'bottom'
+    const legendBeforeChart = legendPosition === 'top' || legendPosition === 'left'
+
+    const legendElement = showLegend ? (
+        <div className={clsx(legendIsHorizontal ? 'p-4' : 'p-4 flex items-center')}>
+            {isBoxPlot ? (
+                <BoxPlotLegend horizontal={legendIsHorizontal} />
+            ) : (
+                <InsightLegend horizontal={legendIsHorizontal} readOnly />
+            )}
+        </div>
+    ) : null
+
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
             <div className="ExportedInsight">
@@ -106,19 +121,20 @@ export function ExportedInsight({
                         'ExportedInsight__content--with-watermark': showWatermark,
                     })}
                 >
-                    <Query
-                        query={insight.query}
-                        cachedResults={insight}
-                        readOnly
-                        context={{ insightProps: insightLogicProps }}
-                        embedded
-                        inSharedMode
-                    />
-                    {showLegend && (
-                        <div className="p-4">
-                            {isBoxPlot ? <BoxPlotLegend horizontal /> : <InsightLegend horizontal readOnly />}
+                    <div className={clsx('flex', legendIsHorizontal ? 'flex-col' : 'flex-row items-start')}>
+                        {legendBeforeChart && legendElement}
+                        <div className="flex-1 min-w-0">
+                            <Query
+                                query={insight.query}
+                                cachedResults={insight}
+                                readOnly
+                                context={{ insightProps: insightLogicProps }}
+                                embedded
+                                inSharedMode
+                            />
                         </div>
-                    )}
+                        {!legendBeforeChart && legendElement}
+                    </div>
                     {showDetailedResultsTable && (
                         <div className="border-t mt-2">
                             <InsightsTable filterKey={short_id} isLegend embedded editMode={false} />
