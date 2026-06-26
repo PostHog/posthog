@@ -164,24 +164,47 @@ fn apply_gateway_provenance(state: &router::State, context: &Context, events: &m
         let trusted = outcome == gp::Provenance::Verified && !request_id.is_empty();
 
         if trusted {
-            if let Some(props) = gp::stamp_verified_raw(&ev.event.properties, request_id) {
-                ev.event.properties = props;
-                ev.is_gateway_verified = true;
-                metrics::counter!(gp::PROVENANCE_METRIC, "reason" => "verified").increment(1);
+            match gp::stamp_verified_raw(&ev.event.properties, request_id) {
+                gp::StampOutcome::Stamped(props) => {
+                    ev.event.properties = props;
+                    ev.is_gateway_verified = true;
+                    metrics::counter!(gp::PROVENANCE_METRIC, "reason" => "verified").increment(1);
+                }
+                gp::StampOutcome::Unparseable => drop_unparseable_gateway_props(ev),
             }
         } else if gp::has_gateway_props(&ev.event.properties) {
-            if let Some(props) = gp::strip_gateway_raw(&ev.event.properties) {
-                ev.event.properties = props;
-                // stale HMAC is clock skew; anything else is a forged/leftover marker.
-                let reason = if outcome == gp::Provenance::Stale {
-                    "stale"
-                } else {
-                    "forged"
-                };
-                metrics::counter!(gp::PROVENANCE_METRIC, "reason" => reason).increment(1);
+            match gp::strip_gateway_raw(&ev.event.properties) {
+                gp::StripOutcome::Stripped { props, forged } => {
+                    ev.event.properties = props;
+                    let reason = if forged {
+                        // A client-supplied $ai_gateway_verified — a real forgery.
+                        "forged"
+                    } else if outcome == gp::Provenance::Stale {
+                        "stale" // valid HMAC, outside the window — clock skew
+                    } else {
+                        "stripped" // leftover $ai_gateway* prop, no marker — benign
+                    };
+                    metrics::counter!(gp::PROVENANCE_METRIC, "reason" => reason).increment(1);
+                }
+                gp::StripOutcome::Unchanged => {}
+                gp::StripOutcome::Unparseable => drop_unparseable_gateway_props(ev),
             }
         }
     }
+}
+
+/// Drop a `$ai_*` event whose properties carry a gateway key but can't be parsed to
+/// strip or stamp it. `RawValue` and ClickHouse accept JSON the typed parse rejects,
+/// so a forged marker we can't remove would otherwise survive to billing — fail closed.
+fn drop_unparseable_gateway_props(ev: &mut WrappedEvent) {
+    ev.result = EventResult::Drop;
+    ev.destination = Destination::Drop;
+    ev.details = Some("gateway_props_unparseable");
+    metrics::counter!(
+        crate::v1::gateway_provenance::PROVENANCE_METRIC,
+        "reason" => "dropped_unparseable"
+    )
+    .increment(1);
 }
 
 // ---------------------------------------------------------------------------
@@ -2519,6 +2542,63 @@ mod tests {
             !events[1].event.properties.get().contains("$ai_gateway"),
             "the other event's forged marker must be stripped"
         );
+    }
+
+    /// Fail closed: an unverified event whose props carry a forged marker but can't
+    /// be parsed to strip it (RawValue accepts an out-of-range number serde rejects)
+    /// is dropped, so the marker can't reach billing via ClickHouse's lenient reader.
+    #[tokio::test]
+    async fn gateway_provenance_drops_event_with_unparseable_forged_props() {
+        let token = "phc_test_token";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        let ctx = gateway_context(token, now, None);
+
+        let mut events = vec![ai_event(
+            "user-1",
+            r#"{"$ai_gateway_verified": true, "x": 1e500}"#,
+        )];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("gateway_props_unparseable"));
+        assert!(!events[0].is_gateway_verified);
+    }
+
+    /// Fail closed on the verified path too: a valid signature can't excuse props we
+    /// can't parse to stamp, since a forged marker hidden in them would survive.
+    #[tokio::test]
+    async fn gateway_provenance_drops_verified_event_with_unparseable_props() {
+        let token = "phc_test_token";
+        let distinct_id = "user-1";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        let signed_at = now.to_rfc3339();
+        let sig = GatewaySignature {
+            signature: sign_for_test(
+                GW_SECRET.as_bytes(),
+                token,
+                distinct_id,
+                "req-1",
+                &signed_at,
+            ),
+            signed_at,
+            request_id: "req-1".to_string(),
+        };
+        let ctx = gateway_context(token, now, Some(sig));
+
+        let mut events = vec![ai_event(distinct_id, r#"{"$ai_model": "x", "y": 1e500}"#)];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("gateway_props_unparseable"));
+        assert!(!events[0].is_gateway_verified);
     }
 
     /// process_batch wiring: a valid signature is verified ahead of the limiter

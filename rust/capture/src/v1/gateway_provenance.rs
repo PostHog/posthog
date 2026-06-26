@@ -256,26 +256,56 @@ fn parse_hex4(b: &[u8]) -> Option<u32> {
     Some(v)
 }
 
-/// Strips the `$ai_gateway*` namespace from raw properties. Returns `None` when
-/// nothing changed, so the caller skips a needless reserialize. A non-object
-/// (e.g. an array) also returns `None`: it can't carry a marker any downstream
-/// `JSONExtract(properties, key)` can read, so it's safe to leave.
-pub fn strip_gateway_raw(properties: &RawValue) -> Option<Box<RawValue>> {
-    let mut map: Map<String, Value> = serde_json::from_str(properties.get()).ok()?;
+/// Outcome of stripping the `$ai_gateway*` namespace from raw properties.
+#[derive(Debug)]
+pub enum StripOutcome {
+    /// Stripped at least one key. `forged` is true if the trusted marker
+    /// `$ai_gateway_verified` was among them — a client-supplied marker, since the
+    /// gateway never sends it (capture stamps it post-verify), so always a forgery.
+    Stripped { props: Box<RawValue>, forged: bool },
+    /// Parsed fine, no `$ai_gateway*` key to strip (the raw pre-check matched a value).
+    Unchanged,
+    /// Couldn't parse the properties as an object. `RawValue` accepts JSON that the
+    /// typed parse rejects (out-of-range numbers, over-deep nesting) and ClickHouse's
+    /// reader is more lenient still, so a forged marker we can't strip could survive
+    /// to billing. The caller must fail closed (drop the event).
+    Unparseable,
+}
+
+pub fn strip_gateway_raw(properties: &RawValue) -> StripOutcome {
+    let Ok(mut map) = serde_json::from_str::<Map<String, Value>>(properties.get()) else {
+        return StripOutcome::Unparseable;
+    };
+    let forged = map.contains_key(VERIFIED_PROPERTY);
     let before = map.len();
     strip_gateway(&mut map);
     if map.len() == before {
-        return None;
+        return StripOutcome::Unchanged;
     }
-    reserialize(map)
+    match reserialize(map) {
+        Some(props) => StripOutcome::Stripped { props, forged },
+        None => StripOutcome::Unparseable,
+    }
 }
 
-/// Stamps the trusted marker onto raw properties. `None` if they don't parse — a
-/// genuine gateway event is valid JSON, so a parse failure just leaves it counted.
-pub fn stamp_verified_raw(properties: &RawValue, request_id: &str) -> Option<Box<RawValue>> {
-    let mut map: Map<String, Value> = serde_json::from_str(properties.get()).ok()?;
+/// Stamps the trusted marker and signed request_id onto raw properties.
+/// `Unparseable` (see [`StripOutcome::Unparseable`]) when the typed parse fails, so
+/// the caller fails closed rather than passing an unstrippable forged marker through.
+#[derive(Debug)]
+pub enum StampOutcome {
+    Stamped(Box<RawValue>),
+    Unparseable,
+}
+
+pub fn stamp_verified_raw(properties: &RawValue, request_id: &str) -> StampOutcome {
+    let Ok(mut map) = serde_json::from_str::<Map<String, Value>>(properties.get()) else {
+        return StampOutcome::Unparseable;
+    };
     stamp_verified(&mut map, request_id);
-    reserialize(map)
+    match reserialize(map) {
+        Some(props) => StampOutcome::Stamped(props),
+        None => StampOutcome::Unparseable,
+    }
 }
 
 fn reserialize(map: Map<String, Value>) -> Option<Box<RawValue>> {
@@ -553,12 +583,37 @@ mod tests {
     }
 
     #[test]
-    fn strip_gateway_raw_returns_none_when_nothing_to_strip() {
-        assert!(strip_gateway_raw(&raw(r#"{"$ai_model": "claude"}"#)).is_none());
-        let stripped =
-            strip_gateway_raw(&raw(r#"{"$ai_gateway": true, "$ai_model": "x"}"#)).unwrap();
-        assert!(!stripped.get().contains("$ai_gateway"));
-        assert!(stripped.get().contains("$ai_model"));
+    fn strip_gateway_raw_returns_unchanged_when_nothing_to_strip() {
+        assert!(matches!(
+            strip_gateway_raw(&raw(r#"{"$ai_model": "claude"}"#)),
+            StripOutcome::Unchanged
+        ));
+        match strip_gateway_raw(&raw(r#"{"$ai_gateway": true, "$ai_model": "x"}"#)) {
+            StripOutcome::Stripped { props, forged } => {
+                assert!(!forged, "no verified marker present");
+                assert!(!props.get().contains("$ai_gateway"));
+                assert!(props.get().contains("$ai_model"));
+            }
+            other => panic!("expected Stripped, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn strip_gateway_raw_flags_a_forged_verified_marker() {
+        match strip_gateway_raw(&raw(r#"{"$ai_gateway_verified": true, "$ai_model": "x"}"#)) {
+            StripOutcome::Stripped { forged, .. } => assert!(forged),
+            other => panic!("expected Stripped, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn strip_gateway_raw_is_unparseable_for_objects_serde_rejects() {
+        // RawValue accepts JSON the typed parse rejects (an out-of-range number);
+        // a forged marker we can't strip must fail closed, not pass through.
+        assert!(matches!(
+            strip_gateway_raw(&raw(r#"{"$ai_gateway_verified": true, "x": 1e500}"#)),
+            StripOutcome::Unparseable
+        ));
     }
 
     #[test]
@@ -591,17 +646,24 @@ mod tests {
     fn strip_gateway_raw_strips_a_unicode_escaped_key() {
         // The escaped key decodes to "$ai_gateway_verified" on parse, so strip
         // (which matches decoded keys) removes it like any other gateway prop.
-        let stripped = strip_gateway_raw(&raw(
+        match strip_gateway_raw(&raw(
             r#"{"\u0024ai_gateway_verified": true, "$ai_model": "x"}"#,
-        ))
-        .unwrap();
-        assert!(!stripped.get().contains("ai_gateway"));
-        assert!(stripped.get().contains("$ai_model"));
+        )) {
+            StripOutcome::Stripped { props, forged } => {
+                assert!(forged, "the escaped key decodes to the verified marker");
+                assert!(!props.get().contains("ai_gateway"));
+                assert!(props.get().contains("$ai_model"));
+            }
+            other => panic!("expected Stripped, got {other:?}"),
+        }
     }
 
     #[test]
     fn stamp_verified_raw_adds_the_marker() {
-        let stamped = stamp_verified_raw(&raw(r#"{"$ai_gateway": true}"#), "req-1").unwrap();
+        let stamped = match stamp_verified_raw(&raw(r#"{"$ai_gateway": true}"#), "req-1") {
+            StampOutcome::Stamped(p) => p,
+            StampOutcome::Unparseable => panic!("expected Stamped"),
+        };
         let map: Map<String, Value> = serde_json::from_str(stamped.get()).unwrap();
         assert_eq!(map["$ai_gateway_verified"], Value::Bool(true));
         assert_eq!(
