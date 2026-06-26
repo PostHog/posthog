@@ -29,9 +29,12 @@ const VIEW_MODE_OPTIONS: { value: MetricsViewMode; label: string }[] = [
     { value: 'stat', label: 'Stat' },
 ]
 
-// The stat card shows a single headline value. 'latest' (the most recent bucket) is the natural
-// default for a live metric; the user can switch total/average/latest in a later PR.
-const STAT_SUMMARY: MetricSummary = 'latest'
+// How the stat card summarizes the series into one headline value.
+const SUMMARY_OPTIONS: { value: MetricSummary; label: string }[] = [
+    { value: 'latest', label: 'Latest' },
+    { value: 'average', label: 'Average' },
+    { value: 'total', label: 'Total' },
+]
 
 const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'sum', label: 'Sum' },
@@ -97,13 +100,15 @@ export const MetricsViewer = (): JSX.Element => {
         dateFrom,
         dateTo,
         viewMode,
+        statSummary,
         sparklineValues,
         sparklineLabels,
         statTotal,
         queryResultsLoading,
         hasMetricName,
     } = useValues(logic)
-    const { setMetricName, setAggregation, setDateFrom, setDateTo, setViewMode, fetchQueryResults } = useActions(logic)
+    const { setMetricName, setAggregation, setDateFrom, setDateTo, setViewMode, setStatSummary, fetchQueryResults } =
+        useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
     const chartTheme = useChartTheme()
 
@@ -199,6 +204,14 @@ export const MetricsViewer = (): JSX.Element => {
                     options={VIEW_MODE_OPTIONS}
                     onChange={(value) => setViewMode(value)}
                 />
+                {viewMode === 'stat' && (
+                    <LemonSelect
+                        size="small"
+                        value={statSummary}
+                        options={SUMMARY_OPTIONS}
+                        onChange={(value) => setStatSummary(value)}
+                    />
+                )}
             </div>
             <div className="relative h-[360px] border rounded p-3">
                 {!hasMetricName ? (
@@ -209,14 +222,14 @@ export const MetricsViewer = (): JSX.Element => {
                     <MetricCard
                         className="h-full"
                         title={metricName}
-                        restingSubtitle={`${METRIC_SUMMARY_LABELS[STAT_SUMMARY]} · ${aggregation}`}
-                        value={computeMetricSummary(STAT_SUMMARY, statTotal, sparklineValues)}
+                        restingSubtitle={`${METRIC_SUMMARY_LABELS[statSummary]} · ${aggregation}`}
+                        value={computeMetricSummary(statSummary, statTotal, sparklineValues)}
                         change={computeMetricSummaryChange(
-                            STAT_SUMMARY,
+                            statSummary,
                             { total: statTotal, data: sparklineValues },
                             undefined
                         )}
-                        changeTooltip={getMetricChangeTooltip(STAT_SUMMARY, false, null)}
+                        changeTooltip={getMetricChangeTooltip(statSummary, false, null)}
                         changeSize="md"
                         changeInline
                         hoverChangeFromPreviousPoint
