@@ -715,6 +715,43 @@ class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
         resp = self.client.post(f"{self.scanners_url}estimate/", data={}, format="json")
         self.assertEqual(resp.status_code, 404)
 
+    def _create_scanner_for_team(self) -> ReplayScanner:
+        return ReplayScanner.objects.create(
+            team=self.team,
+            name="owned-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_FLASH,
+        )
+
+    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
+    def test_falsy_flag_fails_open_when_team_owns_scanners(self, _flag_mock) -> None:
+        # A team that already owns scanners has been granted access; a falsy per-request
+        # flag eval (transient error or frontend/backend gating mismatch) must not 404 the
+        # whole product out from under them.
+        self._create_scanner_for_team()
+        resp = self.client.get(self.scanners_url)
+        self.assertEqual(resp.status_code, 200)
+
+    @patch(
+        "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
+        side_effect=Exception("flag backend unreachable"),
+    )
+    def test_flag_eval_error_fails_open_when_team_owns_scanners(self, _flag_mock) -> None:
+        # A raised exception from the remote flag backend is treated as "unknown", not "off".
+        self._create_scanner_for_team()
+        resp = self.client.get(self.scanners_url)
+        self.assertEqual(resp.status_code, 200)
+
+    @patch(
+        "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
+        side_effect=Exception("flag backend unreachable"),
+    )
+    def test_flag_eval_error_still_404s_without_scanners(self, _flag_mock) -> None:
+        # No scanners and no usable flag signal: stay gated rather than fail open to everyone.
+        resp = self.client.get(self.scanners_url)
+        self.assertEqual(resp.status_code, 404)
+
 
 class TestReplayObservationViewSet(_VisionAPITestCase):
     def setUp(self) -> None:
