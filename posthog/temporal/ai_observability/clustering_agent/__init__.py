@@ -10,7 +10,7 @@ each individual agent so per-level prompt iteration stays local.
 
 from langchain_openai import ChatOpenAI
 
-from posthog.temporal.ai_observability.llm_endpoint import build_openai_chat_client
+from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
 from posthog.temporal.ai_observability.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.ai_observability.trace_clustering.models import ClusterLabel
 
@@ -23,7 +23,7 @@ def get_labeling_llm(model: str, timeout: float) -> ChatOpenAI:
     ``posthog.temporal.ai_observability.llm_endpoint``. Enforces the same
     guardrail as before: AI features only run in Cloud or local DEBUG builds.
     """
-    return build_openai_chat_client(model, timeout, ai_product="aio_clustering")
+    return build_langchain_chat_client(model, timeout, ai_product="aio_clustering")
 
 
 def fill_missing_labels(

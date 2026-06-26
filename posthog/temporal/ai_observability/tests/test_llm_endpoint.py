@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from posthog.temporal.ai_observability.llm_endpoint import build_openai_chat_client
+from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
 
 GATEWAY_URL = "https://gateway.example/v1"
 GATEWAY_KEY = "phs_project_secret"
@@ -28,7 +28,7 @@ class TestBuildOpenAIChatClient:
             override_settings(DEBUG=True, AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY=gateway_key),
             patch.dict("os.environ", {"OPENAI_API_KEY": "sk-direct"}, clear=False),
         ):
-            client = build_openai_chat_client("gpt-5.4", 600.0)
+            client = build_langchain_chat_client("gpt-5.4", 600.0)
 
         assert client.openai_api_base == expected_base
         api_key = client.openai_api_key
@@ -57,7 +57,7 @@ class TestBuildOpenAIChatClient:
             patch.dict("os.environ", {"OPENAI_API_KEY": "sk-direct"}, clear=False),
             patch("posthog.temporal.ai_observability.llm_endpoint.logger") as mock_logger,
         ):
-            client = build_openai_chat_client("gpt-5.4", 600.0)
+            client = build_langchain_chat_client("gpt-5.4", 600.0)
 
         assert client.openai_api_base is None
         api_key = client.openai_api_key
@@ -69,7 +69,7 @@ class TestBuildOpenAIChatClient:
     @override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY)
     def test_gateway_mode_tags_ai_product_via_posthog_properties_header(self):
         with patch("posthog.temporal.ai_observability.llm_endpoint.ChatOpenAI") as mock_chat:
-            build_openai_chat_client("gpt-5.4", 600.0, ai_product="aio_clustering")
+            build_langchain_chat_client("gpt-5.4", 600.0, ai_product="aio_clustering")
 
         assert mock_chat.call_args.kwargs["default_headers"] == {
             "X-PostHog-Properties": json.dumps({"ai_product": "aio_clustering"})
@@ -78,6 +78,6 @@ class TestBuildOpenAIChatClient:
     @override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY)
     def test_gateway_mode_without_ai_product_omits_header(self):
         with patch("posthog.temporal.ai_observability.llm_endpoint.ChatOpenAI") as mock_chat:
-            build_openai_chat_client("gpt-5.4", 600.0)
+            build_langchain_chat_client("gpt-5.4", 600.0)
 
         assert mock_chat.call_args.kwargs["default_headers"] is None

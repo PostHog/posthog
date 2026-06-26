@@ -16,7 +16,7 @@ from posthog.cloud_utils import is_cloud
 logger = structlog.get_logger(__name__)
 
 
-def build_openai_chat_client(model: str, timeout: float, ai_product: str | None = None) -> ChatOpenAI:
+def build_langchain_chat_client(model: str, timeout: float, ai_product: str | None = None) -> ChatOpenAI:
     """Return a ChatOpenAI client for cluster labeling. Cloud/DEBUG only.
 
     Routes through the ai-gateway when AI_GATEWAY_URL + AI_GATEWAY_API_KEY are both set and the
