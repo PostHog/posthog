@@ -1,18 +1,23 @@
-# Storybook builder: webpack5 → Vite (WIP)
+# Storybook builder: webpack5 → Vite
 
 Migrates the builder from `@storybook/react-webpack5` to
-`@storybook/react-vite`. The hard blocker is solved and stories render;
-remaining work is mechanical CJS→ESM cleanup.
+`@storybook/react-vite`. Dev and production builds both work.
 
 ## What works
 
 - `main.ts` uses `@storybook/react-vite` + a `viteFinal` porting the old
   `webpack.config.js`: monorepo + `frontend/node_modules` aliases (Vite has
   no `resolve.modules`), react/kea `dedupe`, `@tailwindcss/vite`, buffer/global.
+- A `frontendResolvePlugin` resolves bare specifiers hoisted to
+  `frontend/node_modules` from there — the production rollup build can't reach
+  them otherwise (the dev server tolerated the miss). This is the general
+  port of webpack's `resolve.modules`; the explicit aliases still win.
 - The webpack `ModuleGraphPlugin` (CI story-selection via `module-graph.json`)
   is reimplemented as a Rollup plugin; `.sql` raw imports get a small plugin.
 - Dev boots in seconds, ~2144 stories index, and stories render — verified
   `lemon-toast`, `HogQLEditor`, the survey scene, and Max, with no errors.
+- `pnpm build` (the production build) completes: 16.5k modules, 2144 stories
+  indexed, `module-graph.json` emitted for CI story selection.
 
 ## The blocker, and how it was found
 
@@ -48,12 +53,16 @@ Left intentionally (not Storybook-bundled, or not a real import):
 breaks a circular-dep cycle), `EndpointPlayground.tsx` (require inside a
 template-string code sample), and a `types.ts` comment.
 
-A few more webpack-isms (`require.context`, `module.hot`) may surface as more
-stories load — same fix pattern.
+No `require.context` / `module.hot` remain in Storybook-bundled source; the
+only `require()` calls left are in jest `*.test.ts(x)` files, which Storybook
+never bundles. The lone `webpackChunkName` magic comment is on a native
+`import()` and is a harmless no-op under Vite.
 
 ## Before merging
 
 - Expect a full VR re-baseline (bundler change shifts CSS/asset output); do it
-  as one approved baseline, not interleaved with feature changes.
-- Sanity-check the app under the `vite: 7.3.5` override:
-  `pnpm --filter=@posthog/frontend build`.
+  as one approved baseline, not interleaved with feature changes. This is a
+  CI + human-approval step — pushing the branch triggers the VR run.
+- `pnpm --filter=@posthog/frontend build` passes under the `vite: 7.3.5`
+  override (the app build is esbuild, so the override only touches the
+  Storybook/Vitest side, which the production Storybook build exercises).
