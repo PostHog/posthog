@@ -13,7 +13,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.temporal.common.logger import get_logger
 
-from products.data_warehouse.backend.data_load.service import delete_external_data_schedule
+from products.data_warehouse.backend.facade.api import delete_external_data_schedule
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -101,6 +101,9 @@ class CreateExternalDataJobModelActivityOutputs:
     # True when semantic enrichment should run (feature flag on AND AI data processing approved), so the
     # workflow can skip starting the enrichment child entirely instead of spawning a no-op.
     enrichment_enabled: bool = False
+    # True when column-statistics profiling should run (feature flag on). No AI-data-processing consent
+    # term: it reads only the Delta log and writes to our own DB — nothing leaves our infra.
+    statistics_enabled: bool = False
 
 
 @activity.defn
@@ -172,6 +175,14 @@ def create_external_data_job_model_activity(
 
         enrichment_should_run = bool(ai_data_processing_approved and team is not None and enrichment_enabled(team))
 
+        # Column-statistics profiling is gated on its feature flag only (no consent term) — let the
+        # workflow skip the child rather than spawn a no-op. Lazy import keeps deltalake off this path.
+        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
+            statistics_enabled,
+        )
+
+        statistics_should_run = bool(team is not None and statistics_enabled(team))
+
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),
             incremental_or_append=schema.is_incremental or schema.is_append or schema.is_webhook,
@@ -180,6 +191,7 @@ def create_external_data_job_model_activity(
             last_synced_at=schema.last_synced_at.isoformat() if schema.last_synced_at else None,
             emit_signals_enabled=emit_signals_enabled,
             enrichment_enabled=enrichment_should_run,
+            statistics_enabled=statistics_should_run,
         )
     except Exception as e:
         logger.exception(

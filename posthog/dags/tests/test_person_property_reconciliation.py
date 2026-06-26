@@ -39,6 +39,10 @@ from posthog.dags.person_property_reconciliation import (
     update_person_with_version_check,
 )
 
+# Exercises the persons DB directly (raw reads + ORM person creation), so it must run against the
+# real persons DB rather than the personhog fake.
+pytestmark = pytest.mark.persons_db_direct
+
 
 class TestClickHouseResultParsing:
     """Test that ClickHouse query results are correctly parsed into PersonPropertyDiffs objects."""
@@ -5791,7 +5795,7 @@ class TestBatchCommitsEndToEnd:
             get_person_property_updates_from_clickhouse,
             process_persons_in_batches,
         )
-        from posthog.models import Person
+        from posthog.test.persons import create_person
 
         num_persons = 5
         batch_size = 2
@@ -5807,7 +5811,7 @@ class TestBatchCommitsEndToEnd:
         # Create persons in Postgres with old property values
         persons = []
         for i in range(num_persons):
-            person = Person.objects.create(
+            person = create_person(
                 team_id=team_id,
                 properties={"email": f"old_{i}@example.com", "counter": i},
                 properties_last_updated_at={
@@ -5929,6 +5933,7 @@ class TestBatchCommitsEndToEnd:
             assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
 
             # properties_last_updated_at should have new timestamp for email
+            assert person.properties_last_updated_at is not None
             assert "email" in person.properties_last_updated_at, (
                 f"Person {i} properties_last_updated_at missing 'email' key"
             )
@@ -5939,6 +5944,7 @@ class TestBatchCommitsEndToEnd:
             )
 
             # properties_last_operation should be 'set' for email
+            assert person.properties_last_operation is not None
             assert person.properties_last_operation.get("email") == "set", (
                 f"Person {i} properties_last_operation['email'] should be 'set', "
                 f"got '{person.properties_last_operation.get('email')}'"
@@ -5960,7 +5966,7 @@ class TestBatchCommitsEndToEnd:
             get_person_property_updates_from_clickhouse,
             process_persons_in_batches,
         )
-        from posthog.models import Person
+        from posthog.test.persons import create_person
 
         team_id = team.id
 
@@ -5971,7 +5977,7 @@ class TestBatchCommitsEndToEnd:
         # Create only 3 persons in Postgres
         persons = []
         for i in range(3):
-            person = Person.objects.create(
+            person = create_person(
                 team_id=team_id,
                 properties={"name": f"old_name_{i}"},
                 properties_last_updated_at={"name": "2024-01-01T00:00:00+00:00"},
@@ -6099,6 +6105,7 @@ class TestBatchCommitsEndToEnd:
             assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
 
             # properties_last_updated_at should have new timestamp
+            assert person.properties_last_updated_at is not None
             assert "name" in person.properties_last_updated_at, (
                 f"Person {i} properties_last_updated_at missing 'name' key"
             )
@@ -6108,6 +6115,7 @@ class TestBatchCommitsEndToEnd:
             )
 
             # properties_last_operation should be 'set'
+            assert person.properties_last_operation is not None
             assert person.properties_last_operation.get("name") == "set", (
                 f"Person {i} properties_last_operation['name'] should be 'set', "
                 f"got '{person.properties_last_operation.get('name')}'"
@@ -6202,10 +6210,10 @@ class TestKafkaClickHouseRoundTrip:
 
         from posthog.dags.person_property_reconciliation import publish_person_to_kafka
         from posthog.kafka_client.client import _KafkaProducer
-        from posthog.models import Person
+        from posthog.test.persons import create_person
 
         # Create person in Postgres
-        person = Person.objects.create(
+        person = create_person(
             team_id=team.id,
             properties={"email": "kafka_test@example.com", "name": "Kafka Test User"},
             version=1,
@@ -6267,10 +6275,10 @@ class TestKafkaClickHouseRoundTrip:
 
         from posthog.dags.person_property_reconciliation import publish_person_to_kafka
         from posthog.kafka_client.client import _KafkaProducer
-        from posthog.models import Person
+        from posthog.test.persons import create_person
 
         # Create person in Postgres with version 1
-        person = Person.objects.create(
+        person = create_person(
             team_id=team.id,
             properties={"email": "original@example.com"},
             version=1,
@@ -6358,7 +6366,7 @@ class TestKafkaClickHouseRoundTrip:
 
         from posthog.dags.person_property_reconciliation import person_property_reconciliation_job
         from posthog.kafka_client.client import _KafkaProducer
-        from posthog.models import Person
+        from posthog.test.persons import create_person
 
         # Time setup - create a bug window that includes our test events
         now = datetime.now().replace(microsecond=0)
@@ -6367,7 +6375,7 @@ class TestKafkaClickHouseRoundTrip:
         event_ts = now - timedelta(days=5)
 
         # Create person in Postgres with old property value
-        person = Person.objects.create(
+        person = create_person(
             team_id=team.id,
             properties={"email": "old@example.com", "unchanged": "value"},
             properties_last_updated_at={
@@ -6528,7 +6536,8 @@ class TestKafkaClickHouseRoundTrip:
 
         from posthog.dags.person_property_reconciliation import person_property_reconciliation_job
         from posthog.kafka_client.client import _KafkaProducer
-        from posthog.models import Organization, Person, Team
+        from posthog.models import Organization, Team
+        from posthog.test.persons import create_person
 
         # Create two organizations and teams for isolation
         org1 = Organization.objects.create(name="Test Org 1 for timestamp permutations")
@@ -6574,7 +6583,7 @@ class TestKafkaClickHouseRoundTrip:
         # Create persons in Postgres for team 1
         persons_team1 = {}
         for suffix, _person_ts, _event_ts, _expected, prop_name in test_cases_team1:
-            person = Person.objects.create(
+            person = create_person(
                 team_id=team1.id,
                 properties={prop_name: "old_value"},
                 properties_last_updated_at={prop_name: "2020-01-01T00:00:00+00:00"},
@@ -6586,7 +6595,7 @@ class TestKafkaClickHouseRoundTrip:
         # Create persons in Postgres for team 2
         persons_team2 = {}
         for suffix, _person_ts, _event_ts, _expected, prop_name in test_cases_team2:
-            person = Person.objects.create(
+            person = create_person(
                 team_id=team2.id,
                 properties={prop_name: "old_value"},
                 properties_last_updated_at={prop_name: "2020-01-01T00:00:00+00:00"},

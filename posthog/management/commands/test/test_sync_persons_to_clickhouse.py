@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest import mock
 
 import posthog.management.commands.sync_persons_to_clickhouse
@@ -15,16 +15,32 @@ from posthog.management.commands.sync_persons_to_clickhouse import (
     run_person_sync,
 )
 from posthog.models.group.group import Group
-from posthog.models.group.util import create_group
+from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
+from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person.person import Person, PersonDistinctId
-from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
+from posthog.models.person.sql import (
+    PERSON_DISTINCT_ID2_TABLE,
+    TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+    TRUNCATE_PERSON_TABLE_SQL,
+)
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.signals import mute_selected_signals
 
+pytestmark = pytest.mark.persons_db_direct
+
 
 @pytest.mark.ee
-class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
+class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
     CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        # NonAtomicBaseTest (TransactionTestCase) commits ORM fixtures so the command's raw
+        # persons-DB read can see them, but it doesn't trigger the per-test ClickHouse reset the
+        # atomic base provided — so clear the tables this command reconciles to isolate each test.
+        sync_execute(TRUNCATE_PERSON_TABLE_SQL)
+        sync_execute(TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL)
+        sync_execute(TRUNCATE_GROUPS_TABLE_SQL)
 
     def test_persons_sync(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
@@ -176,13 +192,16 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         wraps=posthog.management.commands.sync_persons_to_clickhouse.raw_create_group_ch,
     )
     def test_group_sync_updates_group(self, mocked_ch_call):
-        group = create_group(
-            self.team.pk,
-            2,
-            "group-key",
-            {"a": 5},
-            timestamp=datetime.now(UTC) - timedelta(hours=3),
+        ts = datetime.now(UTC) - timedelta(hours=3)
+        group = Group.objects.create(
+            team_id=self.team.pk,
+            group_type_index=2,
+            group_key="group-key",
+            group_properties={"a": 5},
+            created_at=ts,
+            version=0,
         )
+        raw_create_group_ch(self.team.pk, 2, "group-key", {"a": 5}, ts)
         group.group_properties = {"a": 5, "b": 3}
         group.save()
 
@@ -284,8 +303,20 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         person_not_changed_1 = Person.objects.create(
             team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
         )
+        create_person(
+            team_id=self.team.pk,
+            properties=person_not_changed_1.properties,
+            uuid=str(person_not_changed_1.uuid),
+            version=person_not_changed_1.version or 0,
+        )
         person_not_changed_2 = Person.objects.create(
             team_id=self.team.pk, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
+        )
+        create_person(
+            team_id=self.team.pk,
+            properties=person_not_changed_2.properties,
+            uuid=str(person_not_changed_2.uuid),
+            version=person_not_changed_2.version or 0,
         )
 
         # 2 persons who should be created
@@ -347,10 +378,24 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             distinct_id="distinct_id",
             version=0,
         )
+        create_person_distinct_id(
+            team_id=self.team.pk,
+            distinct_id="distinct_id",
+            person_id=str(person_not_changed_1.uuid),
+            is_deleted=False,
+            version=0,
+        )
         PersonDistinctId.objects.create(
             team=self.team,
             person=person_not_changed_1,
             distinct_id="distinct_id-9",
+            version=9,
+        )
+        create_person_distinct_id(
+            team_id=self.team.pk,
+            distinct_id="distinct_id-9",
+            person_id=str(person_not_changed_1.uuid),
+            is_deleted=False,
             version=9,
         )
 

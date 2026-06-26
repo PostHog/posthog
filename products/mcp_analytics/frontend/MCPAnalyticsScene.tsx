@@ -11,6 +11,8 @@ import { SceneExport } from '~/scenes/sceneTypes'
 
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
+import { MCPAnalyticsLoading, MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
+import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
@@ -25,6 +27,7 @@ const DEFAULT_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 export function MCPAnalyticsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
+    const { onboardingState, signals } = useValues(mcpAnalyticsOnboardingLogic)
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
         {
@@ -61,7 +64,7 @@ export function MCPAnalyticsScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="MCP analytics"
-                description={TAB_DESCRIPTIONS[activeTab]}
+                description={onboardingState === 'onboarded' ? TAB_DESCRIPTIONS[activeTab] : null}
                 resourceType={{ type: 'llm_analytics' }}
                 actions={
                     <LemonButton to={DEFAULT_DOCS_URL} type="secondary" targetBlank size="small">
@@ -69,7 +72,16 @@ export function MCPAnalyticsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <LemonTabs activeKey={activeTab} data-attr="mcp-analytics-tabs" tabs={tabs} sceneInset />
+            {/* `signals === null` means we don't know yet — still loading, or a transient
+                query failure. Hold the skeleton rather than falling through to the empty
+                dashboard (the very state this onboarding exists to avoid); the 20s poll retries. */}
+            {signals === null ? (
+                <MCPAnalyticsLoading />
+            ) : onboardingState && onboardingState !== 'onboarded' ? (
+                <MCPAnalyticsOnboarding state={onboardingState} />
+            ) : (
+                <LemonTabs activeKey={activeTab} data-attr="mcp-analytics-tabs" tabs={tabs} sceneInset />
+            )}
         </SceneContent>
     )
 }

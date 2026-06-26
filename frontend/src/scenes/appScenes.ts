@@ -130,6 +130,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Transformations]: () => import('./data-pipelines/TransformationsScene'),
     [Scene.EventFiltering]: () => import('./data-pipelines/event-filtering/EventFilterScene'),
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
+    [Scene.CodeCanvasLink]: () => import('./code-canvas/CodeCanvasLink'),
     [Scene.VercelConnect]: () => import('./authentication/vercel/VercelConnect'),
     [Scene.VercelLinkError]: () => import('./authentication/vercel/VercelLinkError'),
     [Scene.AgenticAccountMismatch]: () => import('./authentication/account/AgenticAccountMismatch'),

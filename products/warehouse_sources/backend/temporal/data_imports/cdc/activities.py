@@ -47,9 +47,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     deduplicate_table,
     enrich_delete_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     MAX_FRIENDLY_MESSAGE_LENGTH,
+    CDCErrorCategory,
     CDCErrorInfo,
+    CDCSchemaMergeError,
     classify_cdc_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
@@ -77,6 +80,26 @@ SLOT_INVALIDATION_RECOVERY_MESSAGE = (
 # The sweeper's auto-drop must fire below the engine's own retention cap, otherwise the
 # engine invalidates the slot first and we lose the chance to act cleanly.
 RETENTION_CAP_SAFETY_FACTOR = 0.8
+
+# Mirrors maximum_attempts on CDCExtractionWorkflow's retry policy (workflows.py). On the final
+# attempt a failure won't be retried, so it's the last chance to record a visible failed-run row.
+CDC_MAX_EXTRACTION_ATTEMPTS = 3
+
+# Per-peek bound on WAL changes. A large backlog is drained over several passes (and, if needed,
+# several scheduled runs) instead of one unbounded read that risks the 2h activity timeout and
+# re-decodes from the slot start on every retry. The slot advances after each pass, so the next
+# peek resumes where this one stopped.
+CDC_MAX_CHANGES_PER_READ = 100_000
+# Ceiling for the adaptive growth below. The decoder's MAX_TX_BUFFER_EVENTS (500k) is the real
+# bound on an oversized single transaction — it trips before the window doubles far past it — so
+# this only needs a little headroom above that guard.
+CDC_MAX_CHANGES_LIMIT_CAP = 800_000
+# Stop starting new peeks past this wall-clock so the final flush + slot advance fit inside the
+# activity's 2h start-to-close timeout (see CDCExtractionWorkflow). The remainder is picked up on
+# the next scheduled run.
+CDC_READ_SOFT_DEADLINE_SECONDS = 90 * 60
+# Heartbeat at most this often while fetching WAL rows (the activity heartbeat timeout is 10m).
+CDC_READ_HEARTBEAT_INTERVAL_SECONDS = 30.0
 
 
 @dataclasses.dataclass
@@ -591,7 +614,16 @@ class CDCExtractActivity:
                     key_columns,
                     schema,
                 )
-                batch_result = tracker.s3_writer.write_batch(write_table, batch_index=tracker.batch_index)
+                try:
+                    batch_result = tracker.s3_writer.write_batch(write_table, batch_index=tracker.batch_index)
+                except pa.ArrowTypeError as e:
+                    # The per-batch table is built consistently (typed columns + safe fallback),
+                    # so an Arrow type error here is a cross-batch merge conflict — a column whose
+                    # type genuinely drifted mid-stream. Replaying re-fails identically, so surface
+                    # it as non-retryable instead of looping the schedule.
+                    raise CDCSchemaMergeError(
+                        f"Incompatible column types across CDC batches for {write_resource_name}"
+                    ) from e
                 tracker.batch_results.append(batch_result)
                 tracker.batch_index += 1
                 tracker.total_rows += write_table.num_rows
@@ -714,7 +746,7 @@ class CDCExtractActivity:
 
     def _delete_own_schedule(self) -> None:
         try:
-            from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+            from products.data_warehouse.backend.facade.api import delete_cdc_extraction_schedule
 
             delete_cdc_extraction_schedule(str(self.inputs.source_id))
         except Exception:
@@ -782,6 +814,7 @@ class CDCExtractActivity:
             position_serialized=event.position_serialized,
             timestamp=event.timestamp,
             columns=filtered,
+            column_types=event.column_types,
         )
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
@@ -816,73 +849,151 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # WAL read loop with periodic micro-batch flushes
     # ------------------------------------------------------------------
-    def _read_wal_loop(self) -> None:
-        """Read WAL events with periodic micro-batch flushes.
+    def _make_read_heartbeat(self) -> Callable[[], None]:
+        """Throttled ``activity.heartbeat`` for ``read_changes``' per-row callback.
 
-        Streaming schemas get Kafka messages immediately after each S3 write.
-        The slot is advanced after each successful flush so that long-running
-        extractions that hit the activity timeout don't have to replay events
-        on the next run.
+        The decoder yields nothing until a COMMIT, so a single large transaction would
+        otherwise starve the 10m heartbeat timeout while it is being fetched. Throttled by
+        wall-clock to avoid a heartbeat call on every WAL row.
         """
+        last_heartbeat = 0.0
+
+        def heartbeat() -> None:
+            nonlocal last_heartbeat
+            now = time.monotonic()
+            if now - last_heartbeat >= CDC_READ_HEARTBEAT_INTERVAL_SECONDS:
+                activity.heartbeat()
+                last_heartbeat = now
+
+        return heartbeat
+
+    def _read_wal_loop(self) -> None:
+        """Read WAL events with periodic micro-batch flushes, bounded per peek.
+
+        Each pass peeks at most ``CDC_MAX_CHANGES_PER_READ`` changes so a large backlog can't
+        push the activity past its 2h timeout. When a pass returns a full page, the slot is
+        advanced past everything it committed and another pass runs, until the backlog drains,
+        the soft deadline hits, or (defensively) the limit cap is reached.
+
+        Streaming schemas get Kafka messages immediately after each S3 write. The slot is
+        advanced after each successful flush so a long extraction never replays committed
+        events on the next run.
+        """
+        assert self._run_started_at is not None
         event_name_to_schema_name = self._build_event_name_map()
         self.batcher = ChangeEventBatcher()
+        on_row = self._make_read_heartbeat()
 
-        for event in self.reader.read_changes():
-            activity.heartbeat()
+        limit = CDC_MAX_CHANGES_PER_READ
+        while True:
+            for event in self.reader.read_changes(upto_nchanges=limit, on_row=on_row):
+                activity.heartbeat()
 
-            # Resolve to the schema's stored `name` so downstream keying lines up. Log
-            # unmatched drops: a silent drop here is how a name mismatch starves a table.
-            canonical_name = event_name_to_schema_name.get(event.table_name)
-            if canonical_name is None:
-                self.log.debug("cdc_event_dropped_unmatched_table", table=event.table_name)
-                continue
-            if canonical_name != event.table_name:
-                event = dataclasses.replace(event, table_name=canonical_name)
+                # Resolve to the schema's stored `name` so downstream keying lines up. Log
+                # unmatched drops: a silent drop here is how a name mismatch starves a table.
+                canonical_name = event_name_to_schema_name.get(event.table_name)
+                if canonical_name is None:
+                    self.log.debug("cdc_event_dropped_unmatched_table", table=event.table_name)
+                    continue
+                if canonical_name != event.table_name:
+                    event = dataclasses.replace(event, table_name=canonical_name)
 
-            event = self._project_event_columns(event)
-            self.batcher.add(event)
+                event = self._project_event_columns(event)
+                self.batcher.add(event)
 
-            # A change in position_serialized proves the previous transaction fully
-            # yielded — all of its events are now buffered or flushed. Record its end LSN
-            # as the high-water mark we may safely release the WAL up to.
-            if event.position_serialized != self.current_txn_lsn:
-                self.last_complete_txn_end_lsn = self.current_txn_lsn
-                self.current_txn_lsn = event.position_serialized
+                # A change in position_serialized proves the previous transaction fully
+                # yielded — all of its events are now buffered or flushed. Record its end LSN
+                # as the high-water mark we may safely release the WAL up to.
+                if event.position_serialized != self.current_txn_lsn:
+                    self.last_complete_txn_end_lsn = self.current_txn_lsn
+                    self.current_txn_lsn = event.position_serialized
 
-            self.last_end_lsn = event.position_serialized
-            self.event_count += 1
+                self.last_end_lsn = event.position_serialized
+                self.event_count += 1
 
-            if self.batcher.should_flush:
-                tables = self.batcher.flush()
-                self.all_table_names.update(tables.keys())
-                self._process_flush(tables, is_final=False)
-                metrics.get_micro_batches_flushed_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
-                # Advance only to the end of the last FULLY-yielded transaction, never to
-                # last_end_lsn: a micro-flush can fire mid-transaction (the batcher
-                # threshold is checked per event), and every event of the in-flight
-                # transaction shares its commit end LSN. Confirming that LSN while the
-                # transaction's tail is still un-yielded in the generator would release
-                # the WAL past un-flushed events — a crash before the next flush then
-                # loses them permanently. Consequences of this conservative bound:
-                #   (a) a single giant transaction gets no micro-advance until it
-                #       completes (a retry re-decodes it — safe, slow);
-                #   (b) on crash-replay the already-flushed prefix of the in-flight
-                #       transaction is re-delivered — incremental_merge dedups by PK,
-                #       scd2_append may create duplicate history rows. Accepted vs. loss.
-                if (
-                    self.last_complete_txn_end_lsn is not None
-                    and self.last_complete_txn_end_lsn != self.last_confirmed_lsn
-                ):
-                    self._confirm_position(self.last_complete_txn_end_lsn)
-                    self.last_confirmed_lsn = self.last_complete_txn_end_lsn
-                self.log.info(
-                    "cdc_micro_batch_flushed",
+                if self.batcher.should_flush:
+                    tables = self.batcher.flush()
+                    self.all_table_names.update(tables.keys())
+                    self._process_flush(tables, is_final=False)
+                    metrics.get_micro_batches_flushed_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
+                    # Advance only to the end of the last FULLY-yielded transaction, never to
+                    # last_end_lsn: a micro-flush can fire mid-transaction (the batcher
+                    # threshold is checked per event), and every event of the in-flight
+                    # transaction shares its commit end LSN. Confirming that LSN while the
+                    # transaction's tail is still un-yielded in the generator would release
+                    # the WAL past un-flushed events — a crash before the next flush then
+                    # loses them permanently. Consequences of this conservative bound:
+                    #   (a) a single giant transaction gets no micro-advance until it
+                    #       completes (a retry re-decodes it — safe, slow);
+                    #   (b) on crash-replay the already-flushed prefix of the in-flight
+                    #       transaction is re-delivered — incremental_merge dedups by PK,
+                    #       scd2_append may create duplicate history rows. Accepted vs. loss.
+                    if (
+                        self.last_complete_txn_end_lsn is not None
+                        and self.last_complete_txn_end_lsn != self.last_confirmed_lsn
+                    ):
+                        self._confirm_position(self.last_complete_txn_end_lsn)
+                        self.last_confirmed_lsn = self.last_complete_txn_end_lsn
+                    self.log.info(
+                        "cdc_micro_batch_flushed",
+                        events_so_far=self.event_count,
+                        trackers=len(self.write_trackers),
+                    )
+
+            # Capture remaining table names before deciding on the next pass / final flush.
+            self.all_table_names.update(self.batcher.table_names)
+
+            rows_consumed = self.reader.last_rows_consumed
+            # Drained: the peek returned less than a full page, so the backlog is exhausted.
+            # Leave any buffered tail for run()'s _final_flush (is_final=True) + advance.
+            if rows_consumed < limit:
+                return
+
+            if (time.monotonic() - self._run_started_at) >= CDC_READ_SOFT_DEADLINE_SECONDS:
+                self.log.warning(
+                    "cdc_read_soft_deadline_reached",
                     events_so_far=self.event_count,
-                    trackers=len(self.write_trackers),
+                    rows_consumed=rows_consumed,
                 )
+                return
 
-        # Capture remaining table names before final flush
-        self.all_table_names.update(self.batcher.table_names)
+            # Full page: drain the buffered (committed) events and advance the slot past every
+            # transaction this pass committed so the next peek resumes cleanly.
+            #
+            # A full page that advanced nothing is a defensive guard, not a live path:
+            # pg_logical_slot_peek_binary_changes only returns fully-committed transactions, so a
+            # page that returns rows always commits something and advances. Were that ever to not
+            # hold, grow the window so an oversized single transaction can complete in one peek (or
+            # trip the decoder's MAX_TX_BUFFER_EVENTS guard) instead of re-peeking the same page.
+            if not self._drain_and_advance_page():
+                limit = min(limit * 2, CDC_MAX_CHANGES_LIMIT_CAP)
+
+    def _drain_and_advance_page(self) -> bool:
+        """Between peeks: flush buffered events and advance the slot past every committed
+        transaction. Returns whether the slot advanced.
+
+        Safe to advance to the decoder's last commit end LSN here (not only to
+        last_complete_txn_end_lsn as the mid-loop micro-flush does): the peek has stopped at a
+        transaction boundary, so every event yielded this pass belongs to a committed
+        transaction and is now flushed. Unmatched-table commits carry the slot forward too —
+        their WAL is intentionally dropped. Re-reading instead would re-add already-flushed
+        events and duplicate SCD2 history rows.
+        """
+        assert self.batcher is not None
+        if self.batcher.event_count > 0:
+            tables = self.batcher.flush()
+            self.all_table_names.update(tables.keys())
+            self._process_flush(tables, is_final=False)
+            metrics.get_micro_batches_flushed_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
+
+        commit_lsn = self.reader.last_commit_end_lsn
+        if commit_lsn is not None and commit_lsn != self.last_confirmed_lsn:
+            self._confirm_position(commit_lsn)
+            self.last_confirmed_lsn = commit_lsn
+            self.last_end_lsn = commit_lsn
+            activity.heartbeat()
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # Post-WAL handling
@@ -938,7 +1049,7 @@ class CDCExtractActivity:
     def _unpause_schema_schedule(self, schema: ExternalDataSchema) -> None:
         schema_log = self._schema_log(schema)
         try:
-            from products.data_warehouse.backend.data_load.service import unpause_external_data_schedule
+            from products.data_warehouse.backend.facade.api import unpause_external_data_schedule
 
             unpause_external_data_schedule(str(schema.id))
             schema_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(schema.id))
@@ -959,6 +1070,7 @@ class CDCExtractActivity:
             schema.latest_error = None
             schema.last_synced_at = now
             schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
+            self._record_run_heartbeat(schema, now)
             # Per-schema breadcrumb so the Syncs UI shows _why_ the latest run produced no rows.
             self._schema_log(schema).info(
                 "cdc_extract_no_changes",
@@ -1111,15 +1223,33 @@ class CDCExtractActivity:
         info = classify_cdc_error(exc, self.adapter)
         friendly = info.friendly_message[:MAX_FRIENDLY_MESSAGE_LENGTH]
         self._fail_created_jobs(friendly)
+        # A missing slot/publication won't recover on retry: mark the source broken — that persists
+        # the per-schema FAILED state + the cdc_broken marker the UI/health check read and pauses the
+        # schedule, so it stops firing hourly against a resource that is gone (the same zombie the lag
+        # safety net produces). Any other failure just fails this run's schemas.
+        marked_broken = info.category in (CDCErrorCategory.SLOT_MISSING, CDCErrorCategory.PUBLICATION_MISSING)
+        if marked_broken:
+            assert self.source is not None
+            mark_cdc_broken(self.source, info.category.value, friendly)
         for schema in self.cdc_schemas:
-            schema.status = ExternalDataSchema.Status.FAILED
-            schema.latest_error = friendly
-            schema.save(update_fields=["status", "latest_error", "updated_at"])
+            if not marked_broken:
+                schema.status = ExternalDataSchema.Status.FAILED
+                schema.latest_error = friendly
+                schema.save(update_fields=["status", "latest_error", "updated_at"])
             # User-facing column gets the friendly copy; the raw error still routes to structured
             # logs / the Syncs log viewer for debugging.
             self._schema_log(schema).error(
                 "cdc_extract_schema_failed", error=str(exc), category=info.category, retryable=info.retryable
             )
+        # A failure before the first micro-flush creates no ExternalDataJob, so the Syncs tab stays
+        # empty while the schema reads FAILED. Backfill a terminal FAILED row per schema so the run
+        # is visible — but only once retries are exhausted or the error is non-retryable, otherwise
+        # every transient retry would leave a stray failed row.
+        if not self.created_jobs and (activity.info().attempt >= CDC_MAX_EXTRACTION_ATTEMPTS or not info.retryable):
+            try:
+                self._create_failure_visibility_jobs(friendly)
+            except Exception:
+                self.log.warning("cdc_failure_visibility_jobs_failed", exc_info=True)
         self._emit_run_duration("failed")
         return info
 
@@ -1138,6 +1268,40 @@ class CDCExtractActivity:
         except Exception:
             self.log.warning("cdc_non_retryable_capture_failed", exc_info=True)
 
+    def _create_failure_visibility_jobs(self, friendly_error: str) -> None:
+        """Create one terminal FAILED ExternalDataJob per CDC schema for a run that produced none.
+
+        Mirrors the running-job creation in _get_or_create_tracker (workflow ids, V3, snapshot) so
+        the Syncs tab renders these the same way as a job that failed after it started writing.
+        """
+        now = dt.datetime.now(tz=dt.UTC)
+        activity_info = activity.info()
+        for schema in self.cdc_schemas:
+            ExternalDataJob.objects.create(
+                team_id=self.inputs.team_id,
+                pipeline_id=self.inputs.source_id,
+                schema=schema,
+                status=ExternalDataJob.Status.FAILED,
+                rows_synced=0,
+                latest_error=friendly_error,
+                workflow_id=activity_info.workflow_id,
+                workflow_run_id=activity_info.workflow_run_id,
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
+                finished_at=now,
+                schema_snapshot=_build_schema_snapshot(schema),
+            )
+
+    def _record_run_heartbeat(self, schema: ExternalDataSchema, run_at: dt.datetime) -> None:
+        """Persist a per-schema last-run heartbeat (cdc_last_run_at / cdc_last_run_event_count) so a
+        quiet zero-event run still proves extraction is alive. Nothing reads these keys yet — an
+        upcoming CDC health check and the status endpoint will — so this is a forward-looking
+        breadcrumb, not an ExternalDataJob row per idle run.
+        """
+        self._update_schema_sync_type_config(
+            schema,
+            updates={"cdc_last_run_at": run_at.isoformat(), "cdc_last_run_event_count": self.event_count},
+        )
+
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)
         synced_tables = {tracker.table_name for tracker in self.write_trackers.values()}
@@ -1146,6 +1310,7 @@ class CDCExtractActivity:
             schema.latest_error = None
             schema.last_synced_at = now
             schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
+            self._record_run_heartbeat(schema, now)
             # Breadcrumb for idle tables; _handle_no_changes only covers the whole-source-quiet case.
             if schema.name not in synced_tables:
                 self._schema_log(schema).info("cdc_extract_no_changes")
@@ -1244,7 +1409,7 @@ def cleanup_orphan_slots_activity() -> None:
             #    and PostHog-managed slot/publication (only when we own them).
             if source.deleted:
                 try:
-                    from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+                    from products.data_warehouse.backend.facade.api import delete_cdc_extraction_schedule
 
                     delete_cdc_extraction_schedule(str(source.id))
                 except Exception:
@@ -1301,19 +1466,38 @@ def cleanup_orphan_slots_activity() -> None:
                             adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
 
                         slots_dropped += 1
-                        source.status = ExternalDataSource.Status.ERROR
-                        source.save(update_fields=["status", "updated_at"])
                         metrics.get_auto_drop_metric(source.team_id, str(source.id)).add(1)
+                        # The slot is gone — move the source to an explicit broken state and pause the
+                        # schedule so it stops retrying against a slot that no longer exists.
+                        mark_cdc_broken(
+                            source,
+                            "auto_dropped_critical_lag",
+                            f"Change data capture was automatically stopped because replication lag "
+                            f"exceeded {critical_threshold_mb} MB and the safety net dropped the "
+                            f"replication slot. Use Repair CDC to recreate it and re-sync.",
+                            lag_mb=round(lag_mb, 1),
+                        )
                     except Exception:
                         source_log.exception("failed_to_auto_drop_slot")
                         metrics.get_sweeper_source_errors_metric().add(1)
                         sources_errored += 1
                 elif cdc_config.management_mode == "self_managed":
+                    # Customer owns the slot: surface the broken state but keep the schedule running
+                    # and never drop — the lag may recover once they reduce load on the source.
                     try:
-                        source.status = ExternalDataSource.Status.ERROR
-                        source.save(update_fields=["status", "updated_at"])
+                        mark_cdc_broken(
+                            source,
+                            "critical_lag_self_managed",
+                            f"Change data capture replication lag exceeded {critical_threshold_mb} MB. "
+                            f"This slot is self-managed, so PostHog did not drop it — reduce load or WAL "
+                            f"retention on the source database, or it may invalidate the slot and "
+                            f"require a full re-sync.",
+                            pause=False,
+                            lag_mb=round(lag_mb, 1),
+                        )
                     except Exception:
-                        source_log.exception("failed_to_update_source_status")
+                        source_log.exception("failed_to_mark_self_managed_broken")
+                        metrics.get_sweeper_source_errors_metric().add(1)
                         sources_errored += 1
 
             elif lag_mb >= cdc_config.lag_warning_threshold_mb:

@@ -336,6 +336,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-models": {
+        "description": "Read-only model catalog for `spec.models`. Returns every model the gateway serves (id, provider, display name, per-Mtok input/output cost) plus `levels` — the concrete, priority-ordered model list each `auto` level (`low` / `medium` / `high`) currently resolves to. Use this to answer \"what will auto/medium actually run?\" and to pick ids for a `manual` policy instead of guessing. The level membership is resolved live against the catalog, so it reflects what the runner picks today, not a hardcoded list.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "List models + what each auto level resolves to",
+        "title": "List models + what each auto level resolves to",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-partial-update": {
         "description": "Edit `name` / `description`. The env block is managed separately (raw secret entry goes through the agent console's secret editor, not MCP), and `live_revision` is set by promoting a revision.",
         "category": "Agent stack",
@@ -773,7 +788,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-resolve-resource": {
-        "description": "Fetch an operator playbook — a markdown guide for doing a class of agent-platform operations well. These are the same skills the agent concierge loads; resolve the relevant one BEFORE a non-trivial operation (editing/promoting a revision, wiring secrets, authoring an agent, debugging a session). Many `agent-applications-*` tool descriptions name the playbook to read first. Pass either a bare id or its `posthog://agent-platform/playbooks/<id>` URI — the `resource` parameter enumerates the available playbooks. Returns `{ id, uri, title, content }` where `content` is the full markdown.",
+        "description": "Fetch a builder playbook — a markdown guide for using the agent-platform authoring tools well, returned with the live, scope-aware tool surface for the operation. Resolve the relevant one BEFORE a non-trivial operation (editing/promoting a revision, wiring secrets, authoring an agent, debugging a session). Many `agent-applications-*` tool descriptions name the playbook to read first. Pass either a bare id or its `posthog://agent-platform/playbooks/<id>` URI — the `resource` parameter enumerates the available playbooks. Returns `{ id, uri, title, content }` where `content` is the full markdown plus the tool surface.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Fetch an agent-platform operator playbook (markdown).",
@@ -1942,20 +1957,6 @@
             "readOnlyHint": false
         }
     },
-    "data-warehouse-data-health-issues-retrieve": {
-        "description": "Return all failed or degraded items across the data pipeline: materialized saved queries that failed, external data schemas in Failed or BillingLimitReached state, sources in Error state, failed batch exports, and disabled/degraded transformations. Each entry includes id, name, type (materialized_view, external_data_sync, source, destination, transformation), status, error message, failed_at, and url. Use this for a one-shot audit of what's broken in a project's data warehouse.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
-        "summary": "List data pipeline health issues",
-        "title": "List data pipeline health issues",
-        "required_scopes": ["warehouse_view:read", "external_data_source:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "data-warehouse-source-connect-link": {
         "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use and expire after 24 hours. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
         "category": "Warehouse sources",
@@ -1971,7 +1972,7 @@
         }
     },
     "data-warehouse-source-setup": {
-        "description": "Connect an external data source and start importing it into queryable warehouse tables in a single call. Validates credentials, discovers all available tables, enables them with sensible sync defaults (incremental where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. For webhook-capable sources (e.g. Stripe) a webhook is auto-registered after creation: check the 'webhook' key in the response — on success webhook-capable tables sync in real time (including webhook-only tables like Stripe Discount); on failure (e.g. the API key can't create webhooks) tables keep the polling defaults and webhook-only tables stay disabled. If 'webhook.pending_inputs' is non-empty, ask the user for those values and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres, MySQL, BigQuery, Snowflake). Discover required credential fields per source_type with 'external-data-sources-wizard'. Prefer references over raw secrets in the payload: pass {'credential_id': '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link' page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the source is created. For an already-connected OAuth integration you can instead pass its integration id key (e.g. {'hubspot_integration_id': 123}). For fine-grained per-table control, use 'external-data-sources-create' instead.",
+        "description": "Reach for this the moment a user wants to analyze data PostHog doesn't store — Stripe revenue, Hubspot or Salesforce CRM, Zendesk tickets, Shopify orders, or their own Postgres/MySQL/BigQuery/Snowflake database. Connect an external data source and start importing it into queryable warehouse tables in a single call. Validates credentials, discovers all available tables, enables them with sensible sync defaults (incremental where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. For webhook-capable sources (e.g. Stripe) a webhook is auto-registered after creation: check the 'webhook' key in the response — on success webhook-capable tables sync in real time (including webhook-only tables like Stripe Discount); on failure (e.g. the API key can't create webhooks) tables keep the polling defaults and webhook-only tables stay disabled. If 'webhook.pending_inputs' is non-empty, ask the user for those values and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres, MySQL, BigQuery, Snowflake). Discover required credential fields per source_type with 'external-data-sources-wizard'. Prefer references over raw secrets in the payload: pass {'credential_id': '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link' page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the source is created. For an already-connected OAuth integration you can instead pass its integration id key (e.g. {'hubspot_integration_id': 123}). NOTE: this enables EVERY discovered table — ideal for small fixed schemas (Stripe, Zendesk) but on a large production database (a Postgres/MySQL/BigQuery/Snowflake with many tables) it syncs them all, which can be costly and noisy. When the user wants only specific tables, or non-default sync types per table, use 'external-data-sources-create' instead.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Set up a data warehouse source (one step)",
@@ -2458,6 +2459,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "error-tracking-external-references-create": {
+        "description": "Create a new external issue in GitHub, GitLab, Linear, or Jira, then link it to a PostHog error tracking issue as an external reference. This tool does not link an existing external issue by URL or key. Provide the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object with provider-specific fields. Examples: Jira config {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; Linear config {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; GitHub config {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}; GitLab config {\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}. Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Use integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve, integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific IDs.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking external reference",
+        "title": "Create error tracking external reference",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "error-tracking-grouping-rules-create": {
@@ -3372,7 +3387,7 @@
         }
     },
     "external-data-sources-list": {
-        "description": "List all configured data warehouse import sources in the project. Returns each source's type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this to discover what external data sources are connected. Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync status by name use external-data-schemas-list with a search, and to see a table's columns use external-data-schemas-retrieve.",
+        "description": "Check what external data is already connected before answering any revenue, billing, subscription, CRM, support-ticket, or product-database question — call this first so you JOIN against an existing source instead of telling the user the data isn't available. Lists every configured import source with its type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync status by name use external-data-schemas-list with a search, and to see a table's columns use external-data-schemas-retrieve.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse sources",
@@ -3414,11 +3429,11 @@
         }
     },
     "external-data-sources-refresh-schemas": {
-        "description": "Fetch the latest table list from the remote database and create schema entries for any new tables found. Does not trigger a data sync. Use this after adding new tables to a source database to make them available for syncing.",
+        "description": "Fetch the latest table list from the remote database and create schema entries for any new tables found. This is a metadata refresh — it does NOT move or sync any data (use 'external-data-sources-reload' for that). Use this after adding new tables to a source database to make them available for syncing.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
-        "summary": "Refresh available schemas",
-        "title": "Refresh available schemas",
+        "summary": "Discover new tables in source",
+        "title": "Discover new tables in source",
         "required_scopes": ["external_data_source:write"],
         "annotations": {
             "destructiveHint": false,
@@ -3484,7 +3499,7 @@
         }
     },
     "external-data-sources-wizard": {
-        "description": "Return the configuration metadata for all supported data warehouse source types you can import data from — revenue/payments (Stripe, Chargebee), CRM (Hubspot, Salesforce), support tickets (Zendesk), product databases (Postgres, MySQL, BigQuery, Snowflake), ads, and more. Each entry describes the required fields (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to discover what external data can be imported into queryable warehouse tables and what parameters a source needs. To actually connect a source, prefer 'data-warehouse-source-setup'.",
+        "description": "Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe, Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) — or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so you know what a connection needs. To actually connect a source, prefer 'data-warehouse-source-setup'.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse source types you can import",
@@ -4333,6 +4348,34 @@
             "readOnlyHint": true
         }
     },
+    "integrations-jira-projects-retrieve": {
+        "description": "List Jira projects available through a connected Jira integration. Use integrations-list with kind=jira first to find the integration id, then pass a returned project key as `config.project_key` when creating an error tracking external reference.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List Jira projects",
+        "title": "List Jira projects",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integrations-linear-teams-retrieve": {
+        "description": "List Linear teams available through a connected Linear integration. Use integrations-list with kind=linear first to find the integration id, then pass a returned team id as `config.team_id` when creating an error tracking external reference.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List Linear teams",
+        "title": "List Linear teams",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "integrations-list": {
         "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are never serialized.",
         "category": "Integrations",
@@ -4347,8 +4390,64 @@
             "readOnlyHint": true
         }
     },
+    "llma-clustering-config-get": {
+        "description": "Retrieve the team's clustering event-filter configuration for automated AI observability clustering. New scheduled clustering should usually use clustering jobs, but this remains useful when auditing existing automation.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get clustering config",
+        "title": "Get clustering config",
+        "required_scopes": ["llm_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-clustering-config-set-event-filters": {
+        "description": "Replace the team's clustering event filters. Pass event_filters as a PostHog property-filter array, or an empty array to clear the filters. Prefer clustering jobs for new trace, generation, or evaluation clustering automation.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Set clustering config filters",
+        "title": "Set clustering config filters",
+        "required_scopes": ["llm_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-clustering-job-create": {
+        "description": "Create a scheduled AI observability clustering job for the current team. Jobs define the analysis level (trace, generation, or evaluation), event filters that scope included items, and whether the job is enabled. Creating a custom job disables the migration-created default job for the same analysis level.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Create clustering job",
+        "title": "Create clustering job",
+        "required_scopes": ["llm_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-clustering-job-delete": {
+        "description": "Delete a scheduled AI observability clustering job by ID. This removes future scheduled clustering for that job but does not delete historical $ai_trace_clusters, $ai_generation_clusters, or $ai_evaluation_clusters events already emitted by previous runs.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Delete clustering job",
+        "title": "Delete clustering job",
+        "required_scopes": ["llm_analytics:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-clustering-job-get": {
-        "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or generation), event filters, enabled status, and timestamps.",
+        "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace, generation, or evaluation), event filters, enabled status, and timestamps.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get clustering job",
@@ -4362,7 +4461,7 @@
         }
     },
     "llma-clustering-job-list": {
-        "description": "List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis level (trace or generation) and event filters that scope which traces are included in clustering runs. Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or execute-sql to query them.",
+        "description": "List all clustering job configurations for the current team (max 10 per team). Each job defines an analysis level (trace, generation, or evaluation) and event filters that scope which items are included in clustering runs. To inspect emitted cluster results, use the exploring LLM clusters skill and query the cluster events with execute-sql.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List clustering jobs",
@@ -4375,8 +4474,22 @@
             "readOnlyHint": true
         }
     },
+    "llma-clustering-job-update": {
+        "description": "Partially update a scheduled AI observability clustering job. Use this to rename a job, switch enabled status, adjust event_filters, or change the analysis level (trace, generation, or evaluation).",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update clustering job",
+        "title": "Update clustering job",
+        "required_scopes": ["llm_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-evaluation-config-get": {
-        "description": "Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the team has either trial credits available or an active provider key configured — without one, llm_judge runs will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.",
+        "description": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get evaluation config",
@@ -4404,7 +4517,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create a new AI observability evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). For 'sentiment' type, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'. When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
+        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration (provider + model + provider_key_id from llma-provider-key-list, preferring a provider the team already has a key for). 'hog': evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. When enabled, runs on new $ai_generation events; results are '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -4446,7 +4559,7 @@
         }
     },
     "llma-evaluation-judge-models": {
-        "description": "List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry returns the model id and whether it is available on PostHog trial credits. Call this before creating an llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is chosen.",
+        "description": "List provider+model combinations supported for llm_judge. Pass `provider` (openai, anthropic, gemini, openrouter, fireworks, azure_openai); optional `key_id` scopes to a key's reachable deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a provider the team already has a key for (see llma-provider-key-list).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
@@ -4710,6 +4823,34 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "llma-provider-key-get": {
+        "description": "Fetch one LLM provider key by ID — its provider, name, and validation state, with a masked preview (never the secret). Use when you have a key ID to resolve, e.g. the key an evaluation references.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get LLM provider key",
+        "title": "Get LLM provider key",
+        "required_scopes": ["llm_provider_key:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-provider-key-list": {
+        "description": "List the team's configured LLM provider keys (OpenAI, Anthropic, Azure, etc.). Returns each key's provider, name, validation state, and a masked preview — never the secret itself. Call this before creating an llm_judge evaluation to discover which providers have a usable ('ok' state) key available. Creating, updating, and deleting keys are intentionally UI-only.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List LLM provider keys",
+        "title": "List LLM provider keys",
+        "required_scopes": ["llm_provider_key:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "llma-review-queue-create": {
@@ -5889,22 +6030,6 @@
             "readOnlyHint": true
         }
     },
-    "promoted-product-intent-get": {
-        "description": "Get the product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured. Use this to bias disambiguation when the user's request is ambiguous about which PostHog product they mean — for example, if their primary product is `session_replay`, treat a vague reference to \"watch a session\" as referring to a session recording rather than a survey response.",
-        "category": "Platform Features",
-        "feature": "platform_features",
-        "summary": "Get the team's promoted product.",
-        "title": "Get the team's promoted product.",
-        "required_scopes": ["project:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "promoted-product",
-        "feature_flag_variant": "intent_plus"
-    },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
         "category": "Reverse proxy",
@@ -6729,6 +6854,34 @@
             "readOnlyHint": false
         }
     },
+    "signals-scout-edit-report": {
+        "description": "The report channel's edit half: rewrite a report's `title`/`summary` and/or append a note. Can target ANY of the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Edit an existing report for a run",
+        "title": "Edit an existing report for a run",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-emit-report": {
+        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list` to find a prior report and `signals-scout-edit-report` to update it instead. For a concrete, fixable issue you can also open a draft PR automatically by passing `repository` + `priority` + `suggested_reviewers` (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Author a full report for a run",
+        "title": "Author a full report for a run",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-emit-signal": {
         "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit. Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.",
         "category": "Signals",
@@ -6828,7 +6981,7 @@
         }
     },
     "signals-scout-scratchpad-remember": {
-        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Optionally pass `run_id` to record which run wrote it.",
+        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking, not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Optionally pass `run_id` to record which run wrote it.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Remember a scratchpad entry",

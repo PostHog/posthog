@@ -566,32 +566,26 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
-            # from posthog.models.insight_caching_state import InsightCachingState
-            from posthog.models.person import Person
+            from posthog.personhog_client.fake_client import get_active_fake
+            from posthog.test.persons import add_cohort_members, add_distinct_id, create_person
 
-            from products.cohorts.backend.models.cohort import Cohort, CohortPeople
-            from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+            from products.cohorts.backend.models.cohort import Cohort
+            from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
             cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
-            person = Person.objects.create(
+            person = create_person(
                 team=team,
                 distinct_ids=["example_id"],
                 properties={"email": "tim@posthog.com", "team": "posthog"},
             )
-            person.add_distinct_id("test")
+            add_distinct_id(person=person, distinct_id="test")
             flag = FeatureFlag.objects.create(
                 team=team,
                 name="test",
                 key="test",
                 created_by=self.user,
             )
-            FeatureFlagHashKeyOverride.objects.create(
-                team_id=team.pk,
-                person_id=person.id,
-                feature_flag_key=flag.key,
-                hash_key="test",
-            )
-            CohortPeople.objects.create(cohort_id=cohort.pk, person_id=person.pk)
+            add_cohort_members(cohort, [person])
             EarlyAccessFeature.objects.create(
                 team=team,
                 name="Test flag",
@@ -606,6 +600,17 @@ def team_api_test_factory():
             ):
                 response = self.client.delete(f"/api/environments/{team.id}")
             self.assertEqual(response.status_code, 204)
+
+            # Verify personhog RPCs were called for persons-DB cleanup
+            fake = get_active_fake()
+            for rpc in [
+                "delete_hash_key_overrides_by_teams",
+                "delete_personless_distinct_ids_batch_for_team",
+                "delete_persons_batch_for_team",
+                "delete_groups_batch_for_team",
+                "delete_group_type_mappings_batch_for_team",
+            ]:
+                fake.assert_called(rpc)
 
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1629,29 +1634,6 @@ def team_api_test_factory():
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_helper_value(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = "session_replay"
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": "session_replay"}
-            mock_get_promoted_product_intent.assert_called_once_with(self.team.pk)
-
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_null_when_helper_returns_none(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = None
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": None}
 
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")

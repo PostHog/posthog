@@ -368,22 +368,23 @@ impl EventDispatcher {
         &self.merge
     }
 
-    /// Route a sweep tick to every owned partition's worker without spawning, so a revoked partition
-    /// is never resurrected.
+    /// Route a sweep tick to each owned partition that has a live worker. Never spawns, so a revoked
+    /// partition is not resurrected; a worker-less owned partition has no in-memory state to evict, so
+    /// it is skipped rather than producing a `no_worker` drop.
     pub async fn route_sweep(&self, due_before_ms: i64) {
         self.route_to_owned(|| ShuffleMessage::Sweep { due_before_ms })
             .await;
     }
 
-    /// Route a redrive tick to every owned partition's worker without spawning; each worker
-    /// re-produces any `cf_pending_transfers` entries stranded by inline-retry exhaustion.
+    /// Route a redrive tick to each owned partition that has a live worker, without spawning; each
+    /// worker re-produces any `cf_pending_transfers` entries stranded by inline-retry exhaustion.
     pub async fn route_redrive(&self) {
         self.route_to_owned(|| ShuffleMessage::RedrivePendingTransfers)
             .await;
     }
 
-    /// Route a merge-GC tick to every owned partition's worker without spawning. Cutoffs are
-    /// computed by the sweeper and passed verbatim, keeping workers clock-free.
+    /// Route a merge-GC tick to each owned partition that has a live worker, without spawning. Cutoffs
+    /// are computed by the sweeper and passed verbatim, keeping workers clock-free.
     pub async fn route_merge_gc(&self, marker_cutoff_ms: i64, tombstone_cutoff_ms: i64) {
         self.route_to_owned(|| ShuffleMessage::MergeCfGc {
             marker_cutoff_ms,
@@ -392,12 +393,23 @@ impl EventDispatcher {
         .await;
     }
 
+    /// Owned partitions that currently have a live worker channel — the only partitions a maintenance
+    /// tick can reach. An owned partition that never received an event has no worker, so a tick to it
+    /// is a guaranteed `no_worker` no-op (no in-memory state to evict, redrive, or GC); skipping it
+    /// keeps the idle fan-out silent instead of dropping one message per worker-less partition.
+    fn tickable_partitions(&self) -> Vec<i32> {
+        self.owned_partitions()
+            .into_iter()
+            .filter(|partition| self.router.has_partition(*partition))
+            .collect()
+    }
+
     async fn route_to_owned(&self, make_message: impl Fn() -> ShuffleMessage) {
         if self.draining.load(Ordering::SeqCst) {
             return;
         }
         let messages: Vec<(i32, ShuffleMessage)> = self
-            .owned_partitions()
+            .tickable_partitions()
             .into_iter()
             .map(|partition| (partition, make_message()))
             .collect();
@@ -558,8 +570,8 @@ impl EventDispatcher {
 
     /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot,
     /// without spawning workers. An idle partition never spawns a worker — and the periodic redrive
-    /// routes through `route_to_owned` → `NoWorker` for worker-less partitions, so it never fires for
-    /// one either; this paginates the whole outbox directly and re-produces every entry regardless of
+    /// routes through `route_to_owned`, which skips worker-less partitions, so it never fires for one
+    /// either; this paginates the whole outbox directly and re-produces every entry regardless of
     /// backlog size.
     ///
     /// Produce + clear only — no `mark_processed`: a fresh tenure starts at `dispatched_offset == 0`
@@ -1945,6 +1957,44 @@ mod tests {
 
         dispatcher.revoke_partition_sync(0);
         dispatcher.route_sweep(123).await;
+    }
+
+    #[tokio::test]
+    async fn maintenance_ticks_skip_owned_partitions_without_a_worker() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        // Three owned partitions, but only 0 and 2 ever spawned a worker. Partition 1 is owned and
+        // worker-less — the steady state of an idle partition that never received an event, which is
+        // what produced the `no_worker` route-drop noise.
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+        dispatcher.assign_partition(2);
+        let mut rx0 = dispatcher.router.add_partition(0).unwrap();
+        let mut rx2 = dispatcher.router.add_partition(2).unwrap();
+
+        let mut tickable = dispatcher.tickable_partitions();
+        tickable.sort_unstable();
+        assert_eq!(
+            tickable,
+            vec![0, 2],
+            "a tick targets only owned partitions with a live worker, never the worker-less one",
+        );
+
+        // The fan-out reaches the worker-bearing partitions and silently skips the worker-less one
+        // (no `no_worker` drop): only 0 and 2 receive the sweep.
+        dispatcher.route_sweep(777).await;
+        for rx in [&mut rx0, &mut rx2] {
+            let batch = rx
+                .recv()
+                .await
+                .expect("a worker-bearing partition got the sweep");
+            assert_eq!(batch.len(), 1);
+            match &batch[0] {
+                ShuffleMessage::Sweep { due_before_ms } => assert_eq!(*due_before_ms, 777),
+                other => panic!("expected Sweep, got {other:?}"),
+            }
+        }
     }
 
     #[tokio::test]

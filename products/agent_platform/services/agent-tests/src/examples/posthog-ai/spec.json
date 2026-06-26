@@ -1,5 +1,5 @@
 {
-    "model": "openai/gpt-5.5",
+    "models": { "mode": "manual", "models": [{ "model": "openai/gpt-5.5" }] },
     "triggers": [
         {
             "type": "slack",
@@ -53,6 +53,5 @@
         "max_tool_calls": 100,
         "max_wall_seconds": 600
     },
-    "reasoning": "medium",
-    "entrypoint": "agent.md"
+    "reasoning": "medium"
 }

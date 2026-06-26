@@ -1,7 +1,10 @@
 from datetime import datetime
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
+from posthog.hogql import ast
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -10,8 +13,23 @@ from posthog.hogql.escape_sql import (
     escape_hogql_string,
     escape_postgres_identifier,
 )
+from posthog.hogql.parser import parse_expr
 
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.utils import UUIDT
+
+_ROUNDTRIP_IDENTIFIER_SAMPLES = [
+    "back`tick",
+    "a``b",
+    "`leading",
+    "trailing`",
+    "``",
+    "a\\b",
+    "a\\`b",
+    "`a\\`b`",
+    "with space",
+    "a.b.c",
+]
 
 
 class TestPrintString(BaseTest):
@@ -25,7 +43,7 @@ class TestPrintString(BaseTest):
         self.assertEqual(escape_hogql_identifier("a.b.c"), "`a.b.c`")
         self.assertEqual(escape_hogql_identifier("a-b-c"), "`a-b-c`")
         self.assertEqual(escape_hogql_identifier("a#$#"), "`a#$#`")
-        self.assertEqual(escape_hogql_identifier("back`tick"), "`back\\`tick`")
+        self.assertEqual(escape_hogql_identifier("back`tick"), "`back``tick`")
         self.assertEqual(escape_hogql_identifier("single'quote"), "`single'quote`")
         self.assertEqual(escape_hogql_identifier('double"quote'), '`double"quote`')
         self.assertEqual(
@@ -43,13 +61,28 @@ class TestPrintString(BaseTest):
         self.assertEqual(escape_clickhouse_identifier("a.b.c"), "`a.b.c`")
         self.assertEqual(escape_clickhouse_identifier("a-b-c"), "`a-b-c`")
         self.assertEqual(escape_clickhouse_identifier("a#$#"), "`a#$#`")
-        self.assertEqual(escape_clickhouse_identifier("back`tick"), "`back\\`tick`")
+        self.assertEqual(escape_clickhouse_identifier("back`tick"), "`back``tick`")
         self.assertEqual(escape_clickhouse_identifier("single'quote"), "`single'quote`")
         self.assertEqual(escape_clickhouse_identifier('double"quote'), '`double"quote`')
         self.assertEqual(
             escape_clickhouse_identifier("other escapes: \b \f \n \t \0 \a \v \\"),
             "`other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\`",
         )
+
+    @parameterized.expand(
+        [
+            (f"{label}-{backend}-{i}", escape_fn, backend, sample)
+            for label, escape_fn in [("hogql", escape_hogql_identifier), ("clickhouse", escape_clickhouse_identifier)]
+            for backend in ["rust-py", "cpp-json"]
+            for i, sample in enumerate(_ROUNDTRIP_IDENTIFIER_SAMPLES)
+        ]
+    )
+    def test_identifier_roundtrips_through_production_parser(self, _name, escape_fn, backend, identifier):
+        # Round-trips through the real parsers, not the lenient parse_string_literal_text; the clickhouse case still parses via the HogQL parser (shared grammar), not ClickHouse itself.
+        escaped = escape_fn(identifier)
+        node = parse_expr(escaped, backend=backend)
+        assert isinstance(node, ast.Field), f"{identifier!r} escaped to {escaped!r} did not parse to a Field"
+        self.assertEqual(node.chain, [identifier], f"{identifier!r} escaped to {escaped!r} did not round-trip")
 
     def test_sanitize_postgres_identifier(self):
         self.assertEqual(escape_postgres_identifier("a"), "a")
@@ -177,3 +210,13 @@ class TestPrintString(BaseTest):
         with self.assertRaises(ResolutionError) as context:
             escape_clickhouse_string({"a": 1, "b": 2})  # type: ignore
         self.assertTrue("SQLValueEscaper has no method visit_dict" in str(context.exception))
+
+
+class TestClickHouseIdentifierExecution(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand([(f"sample-{i}", sample) for i, sample in enumerate(_ROUNDTRIP_IDENTIFIER_SAMPLES)])
+    def test_escaped_identifier_round_trips_through_clickhouse(self, _name, identifier):
+        # ClickHouse, not just the HogQL parser, is the real consumer of escape_clickhouse_identifier:
+        # it must parse the escaped alias and report the original name back.
+        escaped = escape_clickhouse_identifier(identifier)
+        _, columns = sync_execute(f"SELECT 1 AS {escaped}", with_column_types=True)
+        self.assertEqual(columns[0][0], identifier)
