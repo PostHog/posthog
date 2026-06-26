@@ -619,6 +619,34 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert item.estimated_cost_usd is not None and item.estimated_cost_usd > 0
         assert item.billable_minutes is not None and item.billable_minutes > 0
 
+    def test_pr_cost_sums_all_jobs_past_the_default_row_cap(self) -> None:
+        # A PR with more jobs than HogQL's default 100-row cap: the detail cost must sum every job, not
+        # silently truncate to the first 100 (the truncation that made PR detail cost disagree with the list).
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(71, "alice", "open", 0, _ago(1), head_sha="sha71")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9700, "CI", "sha71", "completed", "success", _ago(1), _ago(1), pr_number=71)],
+        )
+        job_count = 150
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(97000 + i, 9700, f"job-{i}", "success", labels='["depot-ubuntu-22.04-4"]')
+                for i in range(job_count)
+            ],
+        )
+        cost = api.get_pr_cost(team=self.team, pr_number=71, repo="PostHog/posthog")
+        # Every job counts; before the LIMIT fix this capped at 100. 150 jobs x 120s = 300 min, depot
+        # 4-core (2x) at $0.004/min = 300 x 0.004 x 2 = $2.40.
+        assert cost.costed_jobs == job_count
+        assert cost.estimated_cost_usd == pytest.approx(2.40)
+
     def test_pull_request_list_author_filter(self) -> None:
         # The author filter scopes the list to one author's PRs (drives the author page).
         self._create_table(

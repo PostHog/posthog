@@ -12,9 +12,7 @@ from products.data_warehouse.backend.logic.external_data_source.notifications im
     get_team_ids_with_recent_sync_failures,
     notify_external_data_sync_failures,
 )
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 pytestmark = [
     pytest.mark.django_db,
