@@ -1,6 +1,7 @@
 import json
 import logging
 from collections.abc import Mapping
+from functools import cached_property
 from typing import cast
 
 from asgiref.sync import async_to_sync
@@ -56,65 +57,79 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 
     def get_status(self, obj: SignalSourceConfig) -> str | None:
         if obj.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-            return self._get_session_analysis_status(obj.team_id)
+            return "running" if self._session_analysis_running else None
 
         mapping = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
         if mapping is None:
             return None
         ext_source_type, schema_name = mapping
-        return self._get_data_import_status(obj.team_id, ext_source_type, schema_name)
+        return self._data_import_schema_statuses.get((ext_source_type, schema_name))
 
-    # Per-row Temporal RPC: serializing N source configs issues N of these on inbox load.
-    # The span surfaces that cost so the N+1 is visible per request in APM.
-    @tracer.start_as_current_span("signals.source_config.session_analysis_status")
-    def _get_session_analysis_status(self, team_id: int) -> str | None:
-        """ "running" iff any `summarize-session` workflow for this team is currently executing."""
+    @cached_property
+    def _session_analysis_running(self) -> bool:
+        """True iff any `summarize-session` workflow is running for this team.
+
+        Fires once per serializer instance (i.e. once per list request) rather than once per row.
+        The viewset is team-scoped, so all rows share the same team_id.
+        """
+        team_id = self.context.get("team_id")
+        if team_id is None:
+            return False
         query = f'PostHogTeamId = {team_id} AND WorkflowType = "summarize-session" AND ExecutionStatus = "Running"'
+        with tracer.start_as_current_span("signals.source_config.session_analysis_status") as span:
+            try:
+                temporal = sync_connect()
 
-        try:
-            temporal = sync_connect()
+                async def has_running() -> bool:
+                    async for _ in temporal.list_workflows(query=query, page_size=1):
+                        return True
+                    return False
 
-            async def has_running() -> bool:
-                async for _ in temporal.list_workflows(query=query, page_size=1):
-                    return True
+                return async_to_sync(has_running)()
+            except Exception as e:
+                span.record_exception(e)
+                span.set_status(Status(StatusCode.ERROR))
+                logger.warning("Failed to list session summarization workflows: %s", e)
                 return False
 
-            if async_to_sync(has_running)():
-                return "running"
-        except Exception as e:
-            # The except swallows the error, so OTel won't auto-record it on the span — mark it
-            # failed explicitly, else an unreachable Temporal looks like a successful no-op in APM.
-            span = trace.get_current_span()
-            span.record_exception(e)
-            span.set_status(Status(StatusCode.ERROR))
-            logger.warning("Failed to list session summarization workflows: %s", e)
-        return None
+    @cached_property
+    def _data_import_schema_statuses(self) -> dict[tuple[str, str], str | None]:
+        """Prefetch all data-import schema statuses for this team in one query.
 
-    def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
+        Fires once per serializer instance rather than once per row. Keyed by
+        (ext_source_type, schema_name) — the same lookup the old per-row path used.
+        """
         from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
-        schema = (
+        team_id = self.context.get("team_id")
+        if team_id is None:
+            return {}
+
+        needed_source_types = {ext_source_type for ext_source_type, _ in _DATA_IMPORT_SOURCE_MAP.values()}
+        rows = (
             ExternalDataSchema.objects.filter(
                 team_id=team_id,
-                source__source_type=ext_source_type,
-                name=schema_name,
+                source__source_type__in=needed_source_types,
             )
             .exclude(source__deleted=True)
-            .first()
+            .values("source__source_type", "name", "status")
         )
-        if schema is None:
-            return None
-        if schema.status == ExternalDataSchema.Status.RUNNING:
-            return "running"
-        if schema.status == ExternalDataSchema.Status.COMPLETED:
-            return "completed"
-        if schema.status in (
-            ExternalDataSchema.Status.FAILED,
-            ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
-            ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
-        ):
-            return "failed"
-        return None
+
+        result: dict[tuple[str, str], str | None] = {}
+        for row in rows:
+            key = (row["source__source_type"], row["name"])
+            s = row["status"]
+            if s == ExternalDataSchema.Status.RUNNING:
+                result[key] = "running"
+            elif s == ExternalDataSchema.Status.COMPLETED:
+                result[key] = "completed"
+            elif s in (
+                ExternalDataSchema.Status.FAILED,
+                ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
+                ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
+            ):
+                result[key] = "failed"
+        return result
 
     def validate(self, attrs: dict) -> dict:
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))

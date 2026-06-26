@@ -1,4 +1,8 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
@@ -364,6 +368,58 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         self.client.logout()
         response = self.client.get(self._url())
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    # --- Status batching (N+1 guard) ---
+
+    def test_data_import_status_db_query_not_scaled_by_row_count(self):
+        # Three data-import rows — without the cached_property fix, ExternalDataSchema
+        # is queried once per row instead of once for the whole list.
+        for source_product, source_type in [
+            ("github", "issue"),
+            ("linear", "issue"),
+            ("zendesk", "ticket"),
+        ]:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=source_product,
+                source_type=source_type,
+                created_by=self.user,
+            )
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 3
+
+        schema_queries = [q for q in ctx.captured_queries if "externaldataschema" in q["sql"].lower()]
+        assert len(schema_queries) == 1, (
+            f"Expected 1 ExternalDataSchema query for {len(response.json()['results'])} rows, got {len(schema_queries)}"
+        )
+
+    def test_session_analysis_temporal_rpc_called_once_per_request(self):
+        # Without the cached_property fix, sync_connect would fire once per
+        # SESSION_ANALYSIS_CLUSTER row. Even with the unique constraint limiting
+        # this to 1 row per team today, the cache prevents breakage if that changes.
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="session_replay",
+            source_type="session_analysis_cluster",
+            created_by=self.user,
+        )
+
+        async def _no_running_workflows(*args, **kwargs):
+            return
+            yield  # makes this an async generator
+
+        mock_temporal = MagicMock()
+        mock_temporal.list_workflows = _no_running_workflows
+
+        with patch("products.signals.backend.serializers.sync_connect", return_value=mock_temporal) as mock_connect:
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_connect.assert_called_once()
 
 
 class TestScoutSourceCanonicalization(APIBaseTest):
