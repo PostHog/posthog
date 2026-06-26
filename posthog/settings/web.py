@@ -75,6 +75,7 @@ PRODUCTS_APPS = [
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
     "products.review_hog.backend.apps.ReviewHogConfig",
     "products.logs.backend.apps.LogsConfig",
+    "products.billing_alerts.backend.apps.BillingAlertsConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
     "products.notifications.backend.apps.NotificationsConfig",
