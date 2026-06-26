@@ -204,17 +204,27 @@ class TestExternalDataSchemaAdmin(BaseTest):
         mock_start.assert_called_once()
         assert mock_start.call_args.args[2].billable is False
 
-    def test_change_partition_mode_rejects_datetime_without_single_key(self) -> None:
+    @parameterized.expand(
+        [
+            # datetime/numerical need exactly one key; the count/size inputs aren't `required` in
+            # the form (they're JS-toggled per mode), so an empty submission must be rejected
+            # server-side rather than blowing up on int("") or staging a half-built override.
+            (
+                "datetime_without_single_key",
+                {"partition_mode": "datetime", "partitioning_keys": "record_id,action_date"},
+            ),
+            ("md5_without_count", {"partition_mode": "md5"}),
+            ("numerical_without_size", {"partition_mode": "numerical", "partitioning_keys": "id"}),
+        ]
+    )
+    def test_change_partition_mode_rejects_invalid_input(self, _name: str, post_data: dict) -> None:
         schema = self._schema(sync_type_config={"partition_mode": "md5", "partition_count": 30})
 
         with (
             patch(f"{_ADMIN_MODULE}.sync_connect"),
             patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
         ):
-            response = self.admin.change_partition_mode_view(
-                self._request("post", {"partition_mode": "datetime", "partitioning_keys": "record_id,action_date"}),
-                schema.id,
-            )
+            response = self.admin.change_partition_mode_view(self._request("post", post_data), schema.id)
 
         assert response.status_code == 302
         schema.refresh_from_db()

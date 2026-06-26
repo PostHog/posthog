@@ -353,6 +353,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 messages.error(request, "numerical mode needs exactly one integer partitioning key.")
                 return redirect(_change_url(schema_id))
             raw = request.POST.get("partition_size", "").strip()
+            if not raw:
+                messages.error(request, "partition_size is required for numerical mode.")
+                return redirect(_change_url(schema_id))
             try:
                 new_size = int(raw)
             except ValueError:
@@ -367,6 +370,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             label_bits.append(f"partition_size={new_size}")
         else:  # md5
             raw = request.POST.get("partition_count", "").strip()
+            if not raw:
+                messages.error(request, "partition_count is required for md5 mode.")
+                return redirect(_change_url(schema_id))
             try:
                 new_count = int(raw)
             except ValueError:
