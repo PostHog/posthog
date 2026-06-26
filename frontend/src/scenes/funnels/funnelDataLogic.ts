@@ -38,6 +38,7 @@ import {
     StepOrderValue,
     TrendResult,
     FilterType,
+    EntityTypes,
 } from '~/types'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
@@ -873,14 +874,20 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
         exclusionFilters: [
             (s) => [s.funnelsFilter],
-            (funnelsFilter): FilterType => ({
-                events: funnelsFilter?.exclusions?.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
-                    funnel_from_step: funnelFromStep,
-                    funnel_to_step: funnelToStep,
-                    order: index,
-                    ...seriesNodeToFilter(rest),
-                })),
-            }),
+            (funnelsFilter): FilterType => {
+                const exclusions = funnelsFilter?.exclusions?.map(
+                    ({ funnelFromStep, funnelToStep, ...rest }, index) => ({
+                        funnel_from_step: funnelFromStep,
+                        funnel_to_step: funnelToStep,
+                        order: index,
+                        ...seriesNodeToFilter(rest),
+                    })
+                )
+                return {
+                    events: exclusions?.filter((entity) => entity.type === EntityTypes.EVENTS),
+                    actions: exclusions?.filter((entity) => entity.type === EntityTypes.ACTIONS),
+                }
+            },
         ],
     })),
 

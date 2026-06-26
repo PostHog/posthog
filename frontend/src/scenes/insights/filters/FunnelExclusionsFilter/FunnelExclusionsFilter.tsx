@@ -8,10 +8,9 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { legacyEntityToNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { ActionsNode, EventsNode } from '~/queries/schema/schema-general'
-import { ActionFilter as ActionFilterType, EntityTypes, FilterType } from '~/types'
+import { EntityTypes, FilterType } from '~/types'
 
+import { exclusionFiltersToNodes } from './exclusionFilterUtils'
 import { ExclusionRow } from './ExclusionRow'
 import { ExclusionRowSuffix } from './ExclusionRowSuffix'
 
@@ -25,13 +24,7 @@ export function FunnelExclusionsFilter(): JSX.Element {
     const ref = useRef(null)
 
     const setFilters = (filters: Partial<FilterType>): void => {
-        const exclusions = filters.events?.map((entity) => {
-            const baseEntity = legacyEntityToNode(entity as ActionFilterType, true, MathAvailability.None) as
-                | EventsNode
-                | ActionsNode
-            return { ...baseEntity, funnelFromStep: entity.funnel_from_step, funnelToStep: entity.funnel_to_step }
-        })
-        updateInsightFilter({ exclusions })
+        updateInsightFilter({ exclusions: exclusionFiltersToNodes(filters) })
     }
 
     const typeKey = `${keyForInsightLogicProps('new')(insightProps)}-FunnelExclusionsFilter`
@@ -52,7 +45,7 @@ export function FunnelExclusionsFilter(): JSX.Element {
                 }}
                 disabled={!isFunnelWithEnoughSteps}
                 buttonCopy="Add exclusion"
-                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                 mathAvailability={MathAvailability.None}
                 hideFilter
                 hideRename
