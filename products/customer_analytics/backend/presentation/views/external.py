@@ -3,12 +3,16 @@ External API endpoints for the Customer analytics product.
 
 These endpoints are used by the CDP worker for workflow actions. Authenticated
 via the team secret API token passed as a Bearer token in the Authorization header.
+
+The view holds only HTTP concerns — Bearer auth, throttles, the feature-flag gate,
+request validation, and mapping facade results to responses. Data access, the
+transactional write, org-membership resolution, tag application, and exception
+capture live behind ``facade.api``.
 """
 
 import hashlib
 from typing import Any
 
-from django.db import transaction
 from django.db.models import Q
 
 import structlog
@@ -20,16 +24,16 @@ from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
-from posthog.api.tagged_item import set_tags_on_object
-from posthog.exceptions_capture import capture_exception
-from posthog.models import OrganizationMembership, Tag, Team
-from posthog.models.tag import tagify
+from posthog.models import Team
 
-from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
-from products.customer_analytics.backend.models import Account
-from products.customer_analytics.backend.models.account import AccountProperties
-
-ASSIGNMENT_ROLE_FIELDS = ("csm", "account_executive", "account_owner")
+from products.customer_analytics.backend.facade import (
+    api as facade,
+    contracts,
+)
+from products.customer_analytics.backend.facade.constants import (
+    ACCOUNT_ASSIGNMENT_ROLE_FIELDS,
+    CUSTOMER_ANALYTICS_CSP_FLAG,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -92,28 +96,42 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     return team, None
 
 
-def _serialize_account(account: Account) -> dict[str, Any]:
+def _external_account_body(account: contracts.ExternalAccount) -> dict[str, Any]:
     return {
-        "id": str(account.id),
+        "id": account.id,
         "external_id": account.external_id,
         "name": account.name,
-        "properties": account.properties.model_dump(mode="json"),
-        "tags": sorted(account.tagged_items.values_list("tag__name", flat=True)),
+        "properties": account.properties,
+        "tags": account.tags,
     }
 
 
-def _get_account_by_external_id(team: Team, external_id: str) -> Account | None:
-    try:
-        return Account.objects.for_team(team.id).get(external_id=external_id)
-    except Account.DoesNotExist:
-        return None
+_UPDATE_ERROR_RESPONSES = {
+    contracts.ExternalAccountUpdateError.NOT_FOUND: ("Account not found", status.HTTP_404_NOT_FOUND),
+    contracts.ExternalAccountUpdateError.INVALID_PROPERTIES: (
+        "Invalid account properties",
+        status.HTTP_400_BAD_REQUEST,
+    ),
+    contracts.ExternalAccountUpdateError.UPDATE_FAILED: ("Failed to update account", status.HTTP_400_BAD_REQUEST),
+}
+
+
+def _update_error_response(result: contracts.ExternalAccountUpdateResult) -> Response:
+    if result.error == contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION:
+        return Response(
+            {"error": f"{result.error_field}: user is not a member of this organization"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    assert result.error is not None
+    message, code = _UPDATE_ERROR_RESPONSES[result.error]
+    return Response({"error": message}, status=code)
 
 
 class ExternalAccountUpdateSerializer(serializers.Serializer):
     external_id = serializers.CharField(max_length=400)
     # Each role accepts a `posthog_assignee` value `{type, id}`, `null` to clear, or is
     # omitted to leave unchanged. Roles (RBAC) are rejected — accounts assign users only.
-    # `validate` normalizes a provided assignment down to the user id; the view resolves
+    # `validate` normalizes a provided assignment down to the user id; the facade resolves
     # the email against an org membership so the stored `{id, email}` is always trusted.
     csm = serializers.JSONField(required=False, allow_null=True)
     account_executive = serializers.JSONField(required=False, allow_null=True)
@@ -122,7 +140,7 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
     tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        for field in ASSIGNMENT_ROLE_FIELDS:
+        for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS:
             if field in attrs and attrs[field] is not None:
                 attrs[field] = self._normalize_assignee(field, attrs[field])
         return attrs
@@ -139,18 +157,6 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
             return int(raw_id)
         except (TypeError, ValueError):
             raise serializers.ValidationError({field: "Assignee id must be a user id"})
-
-
-def _apply_tags(account: Account, tags: list[str], mode: str) -> None:
-    normalized = list({tagify(t) for t in tags})
-    if mode == "remove":
-        account.tagged_items.filter(tag__name__in=normalized).delete()
-    elif mode == "set":
-        set_tags_on_object(normalized, account)
-    else:
-        for tag_name in normalized:
-            tag, _ = Tag.objects.get_or_create(name=tag_name, team_id=account.team_id)
-            account.tagged_items.get_or_create(tag_id=tag.id)
 
 
 class ExternalAccountView(APIView):
@@ -176,11 +182,11 @@ class ExternalAccountView(APIView):
         if not external_id:
             return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        account = _get_account_by_external_id(team, external_id)
+        account = facade.get_external_account(team.id, external_id)
         if account is None:
             return Response({"error": "Account not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        return Response(_serialize_account(account))
+        return Response(_external_account_body(account))
 
     def patch(self, request: Request) -> Response:
         team, error = _authenticate_team(request)
@@ -198,58 +204,15 @@ class ExternalAccountView(APIView):
         if not external_id:
             return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        account = _get_account_by_external_id(team, external_id)
-        if account is None:
-            return Response({"error": "Account not found"}, status=status.HTTP_404_NOT_FOUND)
+        role_assignments = {field: data[field] for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS if field in data}
+        result = facade.update_external_account(
+            team.id,
+            external_id,
+            role_assignments=role_assignments,
+            tags=data["tags"] if "tags" in data else None,
+            tags_mode=data.get("tags_mode", "add"),
+        )
+        if result.account is None:
+            return _update_error_response(result)
 
-        # Role assignments and tags must be all-or-nothing — a tag failure must not leave the
-        # role-contact changes committed. Validation errors return before any write happens.
-        try:
-            with transaction.atomic():
-                error = self._apply_role_assignments(team, account, data)
-                if error:
-                    return error
-                if "tags" in data:
-                    _apply_tags(account, data["tags"], data.get("tags_mode", "add"))
-        except Exception as e:
-            capture_exception(e, {"account_id": str(account.id)})
-            return Response({"error": "Failed to update account"}, status=status.HTTP_400_BAD_REQUEST)
-
-        account.refresh_from_db()
-        return Response(_serialize_account(account))
-
-    def _apply_role_assignments(self, team: Team, account: Account, data: dict[str, Any]) -> Response | None:
-        properties = dict(account._properties or {})
-        changed = False
-
-        for field in ASSIGNMENT_ROLE_FIELDS:
-            if field not in data:
-                continue
-            user_id = data[field]
-            if user_id is None:
-                properties[field] = None
-            else:
-                membership = (
-                    OrganizationMembership.objects.select_related("user")
-                    .filter(organization_id=team.organization_id, user_id=user_id)
-                    .first()
-                )
-                if membership is None:
-                    return Response(
-                        {"error": f"{field}: user is not a member of this organization"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                properties[field] = {"id": membership.user.id, "email": membership.user.email}
-            changed = True
-
-        if not changed:
-            return None
-
-        try:
-            account.properties = AccountProperties.model_validate(properties)
-        except Exception as e:
-            capture_exception(e, {"account_id": str(account.id)})
-            return Response({"error": "Invalid account properties"}, status=status.HTTP_400_BAD_REQUEST)
-
-        account.save(update_fields=["_properties", "updated_at"])
-        return None
+        return Response(_external_account_body(result.account))

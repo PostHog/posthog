@@ -176,6 +176,21 @@ class TestSandboxWrapper:
         result = self._wrap({"shell": "bin/wait-for-docker && ./bin/start-backend", "sandbox": True})
         assert result["shell"] == "bin/wait-for-docker && bin/dev-sandbox ./bin/start-backend"
 
+    def test_open_when_ready_runs_outside_sandbox(self, monkeypatch: Any) -> None:
+        # The browser-opener is peeled out to run unsandboxed (the OS open path the
+        # sandbox denies), and the rest stays sandboxed.
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
+        result = self._wrap(
+            {
+                "shell": "bin/dev-open-when-ready http://localhost:6006 && pnpm install && pnpm run storybook",
+                "sandbox": True,
+            }
+        )
+        assert result["shell"] == (
+            "bin/dev-open-when-ready http://localhost:6006 && bin/dev-sandbox "
+            + shlex.quote("pnpm install && pnpm run storybook")
+        )
+
     def test_gate_hoisted_from_middle_of_chain(self, monkeypatch: Any) -> None:
         # echo/uv-sync preambles are prepended before the gate, so it is never the
         # leading segment; it must still be peeled out to run unsandboxed.
@@ -496,6 +511,15 @@ class TestMprocsRegistry:
 
         assert "shell" in config
         assert "start-backend" in config["shell"]
+
+    def test_all_declared_capabilities_are_defined(self) -> None:
+        """Every proc-declared capability must exist in intent-map.yaml; orphans raise ValueError on resolution."""
+        registry = create_mprocs_registry()
+        intent_map = load_intent_map()
+
+        orphans = registry.get_all_capabilities() - set(intent_map.capabilities)
+
+        assert not orphans, f"procs declare capabilities not defined in intent-map.yaml: {orphans}"
 
 
 class TestDevenvConfig:

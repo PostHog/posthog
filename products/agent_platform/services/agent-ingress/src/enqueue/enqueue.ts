@@ -30,8 +30,10 @@ import {
     EMPTY_USAGE_TOTAL,
     SessionPrincipal,
     SessionQueue,
+    TriggerMetadata,
 } from '@posthog/agent-shared'
 
+import { enqueueTotal } from '../metrics'
 import { ElevationTrigger, principalDisplay, recordElevationRequest, requireAclAccess } from './acl'
 
 export interface EnqueueDeps {
@@ -69,12 +71,19 @@ export interface EnqueueInput {
      */
     idempotencyKey?: string
     /**
-     * Trigger-specific metadata stamped on the session row at creation.
-     * Forwarded straight to `AgentSession.trigger_metadata` JSONB.
-     * Surfaced by `/sessions/list` so the UI can render a "fired by
-     * <cron_name> at <fired_at>" badge etc.
+     * Typed trigger metadata stamped on the session row at CREATION time.
+     * When omitted, a bare `{ kind }` is derived from `trigger`
+     * (chat/webhook/mcp); slack + cron always supply the full object.
+     *
+     * Frozen on resume: when this call matches an existing session via
+     * `externalKey`, the stored `trigger_metadata` is preserved verbatim and
+     * any incoming value is silently ignored. For chat that means
+     * `supported_client_tools` declared on a second `/run` for the same
+     * external_key do NOT expand the runner's capability surface — it's
+     * pinned at session open. A client that gained new capabilities
+     * mid-session needs a new session to expose them.
      */
-    triggerMetadata?: Record<string, unknown>
+    triggerMetadata?: TriggerMetadata
     /**
      * Skip the per-session owner/ACL check on resume. Only set by triggers
      * that have ALREADY authorized the incoming principal via a broader,
@@ -100,6 +109,22 @@ export type EnqueueOutcome =
       }
 
 export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): Promise<EnqueueOutcome> {
+    // Single intake choke point — count every enqueue by trigger + outcome.
+    // A throw (DB down, unexpected error) is counted as `error` so the demand
+    // total stays complete. The shared HTTP histogram covers latency/status;
+    // this is the only place the created-vs-resumed-vs-deduped split exists.
+    const trigger = input.trigger ?? 'chat'
+    try {
+        const outcome = await enqueueOrResumeInner(deps, input)
+        enqueueTotal.labels({ trigger, outcome: outcome.kind }).inc()
+        return outcome
+    } catch (err) {
+        enqueueTotal.labels({ trigger, outcome: 'error' }).inc()
+        throw err
+    }
+}
+
+async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Promise<EnqueueOutcome> {
     // Idempotency check first — independent of externalKey. A duplicate
     // request returns the original session id unchanged; the principal +
     // seed of the duplicate are deliberately discarded. Stripe-shaped
@@ -112,7 +137,12 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         }
     }
     if (input.externalKey) {
-        const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey)
+        // Scope the lookup to the resolved revision so a request routed to one
+        // revision can't resume a session created on another. A draft-preview
+        // request resumes only the draft it targeted (never the live session
+        // under a shared external_key), and two draft revisions previewed under
+        // the same external_key stay isolated.
+        const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey, input.revision.id)
         if (existing && existing.state !== 'closed' && existing.state !== 'failed') {
             const incoming = input.principal ?? null
             const check = input.bypassOwnerAcl ? ({ kind: 'allowed' } as const) : requireAclAccess(existing, incoming)
@@ -145,12 +175,8 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         team_id: input.application.team_id,
         external_key: input.externalKey,
         idempotency_key: input.idempotencyKey ?? null,
-        // Always stamp the trigger source as `kind` so every session is
-        // attributable to how it started (chat / webhook / slack / mcp) — the
-        // console reads + filters on this. Trigger-specific extras (slack
-        // channel, etc.) merge on top. Cron sessions are created by the
-        // janitor, which stamps `kind: 'cron'` itself.
-        trigger_metadata: { kind: input.trigger ?? 'chat', ...input.triggerMetadata },
+        // Typed metadata; bare `{ kind }` when the caller supplied none.
+        trigger_metadata: input.triggerMetadata ?? bareTriggerMetadata(input.trigger),
         state: 'queued' as const,
         conversation: [input.seed],
         pending_inputs: [],
@@ -180,6 +206,31 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         throw err
     }
     return { kind: 'created', sessionId: session.id, isResume: false }
+}
+
+/**
+ * Bare `{ kind }` for triggers with no extra metadata. Exhaustive over
+ * `ElevationTrigger` — slack callers MUST supply full `triggerMetadata`
+ * (workspace_id/channel/ts/thread_ts), so the slack branch throws. Adding a
+ * new value to `ElevationTrigger` without updating this function is a compile
+ * error via the `never` assertion below.
+ */
+function bareTriggerMetadata(trigger: ElevationTrigger | undefined): TriggerMetadata {
+    switch (trigger) {
+        case 'webhook':
+            return { kind: 'webhook' }
+        case 'mcp':
+            return { kind: 'mcp' }
+        case 'chat':
+        case undefined:
+            return { kind: 'chat' }
+        case 'slack':
+            throw new Error('slack trigger requires explicit triggerMetadata (workspace_id, channel, ts, thread_ts)')
+        default: {
+            const _exhaustive: never = trigger
+            throw new Error(`unhandled trigger kind: ${String(_exhaustive)}`)
+        }
+    }
 }
 
 /**

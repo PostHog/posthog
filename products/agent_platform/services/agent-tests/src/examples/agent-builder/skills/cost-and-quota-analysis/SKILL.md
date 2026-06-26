@@ -1,6 +1,6 @@
 # Skill — cost and quota analysis
 
-How to use `@posthog/query` to answer "how much does this agent
+How to use `posthog__execute-sql` to answer "how much does this agent
 cost?" / "where is it slow?" / "what's the failure rate?". Load
 when the user asks about cost, performance, usage, or limits.
 
@@ -41,7 +41,7 @@ the join key), `$agent_application_id` (your primary filter),
 > but tokens are non-zero, you're on the gateway path — the authoritative
 > per-session cost is the session row's `usage_total`, which the runner
 > backfills from the gateway after each turn. Read it via
-> `agent-applications-sessions-retrieve`, not from the events. Always
+> `posthog__agent-applications-sessions-retrieve`, not from the events. Always
 > sanity-check a cost rollup against token volume before reporting it.
 
 Verify the events exist for your team before trusting a query:
@@ -184,7 +184,7 @@ GROUP BY agent
 
 Then explain the delta in terms of the spec:
 
-- Different model? Check `spec.model`.
+- Different model? Check `spec.models`.
 - Different reasoning level? Check `spec.reasoning` — a higher level
   (`high` / `xhigh`) adds deliberation tokens on thinking-heavy turns.
 - More turns? Likely a prompt issue — `max($agent_turn)` per session,
@@ -222,7 +222,7 @@ Useful to know when someone asks "how do I make it cheaper?":
 
 | Lever                              | Effect                                                              |
 | ---------------------------------- | ------------------------------------------------------------------- |
-| Model (`spec.model`)               | Biggest factor — claude-haiku is ~1/5 sonnet, gpt-4-mini is similar |
+| Model (`spec.models`)              | Biggest factor — claude-haiku is ~1/5 sonnet, gpt-4-mini is similar |
 | Reasoning level (`spec.reasoning`) | Higher levels (`high` / `xhigh`) add deliberation tokens            |
 | Skills layout                      | Many skills loaded per turn means a fatter system prompt every turn |
 | Custom tool egress                 | Tools that fetch large pages inflate input tokens on the next turn  |
@@ -274,7 +274,7 @@ external dependency.
 - **Gateway path zeroes `$ai_total_cost_usd`.** This is the one that
   bites: a cost rollup reads zero on the gateway path even though the
   agent is spending money. Token counts stay accurate. Truth-of-cost is
-  the session row's `usage_total` (`agent-applications-sessions-retrieve`).
+  the session row's `usage_total` (`posthog__agent-applications-sessions-retrieve`).
   See the boxed caveat at the top.
 - **Emission is best-effort.** The runner's analytics writes are
   fire-and-forget; a dropped event means a slightly low count, never a

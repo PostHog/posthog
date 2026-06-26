@@ -1,16 +1,16 @@
 import { Message } from 'node-rdkafka'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/common/config/kafka-topics'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
-import { HogFlow } from '~/schema/hogflow'
-import { parseJSON } from '~/utils/json-parse'
-import { captureException } from '~/utils/posthog'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger, serializeError } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+import { UUIDT } from '~/common/utils/utils'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
-import { logger, serializeError } from '../../utils/logger'
-import { UUIDT } from '../../utils/utils'
 import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionFilters } from '../types'
@@ -25,6 +25,9 @@ export interface BatchHogFlowRequest {
     parentRunId: string
     filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>
     group_type_index?: number
+    // Per-team audience cap resolved on the Django side (HOGFLOW_BATCH_TRIGGER_LIMIT). When absent,
+    // we fall back to the global CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE config default.
+    maxAudienceSize?: number
 }
 
 export interface BatchHogFlowRequestMessage {
@@ -129,6 +132,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         const allInvocations: CyclotronJobInvocation[] = []
         let cursor: string | null = null
         let totalPersonsProcessed = 0
+        const maxAudienceSize = batchHogFlowRequest.maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE
 
         try {
             // Fetch persons in batches using cursor-based pagination
@@ -148,10 +152,10 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
                 const batchPersonsCount = blastRadiusPersons.users_affected.length
                 totalPersonsProcessed += batchPersonsCount
 
-                if (totalPersonsProcessed > this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE) {
+                if (totalPersonsProcessed > maxAudienceSize) {
                     logger.warn(
                         '⚠️',
-                        `Batch HogFlow run ${batchHogFlowRequest.parentRunId} has exceeded the maximum audience size of ${this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE}. Stopping further processing.`,
+                        `Batch HogFlow run ${batchHogFlowRequest.parentRunId} has exceeded the maximum audience size of ${maxAudienceSize}. Stopping further processing.`,
                         { totalPersonsProcessed, batchHogFlowRequest }
                     )
                     break

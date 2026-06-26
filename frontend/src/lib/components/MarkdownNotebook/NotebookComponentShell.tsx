@@ -1,10 +1,19 @@
 import clsx from 'clsx'
-import { KeyboardEvent, ReactNode, memo, useState } from 'react'
+import {
+    KeyboardEvent,
+    MouseEvent as ReactMouseEvent,
+    PointerEvent as ReactPointerEvent,
+    ReactNode,
+    memo,
+    useMemo,
+    useState,
+} from 'react'
 
-import { IconDatabase, IconEye, IconGraph, IconHide, IconList, IconPencil, IconTrash } from '@posthog/icons'
+import { IconDatabase, IconEye, IconGraph, IconHide, IconList, IconPencil, IconPeople, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
 
+import { ComponentPanelContext } from './componentPanelContext'
 import {
     ComponentPanel,
     ComponentPanelVisibility,
@@ -87,6 +96,14 @@ export function NotebookComponentShell({
     const titleClassName = clsx(
         'MarkdownNotebook__component-title',
         `MarkdownNotebook__component-title--${titleDisplay.tone}`
+    )
+    const componentPanelState = useMemo(
+        () => ({
+            componentPanels,
+            showEditPanel,
+            showViewPanel,
+        }),
+        [componentPanels, showEditPanel, showViewPanel]
     )
     const titleContent = (
         <>
@@ -188,6 +205,21 @@ export function NotebookComponentShell({
             insertParagraphAfterNode()
         }
     }
+    const handleToolbarPointerDownCapture = (event: ReactPointerEvent<HTMLDivElement>): void => {
+        if (event.button !== 0) {
+            return
+        }
+
+        event.stopPropagation()
+    }
+    const handleToolbarMouseDownCapture = (event: ReactMouseEvent<HTMLDivElement>): void => {
+        if (event.button !== 0) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+    }
 
     return (
         <div
@@ -201,7 +233,11 @@ export function NotebookComponentShell({
             tabIndex={mode === 'edit' ? 0 : undefined}
             onKeyDown={handleKeyDown}
         >
-            <div className="MarkdownNotebook__component-toolbar">
+            <div
+                className="MarkdownNotebook__component-toolbar"
+                onPointerDownCapture={handleToolbarPointerDownCapture}
+                onMouseDownCapture={handleToolbarMouseDownCapture}
+            >
                 <div className="MarkdownNotebook__component-toolbar-left">
                     {canToggleComponentPanels ? (
                         <button
@@ -228,7 +264,7 @@ export function NotebookComponentShell({
                             <LemonButton
                                 aria-label={resultsLabel}
                                 size="xsmall"
-                                icon={<IconEye />}
+                                icon={componentPanels.results ? <IconEye /> : <IconHide />}
                                 active={componentPanels.results}
                                 tooltip={resultsLabel}
                                 onClick={() => toggleComponentPanel('results')}
@@ -254,43 +290,45 @@ export function NotebookComponentShell({
                     </div>
                 ) : null}
             </div>
-            {errors.length ? (
-                <div className="MarkdownNotebook__component-errors">
-                    {errors.map((error) => (
-                        <div key={error}>{error}</div>
-                    ))}
-                </div>
-            ) : null}
-            {showEditPanel && EditComponent ? (
-                <div className="MarkdownNotebook__component-panel">
-                    <NotebookComponentPanelErrorBoundary node={node} panel="filters">
-                        <EditComponent
-                            node={node}
-                            mode="edit"
-                            notebookMode={mode}
-                            updateProps={updateProps}
-                            deleteNode={deleteNode}
-                        />
-                    </NotebookComponentPanelErrorBoundary>
-                </div>
-            ) : null}
-            {showViewPanel ? (
-                <div className="MarkdownNotebook__component-panel">
-                    {ViewComponent ? (
-                        <NotebookComponentPanelErrorBoundary node={node} panel="results">
-                            <ViewComponent
+            <ComponentPanelContext.Provider value={componentPanelState}>
+                {errors.length ? (
+                    <div className="MarkdownNotebook__component-errors">
+                        {errors.map((error) => (
+                            <div key={error}>{error}</div>
+                        ))}
+                    </div>
+                ) : null}
+                {showEditPanel && EditComponent ? (
+                    <div className="MarkdownNotebook__component-panel">
+                        <NotebookComponentPanelErrorBoundary node={node} panel="filters">
+                            <EditComponent
                                 node={node}
-                                mode="view"
+                                mode="edit"
                                 notebookMode={mode}
                                 updateProps={updateProps}
                                 deleteNode={deleteNode}
                             />
                         </NotebookComponentPanelErrorBoundary>
-                    ) : (
-                        <UnknownComponentView node={node} />
-                    )}
-                </div>
-            ) : null}
+                    </div>
+                ) : null}
+                {showViewPanel ? (
+                    <div className="MarkdownNotebook__component-panel">
+                        {ViewComponent ? (
+                            <NotebookComponentPanelErrorBoundary node={node} panel="results">
+                                <ViewComponent
+                                    node={node}
+                                    mode="view"
+                                    notebookMode={mode}
+                                    updateProps={updateProps}
+                                    deleteNode={deleteNode}
+                                />
+                            </NotebookComponentPanelErrorBoundary>
+                        ) : (
+                            <UnknownComponentView node={node} />
+                        )}
+                    </div>
+                ) : null}
+            </ComponentPanelContext.Provider>
         </div>
     )
 }
@@ -397,7 +435,8 @@ export function areNotebookComponentShellPropsEqual(
         previousProps.componentPanels.results === nextProps.componentPanels.results &&
         previousProps.rememberedComponentPanels?.filters === nextProps.rememberedComponentPanels?.filters &&
         previousProps.rememberedComponentPanels?.results === nextProps.rememberedComponentPanels?.results &&
-        getNodeFingerprint(previousProps.node) === getNodeFingerprint(nextProps.node)
+        (previousProps.node === nextProps.node ||
+            getNodeFingerprint(previousProps.node) === getNodeFingerprint(nextProps.node))
     )
 }
 
@@ -458,6 +497,9 @@ export function getQueryComponentTitleDisplay(
     }
     if (sourceKind === 'EventsQuery') {
         return { label: 'Events', tone: 'data', icon: <IconList /> }
+    }
+    if (sourceKind === 'ActorsQuery') {
+        return { label: 'People', tone: 'data', icon: <IconPeople /> }
     }
 
     return {

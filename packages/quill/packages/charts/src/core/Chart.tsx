@@ -30,6 +30,7 @@ import type {
     Series,
     TooltipContext,
 } from './types'
+import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
@@ -127,13 +128,11 @@ export function Chart<Meta = unknown>({
         yAxes,
     } = config ?? {}
 
-    // Per-axis tick formatters, sides, and right-axis title for multi-axis charts. Each gutter
-    // formats against its own axis config; absent here, an axis auto-formats against its ticks.
     const {
         formatters: yAxisFormatters,
         positions: yAxisPositions,
-        labelRight: yAxisLabelRight,
-    } = useYAxisMaps(yAxes)
+        titles: yAxisTitles,
+    } = useYAxisMaps(yAxes, yAxisLabel)
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
@@ -141,9 +140,11 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip = false,
         placement: tooltipPlacement = 'follow-data',
         valueFormatter: tooltipValueFormatter,
+        labelFormatter: tooltipLabelFormatter,
         showTotal: tooltipShowTotal,
         totalLabel: tooltipTotalLabel,
         totalFormatter: tooltipTotalFormatter,
+        sortedByValue: tooltipSortedByValue,
     } = tooltipConfig ?? {}
 
     // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
@@ -154,12 +155,22 @@ export function Chart<Meta = unknown>({
                 <DefaultTooltip
                     {...ctx}
                     valueFormatter={tooltipValueFormatter}
+                    labelFormatter={tooltipLabelFormatter}
                     showTotal={tooltipShowTotal}
                     totalLabel={tooltipTotalLabel}
                     totalFormatter={tooltipTotalFormatter}
+                    sortedByValue={tooltipSortedByValue}
                 />
             )),
-        [renderTooltipProp, tooltipValueFormatter, tooltipShowTotal, tooltipTotalLabel, tooltipTotalFormatter]
+        [
+            renderTooltipProp,
+            tooltipValueFormatter,
+            tooltipLabelFormatter,
+            tooltipShowTotal,
+            tooltipTotalLabel,
+            tooltipTotalFormatter,
+            tooltipSortedByValue,
+        ]
     )
 
     const margins = useChartMargins({
@@ -168,7 +179,6 @@ export function Chart<Meta = unknown>({
         hideXAxis,
         hideYAxis,
         xAxisLabel,
-        yAxisLabel,
         xTickFormatter,
         yTickFormatter,
         axisOrientation,
@@ -177,7 +187,7 @@ export function Chart<Meta = unknown>({
         maxCategoryLabelWidth,
         yAxisFormatters,
         yAxisPositions,
-        yAxisLabelRight,
+        yAxisTitles,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
@@ -264,6 +274,21 @@ export function Chart<Meta = unknown>({
     )
     const axisColor = theme.axisColor ?? DEFAULT_AXIS_COLOR
 
+    // Computed once and shared with AxisLabels and AxisTitles via context so they can't drift.
+    const yGutters = useMemo<Gutter[]>(
+        () =>
+            !scales || hideYAxis || axisOrientation === 'horizontal'
+                ? []
+                : computeYAxisGutters(scales, {
+                      yTicks: scales.yTicks(),
+                      yTickFormatter: resolvedYFormatter,
+                      userYTickFormatter: yTickFormatter,
+                      yAxisFormatters,
+                      titles: yAxisTitles,
+                  }),
+        [scales, hideYAxis, axisOrientation, resolvedYFormatter, yTickFormatter, yAxisFormatters, yAxisTitles]
+    )
+
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
             return null
@@ -277,8 +302,9 @@ export function Chart<Meta = unknown>({
             resolvePositionValue: stablePositionValue,
             canvasBounds,
             axis: axisValue,
+            yGutters,
         }
-    }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue])
+    }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue, yGutters])
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
@@ -300,8 +326,6 @@ export function Chart<Meta = unknown>({
                     <AxisLabels
                         xTickFormatter={xTickFormatter}
                         yTickFormatter={resolvedYFormatter}
-                        userYTickFormatter={yTickFormatter}
-                        yAxisFormatters={yAxisFormatters}
                         hideXAxis={hideXAxis}
                         hideYAxis={hideYAxis}
                         axisColor={axisColor}
@@ -312,9 +336,9 @@ export function Chart<Meta = unknown>({
                     <AxisTitles
                         xAxisLabel={xAxisLabel}
                         yAxisLabel={yAxisLabel}
-                        yAxisLabelRight={yAxisLabelRight}
                         hideXAxis={hideXAxis}
                         hideYAxis={hideYAxis}
+                        orientation={axisOrientation}
                         axisColor={axisColor}
                     />
 

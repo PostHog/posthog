@@ -1,23 +1,27 @@
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 
-import { IconApps, IconChat, IconChevronRight } from '@posthog/icons'
+import { IconApps, IconChat, IconChevronRight, IconPlusSmall } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -30,6 +34,7 @@ import {
 
 import { NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
+import { CreateMenu } from '../menus/CreateMenu'
 import { NavBarFooter } from '../NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
@@ -97,6 +102,13 @@ const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] =
     { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
 ]
 
+// Keeps newDashboardLogic mounted while the Create button is visible, so the "Start from scratch"
+// flow completes (and redirects) even after the menu closes and unmounts its own logic reference.
+function CreateMenuLogics(): null {
+    useMountedLogic(newDashboardLogic)
+    return null
+}
+
 export function Nav(): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
@@ -111,6 +123,7 @@ export function Nav(): JSX.Element {
         useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
+    const showCreateButton = useFeatureFlag('CREATE_BUTTON_NAV_EXPERIMENT', 'test')
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'panel-layout-navbar',
@@ -133,7 +146,7 @@ export function Nav(): JSX.Element {
         }
     }, [openWidth, isLayoutNavCollapsed, isMobileLayout, setNavbarWidth])
 
-    useAppShortcut({
+    useShortcut({
         name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav],
         intent: 'Toggle collapse left navigation',
@@ -216,6 +229,36 @@ export function Nav(): JSX.Element {
                         )}
                     </div>
                 </div>
+
+                {showCreateButton && (
+                    <div className={cn('px-2 py-1', isLayoutNavCollapsed && 'flex justify-center px-0')}>
+                        <CreateMenuLogics />
+                        <DropdownMenu
+                            onOpenChange={(open) => {
+                                if (open) {
+                                    posthog.capture('nav create button clicked')
+                                }
+                            }}
+                        >
+                            <DropdownMenuTrigger asChild>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconPlusSmall />}
+                                    fullWidth={!isLayoutNavCollapsed}
+                                    center={!isLayoutNavCollapsed}
+                                    title={isLayoutNavCollapsed ? 'Create' : undefined}
+                                    data-attr="nav-create-button"
+                                >
+                                    {!isLayoutNavCollapsed ? 'Create' : null}
+                                </LemonButton>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent side="bottom" align="start" className="min-w-[220px]">
+                                <CreateMenu />
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                )}
 
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"

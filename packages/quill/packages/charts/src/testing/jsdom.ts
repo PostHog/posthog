@@ -60,6 +60,13 @@ export function setupSyncRaf(): () => void {
         cb(0)
         return 0
     }) as typeof global.requestAnimationFrame
+
+    // Ensure `performance` is available in jsdom — the hover animation hook
+    // calls `performance.now()` and older jsdom versions don't expose it.
+    if (typeof global.performance === 'undefined') {
+        global.performance = { now: () => 0 } as unknown as Performance
+    }
+
     return () => {
         global.requestAnimationFrame = original
     }

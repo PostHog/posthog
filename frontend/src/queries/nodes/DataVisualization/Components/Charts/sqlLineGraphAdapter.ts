@@ -9,10 +9,13 @@ import {
     type TooltipConfig,
     type TooltipContext,
     type TrendLineConfig,
+    type ValueLabelsConfig,
     type XAxisConfig,
     type YAxisConfig,
     createXAxisTickCallback,
 } from '@posthog/quill-charts'
+
+import { dayjs } from 'lib/dayjs'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -78,7 +81,10 @@ export function hasMixedSeriesTypes(
     return false
 }
 
-const getSeriesLabel = (series: SqlLineYSeries): string => ('name' in series ? series.name : series.column.name)
+/** Honors a column's custom display label, falling back to the breakdown value / column name —
+ *  matches the legacy renderer (`LineGraph.tsx`). `||` so a blank label falls through. */
+const getSeriesLabel = (series: SqlLineYSeries): string =>
+    series.settings?.display?.label || ('name' in series ? series.name : series.column.name)
 
 const getSeriesKey = (series: SqlLineYSeries, index: number): string =>
     'breakdownValue' in series ? series.breakdownValue : `${series.column.name}-${index}`
@@ -233,8 +239,6 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
             ...(settings?.display?.yAxisPosition === 'right' ? { yAxisId: 'right' } : {}),
-            // Area fill, but never on a bar — a bar-override on an area-graph chart resolves to
-            // `type: 'bar'` yet `isAreaSeries` is still true for the whole area graph.
             ...(type !== 'bar' && isAreaSeries(visualizationType, settings)
                 ? { fill: { opacity: AREA_FILL_OPACITY } }
                 : {}),
@@ -282,11 +286,28 @@ export function buildSqlTooltipConfig(
     return {
         enabled: true,
         pinnable: true,
+        placement: 'cursor',
+        sortedByValue: true,
         valueFormatter: (value: number, entry: TooltipContext['seriesData'][number]) =>
             formatSqlSeriesValue(value, (entry.series.meta as SqlLineSeriesMeta | undefined)?.settings),
         showTotal: chartSettings.showTotalRow !== false,
         totalFormatter: (value: number) => formatSqlSeriesValue(value, totalSettings),
     }
+}
+
+/** Returns a tooltip label formatter for date/datetime x-axes, or undefined for non-date axes. */
+function buildSqlDateLabelFormatter(
+    xData: AxisSeries<string>,
+    timezone: string
+): ((label: string) => string) | undefined {
+    const typeName = xData.column.type.name
+    if (typeName === 'DATETIME') {
+        return (label: string) => dayjs(label).tz(timezone).format('MMM D, HH:mm')
+    }
+    if (typeName === 'DATE') {
+        return (label: string) => dayjs(label).format('MMM D, YYYY')
+    }
+    return undefined
 }
 
 interface BuildConfigArgs {
@@ -348,6 +369,26 @@ function buildLegendConfig(chartSettings: ChartSettings): ChartLegendConfig {
     return { show: chartSettings.showLegend ?? false, position: 'top', interactive: true }
 }
 
+/**
+ * "Show values on series" — each on-series label formats with its own column's settings, reusing the
+ * tooltip's {@link formatSqlSeriesValue} path so labels read identically to the tooltip. `seriesIndex`
+ * aligns with `ySeriesData` because {@link buildSeries} preserves order and quill keeps hidden series
+ * in place (excluded, not removed). `context.rawValue` is the unscaled value (the `value` arg becomes a
+ * 0–1 fraction in percent-stacked bars), so labels always show the real number.
+ */
+function buildValueLabelsConfig(
+    chartSettings: ChartSettings,
+    ySeriesData: SqlLineYSeries[] | null | undefined
+): ValueLabelsConfig | undefined {
+    if (!chartSettings.showValuesOnSeries) {
+        return undefined
+    }
+    return {
+        formatter: (_value, seriesIndex, _dataIndex, context) =>
+            formatSqlSeriesValue(context.rawValue, ySeriesData?.[seriesIndex]?.settings),
+    }
+}
+
 export function buildLineChartConfig({
     xData,
     chartSettings,
@@ -357,6 +398,7 @@ export function buildLineChartConfig({
 }: BuildConfigArgs): TimeSeriesLineChartConfig {
     const leftSeries = seriesForAxis(ySeriesData, 'left')
     const rightSeries = seriesForAxis(ySeriesData, 'right')
+    const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
@@ -379,7 +421,11 @@ export function buildLineChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
-        tooltip: buildSqlTooltipConfig(chartSettings, ySeriesData),
+        valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
+        tooltip: {
+            ...buildSqlTooltipConfig(chartSettings, ySeriesData),
+            ...(labelFormatter ? { labelFormatter } : {}),
+        },
     }
 }
 
@@ -392,6 +438,7 @@ export function buildBarChartConfig({
     ySeriesData,
 }: BuildBarConfigArgs): TimeSeriesBarChartConfig {
     const barLayout = barLayoutForDisplay(visualizationType, chartSettings)
+    const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
@@ -406,7 +453,8 @@ export function buildBarChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout,
         legend: buildLegendConfig(chartSettings),
-        tooltip: { enabled: true, pinnable: true },
+        valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
+        tooltip: { enabled: true, pinnable: true, placement: 'cursor', ...(labelFormatter ? { labelFormatter } : {}) },
     }
 }
 
@@ -418,6 +466,8 @@ export function buildComboChartConfig({
     visualizationType,
     ySeriesData,
 }: BuildBarConfigArgs): TimeSeriesComboChartConfig {
+    const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
+
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
         yAxis: buildYAxisConfig(
@@ -428,6 +478,10 @@ export function buildComboChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout: comboBarLayoutForDisplay(visualizationType),
         legend: buildLegendConfig(chartSettings),
-        tooltip: buildSqlTooltipConfig(chartSettings, ySeriesData),
+        valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
+        tooltip: {
+            ...buildSqlTooltipConfig(chartSettings, ySeriesData),
+            ...(labelFormatter ? { labelFormatter } : {}),
+        },
     }
 }

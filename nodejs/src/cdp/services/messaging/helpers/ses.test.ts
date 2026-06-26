@@ -1,4 +1,4 @@
-import { defaultConfig } from '~/config/config'
+import { defaultConfig } from '~/common/config/config'
 
 import { SesWebhookHandler } from './ses'
 import { EmailTrackingCodeSigner } from './tracking-code'
