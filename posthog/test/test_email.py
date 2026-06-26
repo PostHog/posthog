@@ -16,6 +16,8 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from django.utils import timezone
 
+from prometheus_client import REGISTRY
+
 from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email, sanitize_email_properties
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
@@ -96,6 +98,23 @@ class TestEmail(BaseTest):
                 f"https://posthog.com/questions?utm_source=posthog&amp;utm_medium=email&amp;utm_campaign={template}"
                 in message.html_body
             )
+
+    def test_smtp_send_increments_sent_metric(self) -> None:
+        # The charts alert reads posthog_email_send_total{outcome,transport}; this locks the
+        # name + label contract so a removed/mislabelled increment can't silently blind it.
+        labels = {"outcome": "sent", "transport": "smtp"}
+        before = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
+
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="metric_test_campaign", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("metric-test@posthog.com")
+            message.send(send_async=False)
+
+        self.assertEqual(len(mail.outbox), 1)
+        after = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
 
     @patch("posthoganalytics.capture")
     @patch("posthog.email.requests.post")

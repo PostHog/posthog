@@ -24,6 +24,7 @@ import css_inline
 import posthoganalytics
 from celery import shared_task
 from lxml import html as lxml_html
+from prometheus_client import Counter
 
 from posthog.celery_queues import CeleryQueue
 from posthog.exceptions_capture import capture_exception
@@ -88,6 +89,16 @@ EMAIL_TASK_KWARGS = {
     "max_retries": 3,
     "retry_backoff": True,
 }
+
+# Send-funnel counter so the failure rate is alertable as a time series (the gap that hid a
+# 27-day outage). Labelled only by outcome + transport to keep cardinality bounded — per-team
+# volume lives in MessagingRecord. Scraped from workers via prometheus multiprocess mode
+# (PROMETHEUS_MULTIPROC_DIR + start_http_server, see posthog/celery.py).
+EMAIL_SEND_COUNTER = Counter(
+    "posthog_email_send_total",
+    "Email send attempts by outcome (sent|failed) and transport (smtp|http).",
+    labelnames=["outcome", "transport"],
+)
 
 CUSTOMER_IO_TEMPLATE_ID_MAP = {
     # Set up in customer.io
@@ -197,9 +208,12 @@ def _send_via_http(
                 record.sent_at = timezone.now()
                 record.save()
 
+                EMAIL_SEND_COUNTER.labels(outcome="sent", transport="http").inc()
+
     except Exception as err:
         print("Could not send email via http:", err, file=sys.stderr)
         capture_exception(err)
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc()
 
 
 def _send_via_smtp(
@@ -257,9 +271,11 @@ def _send_via_smtp(
                 record.sent_at = timezone.now()
                 record.save()
 
+            EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc(len(messages))
         except Exception as err:
             print("Could not send email:", err, file=sys.stderr)
             capture_exception(err)
+            EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc(len(messages))
         finally:
             try:
                 connection.close()  # type: ignore
