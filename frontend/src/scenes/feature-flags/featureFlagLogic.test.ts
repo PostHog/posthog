@@ -691,7 +691,7 @@ describe('featureFlagLogic', () => {
     })
 
     describe('default release conditions on new flags', () => {
-        const groupDefault = {
+        const groupDefault: FeatureFlagGroupType = {
             properties: [
                 {
                     key: 'is_dev',
