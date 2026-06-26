@@ -2,6 +2,8 @@ from datetime import datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -60,7 +62,14 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         # only surfaces once in-order aggregation engages, which it doesn't at unit-test scale)
         assert "LIMIT 6" not in sql
 
-    def test_filtered_limit_returns_match_and_is_not_pushed(self):
+    @parameterized.expand(
+        [
+            ("where", "SELECT key FROM groups WHERE properties.tag = 'needle' LIMIT 5"),
+            # HAVING is a post-dedup filter just like WHERE; pushing the limit before it would under-return.
+            ("having", "SELECT key FROM groups HAVING properties.tag = 'needle' LIMIT 5"),
+        ]
+    )
+    def test_post_dedup_filter_is_not_pushed(self, _name, query):
         team = self._team()
         # Only g11 (largest key) matches the filter. A pushed limit would keep the smallest keys, filter after,
         # and lose the matching row.
@@ -68,10 +77,20 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
             create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={"tag": "haystack"})
         create_group(team_id=team.pk, group_type_index=0, group_key="g11", properties={"tag": "needle"})
 
-        sql, results = self._run(team, "SELECT key FROM groups WHERE properties.tag = 'needle' LIMIT 5")
+        sql, results = self._run(team, query)
 
         assert len(results) == 1
         assert results[0][0] == "g11"
+        assert "LIMIT 6" not in sql
+
+    def test_array_join_is_not_pushed(self):
+        team = self._team()
+        for i in range(12):
+            create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={})
+
+        # ARRAY JOIN can drop source rows (empty array) after the dedup, so the limit must not be pushed into it.
+        sql, _ = self._run(team, "SELECT key FROM groups ARRAY JOIN [1, 2] AS x LIMIT 5")
+
         assert "LIMIT 6" not in sql
 
     def test_distinct_limit_is_not_pushed(self):
