@@ -9,6 +9,7 @@ import { addProductIntent } from 'lib/utils/product-intents'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { loadErrorMessage } from '../lib/load-error'
 import { Task, TaskListParams, TaskUpsertProps } from '../types/taskTypes'
 import type { tasksLogicType } from './tasksLogicType'
 
@@ -65,6 +66,13 @@ export const tasksLogic = kea<tasksLogicType>([
         tasks: {
             updateTask: (state, { task }) => state.map((t) => (t.id === task.id ? task : t)),
         },
+        tasksError: [
+            null as string | null,
+            {
+                loadTasks: () => null,
+                loadTasksFailure: (_, { error, errorObject }) => loadErrorMessage(error, errorObject),
+            },
+        ],
     }),
 
     listeners(() => ({
