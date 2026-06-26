@@ -36,7 +36,7 @@ export function IdentityBadge({ verified, iconOnly = false }: IdentityBadgeProps
         <Tooltip title={tooltip} docLink={DOCS_URL}>
             <LemonTag type={tagType}>
                 <span className="mr-1">{icon}</span>
-                {verified ? 'Verified' : 'Unverified'}
+                {verified ? 'Verified' : verified === false ? 'Unverified' : 'Unknown'}
             </LemonTag>
         </Tooltip>
     )
