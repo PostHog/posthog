@@ -23,7 +23,7 @@ def get_labeling_llm(model: str, timeout: float) -> ChatOpenAI:
     ``posthog.temporal.ai_observability.llm_endpoint``. Enforces the same
     guardrail as before: AI features only run in Cloud or local DEBUG builds.
     """
-    return build_openai_chat_client(model, timeout)
+    return build_openai_chat_client(model, timeout, ai_product="aio_clustering")
 
 
 def fill_missing_labels(

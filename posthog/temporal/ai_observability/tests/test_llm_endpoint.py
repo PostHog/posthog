@@ -1,5 +1,7 @@
 """Tests for clustering labeling client construction (ai-gateway vs direct OpenAI)."""
 
+import json
+
 import pytest
 from unittest.mock import patch
 
@@ -38,22 +40,40 @@ class TestBuildOpenAIChatClient:
             assert client.http_client is None
 
     @pytest.mark.parametrize(
-        "gateway_url,gateway_key",
+        "gateway_url,gateway_key,reason",
         [
-            (GATEWAY_URL, None),
-            (None, GATEWAY_KEY),
+            (GATEWAY_URL, None, "must be set together"),
+            (None, GATEWAY_KEY, "must be set together"),
+            ("https://gateway.example", GATEWAY_KEY, "OpenAI base path"),
         ],
     )
-    def test_half_set_gateway_config_raises(self, gateway_url, gateway_key):
+    def test_misconfigured_gateway_falls_back_to_direct_and_logs(self, gateway_url, gateway_key, reason):
+        # Radu review: a half-applied / malformed gateway config falls back to the direct provider
+        # rather than failing the call, and logs loudly so a broken rollout config is visible.
         with (
             override_settings(DEBUG=True, AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY=gateway_key),
             patch.dict("os.environ", {"OPENAI_API_KEY": "sk-direct"}, clear=False),
+            patch("posthog.temporal.ai_observability.llm_endpoint.logger") as mock_logger,
         ):
-            with pytest.raises(Exception, match="must be set together"):
-                build_openai_chat_client("gpt-5.4", 600.0)
+            client = build_openai_chat_client("gpt-5.4", 600.0)
 
-    @override_settings(DEBUG=True, AI_GATEWAY_URL="https://gateway.example", AI_GATEWAY_API_KEY=GATEWAY_KEY)
-    @patch.dict("os.environ", {"OPENAI_API_KEY": "sk-direct"}, clear=False)
-    def test_gateway_url_missing_v1_path_raises(self):
-        with pytest.raises(Exception, match="OpenAI base path"):
+        assert client.openai_api_base is None
+        assert client.openai_api_key.get_secret_value() == "sk-direct"
+        mock_logger.warning.assert_called_once()
+        assert reason in str(mock_logger.warning.call_args)
+
+    @override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY)
+    def test_gateway_mode_tags_ai_product_via_posthog_properties_header(self):
+        with patch("posthog.temporal.ai_observability.llm_endpoint.ChatOpenAI") as mock_chat:
+            build_openai_chat_client("gpt-5.4", 600.0, ai_product="aio_clustering")
+
+        assert mock_chat.call_args.kwargs["default_headers"] == {
+            "X-PostHog-Properties": json.dumps({"ai_product": "aio_clustering"})
+        }
+
+    @override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY)
+    def test_gateway_mode_without_ai_product_omits_header(self):
+        with patch("posthog.temporal.ai_observability.llm_endpoint.ChatOpenAI") as mock_chat:
             build_openai_chat_client("gpt-5.4", 600.0)
+
+        assert mock_chat.call_args.kwargs["default_headers"] is None
