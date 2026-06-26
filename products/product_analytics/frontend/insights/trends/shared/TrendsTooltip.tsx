@@ -129,6 +129,13 @@ export function TrendsTooltip({
         [datumByKey, renderCount, formatPropertyValueForDisplay]
     )
 
+    // Multiple distinct events in the tooltip — prefix breakdown rows with the event name
+    // so the user knows which series each breakdown value belongs to.
+    const hasMultipleEvents = useMemo(() => {
+        const events = new Set([...datumByKey.values()].map((d) => d.action?.event ?? d.action?.name))
+        return events.size > 1
+    }, [datumByKey])
+
     const labelRenderer = useCallback(
         (entry: TrendsTooltipEntry): React.ReactNode => {
             const datum = datumByKey.get(entry.series.key)
@@ -140,11 +147,21 @@ export function TrendsTooltip({
             }
             const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
             if (hasBreakdown || datum.compare_label) {
-                return getDatumTitle(datum, breakdownFilter, formatCompareLabel)
+                const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
+                if (hasMultipleEvents && hasBreakdown) {
+                    const seriesName = datum.action?.custom_name || datum.action?.name || datum.label
+                    return (
+                        <>
+                            <span className="opacity-50 mr-1 shrink-0">{seriesName} ·</span>
+                            {title}
+                        </>
+                    )
+                }
+                return title
             }
             return datum.label
         },
-        [datumByKey, renderSeriesOverride, breakdownFilter, formatCompareLabel]
+        [datumByKey, renderSeriesOverride, breakdownFilter, formatCompareLabel, hasMultipleEvents]
     )
 
     const labelFormatter = useCallback((): React.ReactNode => {
