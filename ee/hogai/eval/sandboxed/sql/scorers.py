@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import Any
 
 from braintrust import Score
+from braintrust_core.score import Scorer
 
 from ee.hogai.eval.sandboxed.product_analytics.scorers import (
     GRADED_ALIGNMENT_CHOICE_SCORES,
@@ -78,6 +79,43 @@ def extract_last_execute_sql_call(output: dict[str, Any] | None) -> dict[str, st
 def _is_schema_discovery_query(query: Any) -> bool:
     """True when the query is an ``information_schema`` schema-discovery lookup, not an answer."""
     return isinstance(query, str) and "information_schema" in query.lower()
+
+
+class AnswerQueryRan(Scorer):
+    """Binary: did the agent run a real (non-discovery) ``execute-sql`` answer query?
+
+    Under the ``mcp-sql-schema-discovery`` regime (forced on in the sandbox),
+    schema discovery also runs through ``execute-sql`` against
+    ``system.information_schema.*``. So a plain "``execute-sql`` was called"
+    check passes even when the agent only inspected the schema and never
+    answered with SQL. This requires a successful ``execute-sql`` whose query
+    is *not* an ``information_schema`` lookup — i.e. an actual answer query.
+
+    Score 1.0 when an answer query ran, 0.0 otherwise.
+    """
+
+    def __init__(self, *, name: str = "answer_query_ran"):
+        self._label = name
+
+    def _name(self) -> str:
+        return self._label
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _evaluate(self, output: dict | None) -> Score:
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output"})
+        if extract_last_execute_sql_query(output) is None:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "No non-discovery execute-sql answer query ran"},
+            )
+        return Score(name=self._name(), score=1.0, metadata={})
 
 
 def extract_last_execute_sql_query(output: dict[str, Any] | None) -> str | None:
