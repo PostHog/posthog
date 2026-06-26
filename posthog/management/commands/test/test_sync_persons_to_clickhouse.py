@@ -16,7 +16,7 @@ from posthog.management.commands.sync_persons_to_clickhouse import (
 )
 from posthog.models.group.group import Group
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
-from posthog.models.group.util import create_group
+from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person.person import Person, PersonDistinctId
 from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_TABLE,
@@ -192,13 +192,16 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         wraps=posthog.management.commands.sync_persons_to_clickhouse.raw_create_group_ch,
     )
     def test_group_sync_updates_group(self, mocked_ch_call):
-        group = create_group(
-            self.team.pk,
-            2,
-            "group-key",
-            {"a": 5},
-            timestamp=datetime.now(UTC) - timedelta(hours=3),
+        ts = datetime.now(UTC) - timedelta(hours=3)
+        group = Group.objects.create(
+            team_id=self.team.pk,
+            group_type_index=2,
+            group_key="group-key",
+            group_properties={"a": 5},
+            created_at=ts,
+            version=0,
         )
+        raw_create_group_ch(self.team.pk, 2, "group-key", {"a": 5}, ts)
         group.group_properties = {"a": 5, "b": 3}
         group.save()
 
