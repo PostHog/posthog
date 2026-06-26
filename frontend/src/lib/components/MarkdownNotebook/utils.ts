@@ -8,6 +8,8 @@ import {
     NotebookPropValue,
 } from './types'
 
+const nodeFingerprintCache = new WeakMap<NotebookBlockNode, string>()
+
 export function hashString(value: string): string {
     let hash = 5381
     for (let index = 0; index < value.length; index++) {
@@ -106,6 +108,17 @@ export function getNodeSignature(node: NotebookBlockNode): string {
 }
 
 export function getNodeFingerprint(node: NotebookBlockNode): string {
+    const cachedFingerprint = nodeFingerprintCache.get(node)
+    if (cachedFingerprint !== undefined) {
+        return cachedFingerprint
+    }
+
+    const fingerprint = getUncachedNodeFingerprint(node)
+    nodeFingerprintCache.set(node, fingerprint)
+    return fingerprint
+}
+
+function getUncachedNodeFingerprint(node: NotebookBlockNode): string {
     if (node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote') {
         return JSON.stringify({
             type: node.type,

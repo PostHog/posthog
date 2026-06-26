@@ -178,7 +178,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
  */
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
-export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 10
+export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
 export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
@@ -201,7 +201,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .min(signalsScoutConfigCreateBodyRunIntervalMinutesMin)
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
-            .describe('Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).'),
+            .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
@@ -211,7 +211,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
  * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
-export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 10
+export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
@@ -232,7 +232,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
             .optional()
             .describe(
-                'Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.'
+                'Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.'
             ),
     })
     .describe(
@@ -345,7 +345,9 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
         key: zod
             .string()
             .max(signalsScoutScratchpadRememberBodyKeyMax)
-            .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
+            .describe(
+                "Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the \*stable identity\* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state\/cursors, use one fixed key and keep the timestamp in `content`."
+            ),
         content: zod
             .string()
             .max(signalsScoutScratchpadRememberBodyContentMax)

@@ -521,6 +521,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if self.action == "list":
             queryset = queryset.filter(deleted=False, visibility=Notebook.Visibility.DEFAULT)
             queryset = self._filter_list_request(self.request, queryset)
+            # The list serializer omits content/text_content, but both are large columns
+            # (ProseMirror JSON + full plaintext) that we'd otherwise load and JSON-decode per row.
+            # search/contains filters run as WHERE-clause predicates, so they don't need the columns in Python.
+            queryset = queryset.defer("content", "text_content")
 
         order = self.request.GET.get("order", None)
         if order:

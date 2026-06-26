@@ -8,11 +8,11 @@ import { lazy, Suspense, useEffect, useRef } from 'react'
 import { IconApps, IconChat, IconChevronRight, IconPlusSmall } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -146,7 +146,7 @@ export function Nav(): JSX.Element {
         }
     }, [openWidth, isLayoutNavCollapsed, isMobileLayout, setNavbarWidth])
 
-    useAppShortcut({
+    useShortcut({
         name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav],
         intent: 'Toggle collapse left navigation',
@@ -242,7 +242,7 @@ export function Nav(): JSX.Element {
                         >
                             <DropdownMenuTrigger asChild>
                                 <LemonButton
-                                    type="primary"
+                                    type="secondary"
                                     size="small"
                                     icon={<IconPlusSmall />}
                                     fullWidth={!isLayoutNavCollapsed}

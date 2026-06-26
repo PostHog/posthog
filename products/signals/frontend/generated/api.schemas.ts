@@ -393,8 +393,8 @@ export interface SignalScoutConfigApi {
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     emit?: boolean
     /**
-     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
-     * @minimum 10
+     * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 30
      * @maximum 43200
      */
     run_interval_minutes?: number
@@ -423,8 +423,8 @@ export interface SignalScoutConfigCreateApi {
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
     emit?: boolean
     /**
-     * Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).
-     * @minimum 10
+     * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+     * @minimum 30
      * @maximum 43200
      */
     run_interval_minutes?: number
@@ -449,8 +449,8 @@ export interface PatchedSignalScoutConfigApi {
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     emit?: boolean
     /**
-     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
-     * @minimum 10
+     * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 30
      * @maximum 43200
      */
     run_interval_minutes?: number
@@ -1385,7 +1385,7 @@ export interface ScratchpadEntryApi {
  */
 export interface RememberRequestApi {
     /**
-     * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
+     * Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key and keep the timestamp in `content`.
      * @maxLength 300
      */
     key: string
@@ -1666,13 +1666,21 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     content_max_chars?: number
     /**
+     * ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.
+     */
+    date_from?: string
+    /**
+     * ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry from the prior page).
+     */
+    date_to?: string
+    /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */
     keys_only?: boolean
     /**
-     * Max rows to return (default 20, hard cap 100).
+     * Max rows to return (default 20, hard cap 500).
      * @minimum 1
-     * @maximum 100
+     * @maximum 500
      */
     limit?: number
     /**

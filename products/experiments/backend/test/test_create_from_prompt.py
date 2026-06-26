@@ -29,7 +29,7 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
     def setUp(self) -> None:
         super().setUp()
         self.feature_flag_patcher = patch(
-            "products.experiments.backend.presentation.views.posthoganalytics.feature_enabled",
+            "products.experiments.backend.presentation.views.feature_enabled_or_false",
             return_value=True,
         )
         self.mock_feature_enabled = self.feature_flag_patcher.start()

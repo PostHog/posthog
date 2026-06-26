@@ -210,4 +210,7 @@ def update_or_create_person(distinct_ids: list[str], team_id: int, **kwargs):
                 "distinct_id": distinct_id,
             },
         )
+    from posthog.test.persons import _seed_person_into_fake  # noqa: PLC0415
+
+    _seed_person_into_fake(person, distinct_ids)
     return person

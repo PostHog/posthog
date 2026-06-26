@@ -4,7 +4,7 @@
  *   1. Framework preamble — platform-owned guidance about the state
  *      machine, meta tools, and (slice 2+) tool failure / approval
  *      handling / reasoning hints. See `framework-preamble.ts`.
- *   2. agent.md (or spec.entrypoint) — author-owned instructions. Wins
+ *   2. agent.md — author-owned instructions. Wins
  *      over the preamble through normal natural-language precedence
  *      (the model reads it after).
  *   3. Skills index — listed as one line per skill (`- <id>: <description>`).
@@ -75,11 +75,10 @@ export async function buildSystemPrompt(
     // defaults via normal natural-language instructions.
     parts.push(renderFrameworkPreamble(rev))
 
-    const entry = rev.spec.entrypoint || 'agent.md'
-    if (await bundle.exists(rev.id, entry)) {
-        parts.push(await bundle.readText(rev.id, entry))
+    if (await bundle.exists(rev.id, 'agent.md')) {
+        parts.push(await bundle.readText(rev.id, 'agent.md'))
     } else {
-        parts.push('(missing entrypoint — please add agent.md)')
+        parts.push('(missing agent.md — please add it)')
     }
 
     if (rev.spec.skills.length > 0) {

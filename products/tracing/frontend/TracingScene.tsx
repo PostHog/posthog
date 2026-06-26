@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -45,7 +46,7 @@ export default function TracingScene(): JSX.Element {
 
 function TracingSceneContents(): JSX.Element {
     const {
-        rootSpans,
+        listRows,
         spansLoading,
         isTraceOpen,
         selectedTraceId,
@@ -53,7 +54,7 @@ function TracingSceneContents(): JSX.Element {
         selectedTraceTs,
         sparklineData,
         sparklineLoading,
-        totalSpansMatchingFilters,
+        totalMatchingFilters,
         openTraceSpans,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
@@ -168,9 +169,12 @@ function TracingSceneContents(): JSX.Element {
                 />
                 <SceneDivider />
                 <TracingFilterBar />
-                {!sparklineLoading && totalSpansMatchingFilters > 0 && (
+                {/* No loading guard: keep the last (view-mode-independent) count visible across reloads,
+                    so a Traces/Spans switch doesn't flicker the label out and back in. */}
+                {!compareMode && totalMatchingFilters > 0 && (
                     <div className="text-xs text-muted px-1">
-                        {totalSpansMatchingFilters.toLocaleString()} spans matching filters
+                        {humanFriendlyNumber(totalMatchingFilters)} {filters.viewMode === 'spans' ? 'spans' : 'traces'}{' '}
+                        matching filters
                     </div>
                 )}
                 {compareMode ? (
@@ -182,7 +186,7 @@ function TracingSceneContents(): JSX.Element {
                     />
                 ) : (
                     <VirtualizedSpanList
-                        dataSource={rootSpans}
+                        dataSource={listRows}
                         loading={spansLoading}
                         hasMoreToLoad={hasMoreToLoad}
                         onLoadMore={fetchNextPage}
@@ -211,7 +215,9 @@ function TracingSceneContents(): JSX.Element {
                             // element; react-modal then scrolls it back into view when restoring focus
                             // on close. Blur so the restore target is <body>, which doesn't scroll.
                             ;(document.activeElement as HTMLElement | null)?.blur?.()
-                            openTrace(span.trace_id, { ts: span.timestamp })
+                            // Anchor the waterfall on the clicked span — in Spans mode this is often a
+                            // child span, so without spanId the drawer would open unfocused at the root.
+                            openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp })
                         }}
                     />
                 )}
