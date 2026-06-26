@@ -151,6 +151,21 @@ describe('buildToolDomainsBlock', () => {
         expect(result).toContain('- feature-flag')
     })
 
+    it('splits skill-store-* into its own domain, separate from the skill family', () => {
+        const tools = [
+            { name: 'skill-create', category: 'Skills' },
+            { name: 'skill-get', category: 'Skills' },
+            { name: 'skill-list', category: 'Skills' },
+            { name: 'skill-store-install-command', category: 'Skills' },
+        ]
+        const result = buildToolDomainsCompact(tools)
+        const domains = result.split('|')
+        expect(domains).toContain('skill')
+        expect(domains).toContain('skill-store')
+        // the store tool is pulled out of the skill family, not listed verbatim
+        expect(result).not.toContain('skill-store-install-command')
+    })
+
     it('should return empty string for empty array', () => {
         expect(buildToolDomainsBlock([])).toBe('')
     })

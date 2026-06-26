@@ -88,6 +88,10 @@ interface ToolItem {
  *   - feature-flag-* / feature-flags-* → "feature-flag" (singular/plural merged)
  * All query-* tools collapse to a single "query" domain (`search query-` lists
  * them); their typed catalog is documented separately in the prompt.
+ *
+ * A prefix in {@link FORCE_SPLIT_PREFIXES} is always emitted as its own domain
+ * and pulled out of its parent family, so e.g. skill-store-* surfaces as a
+ * "skill-store" domain distinct from the rest of the "skill" family.
  */
 export class ToolDomainExtractor {
     /** A family at or below this many tools stays one domain; above it, split
@@ -99,6 +103,9 @@ export class ToolDomainExtractor {
     private static readonly MAX_DOMAIN_SEGMENTS = 3
 
     private static readonly SKIP_CATEGORIES = new Set(['Query wrappers', 'Debug'])
+    /** Name prefixes always emitted as their own domain, separate from the
+     *  family they would otherwise fold into (e.g. skill-store-* vs skill-*). */
+    private static readonly FORCE_SPLIT_PREFIXES = ['skill-store']
     /** Stripped from the front so `get-llm-total-costs` joins the `llm` family
      *  instead of a spurious `get` family. */
     private static readonly LEADING_VERBS = new Set([
@@ -127,12 +134,23 @@ export class ToolDomainExtractor {
     /** query-* tools are kept out of the trie and represented by a single
      *  `query` domain, so the catalog never fragments into per-insight roots. */
     private readonly hasQueryTools: boolean
+    /** Force-split prefixes (see {@link FORCE_SPLIT_PREFIXES}) present in this
+     *  tool set, each emitted verbatim as its own domain. */
+    private readonly forcedDomains: Set<string>
 
     constructor(tools: ToolInfo[]) {
         this.hasQueryTools = tools.some(({ name }) => name.startsWith('query-'))
+        this.forcedDomains = new Set(
+            tools
+                .map(({ name }) => ToolDomainExtractor.forceSplitPrefixFor(name))
+                .filter((prefix): prefix is string => !!prefix)
+        )
         this.items = tools
             .filter(
-                ({ name, category }) => !name.startsWith('query-') && !ToolDomainExtractor.SKIP_CATEGORIES.has(category)
+                ({ name, category }) =>
+                    !name.startsWith('query-') &&
+                    !ToolDomainExtractor.SKIP_CATEGORIES.has(category) &&
+                    !ToolDomainExtractor.forceSplitPrefixFor(name)
             )
             .map(({ name }) => {
                 const segments = ToolDomainExtractor.toSegments(name)
@@ -160,6 +178,9 @@ export class ToolDomainExtractor {
         }
         if (this.hasQueryTools) {
             domains.add('query')
+        }
+        for (const domain of this.forcedDomains) {
+            domains.add(domain)
         }
         return [...domains].sort()
     }
@@ -242,6 +263,15 @@ export class ToolDomainExtractor {
             segments.pop()
         }
         return segments.join('-')
+    }
+
+    /** The force-split prefix a tool belongs to, if any: an exact match or a
+     *  `${prefix}-…` descendant. Matching on the `-` boundary keeps a sibling
+     *  like `skill-create` out (only `skill-store` / `skill-store-*` match). */
+    private static forceSplitPrefixFor(name: string): string | undefined {
+        return ToolDomainExtractor.FORCE_SPLIT_PREFIXES.find(
+            (prefix) => name === prefix || name.startsWith(`${prefix}-`)
+        )
     }
 
     private static toSegments(name: string): string[] {
