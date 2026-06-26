@@ -9,6 +9,24 @@ import {
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const McpConnectionToolsListSchema = McpServerInstallationsToolsRetrieveParams.omit({ project_id: true })
+
+const mcpConnectionToolsList = (): ToolBase<
+    typeof McpConnectionToolsListSchema,
+    WithPostHogUrl<Schemas.PaginatedMCPServerInstallationToolList>
+> => ({
+    name: 'mcp-connection-tools-list',
+    schema: McpConnectionToolsListSchema,
+    handler: async (context: Context, params: z.infer<typeof McpConnectionToolsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMCPServerInstallationToolList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_server_installations/${encodeURIComponent(String(params.id))}/tools/`,
+        })
+        return await withPostHogUrl(context, result, '/settings/environment-mcp-servers')
+    },
+})
+
 const McpConnectionsListSchema = McpServerInstallationsListQueryParams
 
 const mcpConnectionsList = (): ToolBase<
@@ -31,25 +49,7 @@ const mcpConnectionsList = (): ToolBase<
     },
 })
 
-const McpConnectionToolsListSchema = McpServerInstallationsToolsRetrieveParams.omit({ project_id: true })
-
-const mcpConnectionToolsList = (): ToolBase<
-    typeof McpConnectionToolsListSchema,
-    WithPostHogUrl<Schemas.PaginatedMCPServerInstallationToolList>
-> => ({
-    name: 'mcp-connection-tools-list',
-    schema: McpConnectionToolsListSchema,
-    handler: async (context: Context, params: z.infer<typeof McpConnectionToolsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedMCPServerInstallationToolList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_server_installations/${encodeURIComponent(String(params.id))}/tools/`,
-        })
-        return await withPostHogUrl(context, result, '/settings/environment-mcp-servers')
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'mcp-connections-list': mcpConnectionsList,
     'mcp-connection-tools-list': mcpConnectionToolsList,
+    'mcp-connections-list': mcpConnectionsList,
 }
