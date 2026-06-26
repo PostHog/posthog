@@ -58,9 +58,9 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.demo.backend.matrix.matrix import Cluster, Matrix
-from products.demo.backend.matrix.models import SimEvent
-from products.demo.backend.matrix.randomization import Industry
+from products.demo.backend.logic.matrix.matrix import Cluster, Matrix
+from products.demo.backend.logic.matrix.models import SimEvent
+from products.demo.backend.logic.matrix.randomization import Industry
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,

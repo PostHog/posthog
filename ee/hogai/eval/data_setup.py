@@ -21,9 +21,7 @@ from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, C
 from posthog.persons_db import persons_db_connection
 
 from products.dashboards.backend.models import Dashboard, DashboardTile
-from products.demo.backend.matrix.manager import MatrixManager
-from products.demo.backend.matrix.taxonomy_inference import infer_taxonomy_for_team
-from products.demo.backend.products.hedgebox.matrix import HedgeboxMatrix
+from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager, infer_taxonomy_for_team
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.models.insight import Insight
 

@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytz
 
-from products.demo.backend.matrix.models import EVENT_AUTOCAPTURE, Effect, SimPerson, SimSessionIntent
+from products.demo.backend.logic.matrix.models import EVENT_AUTOCAPTURE, Effect, SimPerson, SimSessionIntent
 
 from .taxonomy import (
     BIAS_WARNING_FLIP_PROBABILITY,
@@ -58,7 +58,7 @@ from .taxonomy import (
 )
 
 if TYPE_CHECKING:
-    from products.demo.backend.products.hedgebox.matrix import HedgeboxCluster
+    from products.demo.backend.logic.products.hedgebox.matrix import HedgeboxCluster
 
 
 class HedgeboxSessionIntent(SimSessionIntent):

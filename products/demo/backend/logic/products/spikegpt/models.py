@@ -5,8 +5,8 @@ from urllib.parse import urlencode, urlparse, urlunparse
 
 import pytz
 
-from products.demo.backend.matrix.models import EVENT_PAGELEAVE, SimPerson, SimSessionIntent
-from products.demo.backend.products.spikegpt.data import FAKE_CHATS
+from products.demo.backend.logic.matrix.models import EVENT_PAGELEAVE, SimPerson, SimSessionIntent
+from products.demo.backend.logic.products.spikegpt.data import FAKE_CHATS
 
 from .taxonomy import URL_HOME
 
