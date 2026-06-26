@@ -25,7 +25,7 @@ and doing something useful with it. For creating or sizing scanners, use [[creat
 
 If a scanner has `emits_signals: true`, its observations also feed the Signals pipeline and may surface as
 Inbox **signal reports** (clusters of related findings). When the user's intent is "work the reports", that's
-the inbox path — see *Acting on findings* below.
+the inbox path — see _Acting on findings_ below.
 
 ## Step 1 — Anchor on the scanner
 
@@ -41,9 +41,9 @@ know it's a monitor; a score only means something against the scorer's `scale`).
 Pick the axis that matches the question:
 
 - **What has this scanner found, over time?** → `vision-scanners-observations-list` (the workhorse). Filter to
-  `status=succeeded` to get only sessions with a finding, then narrow by `verdict` (monitors), `tags`
-  (classifiers), or score, and `order_by` (e.g. `-result_score`, `-completed_at`) to surface the strongest
-  hits first.
+  `status=succeeded` to get only sessions with a finding, then narrow by `verdict` (monitors) or `tags`
+  (classifiers). Scorers aren't filtered by score — rank them with `order_by=-result_score` instead. Use
+  `order_by` (e.g. `-result_score`, `-completed_at`) to surface the strongest hits first.
 - **What did every scanner find about one session?** → `vision-observations-list` (the `session_id` query
   parameter is REQUIRED). Use this while investigating a single recording.
 - **The full detail of one finding** → `vision-scanners-observations-get` or `vision-observations-retrieve` —
@@ -52,12 +52,12 @@ Pick the axis that matches the question:
 
 Triage `status` so you don't mistake a non-result for "nothing wrong":
 
-| status | meaning | typical `error_reason` |
-| --- | --- | --- |
-| `succeeded` | has a `scanner_result` | — |
-| `ineligible` | session couldn't be analysed — a normal outcome, not an error | `too_short`, `no_recording`, `too_inactive`, `too_long`, `no_events` |
-| `failed` | the scan errored | `provider_rejected`, `validation_failed`, `rasterization_failed`, `provider_transient`, `internal_error` |
-| `pending` / `running` | still in flight | — |
+| status                | meaning                                                       | typical `error_reason`                                                                                   |
+| --------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `succeeded`           | has a `scanner_result`                                        | —                                                                                                        |
+| `ineligible`          | session couldn't be analysed — a normal outcome, not an error | `too_short`, `no_recording`, `too_inactive`, `too_long`, `no_events`                                     |
+| `failed`              | the scan errored                                              | `provider_rejected`, `validation_failed`, `rasterization_failed`, `provider_transient`, `internal_error` |
+| `pending` / `running` | still in flight                                               | —                                                                                                        |
 
 A scanner that looks like it "found nothing" is often producing mostly `ineligible` observations — check the
 mix before concluding.
