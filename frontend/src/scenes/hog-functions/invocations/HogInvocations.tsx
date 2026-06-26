@@ -305,8 +305,8 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
                         <Tooltip
                             title={
                                 row.problem_log_level === 'error'
-                                    ? 'This run finished but logged an error (for example an email bounce). Expand the row to view it.'
-                                    : 'This run finished but logged a warning (for example an email complaint). Expand the row to view it.'
+                                    ? 'This run finished but logged an error. Expand the row to view it.'
+                                    : 'This run finished but logged a warning. Expand the row to view it.'
                             }
                         >
                             <IconWarning
