@@ -146,6 +146,14 @@ The skill body is in the bundle at the declared `path`. Skills can
 be short (a few hundred lines) because the platform pays for them
 only when loaded. Push depth into skills, keep `agent.md` lean.
 
+Store skills are canonical. To edit a skill's body, use `skill-update`
+(PATCH) and manage its bundled files with `skill-file-create` /
+`skill-file-delete` / `skill-file-rename` — the inline
+`skills/<id>/SKILL.md` you see in a revision's bundle is a snapshot,
+not the editable source. Reference a store skill from a revision with
+`agent-applications-revisions-skill-refs-set`; browse and read store
+skills via `skill-list` / `skill-get`.
+
 ## Secrets and remote credentials
 
 - **Secrets** (`spec.secrets[]`) are per-application encrypted env
@@ -155,6 +163,13 @@ only when loaded. Push depth into skills, keep `agent.md` lean.
   reference it with `mcps[].connection` (one shared credential the
   owner connects once), or wire an `identity_providers[]` entry for
   per-asker OAuth. There is no team-wide `integrations[]` spec field.
+
+When you curate a connection-based MCP's per-agent tool permissions
+(`spec.mcps[].tools[].level` + `default_tool_approval`), FIRST call
+`mcp-connection-tools-list` with the connection id (discover ids via
+`mcp-connections-list`) to load that connection's REAL tool names.
+Never guess tool names from a past session or from skill prose — the
+catalog is the only authority for what the server actually exposes.
 
 ## Revisions vs sessions — the lifetime distinction
 
