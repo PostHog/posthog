@@ -1,9 +1,9 @@
 # OPS HCL → migration codegen
 
 Turns a declarative-HCL change into a ClickHouse migration the existing
-`infi.clickhouse_orm` runner executes. The HCL is the source of truth for *what*
+`infi.clickhouse_orm` runner executes. The HCL is the source of truth for _what_
 the schema is; this produces the `run_sql_with_exceptions(...)` operations for
-*applying* it — with the cluster targeting derived from **composition**, not a
+_applying_ it — with the cluster targeting derived from **composition**, not a
 side-table.
 
 ## How it works
@@ -26,7 +26,7 @@ engine, and order already resolved (no text parsing). A node's schema =
   (the pilot manages OPS + LOGS, so `[LOGS, OPS]`); a change to an OPS-only object
   (under `roles/ops/`) appears only in the ops nodes → `node_roles = [OPS]`.
 - **`is_alter_on_replicated_table`** = ALTER on a `Replicated*` MergeTree (engine).
-- **`sharded`** = replicated *and* on the multi-shard DATA cluster.
+- **`sharded`** = replicated _and_ on the multi-shard DATA cluster.
 - **Env-specific** statements (only some envs) are flagged for `settings.CLOUD_DEPLOYMENT`
   gating.
 

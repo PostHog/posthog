@@ -11,7 +11,7 @@ Currently covers the **OPS** and **LOGS** roles across the three cloud envs
 ## Model: per-node composition
 
 A node's schema = `compose(its layers)`. The two axes are **env** (dev/prod-us/prod-eu)
-and **node role** (ops/logs/…). Placement is expressed by *which layers a node composes*,
+and **node role** (ops/logs/…). Placement is expressed by _which layers a node composes_,
 declared once in the manifest — there is no object→roles side-table.
 
 ```text
@@ -72,24 +72,29 @@ docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
      the `.sql`. `gen-sql.sh`/`gen-golden.sh` emit the beautified form.
 
 2. **Preview the DDL** the change produces, per node:
+
    ```bash
    bash $HCL/diff.sh            # committed HEAD -> working tree, per (env, role); flags UNSAFE
    ```
 
 3. **Generate the migration** — `--auto` writes the next numbered migration and bumps `max_migration.txt`:
+
    ```bash
    python $HCL/codegen/gen_migration.py --name <slug> --auto
    ```
+
    It derives `node_roles` from composition and `sharded`/`is_alter_on_replicated_table` from the engine.
    Review the generated `posthog/clickhouse/migrations/NNNN_<slug>.py`: add `settings.CLOUD_DEPLOYMENT`
    gating where a statement is flagged env-specific, and recheck any `UNSAFE` (recreate) statements by hand.
    (Drop `--auto` to print to stdout instead.)
 
 4. **Refresh the generated artifacts** so the guard passes:
+
    ```bash
    bash $HCL/gen-golden.sh      # rebuild golden/ (resolved compositions); optional [env] [role] filter
    bash $HCL/gen-sql.sh         # rebuild sql/
    ```
+
    (Golden = the desired post-apply schema; the dump pipeline re-introspects after deploy to confirm
    the real cluster converged to it.)
 
