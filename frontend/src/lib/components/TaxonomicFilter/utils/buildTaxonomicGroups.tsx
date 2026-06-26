@@ -819,18 +819,19 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             searchPlaceholder: 'feature flags',
             type: TaxonomicFilterGroupType.FeatureFlags, // Feature flag dependencies
             endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
+            // Recent items are stored stripped of `active`, so every `active` check compares
+            // against `=== false`. Otherwise recent flags would be labelled "(disabled)",
+            // shown dimmed, and made unselectable even when active (see #66492).
             getName: (featureFlag: FeatureFlagType) => {
                 const name = featureFlag.key || featureFlag.name
-                const isInactive = !featureFlag.active
+                const isInactive = featureFlag.active === false
                 return isInactive ? `${name} (disabled)` : name
             },
             getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
             getPopoverHeader: () => `Feature Flags`,
             getIcon: (featureFlag: FeatureFlagType) => (
-                <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
+                <IconFlag className={clsx('size-4', featureFlag.active === false && 'text-muted-alt opacity-50')} />
             ),
-            // Only disable explicitly inactive flags. Recent items are stored stripped of
-            // `active`, so `!active` would wrongly disable every recent flag (see #66492).
             getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
             localItemsSearch: (items: TaxonomicDefinitionTypes[], query: string): TaxonomicDefinitionTypes[] => {
                 // Note: This function doesn't have direct access to the current value
