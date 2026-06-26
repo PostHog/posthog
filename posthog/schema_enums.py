@@ -1818,6 +1818,7 @@ class ExternalDataSourceType(StrEnum):
     LEMON_SQUEEZY = "LemonSqueezy"
     IKAS = "Ikas"
     TALKWALKER = "Talkwalker"
+    NEXTDOOR_ADS = "NextdoorAds"
 
 
 class ExternalQueryErrorCode(StrEnum):

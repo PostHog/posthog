@@ -633,6 +633,26 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw activity-level message (what `_handle_import_error` sees via str(e)) — no class name.
+            # Raised by get_rows when a recovery conflict forces offset chunking and a chunk then hits
+            # the 10-minute statement timeout.
+            "Reading from your read replica timed out: Postgres canceled the initial read with a "
+            "recovery conflict, and the chunked fallback read still couldn't finish within the 10 "
+            "minute statement timeout. Increase max_standby_streaming_delay or enable "
+            "hot_standby_feedback on the replica, or sync from the primary database instead.",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "QueryTimeoutException: Reading from your read replica timed out: Postgres canceled the "
+            "initial read with a recovery conflict",
+        ],
+    )
+    def test_read_replica_timeout_query_timeout_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Read-replica timeout error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)) — no class name.
             "permission denied for table brand",
             "permission denied for view posthog_areas",

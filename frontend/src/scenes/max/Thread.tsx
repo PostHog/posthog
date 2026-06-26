@@ -79,7 +79,7 @@ import {
     runStreamLogic,
     ThreadView,
 } from 'products/posthog_ai/frontend'
-import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
+import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'

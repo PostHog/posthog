@@ -2,8 +2,9 @@
 
 This directory is the **composable PostHog AI agent-run UI**: a conversation-agnostic library of surfaces
 that render and drive an agent run (the streamed thread, tool cards, approvals, the composer). It is
-consumed by the Max scene (`frontend/src/scenes/max`), the Tasks product, and the signals inbox — and is
-meant to be embeddable anywhere an agent run needs to be shown or interacted with.
+consumed by the Max scene (`frontend/src/scenes/max`) and the signals inbox — and is meant to be
+embeddable anywhere an agent run needs to be shown or interacted with. The standalone runner scene
+(`TaskTracker`, the `/tasks` route) lives here too, under `scenes/`.
 
 > This used to live under a `sandbox/` subfolder behind a `Sandbox*` codename prefix; it's now laid out
 > conventionally directly under `frontend/` with the prefix dropped. The word "sandbox" that remains is the
@@ -92,10 +93,13 @@ index.ts            # public API barrel (the contract)
 components/         # RunViewer, Thread, Composer, permission/question/resource surfaces, activity, tool/
   composer/         #   the Composer compound
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
-logics/             # runStreamLogic, runInteractionLogic (+ generated *LogicType.ts)
+logics/             # runStreamLogic, runInteractionLogic; tasksLogic/taskLogic data logics (+ *LogicType.ts)
 policy/             # tool policy + permission/question utils
-types/              # streamTypes (folded thread), wireTypes (ACP), toolTypes
+types/              # streamTypes (folded thread), wireTypes (ACP), toolTypes, taskTypes (task/run domain)
 messages/           # MessageTemplate, MarkdownMessage, ReasoningAnswer, AssistantFailureMessage
 utils/              # thinkingMessages
+lib/                # task/run helpers (parse-logs, task-status, repository, ph-debug, util-functions)
+scenes/             # standalone scenes registered via ../manifest.tsx
+  TaskTracker/      #   the runner scene (component, stories, scene logics, scene-specific components/)
 generated/          # auto-generated API types (mcp_tools / docs_search) — do not edit by hand
 ```

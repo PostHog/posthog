@@ -368,7 +368,12 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // Minted directly into a server-issued token, never advertised via OAuth metadata
     // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
-    const SERVER_MINT_ONLY_SCOPES = new Set(['signal_scout_internal:read', 'signal_scout_internal:write'])
+    const SERVER_MINT_ONLY_SCOPES = new Set([
+        'signal_scout_internal:read',
+        'signal_scout_internal:write',
+        'signal_scout_report:read',
+        'signal_scout_report:write',
+    ])
 
     it('should include every scope referenced in tool definitions', () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
