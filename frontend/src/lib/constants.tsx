@@ -270,12 +270,12 @@ export const FEATURE_FLAGS = {
     CUSTOMER_ANALYTICS_CSP: 'customer-analytics-csp', // owner: @arthurdedeus #team-customer-analytics, gates the Customer analytics > Accounts settings tab (account_group_type_index dropdown)
     CUSTOMER_ANALYTICS_JOURNEYS: 'customer-analytics-journeys', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_PROFILE_CONFIG_BUTTON: 'customer-profile-config-button', // owner: @arthurdedeus #team-customer-analytics
+    DASHBOARD_ADD_TILE_PICKER_MODAL: 'dashboard-add-tile-picker-modal', // owner: @mattp #team-analytics-platform multivariate=control,test
     DASHBOARD_AUTO_PREVIEW_LIMIT: 'dashboard-auto-preview-limit', // owner: @pauldambra #team-product-analytics
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
     DASHBOARD_QUICK_FILTERS_EXPERIMENT: 'dashboard-quick-filters-experiment', // owner: @vdekrijger #team-product-analytics multivariate=control,test
     DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT: 'dashboard-template-chooser-experiment', // owner: @mattp #team-analytics-platform multivariate=control,simple,new
     DASHBOARD_WIDGETS: 'dashboard-widgets', // owner: @mattp #team-analytics-platform
-    DASHBOARD_ADD_TILE_PICKER_MODAL: 'dashboard-add-tile-picker-modal', // owner: @mattp #team-analytics-platform multivariate=control,test
     DATA_MODELING_BACKEND_V2: 'data-modeling-backend-v2', // owner: #team-data-modeling
     DATA_MODELING_MULTI_DAG: 'data-modeling-multi-dag', // owner: #team-data-modeling
     DATA_MODELING_TAB: 'data-modeling-tab', // owner: #team-data-modeling
@@ -341,8 +341,12 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_EVALUATIONS_REPORTS: 'llm-analytics-evaluations-reports', // owner: #team-ai-observability
     LLM_ANALYTICS_EVALUATIONS_SENTIMENT: 'llm-analytics-sentiment-evaluations', // owner: #team-ai-observability
     LLM_ANALYTICS_OFFLINE_EVALS: 'llm-analytics-offline-evals', // owner: #team-ai-observability
+    LLM_ANALYTICS_SENTIMENT: 'llm-analytics-sentiment', // owner: #team-ai-observability
+    LLM_ANALYTICS_SESSION_SUMMARIZATION: 'llm-analytics-session-summarization', // owner: #team-ai-observability
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
+    LLM_ANALYTICS_TRACE_REVIEW: 'llma-trace-review', // owner: #team-ai-observability
+    LLM_ANALYTICS_TRANSLATION: 'llm-analytics-translation', // owner: #team-ai-observability
     LLM_ANALYTICS_USER_FEEDBACK: 'llm-analytics-user-feedback', // owner: @adboio #team-surveys
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
@@ -387,8 +391,8 @@ export const FEATURE_FLAGS = {
     ONBOARDING_FLOW_VARIANT: 'onboarding-flow-variant', // owner: @fercgomes #team-growth multivariate=legacy,redesign — selects the whole onboarding experience; legacy is the existing flow
     ONBOARDING_HIDE_BREADCRUMBS: 'onboarding-hide-breadcrumbs', // owner: @fercgomes #team-growth, multivariate=true, hides breadcrumbs during onboarding to reduce distractions
     ONBOARDING_MOBILE_INSTALL_HELPER: 'onboarding-mobile-install-helper', // owner: @fercgomes #team-growth multivariate=control,test — target $device_type=Mobile at the flag level
-    ONBOARDING_PLATFORM_PACKAGES: 'onboarding-platform-packages', // owner: @mjwarren3 #team-growth multivariate=control,test — surfaces platform packages with a free trial on the plans step after subscribing
     ONBOARDING_NAVBAR: 'onboarding-navbar', // owner: @fercgomes #team-growth, hides the navbar during onboarding to reduce distractions multivariate=true
+    ONBOARDING_PLATFORM_PACKAGES: 'onboarding-platform-packages', // owner: @mjwarren3 #team-growth multivariate=control,test — surfaces platform packages with a free trial on the plans step after subscribing
     ONBOARDING_PRODUCT_SELECTION_HEADING: 'onboarding-product-selection-heading', // owner: @fercgomes #team-growth, payload overrides the heading copy on the first onboarding page
     ONBOARDING_SESSION_REPLAY_MEDIA: 'onboarding-session-replay-media', // owner: @fercgomes #team-growth multivariate=control,screenshot,demo
     ONBOARDING_SOCIAL_PROOF_INFO: 'onboarding-social-proof-info', // owner: @fercgomes #team-growth, payload overrides social proof strings per product
