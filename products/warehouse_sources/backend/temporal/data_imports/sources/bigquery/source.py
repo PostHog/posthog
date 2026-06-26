@@ -198,6 +198,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.BIG_QUERY,
             category=DataWarehouseSourceCategory.DATABASES,
+            featured=True,
             iconPath="/static/services/bigquery.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
