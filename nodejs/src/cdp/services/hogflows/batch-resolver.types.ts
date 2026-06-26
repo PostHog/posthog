@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 // Plain FIFO; resolver self-requeues per page so concurrent batches rotate naturally.
 export const HOGFLOW_BATCH_RESOLVE_QUEUE = 'hogflow_batch_resolve' as const

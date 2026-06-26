@@ -21,8 +21,8 @@ import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { setupExpressApp } from '~/api/router'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { setupExpressApp } from '~/common/api/router'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
@@ -30,12 +30,12 @@ import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { parseJSON } from '~/common/utils/json-parse'
 
 import { Hub, Team } from '../../src/types'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
@@ -3124,6 +3124,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             cursor: 'some-cursor',
             totalEnqueued: 100,
             pagesProcessed: 1,
+            attempts: 0,
             startedAt: new Date().toISOString(),
         })
         await batchResolverProducer.createJob({

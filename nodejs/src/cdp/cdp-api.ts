@@ -2,11 +2,11 @@ import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/common/api/router'
+import { buildIntegerMatcherWithPercentage } from '~/common/config/config'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT, delay } from '~/common/utils/utils'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { buildIntegerMatcherWithPercentage } from '~/common/config/config'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -808,6 +808,7 @@ export class CdpApi {
                     cursor: null,
                     totalEnqueued: 0,
                     pagesProcessed: 0,
+                    attempts: 0,
                     startedAt: new Date().toISOString(),
                 }
                 await this.batchResolverProducer.createJob({

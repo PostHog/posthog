@@ -3,11 +3,11 @@ import { Counter } from 'prom-client'
 
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { logger, serializeError } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+import { UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig, Team } from '../../types'
-import { logger, serializeError } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
-import { UUIDT } from '../../utils/utils'
 import type { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Worker } from '../services/cyclotron-v2'
 import {
     BatchResolverState,
