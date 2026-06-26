@@ -7046,6 +7046,7 @@ export const externalDataSources = [
     'LemonSqueezy',
     'Ikas',
     'Talkwalker',
+    'NextdoorAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
