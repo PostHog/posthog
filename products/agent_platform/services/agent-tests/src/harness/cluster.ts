@@ -30,7 +30,7 @@ import request from 'supertest'
 
 import { AuthProvider, buildApp, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
-import { IntegrationHostValidator, McpTransportFactory, Worker } from '@posthog/agent-runner'
+import { McpTransportFactory, Worker } from '@posthog/agent-runner'
 import type { AnalyticsEvent, IdentityStore, LogEntry } from '@posthog/agent-shared'
 import {
     AgentApplication,
@@ -54,6 +54,7 @@ import {
     RedisSessionEventBus,
     S3BundleStore,
     S3JsonlTabularStore,
+    DEV_INTERNAL_SIGNING_KEY,
     EncryptedEnvSecretResolver,
     EncryptedFields,
     HttpClient,
@@ -62,6 +63,7 @@ import {
     SecretBroker,
     SecretResolver,
     TEST_S3_BUCKET,
+    type WebSearchProvider,
     wipeTestPrefix as wipeMemoryTestPrefix,
 } from '@posthog/agent-shared'
 import { reset } from '@posthog/agent-shared/testing'
@@ -234,10 +236,6 @@ export interface BuildClusterOpts {
     slackSigningSecretResolver?: SecretResolver
     /** Override the per-session secret resolver (defaults to empty). */
     resolveSecrets?: (sessionId: string) => Promise<Record<string, string>>
-    /** Override the per-session integrations resolver (defaults to empty). */
-    resolveIntegrations?: (
-        sessionId: string
-    ) => Promise<Record<string, { kind: string; access_token: string; refresh_token?: string }>>
     authProvider?: AuthProvider
     /**
      * Optional initial script for the faux provider. Tests that script per-test
@@ -258,19 +256,19 @@ export interface BuildClusterOpts {
      */
     mcpTransportFactory?: McpTransportFactory
     /**
-     * Gates the `auth.integration` bearer attachment on `external` MCP refs.
-     * Defaults to a permissive `() => true` so the common e2e cases don't
-     * have to think about it; security-flavoured tests pass a stricter
-     * implementation to exercise the rejection paths.
-     */
-    integrationHostValidator?: IntegrationHostValidator
-    /**
      * Substitute the outbound HTTP client the runner threads into
      * `ToolContext.http`. Tests that want to assert on outbound headers
      * or short-circuit the network pass a `{ fetch: vi.fn(...) }` here.
      * Defaults to a real `HttpClient` with no proxy (direct fetch).
      */
     http?: import('@posthog/agent-shared').HttpFetcher
+    /**
+     * Provider chain for `@posthog/web-search`. Forwarded onto the Worker
+     * so cases that declare the tool in their spec actually see it. Empty
+     * / absent (default) → the tool is gated out, matching the prod path
+     * for an unconfigured deployment.
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
 }
 
 let _pool: Pool | null = null
@@ -424,7 +422,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         bus,
         logs: logSink,
         analytics: analyticsSink,
-        resolveIntegrations: opts.resolveIntegrations ? async (s) => opts.resolveIntegrations!(s.id) : async () => ({}),
         resolveSecrets: opts.resolveSecrets ? async (s) => opts.resolveSecrets!(s.id) : async () => ({}),
         resolveModel: resolveModelForHarness,
         approvals,
@@ -432,10 +429,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         memoryStore,
         tabularStore,
         mcpTransportFactory: opts.mcpTransportFactory,
-        // Permissive default so the common e2e suite doesn't have to know
-        // about the security gate; the runtime-mcps cases that specifically
-        // exercise integration auth (none in the suite yet) can override.
-        integrationHostValidator: opts.integrationHostValidator ?? (() => true),
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
         // Real HttpClient with no proxy by default — tests that exercise
         // outbound HTTP hit real localhost servers (matches the wider harness
@@ -445,6 +438,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // (see `buildQueryEchoHttp`).
         http: harnessHttp,
         posthogApiBaseUrl: 'http://localhost:8010',
+        webSearchProviders: opts.webSearchProviders,
     })
 
     // Real-flow Slack secret resolver: decrypts the agent's `encrypted_env`
@@ -474,6 +468,11 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // slack.com calls from the ingress (ack_reaction, identity bridge)
         // can route them through a single recorder.
         http: opts.http,
+        // Wire the JWT gate so preview-mode tests exercise the real claim
+        // verification (audience, signature, app/rev binding). Without this the
+        // resolver short-circuits and a non-live revision routes without a
+        // token. Same key `mintInternalJwt` uses in the preview-mode fixtures.
+        internalSigningKey: DEV_INTERNAL_SIGNING_KEY,
     })
 
     const janitor = buildJanitorApp({
@@ -542,8 +541,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 description: input.description ?? '',
             })
             const rawSpec: Record<string, unknown> = {
-                // Default model is "faux/<name>"; tests can override via spec.model.
-                model: 'faux/faux',
+                // Default model is "faux/<name>"; tests can override via spec.models.
+                models: { mode: 'manual', models: [{ model: 'faux/faux' }] },
                 triggers: [
                     { type: 'chat', config: {} },
                     // Default to "*" for tests — individual cases override

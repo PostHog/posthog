@@ -117,6 +117,8 @@ describe('RedisFeatureFlagCalledDedupService', () => {
         it.each<[IngestionLane | null, boolean]>([
             ['main', true],
             ['overflow', true],
+            ['turbo', true],
+            ['team2', true],
             [null, true],
             ['historical', false],
             ['async', false],
@@ -156,42 +158,56 @@ describe('RedisFeatureFlagCalledDedupService', () => {
         it('has a compact, team-scannable shape', () => {
             // Key bytes are paid per live key at prod cardinality, so the
             // shape (short prefix, truncated digest) is a memory contract.
-            expect(featureFlagCalledDedupKey(42, 'user-1', 'flag-a', 'variant-1', { org: 'o1' })).toMatch(
+            expect(featureFlagCalledDedupKey(42, 'user-1', 'flag-a', 'variant-1', { org: 'o1' }, true)).toMatch(
                 /^ffcd:42:[A-Za-z0-9_-]{22}$/
             )
         })
 
         it('is stable for the same tuple', () => {
-            expect(featureFlagCalledDedupKey(1, 'user-1', 'flag-a', 'variant-1', { org: 'o1' })).toBe(
-                featureFlagCalledDedupKey(1, 'user-1', 'flag-a', 'variant-1', { org: 'o1' })
+            expect(featureFlagCalledDedupKey(1, 'user-1', 'flag-a', 'variant-1', { org: 'o1' }, true)).toBe(
+                featureFlagCalledDedupKey(1, 'user-1', 'flag-a', 'variant-1', { org: 'o1' }, true)
             )
         })
 
         it('is independent of $groups property ordering', () => {
-            expect(featureFlagCalledDedupKey(1, 'user-1', 'flag-a', true, { a: '1', b: '2' })).toBe(
-                featureFlagCalledDedupKey(1, 'user-1', 'flag-a', true, { b: '2', a: '1' })
+            expect(featureFlagCalledDedupKey(1, 'user-1', 'flag-a', true, { a: '1', b: '2' }, false)).toBe(
+                featureFlagCalledDedupKey(1, 'user-1', 'flag-a', true, { b: '2', a: '1' }, false)
             )
         })
 
-        it.each([
-            ['team', [1, 'user-1', 'flag-a', true, null], [2, 'user-1', 'flag-a', true, null]],
-            ['distinct_id', [1, 'user-1', 'flag-a', true, null], [1, 'user-2', 'flag-a', true, null]],
-            ['flag', [1, 'user-1', 'flag-a', true, null], [1, 'user-1', 'flag-b', true, null]],
-            ['response', [1, 'user-1', 'flag-a', true, null], [1, 'user-1', 'flag-a', false, null]],
-            ['response null vs "null"', [1, 'user-1', 'flag-a', null, null], [1, 'user-1', 'flag-a', 'null', null]],
-            ['groups', [1, 'user-1', 'flag-a', true, { org: 'o1' }], [1, 'user-1', 'flag-a', true, { org: 'o2' }]],
-            ['groups vs none', [1, 'user-1', 'flag-a', true, { org: 'o1' }], [1, 'user-1', 'flag-a', true, undefined]],
+        type KeyArgs = Parameters<typeof featureFlagCalledDedupKey>
+        it.each<[string, KeyArgs, KeyArgs]>([
+            ['team', [1, 'user-1', 'flag-a', true, null, null], [2, 'user-1', 'flag-a', true, null, null]],
+            ['distinct_id', [1, 'user-1', 'flag-a', true, null, null], [1, 'user-2', 'flag-a', true, null, null]],
+            ['flag', [1, 'user-1', 'flag-a', true, null, null], [1, 'user-1', 'flag-b', true, null, null]],
+            ['response', [1, 'user-1', 'flag-a', true, null, null], [1, 'user-1', 'flag-a', false, null, null]],
+            [
+                'response null vs "null"',
+                [1, 'user-1', 'flag-a', null, null, null],
+                [1, 'user-1', 'flag-a', 'null', null, null],
+            ],
+            [
+                'groups',
+                [1, 'user-1', 'flag-a', true, { org: 'o1' }, null],
+                [1, 'user-1', 'flag-a', true, { org: 'o2' }, null],
+            ],
+            [
+                'groups vs none',
+                [1, 'user-1', 'flag-a', true, { org: 'o1' }, null],
+                [1, 'user-1', 'flag-a', true, undefined, null],
+            ],
+            // false and null/undefined both mean "not an experiment exposure" — the key
+            // only distinguishes true (experiment) from everything else.
+            ['has_experiment', [1, 'user-1', 'flag-a', true, null, true], [1, 'user-1', 'flag-a', true, null, null]],
+            [
+                'has_experiment true vs absent',
+                [1, 'user-1', 'flag-a', true, null, true],
+                [1, 'user-1', 'flag-a', true, null, undefined],
+            ],
             // The delimiter-injection collision class: components must not concatenate
-            ['component boundary', [1, 'user:1', 'flag', true, null], [1, 'user', ':1flag', true, null]],
+            ['component boundary', [1, 'user:1', 'flag', true, null, null], [1, 'user', ':1flag', true, null, null]],
         ])('differs by %s', (_label, a, b) => {
-            const [teamA, distinctA, flagA, responseA, groupsA] = a
-            const [teamB, distinctB, flagB, responseB, groupsB] = b
-
-            expect(
-                featureFlagCalledDedupKey(teamA as number, distinctA as string, flagA as string, responseA, groupsA)
-            ).not.toBe(
-                featureFlagCalledDedupKey(teamB as number, distinctB as string, flagB as string, responseB, groupsB)
-            )
+            expect(featureFlagCalledDedupKey(...a)).not.toBe(featureFlagCalledDedupKey(...b))
         })
     })
 

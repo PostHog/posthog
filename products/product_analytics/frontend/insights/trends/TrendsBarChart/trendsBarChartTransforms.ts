@@ -3,6 +3,7 @@ import type { Series, TimeInterval, TimeSeriesBarChartConfig } from '@posthog/qu
 
 import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../shared/compareDimming'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
+import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
@@ -26,6 +27,9 @@ export interface BuildTrendsBarSeriesOpts<R extends TrendsBarResultLike, M = unk
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
+    // Resolves the legend/series label (custom name + breakdown formatting). Hosts that lack the
+    // breakdown/cohort deps (e.g. MCP) omit it and fall back to the raw humanized event name.
+    getLabel?: (r: R) => string
     // Scale each series past the first against its own y-axis. Grouped (unstacked) bars only —
     // stacked layouts must share one axis, so the adapter never sets this for them.
     showMultipleYAxes?: boolean
@@ -62,7 +66,7 @@ function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
     const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     return {
         key: String(r.id),
-        label: r.label ?? '',
+        label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
         data,
         color,
         meta,

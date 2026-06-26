@@ -13,19 +13,22 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
+import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
 import {
     buildTrendsSeriesMeta,
     resolveGroupTypeLabel,
     type TrendsSeriesMeta,
 } from '../../trends/shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../../trends/shared/TrendsTooltip'
-import { useTrendsLegendConfig } from '../../trends/shared/useTrendsLegendConfig'
+import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from '../StickinessLineChart/handleStickinessChartClick'
 import {
     buildStickinessLabels,
@@ -45,7 +48,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps } = useValues(insightLogic)
 
-    const legendConfig = useTrendsLegendConfig({ insightProps })
+    const legendConfig = useInsightsLegendConfig({ insightProps })
     const quillLegendEnabled = !!legendConfig
 
     const {
@@ -66,6 +69,18 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { allCohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const getLabel = useCallback(
+        (r: IndexedTrendResult): string =>
+            getTrendsSeriesDisplayLabel(r, {
+                breakdownFilter,
+                cohorts: allCohorts?.results,
+                formatPropertyValueForDisplay,
+            }),
+        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+    )
 
     // Inverted polarity vs legacy `isStacked` in `ActionsLineGraph`; matches `TrendsBarChart`.
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
@@ -85,9 +100,10 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
                 // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
                 // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
                 getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+                getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, getTrendsColor, getTrendsHidden, quillLegendEnabled]
+        [indexedResults, getTrendsColor, getTrendsHidden, getLabel, quillLegendEnabled]
     )
 
     const chartConfig: TimeSeriesBarChartConfig = useMemo(

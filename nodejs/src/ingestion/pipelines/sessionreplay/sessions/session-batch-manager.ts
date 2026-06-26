@@ -1,8 +1,8 @@
+import { logger } from '~/common/utils/logger'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
-import { logger } from '~/utils/logger'
 
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
@@ -17,6 +17,8 @@ export interface SessionBatchManagerConfig {
     maxBatchAgeMs: number
     /** Maximum number of events per session per batch before rate limiting */
     maxEventsPerSessionPerBatch: number
+    /** Rollout percentage (0-100) for the per-session ML feature recorder */
+    featuresRolloutPercentage?: number
     /** Manages Kafka offset tracking and commits */
     offsetManager: KafkaOffsetManager
     /** Handles writing session batch files to storage */
@@ -76,6 +78,7 @@ export class SessionBatchManager {
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
     private readonly maxEventsPerSessionPerBatch: number
+    private readonly featuresRolloutPercentage: number
     private readonly offsetManager: KafkaOffsetManager
     private readonly fileStorage: SessionBatchFileStorage
     private readonly metadataStore: SessionMetadataStore
@@ -91,6 +94,7 @@ export class SessionBatchManager {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
         this.maxBatchAgeMs = config.maxBatchAgeMs
         this.maxEventsPerSessionPerBatch = config.maxEventsPerSessionPerBatch
+        this.featuresRolloutPercentage = config.featuresRolloutPercentage ?? 100
         this.offsetManager = config.offsetManager
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
@@ -111,7 +115,8 @@ export class SessionBatchManager {
             this.sessionFilter,
             this.keyStore,
             this.encryptor,
-            this.maxEventsPerSessionPerBatch
+            this.maxEventsPerSessionPerBatch,
+            this.featuresRolloutPercentage
         )
         this.lastFlushTime = Date.now()
     }
@@ -139,7 +144,8 @@ export class SessionBatchManager {
             this.sessionFilter,
             this.keyStore,
             this.encryptor,
-            this.maxEventsPerSessionPerBatch
+            this.maxEventsPerSessionPerBatch,
+            this.featuresRolloutPercentage
         )
         this.lastFlushTime = Date.now()
     }

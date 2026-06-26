@@ -13,7 +13,7 @@ export interface ScoutDetailLogicProps {
     skillName: string
 }
 
-// A noisy scout on the 10-minute floor can rack up hundreds of emitted runs across the window;
+// A noisy scout on the 30-minute floor can rack up hundreds of emitted runs across the window;
 // fetching emissions for all of them at once would fan out hundreds of concurrent requests and
 // render hundreds of markdown cards. Bound both to the most recent N emitted runs — older
 // findings live on in the inbox reports they produced.

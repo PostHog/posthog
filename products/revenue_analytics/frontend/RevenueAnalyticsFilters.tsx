@@ -4,13 +4,13 @@ import { useState } from 'react'
 import { IconFilter, IconGear, IconGraph, IconLineGraph, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions, Popover, Tooltip } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FilterBar } from 'lib/components/FilterBar'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isRevenueAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -102,7 +102,7 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
             }
             right={
                 <>
-                    <AppShortcut
+                    <Shortcut
                         name="RevenueAnalyticsSettings"
                         keybind={[keyBinds.settings]}
                         intent="Open settings"
@@ -118,9 +118,9 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                                 className="hidden md:flex"
                             />
                         </Tooltip>
-                    </AppShortcut>
+                    </Shortcut>
 
-                    <AppShortcut
+                    <Shortcut
                         name="RevenueAnalyticsRefresh"
                         keybind={[keyBinds.refresh]}
                         intent="Refresh data"
@@ -130,7 +130,7 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                         <Tooltip title="Refresh data">
                             <ReloadAll iconOnly />
                         </Tooltip>
-                    </AppShortcut>
+                    </Shortcut>
 
                     <LemonSelect
                         value={insightsDisplayMode}
@@ -206,7 +206,7 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                         </div>
                     }
                 >
-                    <AppShortcut
+                    <Shortcut
                         name="RevenueAnalyticsFilters"
                         keybind={[keyBinds.filter]}
                         intent="Toggle filters"
@@ -226,7 +226,7 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                         >
                             Filters
                         </LemonButton>
-                    </AppShortcut>
+                    </Shortcut>
                 </Popover>
             </MaxTool>
 

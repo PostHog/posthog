@@ -8,7 +8,6 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from loginas.utils import is_impersonated_session
@@ -18,7 +17,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.schema import ProductKey
 
-from posthog.api.capture_dispatch import CaptureRoutedError, capture_internal_routed
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import extend_schema
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -44,6 +43,7 @@ from posthog.models.group_type_mapping import (
 )
 from posthog.models.user import User
 from posthog.personhog_client.converters import GroupTypeMappingResult
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
@@ -324,7 +324,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             "$group_set": group_properties or group.group_properties,
         }
         try:
-            result = capture_internal_routed(
+            result = capture_internal(
                 token=self.team.api_token,
                 event_name="$groupidentify",
                 event_source="ee_ch_views_groups",
@@ -334,7 +334,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 process_person_profile=False,
             )
             result.raise_for_status()
-        except CaptureRoutedError as error:
+        except CaptureInternalError as error:
             raise TriggerGroupIdentifyException(
                 exception_data={
                     "code": f"Failed to submit {operation} event.",
@@ -441,10 +441,18 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         request_data = CreateGroupSerializer(data=request.data)
         request_data.is_valid(raise_exception=True)
 
+        group_key = request_data.validated_data["group_key"]
+        group_type_index = request_data.validated_data["group_type_index"]
+
+        # Personhog upserts on duplicate (team, group_type_index, group_key) instead
+        # of raising, so reject duplicates up front to preserve the 400 contract.
+        if get_group_by_key(self.team.pk, group_type_index, group_key) is not None:
+            raise ValidationError({"detail": "A group with this key already exists"})
+
         try:
             group = create_group(
-                group_key=request_data.validated_data["group_key"],
-                group_type_index=request_data.validated_data["group_type_index"],
+                group_key=group_key,
+                group_type_index=group_type_index,
                 properties=request_data.validated_data["group_properties"],
                 team_id=self.team.pk,
                 timestamp=timezone.now(),
@@ -682,7 +690,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             }
 
             try:
-                routed_result = capture_internal_routed(
+                routed_result = capture_internal(
                     token=self.team.api_token,
                     event_name=event_name,
                     event_source="ee_ch_views_groups",
@@ -693,7 +701,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 )
                 routed_result.raise_for_status()
 
-            except CaptureRoutedError as e:
+            except CaptureInternalError as e:
                 return response.Response(
                     {
                         "attr": "$unset",
@@ -863,7 +871,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             )
 
     def _is_crm_enabled(self, user: User) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "crm-iteration-one",
             str(user.distinct_id),
             groups={"organization": str(self.team.organization.id)},
@@ -974,7 +982,7 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
             raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
 
     def _validate_data_warehouse(self, filters: dict, math, math_property):
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         missing = [field for field in _DW_FILTER_REQUIRED_FIELDS if not filters.get(field)]
         if missing:

@@ -19,9 +19,9 @@ from unittest import mock
 
 from rest_framework import status
 
-from products.data_warehouse.backend.api.test._access_control_base import WarehouseAccessControlTestMixin
+from products.data_warehouse.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 # Every curated query runs HogQL through this method; stub it to empty so a resolved source
 # returns 200 with no rows, leaving the resolver's access-control decision as the only variable.

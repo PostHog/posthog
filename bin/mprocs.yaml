@@ -341,7 +341,7 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service hypercache-server
-        capability: hypercache
+        # no capability: always_required via intent-map.yaml
         ready_pattern: 'listening on *'
         groups:
             layer: Product services
@@ -475,6 +475,29 @@ procs:
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
 
+    # Behavioral Cohorts stream rebuild (Rust). The shuffler keys clickhouse_events_json into
+    # cohort_stream_events; the processor consumes that and emits membership changes. Opt-in
+    # (autostart: false).
+    cohort-event-shuffler:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cohort-event-shuffler
+        autostart: false
+        ready_pattern: 'observability server starting'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    cohort-stream-processor:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cohort-stream-processor
+        autostart: false
+        ready_pattern: 'observability server starting'
+        groups:
+            layer: Product services
+            tech: Rust
+
     llm-gateway:
         sandbox: true
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
@@ -488,6 +511,14 @@ procs:
             LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'
             LLM_GATEWAY_POSTHOG_PROJECT_TOKEN: 'phc_localposthogprojecttoken'
             LLM_GATEWAY_POSTHOG_HOST: 'http://localhost:8010'
+
+    agent-proxy:
+        shell: 'bin/wait-for-docker --only redis7 && pnpm --filter @posthog/agent-proxy dev'
+        capability: agent_proxy
+        ready_pattern: 'server:started'
+        groups:
+            layer: Product services
+            tech: Node
 
     mcp:
         sandbox: true

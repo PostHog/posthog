@@ -35,6 +35,9 @@ if TYPE_CHECKING:
 # Configuration
 FLUSH_BATCH_SIZE = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
 DURATION_UPDATE_RELATIVE_THRESHOLD = 0.25  # Only update duration when change exceeds 25%
+# Spill the cohort-membership GROUP BY to disk once it exceeds this fraction of the query's
+# memory limit, instead of OOMing. See build_final_query.
+EXTERNAL_GROUP_BY_MEMORY_RATIO = 0.5
 
 # Cohort calculation timing histograms
 COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM = Histogram(
@@ -302,7 +305,16 @@ def build_final_query(current_members_sql: str) -> str:
             HAVING status = 'entered'
         ) previous_members ON current_matches.id = previous_members.person_id
         WHERE (previous_members.person_id IS NULL) OR (current_matches.id IS NULL)
-        SETTINGS join_use_nulls = 1
+        SETTINGS
+            join_use_nulls = 1,
+            -- Every GROUP BY here aggregates by person_id, which is in no source table's sort
+            -- key, so it builds a full in-memory hash table. On large cohorts — both the
+            -- single-scan path and the INTERSECT/UNION DISTINCT fall-through — this can exhaust
+            -- the query memory limit and OOM. Spill to disk past a fraction of that limit instead
+            -- of failing; this is an offline job, so slower-but-completes is the right trade-off.
+            -- memory_efficient bounds the distributed merge step too.
+            max_bytes_ratio_before_external_group_by = {EXTERNAL_GROUP_BY_MEMORY_RATIO},
+            distributed_aggregation_memory_efficient = 1
         FORMAT JSONEachRow
     """
 

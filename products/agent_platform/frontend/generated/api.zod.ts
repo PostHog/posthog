@@ -105,6 +105,19 @@ export const AgentMemoryUpdateFileBody = /* @__PURE__ */ zod
  *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
+export const agentApplicationsRevisionsCreateBodySpecModelsOneLevelDefault = `medium`
+export const agentApplicationsRevisionsCreateBodySpecModelsOneOptimizeForDefault = `cost`
+
+export const agentApplicationsRevisionsCreateBodySpecModelsTwoModelsItemModelRegExp = new RegExp(
+    '^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$'
+)
+
+export const agentApplicationsRevisionsCreateBodySpecModelsTwoOptimizeForDefault = `cost`
+export const agentApplicationsRevisionsCreateBodySpecModelsDefault = {
+    mode: 'auto' as const,
+    level: 'medium' as const,
+    optimize_for: 'cost' as const,
+}
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -144,8 +157,6 @@ export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyT
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin = 0
-
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsDefault = 5000
@@ -163,10 +174,7 @@ export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprova
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
 export const agentApplicationsRevisionsCreateBodySpecMcpsDefault = []
-export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
-
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
-export const agentApplicationsRevisionsCreateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
 export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
@@ -206,7 +214,6 @@ export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
     max_memory_mb: 512,
     max_cpu_cores: 0.25,
 }
-export const agentApplicationsRevisionsCreateBodySpecEntrypointDefault = `agent.md`
 export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptOmitDefault = []
 export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinExclusiveMin = 0
 export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinMax = 2147483647
@@ -226,7 +233,63 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            models: zod
+                .union([
+                    zod.object({
+                        mode: zod.literal('auto'),
+                        level: zod
+                            .enum(['low', 'medium', 'high'])
+                            .default(agentApplicationsRevisionsCreateBodySpecModelsOneLevelDefault)
+                            .describe(
+                                'Quality\/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start.'
+                            ),
+                        reasoning: zod
+                            .enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+                            .optional()
+                            .describe(
+                                'Reasoning\/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider\/spec default.'
+                            ),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsCreateBodySpecModelsOneOptimizeForDefault)
+                            .describe(
+                                "Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long\/expensive sessions, `availability` where uptime matters more than spend."
+                            ),
+                    }),
+                    zod.object({
+                        mode: zod.literal('manual'),
+                        models: zod
+                            .array(
+                                zod.object({
+                                    model: zod
+                                        .string()
+                                        .min(1)
+                                        .regex(agentApplicationsRevisionsCreateBodySpecModelsTwoModelsItemModelRegExp)
+                                        .describe(
+                                            'Canonical model id, e.g. `anthropic\/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).'
+                                        ),
+                                    reasoning: zod
+                                        .enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+                                        .optional()
+                                        .describe('Per-model reasoning effort override (else the spec default).'),
+                                })
+                            )
+                            .min(1)
+                            .describe(
+                                'Explicit priority-ordered fallback list — the runner tries entries in order (primary first).'
+                            ),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsCreateBodySpecModelsTwoOptimizeForDefault)
+                            .describe(
+                                "Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold)."
+                            ),
+                    }),
+                ])
+                .default(agentApplicationsRevisionsCreateBodySpecModelsDefault)
+                .describe(
+                    "How this agent selects its model. `auto`: pick a quality\/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns."
+                ),
             triggers: zod
                 .array(
                     zod.union([
@@ -498,10 +561,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                             kind: zod.literal('custom_template'),
                             from_template: zod.string(),
                             alias: zod.string(),
-                            version: zod
-                                .number()
-                                .min(agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin)
-                                .optional(),
+                            version: zod.number().min(1).optional(),
                         }),
                         zod.object({
                             kind: zod.literal('client'),
@@ -532,7 +592,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         url: zod.url(),
                         auth: zod
                             .object({
-                                integration: zod.string().optional(),
                                 provider: zod.string().optional(),
                             })
                             .optional(),
@@ -591,14 +650,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         description: zod.string().optional(),
                         from_template: zod.string().optional(),
                         alias: zod.string().optional(),
-                        version: zod
-                            .number()
-                            .min(agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin)
-                            .optional(),
+                        version: zod.number().min(1).optional(),
+                        source_version_id: zod.string().optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
-            integrations: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecIntegrationsDefault),
             identity_providers: zod
                 .array(
                     zod.union([
@@ -683,7 +739,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsCreateBodySpecLimitsDefault),
-            entrypoint: zod.string().default(agentApplicationsRevisionsCreateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
             framework_prompt: zod
                 .object({
@@ -724,6 +779,19 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
  * ready/live the spec is frozen — change requires a new revision.
  */
 export const agentApplicationsRevisionsUpdateBodyBundleUriDefault = ``
+export const agentApplicationsRevisionsUpdateBodySpecModelsOneLevelDefault = `medium`
+export const agentApplicationsRevisionsUpdateBodySpecModelsOneOptimizeForDefault = `cost`
+
+export const agentApplicationsRevisionsUpdateBodySpecModelsTwoModelsItemModelRegExp = new RegExp(
+    '^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$'
+)
+
+export const agentApplicationsRevisionsUpdateBodySpecModelsTwoOptimizeForDefault = `cost`
+export const agentApplicationsRevisionsUpdateBodySpecModelsDefault = {
+    mode: 'auto' as const,
+    level: 'medium' as const,
+    optimize_for: 'cost' as const,
+}
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -763,8 +831,6 @@ export const agentApplicationsRevisionsUpdateBodySpecToolsItemTwoApprovalPolicyT
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeVersionMin = 0
-
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
@@ -782,10 +848,7 @@ export const agentApplicationsRevisionsUpdateBodySpecMcpsItemToolsItemTwoApprova
 export const agentApplicationsRevisionsUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
 export const agentApplicationsRevisionsUpdateBodySpecMcpsDefault = []
-export const agentApplicationsRevisionsUpdateBodySpecSkillsItemVersionMin = 0
-
 export const agentApplicationsRevisionsUpdateBodySpecSkillsDefault = []
-export const agentApplicationsRevisionsUpdateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
 export const agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
@@ -825,7 +888,6 @@ export const agentApplicationsRevisionsUpdateBodySpecLimitsDefault = {
     max_memory_mb: 512,
     max_cpu_cores: 0.25,
 }
-export const agentApplicationsRevisionsUpdateBodySpecEntrypointDefault = `agent.md`
 export const agentApplicationsRevisionsUpdateBodySpecFrameworkPromptOmitDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecFrameworkPromptVersionPinExclusiveMin = 0
 export const agentApplicationsRevisionsUpdateBodySpecFrameworkPromptVersionPinMax = 2147483647
@@ -845,7 +907,63 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            models: zod
+                .union([
+                    zod.object({
+                        mode: zod.literal('auto'),
+                        level: zod
+                            .enum(['low', 'medium', 'high'])
+                            .default(agentApplicationsRevisionsUpdateBodySpecModelsOneLevelDefault)
+                            .describe(
+                                'Quality\/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start.'
+                            ),
+                        reasoning: zod
+                            .enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+                            .optional()
+                            .describe(
+                                'Reasoning\/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider\/spec default.'
+                            ),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsUpdateBodySpecModelsOneOptimizeForDefault)
+                            .describe(
+                                "Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long\/expensive sessions, `availability` where uptime matters more than spend."
+                            ),
+                    }),
+                    zod.object({
+                        mode: zod.literal('manual'),
+                        models: zod
+                            .array(
+                                zod.object({
+                                    model: zod
+                                        .string()
+                                        .min(1)
+                                        .regex(agentApplicationsRevisionsUpdateBodySpecModelsTwoModelsItemModelRegExp)
+                                        .describe(
+                                            'Canonical model id, e.g. `anthropic\/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).'
+                                        ),
+                                    reasoning: zod
+                                        .enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+                                        .optional()
+                                        .describe('Per-model reasoning effort override (else the spec default).'),
+                                })
+                            )
+                            .min(1)
+                            .describe(
+                                'Explicit priority-ordered fallback list — the runner tries entries in order (primary first).'
+                            ),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsUpdateBodySpecModelsTwoOptimizeForDefault)
+                            .describe(
+                                "Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold)."
+                            ),
+                    }),
+                ])
+                .default(agentApplicationsRevisionsUpdateBodySpecModelsDefault)
+                .describe(
+                    "How this agent selects its model. `auto`: pick a quality\/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns."
+                ),
             triggers: zod
                 .array(
                     zod.union([
@@ -1117,10 +1235,7 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                             kind: zod.literal('custom_template'),
                             from_template: zod.string(),
                             alias: zod.string(),
-                            version: zod
-                                .number()
-                                .min(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeVersionMin)
-                                .optional(),
+                            version: zod.number().min(1).optional(),
                         }),
                         zod.object({
                             kind: zod.literal('client'),
@@ -1151,7 +1266,6 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                         url: zod.url(),
                         auth: zod
                             .object({
-                                integration: zod.string().optional(),
                                 provider: zod.string().optional(),
                             })
                             .optional(),
@@ -1210,14 +1324,11 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                         description: zod.string().optional(),
                         from_template: zod.string().optional(),
                         alias: zod.string().optional(),
-                        version: zod
-                            .number()
-                            .min(agentApplicationsRevisionsUpdateBodySpecSkillsItemVersionMin)
-                            .optional(),
+                        version: zod.number().min(1).optional(),
+                        source_version_id: zod.string().optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsUpdateBodySpecSkillsDefault),
-            integrations: zod.array(zod.string()).default(agentApplicationsRevisionsUpdateBodySpecIntegrationsDefault),
             identity_providers: zod
                 .array(
                     zod.union([
@@ -1302,7 +1413,6 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                         .default(agentApplicationsRevisionsUpdateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsUpdateBodySpecLimitsDefault),
-            entrypoint: zod.string().default(agentApplicationsRevisionsUpdateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
             framework_prompt: zod
                 .object({
@@ -1366,6 +1476,19 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
  *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault = ``
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelsOneLevelDefault = `medium`
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelsOneOptimizeForDefault = `cost`
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelsTwoModelsItemModelRegExp = new RegExp(
+    '^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$'
+)
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelsTwoOptimizeForDefault = `cost`
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelsDefault = {
+    mode: 'auto' as const,
+    level: 'medium' as const,
+    optimize_for: 'cost' as const,
+}
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -1405,8 +1528,6 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApproval
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin = 0
-
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
@@ -1424,10 +1545,7 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwo
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault = []
-export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin = 0
-
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
-export const agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
@@ -1467,7 +1585,6 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
     max_memory_mb: 512,
     max_cpu_cores: 0.25,
 }
-export const agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault = `agent.md`
 export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptOmitDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinExclusiveMin = 0
 export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinMax = 2147483647
@@ -1487,7 +1604,65 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            models: zod
+                .union([
+                    zod.object({
+                        mode: zod.literal('auto'),
+                        level: zod
+                            .enum(['low', 'medium', 'high'])
+                            .default(agentApplicationsRevisionsPartialUpdateBodySpecModelsOneLevelDefault)
+                            .describe(
+                                'Quality\/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start.'
+                            ),
+                        reasoning: zod
+                            .enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+                            .optional()
+                            .describe(
+                                'Reasoning\/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider\/spec default.'
+                            ),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsPartialUpdateBodySpecModelsOneOptimizeForDefault)
+                            .describe(
+                                "Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long\/expensive sessions, `availability` where uptime matters more than spend."
+                            ),
+                    }),
+                    zod.object({
+                        mode: zod.literal('manual'),
+                        models: zod
+                            .array(
+                                zod.object({
+                                    model: zod
+                                        .string()
+                                        .min(1)
+                                        .regex(
+                                            agentApplicationsRevisionsPartialUpdateBodySpecModelsTwoModelsItemModelRegExp
+                                        )
+                                        .describe(
+                                            'Canonical model id, e.g. `anthropic\/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).'
+                                        ),
+                                    reasoning: zod
+                                        .enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+                                        .optional()
+                                        .describe('Per-model reasoning effort override (else the spec default).'),
+                                })
+                            )
+                            .min(1)
+                            .describe(
+                                'Explicit priority-ordered fallback list — the runner tries entries in order (primary first).'
+                            ),
+                        optimize_for: zod
+                            .enum(['cost', 'availability'])
+                            .default(agentApplicationsRevisionsPartialUpdateBodySpecModelsTwoOptimizeForDefault)
+                            .describe(
+                                "Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold)."
+                            ),
+                    }),
+                ])
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecModelsDefault)
+                .describe(
+                    "How this agent selects its model. `auto`: pick a quality\/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns."
+                ),
             triggers: zod
                 .array(
                     zod.union([
@@ -1773,10 +1948,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                             kind: zod.literal('custom_template'),
                             from_template: zod.string(),
                             alias: zod.string(),
-                            version: zod
-                                .number()
-                                .min(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin)
-                                .optional(),
+                            version: zod.number().min(1).optional(),
                         }),
                         zod.object({
                             kind: zod.literal('client'),
@@ -1809,7 +1981,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         url: zod.url(),
                         auth: zod
                             .object({
-                                integration: zod.string().optional(),
                                 provider: zod.string().optional(),
                             })
                             .optional(),
@@ -1868,16 +2039,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         description: zod.string().optional(),
                         from_template: zod.string().optional(),
                         alias: zod.string().optional(),
-                        version: zod
-                            .number()
-                            .min(agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin)
-                            .optional(),
+                        version: zod.number().min(1).optional(),
+                        source_version_id: zod.string().optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault),
-            integrations: zod
-                .array(zod.string())
-                .default(agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault),
             identity_providers: zod
                 .array(
                     zod.union([
@@ -1968,7 +2134,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault),
-            entrypoint: zod.string().default(agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
             framework_prompt: zod
                 .object({
@@ -2045,24 +2210,6 @@ export const AgentApplicationsRevisionsAgentMdUpdateBody = /* @__PURE__ */ zod
 export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
     .object({
         agent_md: zod.string(),
-        skills: zod
-            .array(
-                zod
-                    .object({
-                        description: zod
-                            .string()
-                            .describe(
-                                'One-line summary shown in the skill index; the model uses it to decide when to load the skill.'
-                            ),
-                        body: zod
-                            .string()
-                            .describe("The skill's full markdown body, stored at `skills\/<skill_id>\/SKILL.md`."),
-                    })
-                    .describe(
-                        'Body shape for PUT \/revisions\/<id>\/skills\/<skill_id>\/. The body is stored\nat the canonical `skills\/<skill_id>\/SKILL.md` path in the bundle.'
-                    )
-            )
-            .optional(),
         tools: zod
             .array(
                 zod
@@ -2076,7 +2223,9 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
             .optional(),
         spec: zod.record(zod.string(), zod.unknown()),
     })
-    .describe('Body shape for PUT \/revisions\/<id>\/bundle\/ — the full-replace typed\npayload.')
+    .describe(
+        'Body shape for PUT \/revisions\/<id>\/bundle\/ — the full-replace typed\npayload. Skills are not authored here: they come from the llma-skill store\nvia `skill_refs` and are materialized into the bundle at freeze.'
+    )
 
 /**
  * Copy every file from `source_revision_id` into this revision.
@@ -2145,42 +2294,52 @@ export const AgentApplicationsRevisionsSetEnvCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
- *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * Full-replace the draft's store-skill references. They are resolved
+ * and materialized into the bundle at freeze, not here — this only records
+ * which skills (and pinned versions) the freeze should pull in.
  */
-export const AgentApplicationsRevisionsSkillsUpdateBody = /* @__PURE__ */ zod
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemFromTemplateMax = 64
+
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax = 64
+
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp = new RegExp(
+    '^[a-z0-9](?:[a-z0-9_-]\*[a-z0-9])?$'
+)
+
+export const AgentApplicationsRevisionsSkillRefsUpdateBody = /* @__PURE__ */ zod
     .object({
-        description: zod
-            .string()
-            .describe('One-line summary shown in the skill index; the model uses it to decide when to load the skill.'),
-        body: zod.string().describe("The skill's full markdown body, stored at `skills\/<skill_id>\/SKILL.md`."),
+        skill_refs: zod
+            .array(
+                zod
+                    .object({
+                        from_template: zod
+                            .string()
+                            .max(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemFromTemplateMax)
+                            .describe(
+                                'Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.'
+                            ),
+                        alias: zod
+                            .string()
+                            .max(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax)
+                            .regex(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp)
+                            .describe(
+                                'Folder the resolved skill is materialized under in the bundle (`skills\/<alias>\/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.'
+                            ),
+                        version: zod
+                            .number()
+                            .min(1)
+                            .optional()
+                            .describe(
+                                "Specific published version to pin. Omit to pin the store's latest version at freeze time."
+                            ),
+                    })
+                    .describe(
+                        "One reference to a versioned skill in the llma-skill store, pinned into\nthis agent's bundle at freeze."
+                    )
+            )
+            .describe('The complete set of store-skill references for this draft; replaces any existing references.'),
     })
-    .describe(
-        'Body shape for PUT \/revisions\/<id>\/skills\/<skill_id>\/. The body is stored\nat the canonical `skills\/<skill_id>\/SKILL.md` path in the bundle.'
-    )
+    .describe("Body for PUT \/revisions\/<id>\/skill_refs\/ — full-replace the draft's references.")
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through

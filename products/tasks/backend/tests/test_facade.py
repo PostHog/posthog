@@ -136,6 +136,7 @@ class TestFacadeReadsAndMappers(TestCase):
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         latest = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         other_team = Team.objects.create(organization=self.organization, name="Other team")
+        TaskRun.objects.create(task=task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
 
         dtos = facade.get_conversation_task_dtos([task.id], self.team.id)
 

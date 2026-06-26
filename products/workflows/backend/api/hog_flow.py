@@ -336,7 +336,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
         # that for API/MCP callers. Static cohorts are exempt regardless of how they were built — their
         # membership is frozen and precalculated — matching the audience-picker exemption in
-        # _build_cohort_dependency_graph in posthog/api/cohort.py.
+        # _build_cohort_dependency_graph in products/cohorts/backend/models/dependencies.py.
         if not isinstance(properties, list):
             return
         cohort_ids = [

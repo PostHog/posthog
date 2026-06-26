@@ -10,7 +10,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Count, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Coalesce, Now, NullIf
 from django.utils import timezone
 
@@ -27,7 +27,6 @@ from posthog.schema import (
 )
 
 from posthog.api.cohort import CohortSerializer
-from posthog.approvals.policies import PolicyEngine
 from posthog.event_usage import EventSource, report_user_action
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import mute_selected_signals
@@ -38,6 +37,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
+from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -289,25 +289,6 @@ class ExperimentService:
         exposure_estimate_config = value.get("exposure_estimate_config")
         if exposure_estimate_config is not None and not isinstance(exposure_estimate_config, dict):
             raise ValidationError("exposure_estimate_config must be an object")
-
-    @staticmethod
-    def _running_time_calculation_from_parameters(parameters: dict | None) -> dict:
-        return {
-            key: (parameters or {})[key]
-            for key in ExperimentService.RUNNING_TIME_CALCULATION_KEYS
-            if key in (parameters or {})
-        }
-
-    @staticmethod
-    def _merge_running_time_calculation_into_parameters(parameters: dict | None, calculation: dict | None) -> dict:
-        """Replace the legacy calculator keys in `parameters` with the canonical calculation values."""
-        merged = {
-            key: value
-            for key, value in (parameters or {}).items()
-            if key not in ExperimentService.RUNNING_TIME_CALCULATION_KEYS
-        }
-        merged.update(calculation or {})
-        return merged
 
     EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
 
@@ -810,14 +791,9 @@ class ExperimentService:
         self.validate_variant_percentages(parameters)
         self.validate_running_time_calculation(running_time_calculation)
         self.validate_excluded_variants(excluded_variants)
-        # Dual-write during the parameters deprecation window: running_time_calculation is
-        # canonical, but the legacy calculator keys in `parameters` stay in sync for old readers.
-        if running_time_calculation is not None:
-            parameters = self._merge_running_time_calculation_into_parameters(parameters, running_time_calculation)
-        else:
-            running_time_calculation = self._running_time_calculation_from_parameters(parameters)
-        # Same dual-write for excluded_variants: the canonical column wins over legacy
-        # `parameters` when supplied; otherwise derive the column from `parameters`.
+        running_time_calculation = running_time_calculation or {}
+        # Dual-write for excluded_variants during the parameters deprecation window: the canonical
+        # column wins over legacy `parameters` when supplied; otherwise derive the column from `parameters`.
         if excluded_variants is not None:
             parameters = self._merge_excluded_variants_into_parameters(parameters, excluded_variants)
         else:
@@ -2272,25 +2248,9 @@ class ExperimentService:
             feature_flag.active = True
             feature_flag.save()
 
-        # --- running-time calculation dual-write ----------------------------
-        # During the parameters deprecation window, keep running_time_calculation and
-        # the legacy calculator keys in `parameters` in sync. `parameters` is replaced
-        # wholesale on update, so derive the counterpart from whichever side this
-        # update carries (running_time_calculation wins when both are sent).
-        if "running_time_calculation" in update_data:
-            update_data["parameters"] = self._merge_running_time_calculation_into_parameters(
-                update_data.get("parameters", experiment.parameters),
-                update_data["running_time_calculation"],
-            )
-        elif "parameters" in update_data:
-            update_data["running_time_calculation"] = self._running_time_calculation_from_parameters(
-                update_data["parameters"]
-            )
-
         # --- excluded_variants dual-write -----------------------------------
-        # Mirror the canonical excluded_variants column into legacy `parameters`. Runs after the
-        # running-time block so it reads the already-merged `parameters` (they touch disjoint
-        # keys). The column wins when both are sent.
+        # Mirror the canonical excluded_variants column into legacy `parameters`.
+        # The column wins when both are sent.
         if "excluded_variants" in update_data:
             update_data["parameters"] = self._merge_excluded_variants_into_parameters(
                 update_data.get("parameters", experiment.parameters),
@@ -2482,6 +2442,7 @@ class ExperimentService:
             description=source_experiment.description or "",
             type=source_experiment.type or "product",
             parameters=parameters,
+            running_time_calculation=deepcopy(source_experiment.running_time_calculation),
             filters=source_experiment.filters,
             metrics=cloned_metrics,
             metrics_secondary=cloned_metrics_secondary,
@@ -2798,6 +2759,9 @@ class ExperimentService:
                     created_by_display=Coalesce(
                         NullIf(F("created_by__first_name"), Value("")),
                         F("created_by__email"),
+                        # first_name is a CharField and email an EmailField; Django refuses to
+                        # infer a type across the two, so set it explicitly.
+                        output_field=CharField(),
                     )
                 ).order_by(f"{prefix}created_by_display")
             else:

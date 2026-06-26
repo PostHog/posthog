@@ -12,6 +12,7 @@ import csv
 import sys
 import json
 import shlex
+import base64
 import shutil
 import socket
 import functools
@@ -69,6 +70,12 @@ AUTO_START_APP_PARAMETER = "auto_start_app"
 WORKSPACE_REGION_PARAMETER = "workspace_region"
 REGIONS = ("us-east-1", "eu-central-1")
 DEFAULT_REGION = REGIONS[0]
+
+# Immutable, create-time AMI override consumed by `devbox:clone`. A clone boots
+# the new box from a per-clone image captured off the source box's root volume,
+# so the duplicate comes up with that box's full disk state instead of a blank
+# golden AMI. Empty everywhere else.
+BASE_AMI_PARAMETER = "base_ami"
 # Key of the workspace metadata item the template publishes the region back as.
 REGION_METADATA_KEY = "region"
 # Workspace-name suffix per region. us-east-1 is the historical default and
@@ -1230,6 +1237,159 @@ def create_workspace(
     ]
     result = _run_with_param_retry(base_args, parameters, verbose=verbose)
     if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
+# Imaging a tens-of-GiB root volume to an AMI takes a few minutes; allow ample
+# headroom (includes a possible one-time AWS CLI install on older golden AMIs).
+CLONE_IMAGE_TIMEOUT = 1800
+
+# Tag values ride into the AWS CLI tag shorthand; keep them to a safe charset so
+# neither the shorthand parser nor the IAM tag conditions can be subverted.
+_CLONE_TAG_VALUE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_CLONE_READY_RE = re.compile(r"^CLONE_READY=(ami-[0-9a-f]+)$", re.MULTILINE)
+
+# Runs ON the source devbox (over its ssh alias) and images the box's own root
+# volume into a private, tagged AMI the clone boots from. The box authenticates
+# with its instance profile, so no human AWS credentials are involved. The AWS
+# CLI is installed on demand for golden AMIs that predate it. --no-reboot keeps
+# this box running (the clone is driven from a live ssh session) at the cost of
+# a crash-consistent (not application-consistent) image -- quiesce the dev stack
+# first for the latter. __OWNER__/__SOURCE__ are substituted with shell-quoted,
+# validated values before transport.
+_CLONE_IMAGE_SCRIPT = """#!/usr/bin/env bash
+set -euo pipefail
+
+OWNER=__OWNER__
+SOURCE=__SOURCE__
+
+if ! command -v aws >/dev/null 2>&1; then
+  echo "clone: installing AWS CLI on the devbox (one-time)..." >&2
+  sudo apt-get update -qq >/dev/null 2>&1 || true
+  sudo apt-get install -y -qq unzip >/dev/null 2>&1 || true
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscliv2.zip
+  (cd /tmp && unzip -q -o awscliv2.zip && sudo ./aws/install --update)
+  rm -rf /tmp/awscliv2.zip /tmp/aws
+fi
+
+TOKEN=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 120")
+IID=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+REGION=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region)
+
+CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+NAME="posthog-devbox-clone-${OWNER}-$(date +%s)"
+TAGS="{Key=Coder_CloneArtifact,Value=true},{Key=Coder_CloneOwner,Value=${OWNER}},{Key=Coder_CloneSource,Value=${SOURCE}},{Key=Coder_CloneCreatedAt,Value=${CREATED_AT}}"
+
+# Flush dirty pages so the crash-consistent snapshot is as clean as possible.
+sync
+
+AMI=$(aws ec2 create-image --region "$REGION" --instance-id "$IID" --no-reboot --name "$NAME" --description "devbox clone of ${SOURCE} for ${OWNER}" --tag-specifications "ResourceType=image,Tags=[${TAGS},{Key=Name,Value=${NAME}}]" "ResourceType=snapshot,Tags=[${TAGS}]" --query ImageId --output text)
+
+echo "CLONE_AMI=${AMI}"
+echo "clone: baking ${AMI}; waiting for it to become available..." >&2
+aws ec2 wait image-available --region "$REGION" --image-ids "$AMI"
+echo "CLONE_READY=${AMI}"
+"""
+
+
+def _parse_clone_ami(output: str) -> str | None:
+    """Pull the AMI id out of the remote clone script's CLONE_READY line."""
+    match = _CLONE_READY_RE.search(output)
+    return match.group(1) if match else None
+
+
+def create_clone_image(
+    workspace_name: str,
+    *,
+    owner: str,
+    source_label: str,
+    timeout: int = CLONE_IMAGE_TIMEOUT,
+) -> str:
+    """Capture the source devbox's root volume into a tagged AMI; return its id.
+
+    Runs on the box itself over the ssh alias so the capture uses the
+    instance's own profile -- no human AWS credentials. Blocks until the image
+    is ``available`` (a fresh root-volume snapshot of tens of GiB takes a few
+    minutes), then returns the AMI id for :func:`clone_workspace` to boot from.
+    The image is private and reaped by the cloud-infra clone reaper.
+    """
+    if not coder_ssh_alias_configured(workspace_name):
+        _fail(f"ssh alias for '{workspace_name}' is not configured. {RUNTIME_SETUP_HINT}")
+    for value, what in ((owner, "owner"), (source_label, "source")):
+        if not _CLONE_TAG_VALUE_RE.match(value):
+            _fail(f"Refusing to clone: {what} '{value}' has characters unsafe for an AWS tag.")
+
+    script = _CLONE_IMAGE_SCRIPT.replace("__OWNER__", shlex.quote(owner)).replace(
+        "__SOURCE__", shlex.quote(source_label)
+    )
+    encoded = base64.b64encode(script.encode()).decode()
+    try:
+        result = subprocess.run(
+            ["ssh", _ssh_host_alias(workspace_name), f"echo {encoded} | base64 -d | bash"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        _fail(f"Timed out after {timeout}s waiting for the clone image to build.")
+
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        _fail("Failed to capture a clone image from the source devbox.")
+
+    ami = _parse_clone_ami(result.stdout)
+    if ami is None:
+        sys.stderr.write(result.stdout)
+        sys.stderr.write(result.stderr)
+        _fail("Clone image build did not report an AMI id.")
+    return ami
+
+
+def clone_workspace(
+    source: str,
+    target: str,
+    *,
+    base_ami: str,
+    template: str = DEFAULT_TEMPLATE,
+    verbose: bool = False,
+) -> None:
+    """Create ``target`` as a copy of ``source``, booting from the clone AMI.
+
+    ``--copy-parameters-from`` carries the source's parameter values (disk
+    size, region, git identity, ...) so the duplicate matches it; the explicit
+    ``base_ami`` override points the new box at the captured image.
+
+    Unlike create/update, this does NOT go through the param-retry shim: that
+    path silently drops a parameter the template does not declare, which for a
+    clone would boot the golden AMI and present a blank box as a successful
+    clone. If ``base_ami`` is rejected, the template predates the clone change
+    and we fail loudly instead.
+    """
+    # --preset none is required: newer Coder shows an interactive preset picker
+    # that --yes does not bypass, which would hang clone_workspace. The source's
+    # own parameters arrive via --copy-parameters-from, so no preset is wanted.
+    args = _append_parameter_flags(
+        [
+            "coder",
+            "create",
+            target,
+            "--template",
+            template,
+            "--preset",
+            NO_PRESET,
+            "--copy-parameters-from",
+            source,
+            "--yes",
+        ],
+        {BASE_AMI_PARAMETER: base_ami},
+    )
+    result = _run_build(args, verbose=verbose)
+    if result.returncode != 0:
+        if _PARAM_NOT_PRESENT_RE.search(result.stdout or ""):
+            _fail(
+                f"This Coder template does not accept '{BASE_AMI_PARAMETER}', so it cannot be "
+                "cloned. Deploy the cloud-infra devbox-clone template change first."
+            )
         raise SystemExit(result.returncode)
 
 

@@ -1,5 +1,5 @@
 {
-    "model": "anthropic/claude-sonnet-4-6",
+    "models": { "mode": "auto", "level": "high" },
     "reasoning": "high",
     "triggers": [
         {
@@ -220,8 +220,9 @@
                 "agent-applications-revisions-clone-from-create",
                 "agent-applications-revisions-partial-update",
                 "agent-applications-revisions-agent-md-update",
-                "agent-applications-revisions-skills-update",
-                "agent-applications-revisions-skills-destroy",
+                "agent-applications-revisions-skill-refs-set",
+                "llm-skills-search",
+                "llm-skills-create",
                 "agent-applications-revisions-tools-update",
                 "agent-applications-revisions-tools-destroy",
                 "agent-applications-revisions-spec-update",
@@ -238,6 +239,7 @@
                 "agent-applications-env-keys-get",
                 "agent-native-tools-list",
                 "agent-resolve-resource",
+                "agent-applications-models",
                 "execute-sql",
                 "insight-query",
                 "get-llm-total-costs-for-project",
@@ -348,7 +350,6 @@
             "description": "Hard rules \u2014 what the Agent Builder MUST NOT do regardless of user request. Load IMMEDIATELY if a request feels like it crosses into raw-secret handling, unprompted promotion, irreversible deletion, or impersonation of another user."
         }
     ],
-    "integrations": [],
     "identity_providers": [
         {
             "kind": "posthog",

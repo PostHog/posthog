@@ -33,13 +33,14 @@ import { ChartDisplayType } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
+import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
 import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { useTrendsLegendConfig } from '../shared/useTrendsLegendConfig'
+import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
@@ -90,7 +91,7 @@ export function TrendsBarChart({
 
     // Time-series bars (vertical) render the in-chart legend; the aggregated bar-value layout has
     // no legend (each bar is a breakdown row, not a series).
-    const legendConfig = useTrendsLegendConfig({ insightProps, inSharedMode })
+    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
 
     const {
         indexedResults,
@@ -150,6 +151,16 @@ export function TrendsBarChart({
         [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
+    const getLabel = useCallback(
+        (r: IndexedTrendResult): string =>
+            getTrendsSeriesDisplayLabel(r, {
+                breakdownFilter,
+                cohorts: allCohorts?.results,
+                formatPropertyValueForDisplay,
+            }),
+        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+    )
+
     const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -165,6 +176,7 @@ export function TrendsBarChart({
             // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
             // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
             getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+            getLabel,
             buildMeta: buildTrendsSeriesMeta,
             showMultipleYAxes: applyMultipleYAxes,
         })
@@ -181,6 +193,7 @@ export function TrendsBarChart({
         currentPeriodResult?.labels,
         stackBreakdowns,
         getAggregatedDisplayLabel,
+        getLabel,
         applyMultipleYAxes,
         quillLegendEnabled,
     ])

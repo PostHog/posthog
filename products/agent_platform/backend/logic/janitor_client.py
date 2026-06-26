@@ -170,6 +170,7 @@ class JanitorClient:
         agent_user_id: str | None = None,
         created_after: str | None = None,
         created_before: str | None = None,
+        search: str | None = None,
     ) -> dict:
         params: dict[str, Any] = {"application_id": application_id}
         if limit is not None:
@@ -188,6 +189,8 @@ class JanitorClient:
             params["created_after"] = created_after
         if created_before:
             params["created_before"] = created_before
+        if search:
+            params["search"] = search
         return self._call("GET", "/sessions", params=params)
 
     def get_session(self, session_id: str, *, last_n: int | None = None) -> dict:
@@ -199,6 +202,11 @@ class JanitorClient:
     # ── fleet stats ────────────────────────────────────────────────────────
     # Roll-up endpoints powering the fleet overview tiles. The
     # janitor side owns the JSONB read so Django doesn't reach across DBs.
+
+    def get_models(self) -> dict:
+        """The served-model catalog + curated auto-level map. Project-agnostic
+        (the gateway catalog is global), so no params."""
+        return self._call("GET", "/models")
 
     def aggregate_for_application(self, application_id: str, *, since: str | None = None) -> dict:
         params: dict[str, Any] = {"application_id": application_id}
