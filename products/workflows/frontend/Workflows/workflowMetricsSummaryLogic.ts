@@ -12,8 +12,14 @@ import {
 import { dayjs } from 'lib/dayjs'
 
 import { isEmailAction } from './hogflows/steps/types'
-import { EXIT_NODE_ID, workflowLogic } from './workflowLogic'
+import { workflowLogic } from './workflowLogic'
 import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLogicType'
+
+// The run-level "succeeded" metric is emitted once per run that finishes successfully, with an
+// empty instance_id — for ANY terminal path, including early exits (e.g. exiting on conversion).
+// Filtering on it (rather than the exit node's succeeded) makes "Completed" count converted /
+// early-exited runs too, and keeps "In progress" from treating those finished runs as still live.
+const RUN_LEVEL_INSTANCE_ID = ''
 
 export type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed' | 'converted'
 export type EmailMetric =
@@ -65,7 +71,7 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
     completed: {
         name: 'Completed',
         description:
-            'Total number of workflow runs completed. This may include runs that began before the selected date range but completed within it.',
+            'Total number of workflow runs that finished — whether they reached the end of the workflow or exited early (for example, by meeting the conversion goal on an exit-on-conversion workflow). This may include runs that began before the selected date range but finished within it.',
         color: getColorVar('success'),
         metricNames: ['succeeded'],
     },
@@ -173,21 +179,21 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 'getDateRangeAbsolute',
             ],
             appMetricsLogic({
-                logicKey: `workflow-exit-node-completed-${props.appSourceId ?? props.id}`,
+                logicKey: `workflow-completed-${props.appSourceId ?? props.id}`,
                 loadOnMount: true,
                 loadOnChanges: true,
                 forceParams: {
                     appSource: 'hog_flow',
                     appSourceId: props.appSourceId ?? props.id,
-                    instanceId: EXIT_NODE_ID,
+                    instanceId: RUN_LEVEL_INSTANCE_ID,
                     metricName: 'succeeded',
                     breakdownBy: 'metric_name' as const,
                 },
             }),
             [
-                'appMetricsTrendsLoading as exitNodeCompletedLoading',
-                'appMetricsTrends as exitNodeCompletedTrends',
-                'getSingleTrendSeries as getExitNodeSingleTrendSeries',
+                'appMetricsTrendsLoading as completedLoading',
+                'appMetricsTrends as completedTrends',
+                'getSingleTrendSeries as getCompletedSingleTrendSeries',
             ],
         ],
         actions: [appMetricsLogic({ logicKey: props.logicKey }), ['setParams', 'loadAppMetricsTrendsSuccess']],
@@ -264,12 +270,12 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     const triggeredResponse = await loadAppMetricsTotals(request, timezone)
                     await breakpoint(10)
 
-                    const exitRequest: AppMetricsTotalsRequest = {
+                    const completedRequest: AppMetricsTotalsRequest = {
                         ...request,
-                        instanceId: EXIT_NODE_ID,
+                        instanceId: RUN_LEVEL_INSTANCE_ID,
                         metricName: ['succeeded'],
                     }
-                    const completedResponse = await loadAppMetricsTotals(exitRequest, timezone)
+                    const completedResponse = await loadAppMetricsTotals(completedRequest, timezone)
                     await breakpoint(10)
 
                     const triggered = Object.values(triggeredResponse).reduce((sum, r) => sum + r.total, 0)
@@ -281,9 +287,9 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
     })),
     selectors({
         loading: [
-            (s) => [s.appMetricsTrendsLoading, s.exitNodeCompletedLoading],
-            (appMetricsTrendsLoading: boolean, exitNodeCompletedLoading: boolean) =>
-                appMetricsTrendsLoading || exitNodeCompletedLoading,
+            (s) => [s.appMetricsTrendsLoading, s.completedLoading],
+            (appMetricsTrendsLoading: boolean, completedLoading: boolean) =>
+                appMetricsTrendsLoading || completedLoading,
         ],
 
         emailActions: [(s) => [s.workflow], (workflow) => workflow.actions.filter(isEmailAction)],
@@ -317,23 +323,23 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         workflowSummaryTrends: [
             (s) => [
                 s.appMetricsTrends,
-                s.exitNodeCompletedTrends,
+                s.completedTrends,
                 s.metricNameBySummaryMetric,
-                s.getExitNodeSingleTrendSeries,
+                s.getCompletedSingleTrendSeries,
             ],
             (
                 appMetricsTrends,
-                exitNodeCompletedTrends,
+                completedTrends,
                 metricNameBySummaryMetric,
-                getExitNodeSingleTrendSeries
+                getCompletedSingleTrendSeries
             ): AppMetricsTimeSeriesResponse | null => {
-                if (!appMetricsTrends && !exitNodeCompletedTrends) {
+                if (!appMetricsTrends && !completedTrends) {
                     return null
                 }
 
-                const labels = appMetricsTrends?.labels ?? exitNodeCompletedTrends?.labels ?? []
+                const labels = appMetricsTrends?.labels ?? completedTrends?.labels ?? []
                 const completedValues =
-                    getExitNodeSingleTrendSeries('succeeded')?.series[0]?.values ??
+                    getCompletedSingleTrendSeries('succeeded')?.series[0]?.values ??
                     Array.from({ length: labels.length }, () => 0)
 
                 return {
@@ -389,11 +395,11 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
 
     listeners(({ actions, values, props }) => ({
         setParams: () => {
-            // Sync date/interval params to the exit node logic
-            const exitNodeLogic = appMetricsLogic({
-                logicKey: `workflow-exit-node-completed-${props.appSourceId ?? props.id}`,
+            // Sync date/interval params to the completed (run-level succeeded) logic
+            const completedLogic = appMetricsLogic({
+                logicKey: `workflow-completed-${props.appSourceId ?? props.id}`,
             })
-            exitNodeLogic.actions.setParams({
+            completedLogic.actions.setParams({
                 interval: values.params.interval,
                 dateFrom: values.params.dateFrom,
                 dateTo: values.params.dateTo,

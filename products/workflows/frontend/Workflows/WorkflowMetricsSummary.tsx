@@ -26,7 +26,7 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
         summaryMetricKeys,
         metricNameBySummaryMetric,
         getSingleTrendSeries,
-        getExitNodeSingleTrendSeries,
+        getCompletedSingleTrendSeries,
         inProgressTotal,
         inProgressTotalLoading,
         workflowSummaryTrends,
@@ -110,12 +110,12 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
                     const metricName = metricNameBySummaryMetric[summaryMetric]
                     const timeSeries =
                         summaryMetric === 'completed'
-                            ? withDisplayName(getExitNodeSingleTrendSeries('succeeded'), metric.name)
+                            ? withDisplayName(getCompletedSingleTrendSeries('succeeded'), metric.name)
                             : withDisplayName(getSingleTrendSeries(metricName), metric.name)
 
                     const previousPeriodTimeSeries =
                         summaryMetric === 'completed'
-                            ? withDisplayName(getExitNodeSingleTrendSeries('succeeded', true), metric.name)
+                            ? withDisplayName(getCompletedSingleTrendSeries('succeeded', true), metric.name)
                             : withDisplayName(getSingleTrendSeries(metricName, true), metric.name)
 
                     return (
