@@ -155,6 +155,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
             models.Index(fields=["archived"], name="posthog_task_archived_idx"),
+            models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
+            models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
         ]
 
     def __str__(self):
@@ -252,11 +254,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
     @property
     def latest_run(self) -> Optional["TaskRun"]:
-        # Use .all() which respects prefetch_related cache, then sort in Python
-        # This avoids N+1 queries when tasks are loaded with prefetch_related("runs")
-        runs = list(self.runs.all())
+        runs = [run for run in self.runs.all() if run.team_id == self.team_id]
         if runs:
-            return max(runs, key=lambda r: r.created_at)
+            return max(runs, key=lambda r: (r.created_at, r.id))
         return None
 
     def _assign_task_number(self) -> None:
@@ -790,6 +790,12 @@ class TaskRun(models.Model):
             # Time-range scans over runs (default ordering, recent-runs lookups, and the
             # signals outcome-billing query that buckets PR runs into a period).
             models.Index(fields=["created_at"], name="task_run_created_at_idx"),
+            models.Index(fields=["task", "-created_at", "-id"], name="task_run_task_created_idx"),
+            models.Index(
+                fields=["team", "stage", "task"],
+                name="task_run_team_stage_task_idx",
+                condition=models.Q(stage__isnull=False),
+            ),
         ]
 
     def __str__(self):

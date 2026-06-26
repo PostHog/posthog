@@ -42,7 +42,6 @@ def _base_spec() -> dict[str, Any]:
         "integrations": [],
         "secrets": [],
         "limits": {"max_turns": 10, "max_tool_calls": 20, "max_wall_seconds": 60},
-        "entrypoint": "agent.md",
     }
 
 

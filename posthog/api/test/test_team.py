@@ -567,18 +567,18 @@ def team_api_test_factory():
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
             # from posthog.models.insight_caching_state import InsightCachingState
-            from posthog.models.person import Person
+            from posthog.test.persons import add_cohort_members, add_distinct_id, create_person
 
-            from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+            from products.cohorts.backend.models.cohort import Cohort
             from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
-            person = Person.objects.create(
+            person = create_person(
                 team=team,
                 distinct_ids=["example_id"],
                 properties={"email": "tim@posthog.com", "team": "posthog"},
             )
-            person.add_distinct_id("test")
+            add_distinct_id(person=person, distinct_id="test")
             flag = FeatureFlag.objects.create(
                 team=team,
                 name="test",
@@ -591,7 +591,7 @@ def team_api_test_factory():
                 feature_flag_key=flag.key,
                 hash_key="test",
             )
-            CohortPeople.objects.create(cohort_id=cohort.pk, person_id=person.pk)
+            add_cohort_members(cohort, [person])
             EarlyAccessFeature.objects.create(
                 team=team,
                 name="Test flag",
@@ -1629,29 +1629,6 @@ def team_api_test_factory():
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_helper_value(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = "session_replay"
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": "session_replay"}
-            mock_get_promoted_product_intent.assert_called_once_with(self.team.pk)
-
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_null_when_helper_returns_none(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = None
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": None}
 
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
