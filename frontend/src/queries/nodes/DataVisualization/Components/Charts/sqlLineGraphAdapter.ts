@@ -454,7 +454,10 @@ export function buildBarChartConfig({
         barLayout,
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
-        tooltip: { enabled: true, pinnable: true, placement: 'cursor', ...(labelFormatter ? { labelFormatter } : {}) },
+        tooltip: {
+            ...buildSqlTooltipConfig(chartSettings, ySeriesData),
+            ...(labelFormatter ? { labelFormatter } : {}),
+        },
     }
 }
 

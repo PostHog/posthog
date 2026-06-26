@@ -127,6 +127,11 @@ export function DefaultTooltip<Meta = unknown>({
                             data-attr="hog-chart-tooltip-row"
                             data-closest={isClosest ? 'true' : undefined}
                             className={`flex items-center gap-2 min-w-0${isClosest ? ' font-semibold' : ''}`}
+                            style={
+                                isClosest
+                                    ? { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '4px' }
+                                    : undefined
+                            }
                         >
                             <TooltipSwatch color={s.color} />
                             <span data-attr="hog-chart-tooltip-series" className="flex-1 min-w-0 truncate">
