@@ -8,7 +8,6 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from loginas.utils import is_impersonated_session
@@ -44,6 +43,7 @@ from posthog.models.group_type_mapping import (
 )
 from posthog.models.user import User
 from posthog.personhog_client.converters import GroupTypeMappingResult
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
@@ -441,10 +441,18 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         request_data = CreateGroupSerializer(data=request.data)
         request_data.is_valid(raise_exception=True)
 
+        group_key = request_data.validated_data["group_key"]
+        group_type_index = request_data.validated_data["group_type_index"]
+
+        # Personhog upserts on duplicate (team, group_type_index, group_key) instead
+        # of raising, so reject duplicates up front to preserve the 400 contract.
+        if get_group_by_key(self.team.pk, group_type_index, group_key) is not None:
+            raise ValidationError({"detail": "A group with this key already exists"})
+
         try:
             group = create_group(
-                group_key=request_data.validated_data["group_key"],
-                group_type_index=request_data.validated_data["group_type_index"],
+                group_key=group_key,
+                group_type_index=group_type_index,
                 properties=request_data.validated_data["group_properties"],
                 team_id=self.team.pk,
                 timestamp=timezone.now(),
@@ -863,7 +871,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             )
 
     def _is_crm_enabled(self, user: User) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "crm-iteration-one",
             str(user.distinct_id),
             groups={"organization": str(self.team.organization.id)},
@@ -974,7 +982,7 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
             raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
 
     def _validate_data_warehouse(self, filters: dict, math, math_property):
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         missing = [field for field in _DW_FILTER_REQUIRED_FIELDS if not filters.get(field)]
         if missing:

@@ -5,12 +5,14 @@
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
     (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             breakdown AS final_prop
      FROM
@@ -66,12 +68,14 @@
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
     (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             breakdown AS final_prop
      FROM
@@ -138,6 +142,7 @@
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_2_conversion_times)])[1] AS step_2_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
@@ -146,6 +151,7 @@
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 4), 0), 1)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 2), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             breakdown AS final_prop
      FROM
@@ -285,6 +291,7 @@
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_2_conversion_times)])[1] AS step_2_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
@@ -293,6 +300,7 @@
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 4), 0), 1)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 2), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             breakdown AS final_prop
      FROM
@@ -368,12 +376,14 @@
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
     (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             breakdown AS final_prop
      FROM
@@ -442,6 +452,7 @@
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_2_conversion_times)])[1] AS step_2_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
@@ -450,6 +461,7 @@
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 4), 0), 1)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 2), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             breakdown AS final_prop
      FROM
@@ -741,16 +753,28 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_static_cohort_step_filter
   '''
+  SELECT person_id
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000001']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestFOSSFunnelUDF.test_funnel_with_static_cohort_step_filter.1
+  '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
     (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             breakdown AS final_prop
      FROM
@@ -816,12 +840,14 @@
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
     (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             breakdown AS final_prop
      FROM
@@ -884,12 +910,14 @@
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
     (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             if(less(row_number, 25), breakdown, ['Other']) AS final_prop
      FROM
@@ -954,12 +982,14 @@
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
     (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             if(less(row_number, 25), breakdown, ['Other']) AS final_prop
      FROM
@@ -1024,12 +1054,14 @@
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
     (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 1), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             if(less(row_number, 25), breakdown, ['Other']) AS final_prop
      FROM
@@ -1097,6 +1129,7 @@
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_2_conversion_times)])[1] AS step_2_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
@@ -1105,6 +1138,7 @@
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 4), 0), 1)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 2), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             if(less(row_number, 25), breakdown, 'Other') AS final_prop
      FROM
@@ -1176,6 +1210,7 @@
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_2_conversion_times)])[1] AS step_2_median_conversion_time,
+         max(total_median_conversion_time) AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
@@ -1184,6 +1219,8 @@
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 4), 0), 1)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 2), 0)) AS total_conversion_times,
+            arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(total_conversion_times) OVER ()))])[1] AS total_median_conversion_time,
             rowNumberInAllBlocks() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
@@ -1254,6 +1291,7 @@
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_2_conversion_times)])[1] AS step_2_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] AS total_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
@@ -1262,6 +1300,7 @@
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 4), 0), 1)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
             groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
+            groupArrayIf(arraySum(timings), ifNull(greaterOrEquals(step_reached, 2), 0)) AS total_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             if(less(row_number, 25), breakdown, 'Other') AS final_prop
      FROM

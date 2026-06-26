@@ -259,6 +259,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "organization_id",
             "person",
             "tags",
         ]
@@ -286,6 +287,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "organization_id",
             "person",
             "ai_triage",
         ]
@@ -294,6 +296,9 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
+            "organization_id": {
+                "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
+            },
             "ai_triage": {
                 "help_text": "AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.)."
             },
@@ -468,6 +473,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude_list[:MAX_TAG_FILTER_VALUES])
             except json.JSONDecodeError:
                 pass
+
+        ai_triage_result_param = self.request.query_params.get("ai_triage_result")
+        if ai_triage_result_param:
+            valid_results = {
+                "persisted",
+                "escalated_with_best",
+                "escalated_no_reply",
+                "skipped_unactionable",
+                "blocked_unsafe",
+                "blocked_unsafe_reply",
+                "in_progress",
+            }
+            results = {r.strip() for r in ai_triage_result_param.split(",") if r.strip() in valid_results}
+            if results:
+                q = Q()
+                normal_results = results - {"in_progress"}
+                if normal_results:
+                    q |= Q(ai_triage__result__in=normal_results)
+                if "in_progress" in results:
+                    q |= Q(ai_triage__status="in_progress")
+                queryset = queryset.filter(q)
 
         allowed_orderings = {
             "updated_at",

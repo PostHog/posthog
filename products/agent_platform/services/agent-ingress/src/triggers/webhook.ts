@@ -39,7 +39,6 @@ async function webhookHandler(ctx: AuthedRouteCtx<z.infer<typeof WebhookBodySche
             principal: sessionPrincipal,
             trigger: 'webhook',
             requesterDisplay: principalDisplay(sessionPrincipal),
-            isPreview: resolved.isPreview,
         }
     )
     if (outcome.kind === 'elevation_required') {

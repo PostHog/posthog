@@ -342,7 +342,7 @@ export const SignalsScoutConfigCreateParams = /* @__PURE__ */ zod.object({
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
-export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 10
+export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
 export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
@@ -365,7 +365,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .min(signalsScoutConfigCreateBodyRunIntervalMinutesMin)
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
-            .describe('Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).'),
+            .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
@@ -384,7 +384,7 @@ export const SignalsScoutConfigUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 10
+export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
@@ -405,7 +405,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
             .optional()
             .describe(
-                'Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.'
+                'Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.'
             ),
     })
     .describe(
@@ -645,7 +645,7 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
 
 /**
- * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 500.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
@@ -658,7 +658,7 @@ export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
 
 export const signalsScoutScratchpadSearchQueryContentMaxCharsMin = 0
 
-export const signalsScoutScratchpadSearchQueryLimitMax = 100
+export const signalsScoutScratchpadSearchQueryLimitMax = 500
 
 export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.object({
     content_max_chars: zod
@@ -667,6 +667,16 @@ export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.objec
         .optional()
         .describe(
             "Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`."
+        ),
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry from the prior page).'
         ),
     keys_only: zod
         .boolean()
@@ -679,7 +689,7 @@ export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.objec
         .min(1)
         .max(signalsScoutScratchpadSearchQueryLimitMax)
         .optional()
-        .describe('Max rows to return (default 20, hard cap 100).'),
+        .describe('Max rows to return (default 20, hard cap 500).'),
     text: zod
         .string()
         .optional()
@@ -707,7 +717,9 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
         key: zod
             .string()
             .max(signalsScoutScratchpadRememberBodyKeyMax)
-            .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
+            .describe(
+                "Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key and keep the timestamp in `content`."
+            ),
         content: zod
             .string()
             .max(signalsScoutScratchpadRememberBodyContentMax)

@@ -487,7 +487,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "signal_scout"
-    # `list` returns a raw newest-first array (capped at limit=100 by the query serializer),
+    # `list` returns a raw newest-first array (capped at limit=500 by the query serializer),
     # not a paginated wrapper. See SignalScoutRunViewSet for the same rationale.
     pagination_class = None
 
@@ -510,22 +510,28 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Search the scout scratchpad",
         description=(
-            "Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`. "
-            "Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to "
-            "cap each `content` to a preview — both keep a wide orientation scan from returning every "
-            "entry's full prose."
+            "Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` "
+            "and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
+            "`< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls "
+            "to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
+            "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
+            "from returning every entry's full prose. Results capped at 500."
         ),
         operation_id="signals_scout_scratchpad_search",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
         text = validated.get("text") or None
+        date_from = validated.get("date_from")
+        date_to = validated.get("date_to")
         keys_only = bool(validated.get("keys_only", False))
         content_max_chars = validated.get("content_max_chars")
         limit = validated.get("limit") or 20
         rows = search_scratchpad(
             team_id=_canonical_team_id(self),
             text=text,
+            date_from=date_from,
+            date_to=date_to,
             limit=limit,
             keys_only=keys_only,
             content_max_chars=content_max_chars,
