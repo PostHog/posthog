@@ -127,8 +127,11 @@ def evaluate_conversions(ctx: EvalContext) -> int:
     per_action_totals = [0] * len(actions)
     for team in _project_environment_teams(ctx.team):
         query = parse_select(
-            "SELECT 1 FROM events WHERE timestamp >= now() - toIntervalDay({days})",
-            placeholders={"days": ast.Constant(value=CONVERSIONS_LOOKBACK_DAYS)},
+            "SELECT 1 FROM events WHERE and(timestamp >= now() - toIntervalDay({days}), {test})",
+            placeholders={
+                "days": ast.Constant(value=CONVERSIONS_LOOKBACK_DAYS),
+                "test": _test_account_filter_expr(team),
+            },
         )
         if not isinstance(query, ast.SelectQuery):
             raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
