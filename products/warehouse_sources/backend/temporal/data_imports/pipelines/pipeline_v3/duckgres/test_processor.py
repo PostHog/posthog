@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor import (
     DuckgresColumn,
+    _duckgres_worker_profile_options,
     _ensure_duckgres_apply_table,
     _insert_batch,
     _mark_duckgres_batch_applied,
@@ -449,3 +450,32 @@ def test_duckgres_apply_marker_is_scoped_by_schema_id() -> None:
         2,
         "00000000-0000-0000-0000-000000000001",
     ]
+
+
+_PROFILE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor"
+
+
+@pytest.mark.parametrize(
+    "enabled,expected",
+    [
+        (True, "-c duckgres.colocate=true -c duckgres.worker_cpu=8 -c duckgres.worker_memory=48Gi"),
+        (False, ""),
+    ],
+)
+def test_duckgres_worker_profile_options_gating(enabled: bool, expected: str):
+    # Guards the colocated-worker startup options: if the gate inverts or the GUC
+    # keys/size drift, imports silently fall back to the big exclusive workers
+    # (the regression this change fixes) or send malformed options.
+    with patch(f"{_PROFILE_MODULE}.DUCKGRES_WORKER_PROFILE_ENABLED", enabled):
+        assert _duckgres_worker_profile_options() == expected
+
+
+def test_duckgres_worker_profile_options_honors_size_overrides():
+    with (
+        patch(f"{_PROFILE_MODULE}.DUCKGRES_WORKER_PROFILE_ENABLED", True),
+        patch(f"{_PROFILE_MODULE}.DUCKGRES_IMPORT_COLOCATE_CPU", "16"),
+        patch(f"{_PROFILE_MODULE}.DUCKGRES_IMPORT_COLOCATE_MEMORY", "64Gi"),
+    ):
+        assert _duckgres_worker_profile_options() == (
+            "-c duckgres.colocate=true -c duckgres.worker_cpu=16 -c duckgres.worker_memory=64Gi"
+        )
