@@ -155,7 +155,7 @@ def _with_auth(spec: dict) -> dict:
         (
             "external_mcp_connection_backed",
             {
-                "model": "test/x",
+                "models": {"mode": "manual", "models": [{"model": "test/x"}]},
                 "mcps": [
                     {
                         "id": "incident",
@@ -172,7 +172,7 @@ def _with_auth(spec: dict) -> dict:
         (
             "external_mcp_default_tool_approval_and_overrides",
             {
-                "model": "test/x",
+                "models": {"mode": "manual", "models": [{"model": "test/x"}]},
                 "mcps": [
                     {
                         "id": "incident",
@@ -354,7 +354,7 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         (
             "external_mcp_bad_default_tool_approval",
             {
-                "model": "test/x",
+                "models": {"mode": "manual", "models": [{"model": "test/x"}]},
                 "mcps": [
                     {
                         "id": "incident",
@@ -369,7 +369,7 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         (
             "external_mcp_bad_tool_level",
             {
-                "model": "test/x",
+                "models": {"mode": "manual", "models": [{"model": "test/x"}]},
                 "mcps": [
                     {
                         "id": "incident",
