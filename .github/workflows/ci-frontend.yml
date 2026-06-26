@@ -330,23 +330,25 @@ jobs:
             - name: Prepare frontend
               run: bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Check formatting with oxfmt
-              run: pnpm run format:frontend:check
+            # These linters are independent and read-only — run them concurrently.
+            - parallel:
+                  - name: Check formatting with oxfmt
+                    run: pnpm run format:frontend:check
 
-            - name: Lint with Stylelint
-              run: pnpm run lint:css
+                  - name: Lint with Stylelint
+                    run: pnpm run lint:css
 
-            - name: Lint with Oxlint
-              run: pnpm exec oxlint --quiet
+                  - name: Lint with Oxlint
+                    run: pnpm exec oxlint --quiet
 
-            - name: Check markdown formatting with oxfmt
-              run: pnpm exec oxfmt --check "**/*.{md,mdx}"
+                  - name: Check markdown formatting with oxfmt
+                    run: pnpm exec oxfmt --check "**/*.{md,mdx}"
 
-            - name: Check YAML formatting with oxfmt
-              run: pnpm exec oxfmt --check "**/*.{yaml,yml}"
+                  - name: Check YAML formatting with oxfmt
+                    run: pnpm exec oxfmt --check "**/*.{yaml,yml}"
 
-            - name: Lint markdown files
-              run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
+                  - name: Lint markdown files
+                    run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
 
     frontend-bundle-size:
         name: Frontend bundle size

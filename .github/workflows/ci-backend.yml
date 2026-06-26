@@ -665,60 +665,65 @@ jobs:
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure
 
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
-                  skip-token-revoke: true
+            # Docker is already starting in the background (launch --background above).
+            # Run the independent installs concurrently while it warms up. The steps that
+            # depend on these (SAML needs uv's cache-hit output, sqlx-cli needs cargo,
+            # python deps need python+uv) stay sequential after the block.
+            - parallel:
+                  - name: Mint setup-action GitHub token
+                    id: setup-gh-token
+                    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+                    continue-on-error: true
+                    uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+                    with:
+                        client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                        private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                        skip-token-revoke: true
 
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  - name: Install pnpm dependencies
+                    uses: ./.github/actions/pnpm-install
+                    with:
+                        install-command: pnpm install --frozen-lockfile --filter=@posthog/root
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: 3.13.13
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  - name: Set up Python
+                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+                    with:
+                        python-version: 3.13.13
+                        token: ${{ secrets.POSTHOG_BOT_PAT }}
 
-            - name: Install uv
-              id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  - name: Install uv
+                    id: setup-uv
+                    uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+                    with:
+                        version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                        enable-cache: true
+                        cache-dependency-glob: uv.lock
+                        save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+                  - name: Install Rust
+                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+                    with:
+                        toolchain: 1.91.1
+                        components: cargo
+
+                  - name: Add service hostnames to /etc/hosts
+                    run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
+
+                  - name: Set up needed files
+                    run: |
+                        mkdir -p frontend/dist
+                        touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
+                        ./bin/download-mmdb
 
             - name: Install SAML dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Add service hostnames to /etc/hosts
-              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
-
-            - name: Set up needed files
-              run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
-                  ./bin/download-mmdb
 
             - name: Wait for Docker services
               env:
@@ -872,23 +877,26 @@ jobs:
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
 
-            - name: Lint product structure
-              run: ./bin/hogli product:lint --all
+            # All read-only static checks over the (now-stable) tree — run concurrently.
+            # Bootstrap above must finish first since "Lint product structure" lints the scaffold.
+            - parallel:
+                  - name: Lint product structure
+                    run: ./bin/hogli product:lint --all
 
-            - name: Check version specifiers
-              run: python .github/scripts/check-version-specifiers.py
+                  - name: Check version specifiers
+                    run: python .github/scripts/check-version-specifiers.py
 
-            - name: Check IDOR model coverage
-              run: python .github/scripts/check-idor-model-coverage.py
+                  - name: Check IDOR model coverage
+                    run: python .github/scripts/check-idor-model-coverage.py
 
-            - name: Check operator parity
-              run: python .github/scripts/check-operator-parity.py
+                  - name: Check operator parity
+                    run: python .github/scripts/check-operator-parity.py
 
-            - name: Check module boundaries (tach)
-              run: tach check --dependencies --interfaces
+                  - name: Check module boundaries (tach)
+                    run: tach check --dependencies --interfaces
 
-            - name: Check product facade enforcement (import-linter)
-              run: lint-imports
+                  - name: Check product facade enforcement (import-linter)
+                    run: lint-imports
 
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.

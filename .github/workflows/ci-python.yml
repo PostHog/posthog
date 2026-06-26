@@ -177,20 +177,23 @@ jobs:
               run: |
                   ./bin/hogli meta:check
 
-            - name: Run hogli framework tests
-              shell: bash
-              run: |
-                  pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
+            # Independent test suites over separate trees — run concurrently. Each writes
+            # its own junit file, so the upload step below still finds all of them.
+            - parallel:
+                  - name: Run hogli framework tests
+                    shell: bash
+                    run: |
+                        pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
 
-            - name: Run hogli extension tests
-              shell: bash
-              run: |
-                  pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
+                  - name: Run hogli extension tests
+                    shell: bash
+                    run: |
+                        pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
 
-            - name: Run query-performance-ai tests
-              shell: bash
-              run: |
-                  pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
+                  - name: Run query-performance-ai tests
+                    shell: bash
+                    run: |
+                        pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

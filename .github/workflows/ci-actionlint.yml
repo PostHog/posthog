@@ -44,9 +44,16 @@ jobs:
               # are too noisy.
               env:
                   SHELLCHECK_OPTS: --severity=error
+              # The pinned actionlint predates GitHub's parallel-steps feature, so it flags
+              # the new step keys (parallel/background/wait/wait-all/cancel) as unexpected.
+              # Suppress only those messages until a release with native support is pinned.
+              # Remove these -ignore patterns once ACTIONLINT_VERSION understands the keys.
               run: |
                   set -euo pipefail
-                  ./.bin/actionlint -format '{{json .}}' > actionlint.json
+                  ./.bin/actionlint -format '{{json .}}' \
+                      -ignore 'unexpected key "(parallel|background|wait|wait-all|cancel)" for "step"' \
+                      -ignore '"(parallel|background|wait|wait-all|cancel)" (section|is) ' \
+                      > actionlint.json
 
             - name: Summarize findings
               if: always()

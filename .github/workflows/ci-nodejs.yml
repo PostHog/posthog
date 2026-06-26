@@ -238,28 +238,40 @@ jobs:
                   COMPOSE_PROFILES: dev_tools,localstack
               run: bin/ci-wait-for-docker wait
 
-            - name: Add service hostnames to /etc/hosts
-              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+            # Independent setup — run concurrently. sqlx-cli (needs cargo), SAML (needs uv's
+            # cache-hit output + apt) and the python deps sync (needs python+uv) stay sequential after.
+            - parallel:
+                  - name: Add service hostnames to /etc/hosts
+                    run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version-file: 'pyproject.toml'
-                  token: ${{ github.token }}
+                  - name: Set up Python
+                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+                    with:
+                        python-version-file: 'pyproject.toml'
+                        token: ${{ github.token }}
 
-            - name: Install uv
-              id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  - name: Install uv
+                    id: setup-uv
+                    uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+                    with:
+                        version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                        enable-cache: true
+                        cache-dependency-glob: uv.lock
+                        save-cache: ${{ github.ref == 'refs/heads/master' }}
 
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
+                  - name: Install rust
+                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+                    with:
+                        toolchain: 1.91.1
+
+                  - name: Download MaxMind Database
+                    run: |
+                        ./bin/download-mmdb
+
+                  - name: Install pnpm dependencies
+                    uses: ./.github/actions/pnpm-install
+                    with:
+                        install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -273,15 +285,6 @@ jobs:
             - name: Install python dependencies
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Download MaxMind Database
-              run: |
-                  ./bin/download-mmdb
-
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
             - name: Wait for Clickhouse, Redis, Kafka, Localstack
               run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
@@ -429,28 +432,40 @@ jobs:
                   COMPOSE_PROFILES: dev_tools,localstack
               run: bin/ci-wait-for-docker wait
 
-            - name: Add service hostnames to /etc/hosts
-              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+            # Independent setup — run concurrently. sqlx-cli (needs cargo), SAML (needs uv's
+            # cache-hit output + apt) and the python deps sync (needs python+uv) stay sequential after.
+            - parallel:
+                  - name: Add service hostnames to /etc/hosts
+                    run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version-file: 'pyproject.toml'
-                  token: ${{ github.token }}
+                  - name: Set up Python
+                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+                    with:
+                        python-version-file: 'pyproject.toml'
+                        token: ${{ github.token }}
 
-            - name: Install uv
-              id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  - name: Install uv
+                    id: setup-uv
+                    uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+                    with:
+                        version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                        enable-cache: true
+                        cache-dependency-glob: uv.lock
+                        save-cache: ${{ github.ref == 'refs/heads/master' }}
 
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
+                  - name: Install rust
+                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+                    with:
+                        toolchain: 1.91.1
+
+                  - name: Download MaxMind Database
+                    run: |
+                        ./bin/download-mmdb
+
+                  - name: Install pnpm dependencies
+                    uses: ./.github/actions/pnpm-install
+                    with:
+                        install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -464,15 +479,6 @@ jobs:
             - name: Install python dependencies
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Download MaxMind Database
-              run: |
-                  ./bin/download-mmdb
-
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
             - name: Wait for Clickhouse, Redis, Kafka, Localstack
               run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
