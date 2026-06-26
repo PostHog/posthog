@@ -46,6 +46,9 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
     properties: dict = {
         # Deterministic id so a worker crash mid-flush doesn't produce a duplicate event row.
         "$insert_id": str(observation.id),
+        # Owning team/org so observations can be attributed and billed per tenant.
+        "team_id": observation.team_id,
+        "organization_id": str(team.organization_id),
         "scanner_id": str(observation.scanner_id),
         "scanner_name": snapshot.name,
         "scanner_type": snapshot.scanner_type.value,

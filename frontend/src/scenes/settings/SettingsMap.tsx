@@ -1659,7 +1659,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         to: urls.legalDocuments(),
         settings: [],
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
-        flag: 'LEGAL_DOCUMENTS',
     },
     {
         level: 'organization',
@@ -1816,7 +1815,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'login-sessions',
-                flag: 'WEB_SESSION_MANAGEMENT',
                 title: 'Web sessions',
                 description: 'Devices and browsers currently signed in to your PostHog account.',
                 component: <LoginSessions />,
@@ -1880,7 +1878,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'After you take an action in PostHog (creating a feature flag, building a dashboard, etc.), show a small hint that the same action can be done from your IDE via the PostHog MCP. Rate-limited to once a week.',
                 component: <MCPHintsSetting />,
-                flag: [['MCP_HINTS', 'test']],
                 keywords: ['mcp', 'claude', 'cursor', 'codex', 'ide', 'hints', 'wizard'],
             },
             {
