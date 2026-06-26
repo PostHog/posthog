@@ -1,14 +1,10 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconLetter } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
 import { getColorVar } from 'lib/colors'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
-import { urls } from 'scenes/urls'
 
 import { EMAIL_METRIC_LOG_FILTERS, EmailMetric, WORKFLOW_EMAIL_METRICS } from './workflowMetricsSummaryLogic'
 
@@ -17,13 +13,9 @@ const EMAIL_METRIC_KEYS = Object.keys(WORKFLOW_EMAIL_METRICS) as (keyof typeof W
 export function EmailMetricsSummary({
     logicKey,
     onMetricClick,
-    workflowId,
-    actionId,
 }: {
     logicKey: string
     onMetricClick?: (metricKey: EmailMetric) => void
-    workflowId?: string
-    actionId?: string
 }): JSX.Element {
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries } = useValues(appMetricsLogic({ logicKey }))
 
@@ -48,18 +40,6 @@ export function EmailMetricsSummary({
 
     return (
         <>
-            {workflowId ? (
-                <div className="flex justify-end">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconLetter />}
-                        to={`${urls.workflow(workflowId, 'assets')}${actionId ? `?assetAction=${encodeURIComponent(actionId)}` : ''}`}
-                    >
-                        View sent emails
-                    </LemonButton>
-                </div>
-            ) : null}
             <div className="flex flex-row gap-2 flex-wrap justify-center">
                 {EMAIL_METRIC_KEYS.map((key) => {
                     const metric = WORKFLOW_EMAIL_METRICS[key]

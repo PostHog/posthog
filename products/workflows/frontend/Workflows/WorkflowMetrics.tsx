@@ -3,7 +3,8 @@ import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { HedgehogGreek } from '@posthog/brand/hoggies'
-import { LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { IconLetter } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
@@ -113,7 +114,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2" data-attr="workflow-metrics">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
-                <div>
+                <div className="flex flex-row gap-2 items-center flex-wrap">
                     <LemonSelect
                         size="small"
                         options={workflowStepOptions.filter((option) => option.value !== 'trigger_node')}
@@ -125,6 +126,16 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                             })
                         }
                     />
+                    {selectedAction?.type === 'function_email' && props.id ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconLetter />}
+                            to={`${urls.workflow(props.id, 'assets')}?assetAction=${encodeURIComponent(params.instanceId as string)}`}
+                        >
+                            View sent emails
+                        </LemonButton>
+                    ) : null}
                 </div>
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
@@ -137,12 +148,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                     onMetricClick={onEmailMetricClick}
                 />
             ) : selectedAction?.type === 'function_email' ? (
-                <EmailMetricsSummary
-                    logicKey={logicKey}
-                    onMetricClick={onEmailMetricClick}
-                    workflowId={props.id}
-                    actionId={params.instanceId}
-                />
+                <EmailMetricsSummary logicKey={logicKey} onMetricClick={onEmailMetricClick} />
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
@@ -246,7 +252,7 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
-                <div>
+                <div className="flex flex-row gap-2 items-center flex-wrap">
                     <LemonSelect
                         size="small"
                         options={workflowStepOptions.filter((option) => option.value !== 'trigger_node')}
@@ -258,6 +264,16 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
                             })
                         }
                     />
+                    {selectedAction?.type === 'function_email' ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconLetter />}
+                            to={`${urls.workflow(workflow.id, 'assets')}?assetAction=${encodeURIComponent(params.instanceId as string)}`}
+                        >
+                            View sent emails
+                        </LemonButton>
+                    ) : null}
                 </div>
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
@@ -270,7 +286,7 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
                     onSelectAction={(actionId) => setParams({ ...params, instanceId: actionId })}
                 />
             ) : selectedAction?.type === 'function_email' ? (
-                <EmailMetricsSummary logicKey={logicKey} workflowId={workflow.id} actionId={params.instanceId} />
+                <EmailMetricsSummary logicKey={logicKey} />
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
