@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import re
 import dataclasses
 from typing import TYPE_CHECKING
@@ -678,8 +679,61 @@ def setup_duckgres_session(
         conn.execute(f"LOAD {ext}")
 
 
-def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:
-    """Open a psycopg connection to a duckgres server."""
+# Worker-profile control for data-import duckgres connections. When enabled, an
+# import connection asks duckgres for a small COLOCATED (bin-packed) worker via
+# libpq startup options, so a copy bursts into a right-sized pod instead of
+# grabbing one of the big exclusive shared workers (270GB / 46-thread). An import
+# does a streaming `CREATE TABLE AS SELECT * FROM delta_scan(...)` plus a few
+# count/peek verification queries — it has no use for a 360Gi worker, and pinning
+# one per in-flight copy is what lets a single import take over dozens of workers.
+# The server gate (DUCKGRES_K8S_ALLOW_CLIENT_WORKER_PROFILE) is on in prod, so
+# this defaults ON; set DUCKGRES_WORKER_PROFILE_ENABLED=0 to fall back to the big
+# exclusive workers. Mirrors the duckling backfill path
+# (posthog/dags/events_backfill_to_duckling.py).
+#
+# Evaluated once at import time, not per connection — toggling it (including
+# rollback) requires redeploying so the process re-reads the env.
+DUCKGRES_WORKER_PROFILE_ENABLED = os.environ.get("DUCKGRES_WORKER_PROFILE_ENABLED", "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+# Colocated worker size for the data-moving copy path. Larger than the
+# metadata-only backfill (4/16): a CTAS over a full delta_scan buffers more, so
+# memory is sized generously (DuckDB spills to the colocated node's NVMe beyond
+# its memory_limit rather than OOMing). Stays within the server clamp (≤16 CPU /
+# ≤64Gi). Override per deployment via env.
+DUCKGRES_IMPORT_COLOCATE_CPU = os.environ.get("DUCKGRES_IMPORT_COLOCATE_CPU", "8")
+DUCKGRES_IMPORT_COLOCATE_MEMORY = os.environ.get("DUCKGRES_IMPORT_COLOCATE_MEMORY", "48Gi")
+
+
+def duckgres_import_worker_profile_options() -> str:
+    """libpq startup `options` for a data-import duckgres connection.
+
+    When the worker-profile feature is enabled (the default), requests a small
+    colocated worker shape. Returns a single space-joined `-c key=value` string —
+    psycopg forwards it as the startup `options` parameter, which duckgres parses
+    to size/schedule the worker. Returns "" when disabled, so the connection falls
+    back to the default exclusive worker with no extra startup options.
+    """
+    if not DUCKGRES_WORKER_PROFILE_ENABLED:
+        return ""
+    return " ".join(
+        [
+            "-c duckgres.colocate=true",
+            f"-c duckgres.worker_cpu={DUCKGRES_IMPORT_COLOCATE_CPU}",
+            f"-c duckgres.worker_memory={DUCKGRES_IMPORT_COLOCATE_MEMORY}",
+        ]
+    )
+
+
+def connect_to_duckgres(server: DuckgresServer, *, options: str = "") -> psycopg.Connection:
+    """Open a psycopg connection to a duckgres server.
+
+    Pass ``options`` (libpq startup `options`, e.g. from
+    ``duckgres_import_worker_profile_options()``) to select the worker profile.
+    """
     return psycopg.connect(
         host=server.host,
         port=server.port,
@@ -687,6 +741,7 @@ def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:
         user=server.username,
         password=server.password,
         autocommit=True,
+        options=options,
     )
 
 
@@ -698,6 +753,7 @@ __all__ = [
     "configure_connection",
     "configure_cross_account_connection",
     "connect_to_duckgres",
+    "duckgres_import_worker_profile_options",
     "ensure_ducklake_bucket_exists",
     "get_deltalake_storage_options",
     "normalize_endpoint",

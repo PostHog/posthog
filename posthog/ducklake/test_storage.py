@@ -6,6 +6,7 @@ from posthog.ducklake.storage import (
     _DELTA_LOG_VERSION_RE,
     DuckLakeStorageConfig,
     _collect_delta_log_keys,
+    duckgres_import_worker_profile_options,
     normalize_endpoint,
 )
 
@@ -517,3 +518,29 @@ class TestStageDeltaTable:
         # version 3 log entry must NOT have been copied
         all_copied = [call.kwargs["Key"] for call in mock_s3.copy_object.call_args_list]
         assert "__posthog_staging/data/table/_delta_log/00000000000000000003.json" not in all_copied
+
+
+class TestDuckgresImportWorkerProfileOptions:
+    @parameterized.expand(
+        [
+            ("enabled", True, "-c duckgres.colocate=true -c duckgres.worker_cpu=8 -c duckgres.worker_memory=48Gi"),
+            ("disabled", False, ""),
+        ]
+    )
+    def test_gating(self, _name, enabled, expected):
+        # Guards the colocated-worker startup options shared by the copy-import
+        # processor and the ducklake copy-data-imports workflow: if the gate
+        # inverts or the GUC keys/size drift, imports silently fall back to the
+        # big exclusive workers (the regression this fixes) or send malformed options.
+        with patch("posthog.ducklake.storage.DUCKGRES_WORKER_PROFILE_ENABLED", enabled):
+            assert duckgres_import_worker_profile_options() == expected
+
+    def test_honors_size_overrides(self):
+        with (
+            patch("posthog.ducklake.storage.DUCKGRES_WORKER_PROFILE_ENABLED", True),
+            patch("posthog.ducklake.storage.DUCKGRES_IMPORT_COLOCATE_CPU", "16"),
+            patch("posthog.ducklake.storage.DUCKGRES_IMPORT_COLOCATE_MEMORY", "64Gi"),
+        ):
+            assert duckgres_import_worker_profile_options() == (
+                "-c duckgres.colocate=true -c duckgres.worker_cpu=16 -c duckgres.worker_memory=64Gi"
+            )

@@ -29,6 +29,7 @@ from posthog.ducklake.storage import (
     compute_staging_uri,
     configure_connection,
     connect_to_duckgres,
+    duckgres_import_worker_profile_options,
     ensure_ducklake_bucket_exists,
     get_deltalake_storage_options,
     setup_duckgres_session,
@@ -328,7 +329,7 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
     schema = inputs.model.ducklake_schema_name
     table = f"{schema}.{inputs.model.ducklake_table_name}"
 
-    with connect_to_duckgres(server) as conn:
+    with connect_to_duckgres(server, options=duckgres_import_worker_profile_options()) as conn:
         setup_duckgres_session(conn)
         logger.info(
             "Creating DuckLake table from staged Delta snapshot via duckgres",
@@ -485,7 +486,7 @@ def _verify_data_imports_ducklake_copy_via_duckgres(
         inputs=inputs,
     )
 
-    with connect_to_duckgres(server) as conn:
+    with connect_to_duckgres(server, options=duckgres_import_worker_profile_options()) as conn:
         setup_duckgres_session(conn)
         return _run_data_imports_verification_checks(
             conn,

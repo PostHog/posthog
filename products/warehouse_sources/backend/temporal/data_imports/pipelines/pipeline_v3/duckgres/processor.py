@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -12,7 +11,7 @@ import structlog
 from psycopg import sql
 
 from posthog.ducklake.common import duckgres_data_imports_schema, get_duckgres_config_for_org
-from posthog.ducklake.storage import setup_duckgres_session
+from posthog.ducklake.storage import duckgres_import_worker_profile_options, setup_duckgres_session
 from posthog.models import Team
 
 from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema
@@ -85,56 +84,6 @@ def process_batch(batch: PendingBatch) -> None:
             )
 
 
-# Worker-profile control. When enabled, a copy-import connection asks duckgres
-# for a small COLOCATED (bin-packed) worker via libpq startup options, so each
-# batch bursts into a right-sized pod instead of grabbing one of the big
-# exclusive shared workers (270GB / 46-thread). A batch does a streaming
-# `CREATE TABLE AS SELECT * FROM delta_scan(...)` plus a few count/peek
-# verification queries — it has no use for a 360Gi worker, and pinning one per
-# in-flight batch is exactly what lets a single import take over dozens of
-# workers. The server gate (DUCKGRES_K8S_ALLOW_CLIENT_WORKER_PROFILE) is on in
-# prod, so this defaults ON; set DUCKGRES_WORKER_PROFILE_ENABLED=0 to put a
-# deployment back on the big exclusive workers. Mirrors the duckling backfill
-# path (posthog/dags/events_backfill_to_duckling.py).
-#
-# Evaluated once at process startup, not per connection/batch — toggling it
-# (including rollback) requires redeploying the Temporal worker so the process
-# restarts and re-reads the env, not just unsetting the variable.
-DUCKGRES_WORKER_PROFILE_ENABLED = os.environ.get("DUCKGRES_WORKER_PROFILE_ENABLED", "true").strip().lower() in (
-    "1",
-    "true",
-    "yes",
-    "on",
-)
-# Colocated worker size for the data-moving copy path. Larger than the
-# metadata-only backfill (4/16): a CTAS over a full delta_scan buffers more, so
-# memory is sized generously (DuckDB spills to the colocated node's NVMe beyond
-# its memory_limit rather than OOMing). Stays within the server clamp (≤16 CPU /
-# ≤64Gi). Override per deployment via env.
-DUCKGRES_IMPORT_COLOCATE_CPU = os.environ.get("DUCKGRES_IMPORT_COLOCATE_CPU", "8")
-DUCKGRES_IMPORT_COLOCATE_MEMORY = os.environ.get("DUCKGRES_IMPORT_COLOCATE_MEMORY", "48Gi")
-
-
-def _duckgres_worker_profile_options() -> str:
-    """libpq startup `options` for a copy-import connection.
-
-    When the worker-profile feature is enabled (the default), requests a small
-    colocated worker shape. Returns a single space-joined `-c key=value` string —
-    psycopg forwards it as the startup `options` parameter, which duckgres parses
-    to size/schedule the worker. Returns "" when disabled, so the connection
-    falls back to the default exclusive worker with no extra startup options.
-    """
-    if not DUCKGRES_WORKER_PROFILE_ENABLED:
-        return ""
-    return " ".join(
-        [
-            "-c duckgres.colocate=true",
-            f"-c duckgres.worker_cpu={DUCKGRES_IMPORT_COLOCATE_CPU}",
-            f"-c duckgres.worker_memory={DUCKGRES_IMPORT_COLOCATE_MEMORY}",
-        ]
-    )
-
-
 def _connect_to_duckgres(team_id: int) -> psycopg.Connection[Any]:
     team = Team.objects.only("organization_id").get(id=team_id)
     config = get_duckgres_config_for_org(str(team.organization_id))
@@ -153,7 +102,10 @@ def _connect_to_duckgres(team_id: int) -> psycopg.Connection[Any]:
         keepalives_idle=60,
         keepalives_interval=15,
         keepalives_count=4,
-        options=_duckgres_worker_profile_options(),
+        # Request a small colocated worker per copy-import batch (vs the big
+        # exclusive default), so a single import stops taking over dozens of
+        # 360Gi workers. Shared with the ducklake copy-data-imports workflow.
+        options=duckgres_import_worker_profile_options(),
     )
 
 
