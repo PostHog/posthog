@@ -142,7 +142,6 @@ frontend/src/scenes/audit-logs/ @PostHog/team-platform-features
 frontend/src/scenes/activity/ @PostHog/team-platform-features
 posthog/models/activity_logging/ @PostHog/team-platform-features
 frontend/src/scenes/approvals/ @PostHog/team-platform-features
-posthog/approvals/ @PostHog/team-platform-features
 frontend/src/scenes/resource-transfer/ @PostHog/team-platform-features
 posthog/api/resource_transfer.py @PostHog/team-platform-features
 posthog/models/resource_transfer/ @PostHog/team-platform-features
@@ -303,12 +302,12 @@ posthog/tasks/usage_report.py @PostHog/team-billing
 posthog/temporal/usage_report/ @PostHog/team-billing
 posthog/temporal/quota_limiting/ @PostHog/team-billing
 
-# Query performance - owned by @PostHog/team-query-performance
-posthog/queries/ @PostHog/team-query-performance
-posthog/caching/ @PostHog/team-query-performance
-posthog/hogql/database/schema/sessions*.py @PostHog/team-query-performance
-posthog/models/raw_sessions/** @PostHog/team-query-performance
-posthog/models/sessions/** @PostHog/team-query-performance
+# Query performance (merged into Analytics Platform) - owned by @PostHog/team-analytics-platform
+posthog/queries/ @PostHog/team-analytics-platform
+posthog/caching/ @PostHog/team-analytics-platform
+posthog/hogql/database/schema/sessions*.py @PostHog/team-analytics-platform
+posthog/models/raw_sessions/** @PostHog/team-analytics-platform
+posthog/models/sessions/** @PostHog/team-analytics-platform
 
 # Ingestion (persons identity pipeline) - owned by @PostHog/team-ingestion
 posthog/temporal/delete_persons/ @PostHog/team-ingestion

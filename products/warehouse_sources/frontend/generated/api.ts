@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     DatabaseSchemaRequestApi,
+    DraftCustomManifestRequestApi,
+    DraftCustomManifestResponseApi,
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSchemasLogsRetrieveParams,
@@ -866,6 +868,33 @@ export const externalDataSourcesDatabaseSchemaCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(databaseSchemaRequestApi),
+    })
+}
+
+export const getExternalDataSourcesDraftCustomManifestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/draft_custom_manifest/`
+}
+
+/**
+ * Draft a Custom REST source manifest from API documentation using an LLM.
+ *
+ * Reads the docs (a URL fetched server-side, or pasted text / OpenAPI spec), asks the model to
+ * author a RESTAPIConfig manifest, and validates it against the create-path checks — repairing
+ * against validation errors up to a small budget. Returns the manifest for the user to review
+ * and tweak in the builder before creating the source; it does NOT create anything. Gated by the
+ * `dwh-custom-source-ai-builder` flag, and requires the org to have approved AI data processing,
+ * since the docs are sent to the LLM gateway.
+ */
+export const externalDataSourcesDraftCustomManifestCreate = async (
+    projectId: string,
+    draftCustomManifestRequestApi?: DraftCustomManifestRequestApi,
+    options?: RequestInit
+): Promise<DraftCustomManifestResponseApi> => {
+    return apiMutator<DraftCustomManifestResponseApi>(getExternalDataSourcesDraftCustomManifestCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(draftCustomManifestRequestApi),
     })
 }
 
