@@ -8,7 +8,7 @@ export const template: HogFunctionTemplate = {
     name: 'Remove Null Properties',
     description:
         'This transformation removes null properties from the event properties object. If the object nesting exceeds 3 levels, deeper levels will be returned unchanged.',
-    icon_url: '/static/hedgehog/builder-hog-01.png',
+    icon_url: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png',
     category: ['Custom'],
     code_language: 'hog',
     code: `

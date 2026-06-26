@@ -3,8 +3,7 @@
 An inventory of every image in [`frontend/public/hedgehog/`](frontend/public/hedgehog/) — what it maps to and where it's used.
 
 Most hogs are exposed as named React components from [`frontend/src/lib/components/hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) (the central registry).
-A few are imported directly by a single component, and some are referenced by string path as `/static/hedgehog/<name>.png` (used by backend CDP/hog-function templates).
-Hogs whose only consumer is a backend CDP template — no React component renders them — are tracked separately under [CDP-only](#cdp-only-1) rather than in the table, since they have no UI surface to replace.
+A few are imported directly by a single component. Nothing references hogs by `/static/hedgehog/<name>.png` string path any more.
 The Hogfetti confetti animation ([`Hogfetti/hogs/`](frontend/src/lib/components/Hogfetti/hogs/)), the Flappy Hog game ([`shared/flappy-hog/`](frontend/src/scenes/onboarding/shared/flappy-hog/)), and the 368Hedgehogs game ([`368Hedgehogs/sprites/`](products/games/368Hedgehogs/sprites/)) bundle their own hog copies locally rather than referencing the registry or `/static/` paths — those self-contained copies are tracked in the [Hogfetti pool](#hogfetti-pool-15), [Flappy Hog assets](#flappy-hog-assets-2), and [368Hedgehogs assets](#368hedgehogs-assets-4) sections below, not in the table, since they no longer consume `public/hedgehog/` and sit outside this replacement effort.
 
 We want to retire these hedgehogs and replace them with illustrations from [`@posthog/brand`](https://brand.posthog.com/hoggies) (import via `@posthog/brand/hoggies`). The **Replacement** column holds the brand hoggie slug to swap in; it's per usage site, since different surfaces may want different art. A blank cell means the brand library has no suitable equivalent yet — those gaps are enumerated, with briefs for the design team, under [Missing from the brand library](#missing-from-the-brand-library) at the bottom.
@@ -19,24 +18,18 @@ We want to retire these hedgehogs and replace them with illustrations from [`@po
 | ----------------------- | -------------------------- | ------------------------------------------------------------------------------------------------- | ------------------ |
 | `builder-hog-01.png`    | `BuilderHog1`              | `frontend/src/scenes/surveys/SurveyViewRedesign/SurveyDraftContent.tsx`                           | `construction-1`   |
 | `builder-hog-01.png`    | `BuilderHog1`              | `frontend/src/scenes/onboarding/shared/utils.tsx` (product onboarding intro)                      | `construction-1`   |
-| `builder-hog-01.png`    | `/static/` path            | `posthog/cdp/templates/_internal/template_blank.py` (default destination/transformation icon)     | `construction-1`   |
-| `builder-hog-01.png`    | `/static/` path            | `posthog/cdp/templates/_siteapps/template_debug_posthog.py`                                       | `construction-1`   |
-| `builder-hog-01.png`    | `/static/` path            | CDP/hog-function template fixtures & frontend mocks (generated; default `icon_url`)               | `construction-1`   |
 | `builder-hog-02.png`    | `BuilderHog2`              | `frontend/src/scenes/session-recordings/player/PurePlayer.tsx`                                    | `construction-2`   |
 | `builder-hog-02.png`    | `BuilderHog2`              | `products/replay_vision/frontend/replay_scanners/ScannerEditorScene.tsx`                          | `construction-2`   |
-| `builder-hog-02.png`    | `/static/` path            | CDP template fixtures (`icon_url`)                                                                | `construction-2`   |
 | `builder-hog-03.png`    | `BuilderHog3`              | `frontend/src/scenes/insights/EmptyStates/EmptyStates.tsx`                                        | `construction-2`   |
 | `builder-hog-03.png`    | `BuilderHog3`              | `frontend/src/scenes/billing/BillingEarlyAccessBanner.tsx`                                        | `construction-2`   |
 | `builder-hog-03.png`    | `BuilderHog3`              | `frontend/src/lib/components/ProductIntroduction/ProductIntroduction.tsx`                         | `construction-2`   |
 | `builder-hog-03.png`    | `BuilderHog3`              | `frontend/src/lib/components/TaxonomicFilter/TaxonomicFilterEmptyState.tsx`                       | `construction-2`   |
 | `builder-hog-03.png`    | `BuilderHog3`              | `products/workflows/frontend/OptOuts/OptOutCategories.tsx`                                        | `construction-2`   |
-| `builder-hog-03.png`    | `/static/` path            | `posthog/cdp/templates/_internal/template_blank.py`                                               | `construction-2`   |
 | `list-hog.png`          | `ListHog`                  | `frontend/src/scenes/cohorts/Cohorts.tsx`                                                         | `greek`            |
 | `list-hog.png`          | `ListHog`                  | `products/metrics/frontend/components/MetricsSetupPrompt.tsx`                                     | `greek`            |
 | `list-hog.png`          | `ListHog`                  | `products/workflows/frontend/Workflows/WorkflowMetrics.tsx`                                       | `greek`            |
 | `list-hog.png`          | `ListHog`                  | `products/workflows/frontend/Workflows/WorkflowLogs.tsx`                                          | `greek`            |
 | `list-hog.png`          | `ListHog`                  | `products/logs/frontend/components/SetupPrompt/SetupPrompt.tsx`                                   | `greek`            |
-| `list-hog.png`          | `/static/` path            | `posthog/cdp/templates/_siteapps/template_notification_bar.py`                                    | `greek`            |
 | `blushing-hog.png`      | direct import              | `products/data_warehouse/frontend/shared/components/SourceIcon.tsx` (default source icon)         | `ipad`             |
 | `robot-hog.png`         | `RobotHog`                 | `frontend/src/scenes/onboarding/shared/utils.tsx`                                                 | `robo-hog`         |
 | `robot-hog.png`         | `RobotHog`                 | `frontend/src/exporter/scenes/ExporterInterviewScene.tsx`                                         | `robo-hog`         |
@@ -161,30 +154,6 @@ We want to retire these hedgehogs and replace them with illustrations from [`@po
 | `graphs-hog.png`        | `GraphsHog`                | `products/dashboards/frontend/components/WidgetCard/WidgetCardBody.tsx`                           | `chart-hog`        |
 | `graphs-hog.png`        | `GraphsHog`                | `frontend/src/lib/components/ProductIntroduction/ProductIntroduction.stories.tsx` (Storybook)     | `chart-hog`        |
 
-## CDP-only (1)
-
-Referenced **only** by backend CDP/hog-function templates as a default `icon_url` (by `/static/hedgehog/<name>.png` path) — no React component renders them, so they're tracked here rather than in the [Used](#used-39) table. The `public/hedgehog/` original must stay while a template points at it.
-
-| Image            | Used via        | Usage site                                                                                                    | Replacement      |
-| ---------------- | --------------- | ------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `police-hog.png` | `/static/` path | `nodejs/src/cdp/templates/_transformations/hash-properties/hash-properties.template.ts` (transformation icon) | `traffic-police` |
-
-> The `PoliceHog` registry export in [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) is never rendered — the image survives only because of the CDP template above.
-
-### All hogs referenced in CDP templates (6)
-
-Every hog used **anywhere** in a backend CDP/hog-function template as a default `icon_url` — including the ones that are also rendered in the UI (so they live in the [Used](#used-39) table too). Listed exhaustively so the icon wiring can be changed in one pass. Only `police-hog` is CDP-exclusive (the table above); the rest also have UI usages, so their `public/hedgehog/` originals are needed regardless.
-
-- **`builder-hog-01.png`** — the default transformation/destination icon, by far the most common (19 templates):
-  - Python (`posthog/cdp/templates/`): `_internal/template_blank.py`, `_siteapps/template_debug_posthog.py`
-  - nodejs transformations (`nodejs/src/cdp/templates/_transformations/`): `bot-detection`, `default`, `drop-events`, `filter-properties`, `ip-anonymization`, `remove-null-properties`, `url-masking`
-  - nodejs legacy plugins (`nodejs/src/cdp/legacy-plugins/_transformations/`): `Plugin-Stonly-Clean-Campaign-Name`, `language-url-splitter-app`, `ph-shotgun-processevent-app`, `plugin-netdata-event-processing`, `plugin-stonly-UTM-Extractor`, `posthog-anonymization`, `posthog-app-unduplicator`, `posthog-plugin-snowplow-referer-parser`, `posthog-route-censor-plugin`, `url-parser`
-- **`builder-hog-02.png`** — `nodejs/src/cdp/templates/_transformations/pii-hashing/pii-hashing.template.ts`
-- **`builder-hog-03.png`** — `posthog/cdp/templates/_internal/template_blank.py`
-- **`list-hog.png`** — `posthog/cdp/templates/_siteapps/template_notification_bar.py`
-- **`police-hog.png`** — `nodejs/src/cdp/templates/_transformations/hash-properties/hash-properties.template.ts` _(CDP-only — see table above)_
-- **`reading-hog.png`** — `nodejs/src/cdp/templates/_transformations/url-normalization/url-normalization.template.ts`
-
 ## Unused (7)
 
 Imported into [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) and exported as components, but the components are never rendered anywhere in `frontend/` or `products/`.
@@ -235,16 +204,21 @@ The Flappy Hog game ([`FlappyHog.tsx`](frontend/src/scenes/onboarding/shared/Fla
 
 The 368Hedgehogs game ([`368Hedgehogs.tsx`](products/games/368Hedgehogs/368Hedgehogs.tsx)) bundles its four board sprites locally under [`368Hedgehogs/sprites/`](products/games/368Hedgehogs/sprites/) as tiny 128×128 copies instead of pulling the full-size originals from `public/hedgehog/` by `/static/` path, so they're tracked here rather than in the Used table. These are self-contained game sprites and sit outside the replacement effort — keep them as-is.
 
-| Asset (in `368Hedgehogs/sprites/`) | Role        | `public/hedgehog/` original                                                               |
-| ---------------------------------- | ----------- | ----------------------------------------------------------------------------------------- |
-| `burning-money-hog.png`            | `hog1` tile | Local copy; original stays for the billing usages — see [Used](#used-39)                  |
-| `police-hog.png`                   | `hog2` tile | Local copy; original stays for the CDP transformation icon — see [CDP-only](#cdp-only-1)  |
-| `sleeping-hog.png`                 | `hog3` tile | Local copy; original stays for the platform-status & verify-email usages                  |
-| `warning-hog.png`                  | `hog4` tile | Local copy; original stays for the many error / empty-state usages — see [Used](#used-39) |
+| Asset (in `368Hedgehogs/sprites/`) | Role        | `public/hedgehog/` original                                                                                            |
+| ---------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `burning-money-hog.png`            | `hog1` tile | Local copy; original stays for the billing usages — see [Used](#used-39)                                               |
+| `police-hog.png`                   | `hog2` tile | Local copy; the `public/hedgehog/` original was deleted (no remaining consumers) — see [Cleanup notes](#cleanup-notes) |
+| `sleeping-hog.png`                 | `hog3` tile | Local copy; original stays for the platform-status & verify-email usages                                               |
+| `warning-hog.png`                  | `hog4` tile | Local copy; original stays for the many error / empty-state usages — see [Used](#used-39)                              |
 
-## Cleanup notes (Hogfetti move)
+## Cleanup notes
 
-Trimming the Hogfetti pool to 15 inline 64×64 copies left some dead weight in the registry:
+**Orphaned `police-hog`** — once nothing referenced its `public/hedgehog/` original any more:
+
+- **`public/hedgehog/police-hog.png`** was deleted (the 368Hedgehogs game keeps its own local sprite; the `PoliceHog` registry export was never rendered).
+- The **`PoliceHog` registry export** in [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) was removed along with it.
+
+**Hogfetti move** — trimming the Hogfetti pool to 15 inline 64×64 copies left some dead weight in the registry:
 
 - **`public/hedgehog/space-hog.png` and `public/hedgehog/tron-hog.png`** are now referenced only by their inline Hogfetti copies — the public originals can be deleted (also flagged in [Hogfetti pool](#hogfetti-pool-15)).
 - **Dead registry exports** in [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) (no remaining consumers): `SpaceHog`, `TronHog`, `HospitalHog`. Plus the six never-consumed exports `ThreeBearsHogs`, `DeskHog`, `DisguiseHog`, `LaptopHog1`, `LaptopHog2`, `PopUpBinocularsHog`.

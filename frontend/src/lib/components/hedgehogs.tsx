@@ -31,7 +31,6 @@ import listHog from 'public/hedgehog/list-hog.png'
 import mailHog from 'public/hedgehog/mail-hog.png'
 import microphoneHog from 'public/hedgehog/microphone-hog.png'
 import phonePairHogs from 'public/hedgehog/phone-pair-hogs.png'
-import policeHog from 'public/hedgehog/police-hog.png'
 import popUpBinocularsHog from 'public/hedgehog/pop-up-binoculars-hog.png'
 import professorHog from 'public/hedgehog/professor-hog.png'
 import readingHog from 'public/hedgehog/reading-hog.png'
@@ -116,9 +115,6 @@ export const HeartHog = (props: HedgehogProps): JSX.Element => {
 }
 export const StarHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={starHog} {...props} />
-}
-export const PoliceHog = (props: HedgehogProps): JSX.Element => {
-    return <SquaredHedgehog src={policeHog} {...props} />
 }
 export const SleepingHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={sleepingHog} {...props} />
