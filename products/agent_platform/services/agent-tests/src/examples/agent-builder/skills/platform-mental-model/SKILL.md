@@ -97,8 +97,8 @@ the team's slack integration.
 Read this whenever you find yourself reaching for "where does the
 agent's prompt live?" or "where do I edit the model?":
 
-- The **model** is in `spec.model`. Edit via
-  `revisions-partial-update` on a draft.
+- The **model** is in `spec.models` (auto level or manual
+  list). Edit via `revisions-partial-update` on a draft.
 - The **system prompt** is `bundle/agent.md`. Edit via
   `revisions-agent-md-update`.
 - The **skills the model can load** are listed in `spec.skills[]`

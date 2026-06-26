@@ -717,7 +717,9 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
         key: zod
             .string()
             .max(signalsScoutScratchpadRememberBodyKeyMax)
-            .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
+            .describe(
+                "Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key and keep the timestamp in `content`."
+            ),
         content: zod
             .string()
             .max(signalsScoutScratchpadRememberBodyContentMax)

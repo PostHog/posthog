@@ -52,7 +52,6 @@ def _base_spec(triggers: list[dict[str, Any]] | None = None, modes: list[str] | 
         "skills": [],
         "secrets": [],
         "limits": {"max_turns": 10, "max_tool_calls": 20, "max_wall_seconds": 60},
-        "entrypoint": "agent.md",
     }
 
 
