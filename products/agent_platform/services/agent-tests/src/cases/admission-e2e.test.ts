@@ -29,7 +29,7 @@ import {
     PgTransportBindingStore,
 } from '@posthog/agent-shared'
 import type { AgentApplication, AgentRevision, AgentSpec, TransportClaim } from '@posthog/agent-shared'
-import { reset } from '@posthog/agent-shared/testing'
+import { isReachable, reset } from '@posthog/agent-shared/testing'
 
 import { DogServer, startDogServer } from '../harness/dog-oauth-server'
 
@@ -37,18 +37,6 @@ const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
 const KEY = '01234567890123456789012345678901'
 const REDIRECT = (p: string): string => `http://callback.test/link/${p}/callback`
-
-async function isReachable(): Promise<boolean> {
-    const probe = new Pool({ connectionString: TEST_DB_URL, max: 1 })
-    try {
-        await probe.query('SELECT 1')
-        return true
-    } catch {
-        return false
-    } finally {
-        await probe.end().catch(() => undefined)
-    }
-}
 
 const maybeDescribe = process.env.SKIP_PG_TESTS === '1' ? describe.skip : describe
 
@@ -58,7 +46,7 @@ maybeDescribe('Admission e2e (authoritative provider × dogs IdP × real PG)', (
     let dog: DogServer
 
     beforeAll(async () => {
-        reachable = await isReachable()
+        reachable = await isReachable(TEST_DB_URL)
         if (reachable) {
             pool = new Pool({ connectionString: TEST_DB_URL, max: 4 })
         }
