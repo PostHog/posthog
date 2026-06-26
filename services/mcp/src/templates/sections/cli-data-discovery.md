@@ -8,3 +8,5 @@ Always run `info read-data-schema` first — the recipes below are common cases,
 - Events/Actions: `call read-data-schema {"query": {"kind": "events"/"actions"}}` (paginate with `limit`/`offset` if needed)
 - Properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
 - Values: `call read-data-schema {"query": {"kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>"}}`
+
+For **tables, columns, relationships, and types** (including data warehouse tables and their semantic descriptions), query the `system.information_schema` catalog with `execute-sql` instead — e.g. `call execute-sql {"query": "SELECT column_name, data_type, description FROM system.information_schema.columns WHERE table_name = 'events'"}`. `read-data-schema` stays the source for event property values.

@@ -11,6 +11,8 @@ renamed, or filtered per team.
 
 If the required events or properties don't exist, tell the user instead of running an empty query.
 
+To discover **tables, columns, relationships, and types** (including data warehouse tables and their semantic descriptions) rather than event taxonomy, query the `system.information_schema` catalog directly in SQL via `execute-sql` — e.g. `SELECT column_name, data_type, description FROM system.information_schema.columns WHERE table_name = 'events'`. `read-data-schema` above remains the way to discover events, properties, and property values.
+
 #### Insight query workflow
 
 1. Discover the data schema with `read-data-schema` (see schema-first workflow above).

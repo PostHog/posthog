@@ -1,6 +1,6 @@
 ---
 name: querying-posthog-data
-description: 'Required reading before writing any HogQL/SQL or calling execute-sql against PostHog. Use whenever the user wants to search, find, or do complex aggregations PostHog entities (insights, dashboards, cohorts, feature flags, experiments, surveys, hog flows, data warehouse, persons, etc.) and query analytics data (trends, funnels, retention, lifecycle, paths, stickiness, web analytics, error tracking, logs, sessions, LLM traces). Covers HogQL syntax differences from ClickHouse SQL, system table schemas (system.*), available functions, query examples, and the schema-discovery workflow.'
+description: 'Required reading before writing any HogQL/SQL or calling execute-sql against PostHog. Use whenever the user wants to search, find, or do complex aggregations PostHog entities (insights, dashboards, cohorts, feature flags, experiments, surveys, hog flows, data warehouse, persons, etc.) and query analytics data (trends, funnels, retention, lifecycle, paths, stickiness, web analytics, error tracking, logs, sessions, LLM traces). Covers HogQL syntax differences from ClickHouse SQL, system table schemas (system.*), discovering the live schema via system.information_schema, available functions, query examples, and the schema-discovery workflow.'
 ---
 
 # Querying data in PostHog
@@ -13,7 +13,7 @@ The [guidelines](./references/guidelines.md) contain the same instructions as `p
 
 When the user wants to find a specific entity created in PostHog (insights, dashboards, cohorts, feature flags, experiments, surveys, hog flows, data warehouse items, etc.), or when a list/search tool returns too many results to narrow down:
 
-1. Read the appropriate schema reference under Data Schema to understand the entity's table and columns.
+1. Read the appropriate schema reference under Data Schema to understand the entity's table and columns. To confirm a table's columns against the live schema (or when the reference is missing one), query `SELECT column_name, data_type, description FROM system.information_schema.columns WHERE table_name = '<table>'`.
 2. Use `posthog:execute-sql` to query the system table and find the matching entity (typically returning its ID).
 3. Use the dedicated read tool for that entity type (e.g. `posthog:insight-get`, `posthog:dashboard-get`) to retrieve the full entity by ID.
 
@@ -27,6 +27,8 @@ When the user wants analytics data (trends, funnels, retention, paths, sessions,
 2. Adapt the example query (if one was found) to the user's request and run it via `posthog:execute-sql`. If no example fit, compose the query from scratch using the Data Schema and HogQL References.
 
 ## Data Schema
+
+These references are curated docs for the core models. For the **live** catalog — every queryable table, its columns, types, relationships, and descriptions (including data warehouse tables and their semantic descriptions) — query `system.information_schema` directly (`tables`, `columns`, `relationships`, `data_types`); see the schema-discovery note in the [guidelines](./references/guidelines.md). Prefer it to disambiguate similarly-named tables/columns or when a reference below is missing a column.
 
 Schema reference for PostHog's core system models, organized by domain:
 
