@@ -20,6 +20,7 @@ import { Static, TSchema, Type } from 'typebox'
 import type { MemoryStore } from '../memory/store'
 import type { TabularStore } from '../memory/tabular-store'
 import type { Credential } from '../runtime/credential-broker'
+import type { GatewayCatalog } from '../runtime/gateway-catalog'
 import type { HttpFetcher } from '../runtime/http-client'
 import type { WebSearchProvider } from '../runtime/web-search'
 
@@ -147,6 +148,13 @@ export interface ToolContext {
      * reads inside tool code.
      */
     posthogApiBaseUrl: string
+    /**
+     * Served-model catalog for the `@posthog/agent-applications-models` tool.
+     * Read it here, not via `ctx.http` — the catalog routes through a
+     * DirectHttpClient (the gateway is cluster-internal; smokescreen would deny
+     * a proxy-bound call). Absent when the gateway is off.
+     */
+    gatewayCatalog?: GatewayCatalog
     /**
      * Ordered web-search provider chain for `@posthog/web-search` (primary
      * first, configured fallbacks next). Built from `AGENT_WEB_SEARCH_*`

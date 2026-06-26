@@ -34,6 +34,12 @@ class EvaluationStatusReason(models.TextChoices):
     MODEL_NOT_ALLOWED = "model_not_allowed", "Model not available on the trial plan"
     PROVIDER_KEY_DELETED = "provider_key_deleted", "Provider API key was deleted"
     NO_DEFAULT_MODEL = "no_default_model", "No default model available for the selected provider"
+    PROVIDER_KEY_INVALID = "provider_key_invalid", "Provider API key is invalid"
+    PROVIDER_KEY_PERMISSION_DENIED = "provider_key_permission_denied", "Provider API key lacks model access"
+    PROVIDER_KEY_QUOTA_EXCEEDED = "provider_key_quota_exceeded", "Provider API key quota exceeded"
+    PROVIDER_KEY_RATE_LIMITED = "provider_key_rate_limited", "Provider API key is rate limited"
+    MODEL_NOT_FOUND = "model_not_found", "Model not found"
+    HOG_ERROR = "hog_error", "Hog evaluation code failed"
 
 
 class Evaluation(ModelActivityMixin, UUIDTModel):
@@ -56,6 +62,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     enabled = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=EvaluationStatus, default=EvaluationStatus.PAUSED)
     status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason, null=True, blank=True)
+    status_reason_detail = models.TextField(null=True, blank=True)
 
     evaluation_type = models.CharField(max_length=50, choices=EvaluationType)
     evaluation_config = models.JSONField(default=dict)
@@ -114,8 +121,8 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         `status` directly take effect even when `enabled` is stale in memory.
 
         Post-reconciliation invariants are always enforced:
-            - ACTIVE  → enabled=True,  status_reason=None
-            - PAUSED  → enabled=False, status_reason=None
+            - ACTIVE  → enabled=True,  status_reason/detail=None
+            - PAUSED  → enabled=False, status_reason/detail=None
             - ERROR   → enabled=False, status_reason required (raises otherwise)
         """
         # UUIDTModel assigns pk in __init__, so we can't use `self.pk is None` to detect new rows.
@@ -136,24 +143,30 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         if self.status == EvaluationStatus.ACTIVE:
             self.enabled = True
             self.status_reason = None
+            self.status_reason_detail = None
         elif self.status == EvaluationStatus.PAUSED:
             self.enabled = False
             self.status_reason = None
+            self.status_reason_detail = None
         elif self.status == EvaluationStatus.ERROR:
             self.enabled = False
             if not self.status_reason:
                 raise ValidationError({"status_reason": "status_reason is required when status is ERROR"})
 
     def set_status(
-        self, status: "EvaluationStatus | str", reason: "EvaluationStatusReason | str | None" = None
+        self,
+        status: "EvaluationStatus | str",
+        reason: "EvaluationStatusReason | str | None" = None,
+        reason_detail: str | None = None,
     ) -> None:
         """Transition helper. Prefer this (or .save()) over .update() so invariants stay enforced.
 
-        Callers using QuerySet.update() bypass save() — they must write all three fields together.
+        Callers using QuerySet.update() bypass save() — they must write the status fields together.
         """
         self.status = EvaluationStatus(status)
         self.status_reason = EvaluationStatusReason(reason) if reason else None
-        self.save(update_fields=["status", "status_reason", "enabled", "updated_at"])
+        self.status_reason_detail = reason_detail
+        self.save(update_fields=["status", "status_reason", "status_reason_detail", "enabled", "updated_at"])
 
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode

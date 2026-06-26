@@ -196,8 +196,14 @@ one sandbox session → zero or more emitted signals.
   for that `(team, skill)` via `_has_running_run` — so `_self_heal_stale_runs` fails any such
   run older than `STALE_RUN_CUTOFF_S` before the guard, letting the lane recover within a tick
   or two instead of wedging until manual intervention.
-- Emit path goes through `emit_signal()` and only `emit_signal()`. Do not write to
-  the embeddings pipeline or `SignalReport` directly from harness code.
+- Emit path goes through `emit_signal()` and only `emit_signal()` — **with one sanctioned
+  carve-out**: a scout that opts into the report-authoring channel (`emit_report` / `edit_report`
+  in its skill's `allowed_tools`) writes a full `SignalReport` directly. That write does NOT go
+  through harness code touching `SignalReport` or the embeddings pipeline itself — it goes through
+  the `scout_report/` service (`create_scout_report` / `update_scout_report`), which owns the report
+  row + the bound `document_embeddings` signal write (the grouping substrate, minus the matcher).
+  Harness/tool code calls that service; it still never touches `SignalReport` or the embeddings
+  pipeline directly. See `../scout_report/persistence.py` and the `scouts-emit-reports` spec.
 - **If you add or rename a workflow/activity in `temporal/agentic/`, update
   `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`)
   to match.**

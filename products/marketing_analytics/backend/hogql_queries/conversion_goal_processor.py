@@ -677,6 +677,15 @@ class ConversionGoalProcessor:
         the array shape _build_conversion_only_arrays produces from a live events scan. Each table row is
         already a single conversion (event filtered at INSERT time), so we just groupArray per person —
         the same arrayFilter sentinels are kept so the result is row-for-row identical to the fallback.
+
+        The preagg table is a ReplacingMergeTree keyed on (team_id, job_id, person_id, conversion_timestamp);
+        because job_id is part of the dedup key, the same physical conversion materialized under several
+        job_ids (overlapping windows, compare-period, re-materialization on TTL) survives as distinct rows
+        even with FINAL. Reading across multiple job_ids would therefore double-count. We deduplicate by the
+        FULL conversion identity — (person_id, conversion_timestamp, conversion_math_value, all UTM dims) —
+        ignoring job_id/computed_at, so only true duplicates (same row under a different job_id) collapse;
+        two genuinely distinct conversions of one person at the same timestamp with the same math value but
+        different dims (or vice versa) are preserved.
         """
         positive = ast.Lambda(
             args=["x"],
@@ -726,25 +735,20 @@ class ConversionGoalProcessor:
                 )
             )
 
+        deduped_rows = self._build_distinct_preagg_rows(
+            table="marketing_conversions_preaggregated",
+            job_ids=job_ids,
+            row_columns=[
+                ast.Field(chain=["person_id"]),
+                ast.Field(chain=["conversion_timestamp"]),
+                ast.Field(chain=["conversion_math_value"]),
+                *[ast.Field(chain=[field.attributed_name]) for field in TRACKED_FIELDS],
+            ],
+        )
+
         return ast.SelectQuery(
             select=select_columns,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "marketing_conversions_preaggregated"])),
-            where=ast.And(
-                exprs=[
-                    ast.Call(
-                        name="in",
-                        args=[
-                            ast.Field(chain=["job_id"]),
-                            ast.Tuple(exprs=[ast.Constant(value=str(jid)) for jid in job_ids]),
-                        ],
-                    ),
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["team_id"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value=self.team.pk),
-                    ),
-                ]
-            ),
+            select_from=ast.JoinExpr(table=deduped_rows),
             group_by=[ast.Field(chain=["person_id"])],
         )
 
@@ -752,6 +756,13 @@ class ConversionGoalProcessor:
         """Per-person touchpoint arrays (utm_timestamps + per-field UTM arrays) read from the
         precomputed marketing_touchpoints table, matching the array shape build_array_collection_query
         produces from a UTM-pageview scan.
+
+        The preagg table is a ReplacingMergeTree keyed on (team_id, job_id, person_id, touchpoint_timestamp);
+        job_id being in the dedup key means the same physical touchpoint materialized under several job_ids
+        (overlapping windows, compare-period, re-materialization on TTL) survives as distinct rows even with
+        FINAL. groupArray-ing across those job_ids would inflate the touchpoint arrays and over-credit the
+        conversion. We deduplicate by the FULL touchpoint identity — (person_id, touchpoint_timestamp, all
+        UTM dims) — ignoring job_id/computed_at, so only true duplicates collapse.
         """
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
@@ -777,9 +788,37 @@ class ConversionGoalProcessor:
                 )
             )
 
+        deduped_rows = self._build_distinct_preagg_rows(
+            table="marketing_touchpoints_preaggregated",
+            job_ids=job_ids,
+            row_columns=[
+                ast.Field(chain=["person_id"]),
+                ast.Field(chain=["touchpoint_timestamp"]),
+                *[ast.Field(chain=[field.attributed_name]) for field in TRACKED_FIELDS],
+            ],
+        )
+
         return ast.SelectQuery(
             select=select_columns,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "marketing_touchpoints_preaggregated"])),
+            select_from=ast.JoinExpr(table=deduped_rows),
+            group_by=[ast.Field(chain=["person_id"])],
+        )
+
+    def _build_distinct_preagg_rows(
+        self,
+        table: str,
+        job_ids: Sequence[str | uuid.UUID],
+        row_columns: list[ast.Expr],
+    ) -> ast.SelectQuery:
+        """SELECT DISTINCT over the full row identity (excluding job_id/computed_at) for one team across
+        the given job_ids. Collapses rows that are physically identical but materialized under different
+        job_ids, which the ReplacingMergeTree dedup key (which includes job_id) cannot merge away. The
+        downstream groupArray then sees each real touchpoint/conversion exactly once.
+        """
+        return ast.SelectQuery(
+            select=row_columns,
+            distinct=True,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", table])),
             where=ast.And(
                 exprs=[
                     ast.Call(
@@ -796,7 +835,6 @@ class ConversionGoalProcessor:
                     ),
                 ]
             ),
-            group_by=[ast.Field(chain=["person_id"])],
         )
 
     def build_attributed_source_from_precomputed(

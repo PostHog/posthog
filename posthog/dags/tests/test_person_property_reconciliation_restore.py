@@ -23,6 +23,10 @@ from posthog.models import Organization, Person, Team
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.test.persons import create_person
 
+# Exercises the persons DB directly (raw reads against PERSONS_DB_FOR_WRITE), so it must run against
+# the real persons DB rather than the personhog fake.
+pytestmark = pytest.mark.persons_db_direct
+
 
 def create_backup_entry(
     cursor,
