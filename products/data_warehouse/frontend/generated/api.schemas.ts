@@ -1550,6 +1550,7 @@ export interface CredentialApi {
  * * `Talkwalker` - Talkwalker
  * * `NextdoorAds` - NextdoorAds
  * * `AppLovin` - AppLovin
+ * * `Baserow` - Baserow
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2203,6 +2204,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Talkwalker: 'Talkwalker',
     NextdoorAds: 'NextdoorAds',
     AppLovin: 'AppLovin',
+    Baserow: 'Baserow',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
