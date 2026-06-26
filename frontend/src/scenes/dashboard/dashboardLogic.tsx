@@ -46,7 +46,6 @@ import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
-import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import {
     calculateDuplicateLayout,
@@ -1130,10 +1129,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Not on `mode === null`: the text/button add flow navigates through a route that sets the
                 // mode back to null, and clearing there would drop the target before the tile is created.
                 setDashboardMode: (state, { mode }) => (mode != null ? null : state),
-                // Insight always opens (and navigates away via) this modal; cancelling it must not leave a
-                // stale target that later hijacks an unrelated tile. Safe because the insight flow never
-                // relies on the target surviving the modal — it appends after returning from the editor.
-                [addInsightToDashboardLogic.actionTypes.hideAddInsightToDashboardModal]: () => null,
+                // Don't clear on hideAddInsightToDashboardModal: closing the modal fires it right as the
+                // chosen insight is added, and clearing there dropped the target before applyPendingInsertion
+                // could place the tile (so insights appended at the bottom). A cancel leaves the target set,
+                // but the next header add clears it (setPendingInsertionY(null)) and entering a mode clears it.
             },
         ],
         // Column for the pending insert; cleared alongside pendingInsertionY (which gates whether it's read).
