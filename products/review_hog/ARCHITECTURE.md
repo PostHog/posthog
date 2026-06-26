@@ -1442,51 +1442,84 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
 
 ---
 
-### 🔁 Stage 5b — iterate on the same PR (post-trigger validation; the bridge to the Stage 4 loop)
+### 🔁 Stage 5b — iterate on the same PR (⏭️ THE NEXT STEP — run WITHOUT publish first)
 
-> **Status: not built — this is the explicit validation step _after_ Stage 5 ships.** Once the label trigger
-> posts a real review, the next thing to exercise is **re-running ReviewHog on the _same_ PR, turn after turn**,
-> to watch it **consume its own already-posted comments** instead of re-posting them. This is the empirical
-> proof that the single-turn pipeline is loop-ready, and it directly feeds Stage 4 (the loop) + cross-turn
-> finding lifecycle.
+> **Status: NEXT STEP, not yet run.** Re-triggering has **never been tested**, so the first re-trigger run must
+> be **without publishing** (`run_review` _without_ `--publish`, or the endpoint with `publish=false`) — verify the
+> re-trigger mechanics + dedup behavior safely before letting it post anything. Stage 5 (single turn) is e2e-proven
+> (full publish on #66168, 2026-06-26); this validates the _loop-readiness_ of a second turn.
 
-**Goal.** Re-trigger the same PR (re-apply the `reviewhog` label, or re-`curl` the endpoint, or
-`manage.py run_review --publish` on the same URL) repeatedly and confirm each subsequent turn **does not
-duplicate findings it already posted** — it only surfaces genuinely new ones (new commits / newly changed
-lines) and lets the rest fall away.
+**Goal.** Re-trigger the **same** PR (no publish) and confirm a second turn **does not re-surface findings it
+already accounted for** — it consumes prior context instead of duplicating, and only genuinely new findings
+(new commits / newly changed lines) would survive. **#66168 is the ideal target:** the 2026-06-26 publish run
+already posted ReviewHog's own inline comments there, so a **no-publish** re-trigger exercises the
+"consume-our-own-comments" dedup _without_ posting anything new — strictly safe.
 
-**What it exercises (already coded — this just validates it end-to-end with publishing on):**
+**What it exercises (already coded):**
 
 - **Cross-turn positional dedup (step 14).** `deduplicate_issues` drops any finding that collides (same file +
-  overlapping lines) with **any prior inline comment**, every reviewer treated uniformly — **including
-  ReviewHog's own** comments from the previous turn. So turn _N+1_ should re-fetch turn _N_'s inline comments
-  (via `PRFetcher.fetch_pr_comments` → `get_review_comments()`, author on `PRComment.user`) and dedup against
-  them. Each turn should get **quieter**, not noisier.
-- **Deterministic per-PR workflow id + `ALLOW_DUPLICATE` reuse policy** (`review_pr_workflow_id`,
-  `client.py`): a re-trigger collapses onto the same id; a new turn starts once the prior finishes (a living
-  report re-review), a second _concurrent_ run of the same PR is rejected.
-- **`head_sha`-scoped resume** (the `chunk_set` / `chunk_analysis` / `perspective_result` artefacts): a re-run
-  at the **same** head reuses the expensive sandbox rows and only re-derives dedup + validation against the
-  now-larger prior-comment set; a re-run at a **new** head re-snapshots and re-reviews.
+  overlapping lines) with **any prior inline comment** on the PR — including ReviewHog's own from a prior turn
+  (re-fetched via `PRFetcher.fetch_pr_comments` → `get_review_comments()`). With #66168 already carrying our
+  comments, turn 2's dedup should suppress the previously-posted `should_fix`+ findings → strictly fewer
+  surviving findings, and (publish off) nothing posted.
+- **Deterministic per-PR workflow id + reuse/conflict policy** (`review_pr_workflow_id`, `client.py`): a
+  re-trigger at the same head **joins** the in-flight run (`USE_EXISTING`) or, once closed, starts a fresh turn
+  (`ALLOW_DUPLICATE`). NOTE: a same-head re-trigger after a successful publish now **skips publishing** (the
+  `published_head_sha` watermark) — for a no-publish run that's moot.
+- **`head_sha`-scoped resume**: a re-run at the **same** head reuses `chunk_set` / `chunk_analysis` /
+  `perspective_result` and only re-derives dedup + validation; a **new** head re-snapshots and re-reviews.
 
-**What to watch for / known gaps this step will surface (candidate fixes that become Stage 4 work):**
+**⚠️ The sub-`should_fix` / invalid re-propose gap (raised 2026-06-26 — the key thing to fix for the loop).**
+We persist **every** post-dedup finding (all priorities incl. `CONSIDER`) as `issue_finding` rows and **every**
+verdict incl. `is_valid=False` (`_persistable_findings` has no priority filter; `persist_verdict(s)` stores all).
+The PR only ever receives the publishable subset (`is_valid=True` ∩ `{MUST_FIX, SHOULD_FIX}` ∩ on-diff). So a
+finding we _saw and decided not to surface_ (a `CONSIDER`, or one the validator dropped) lives **only in our DB,
+never on the PR** — and the current dedup reads **PR comments**, so it cannot see those. A re-trigger therefore
+**re-discovers and re-validates the same sub-threshold / invalid findings every turn** (wasted sandbox cost; never
+re-posted, but never reconciled either). **Proposed fix (becomes the cross-turn finding-identity work):**
 
-- **The standalone "ReviewHog Alpha 🦔" feedback comment is a plain `create_issue_comment`, not an inline
-  review comment** (`publish_review.py:218`) — it is **not** positional, so the dedup gate won't catch it and
-  it **will re-post every turn**. Fix before looping: post it once per report (guard on a watermark) or drop it
-  for the loop.
-- **Finding _lifecycle_ is still missing** — dedup only _suppresses_ a re-find; it does not **resolve / update**
-  our own prior comment when the underlying code changed or the issue was fixed. That (matching against the DB
-  `issue_finding` rows by semantic identity, not comment text) is the **Stage 4 prerequisite** called out in
-  Stage 4's "finding-identity prereq" and remains deferred.
-- **Confirm the fetch actually returns our own comments** — dedup can only see prior comments that come back in
-  `fetch_pr_comments` (test files / filtered paths are dropped; line-less chatter is excluded by `_comment_line`).
-  Verify ReviewHog's own inline comments survive that filter so the loop converges.
+1. **Stable, head-independent finding identity** — a signature like `file + normalized-location + root-cause`
+   (not the per-run positional `issue_key`, whose `id` and line move across heads). See _Cross-turn finding
+   identity & watermarks_ below.
+2. **Reconcile each turn's raw findings against the report's prior DB findings, not just PR comments.** Before
+   re-validating/surfacing, match new findings to prior ones by that identity and **carry the prior decision
+   forward** — skip re-validating a finding we already ruled `is_valid=False`, skip re-surfacing a `CONSIDER` we
+   already filed, and only spend sandbox turns on genuinely new findings. Dedup against **(prior PR comments ∪
+   prior DB findings)**.
+3. This subsumes the "finding lifecycle" item (resolve/update/close our own prior finding when the code changed)
+   and is the **hard prerequisite for the loop** — must land before publish-on-loop.
 
-**How to run the validation:** pick a stable non-fork PR, run with publishing on (`--publish` or the endpoint),
-read the posted review; then run **again** unchanged and assert the second review posts **strictly fewer (ideally
-zero) new** inline comments for the same head, and that pushing a new commit produces a fresh review only for the
-new lines. Log the turn-over-turn finding counts in `eval/RUN_LOG.md`.
+**Other gaps:**
+
+- **Promo comment** — _fixed_ 2026-06-26: posted once per report (`post_promo = published_head_sha is None`), and
+  the watermark is only recorded on an actual post, so a no-op turn doesn't consume it.
+- **Confirm the fetch returns our own comments** — dedup only sees comments that survive `fetch_pr_comments`
+  (filtered paths / test files dropped; line-less chatter excluded by `_comment_line`). Verify ReviewHog's own
+  inline comments come back so the loop converges.
+
+**How to run (no publish):** `manage.py run_review --pr-url <#66168> --team-id 1 --user-id 1` (NO `--publish`),
+twice. Assert turn 2 produces **strictly fewer surviving post-dedup findings** than turn 1 (the previously-posted
+ones are deduped against the PR comments), and log turn-over-turn counts in `eval/RUN_LOG.md`. Restart the worker
+first so the latest fixes are loaded.
+
+---
+
+### 🔮 Future directions (product, post-Stage-5 — not scheduled)
+
+- **Per-user validation criteria + review perspectives, self-improving from review feedback.** Today the
+  validation skill + the 3 perspectives are team-shared (DB-synced LLMA skills). The goal: **each user has their
+  own** validation skill + perspective set, and **when a user replies to a ReviewHog review comment** (e.g.
+  "this isn't worth flagging", "always flag this"), that **triggers a flow to update _their_ skill** so future
+  reviews better match what they care about. Different users have very different bars — some don't care about
+  frontend issues at all, others want maximally paranoid security/edge-case coverage — so the keep/drop criteria
+  and the perspectives should personalize over time from the comment thread, rather than being one team-wide bar.
+  (Builds on _Validator as a team-customizable skill_ — this is the per-user + feedback-loop generalization.)
+- **User-configurable perspectives (dynamic fan-out, not a hardcoded 3).** The review fan-out is currently pinned
+  to the 3 canonical perspectives (Logic & Correctness / Contracts & Security / Performance & Reliability). The
+  goal: let users **add or remove** perspectives, and have `ReviewPerspectivesWorkflow` **discover whatever
+  perspectives the user/team has** and spawn one sandbox per (perspective × chunk) accordingly — so a team that
+  adds, say, an "Accessibility" or "API-compatibility" perspective gets it reviewed automatically, and one that
+  drops "Performance" stops paying for it. The fan-out width becomes data-driven off the user's perspective set.
 
 ---
 
