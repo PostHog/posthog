@@ -179,6 +179,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
         assert log is not None
         assert log.detail is not None
+        self.assertEqual(log.user, self.user)
         changes = log.detail.get("changes", [])
         consent_change = next((c for c in changes if c["field"] == "third-party AI services"), None)
         assert consent_change is not None
