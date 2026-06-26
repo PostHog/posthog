@@ -341,7 +341,44 @@ def enable_backfill(
 
 
 def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Response:
-    return _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
+    resp = _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
+    if status.is_success(resp.status_code):
+        _remove_direct_connection_sources(organization_id)
+    return resp
+
+
+def _remove_direct_connection_sources(organization_id: UUID | str) -> None:
+    """Soft-delete the org's auto-created Postgres direct connections after deprovisioning.
+
+    Best-effort, like the provision-time persistence: a failure here only leaves a stale,
+    unqueryable connection behind — it must not turn a successful deprovision into an error.
+    """
+    # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
+    from products.data_warehouse.backend.facade.api import soft_delete_managed_warehouse_sources  # noqa: PLC0415
+
+    try:
+        soft_delete_managed_warehouse_sources(organization_id=organization_id)
+    except Exception:
+        logger.exception("Failed to remove managed warehouse direct sources", organization_id=str(organization_id))
+
+
+def ensure_direct_connection_tables(team_id: int, organization_id: UUID | str) -> None:
+    """Discover the team's managed-warehouse tables so they're queryable in the SQL editor.
+
+    Called from the warehouse-status read once the warehouse is `ready`. Best-effort and cheap
+    to repeat: the underlying reconcile skips the live introspection once the tables exist.
+    """
+    # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
+    from products.data_warehouse.backend.facade.api import reconcile_managed_warehouse_tables  # noqa: PLC0415
+
+    try:
+        reconcile_managed_warehouse_tables(team_id=team_id, organization_id=organization_id)
+    except Exception:
+        logger.exception(
+            "Failed to reconcile managed warehouse direct connection tables",
+            organization_id=str(organization_id),
+            team_id=team_id,
+        )
 
 
 def status_for(organization_id: UUID | str) -> Response:
@@ -443,7 +480,27 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
 
 
 def reset_password(organization_id: UUID | str) -> Response:
-    return _request("POST", organization_id, "/reset-password")
+    resp = _request("POST", organization_id, "/reset-password")
+    if status.is_success(resp.status_code) and isinstance(resp.data, dict) and resp.data.get("password"):
+        _update_direct_connection_password(organization_id, resp.data["password"])
+    return resp
+
+
+def _update_direct_connection_password(organization_id: UUID | str, password: str) -> None:
+    """Sync the rotated root password into the org's auto-created direct connections.
+
+    Best-effort: live queries through the direct connection would otherwise break after a reset
+    until the source is re-created, but the password is still returned to the user regardless.
+    """
+    # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
+    from products.data_warehouse.backend.facade.api import update_managed_warehouse_password  # noqa: PLC0415
+
+    try:
+        update_managed_warehouse_password(organization_id=organization_id, password=password)
+    except Exception:
+        logger.exception(
+            "Failed to update managed warehouse direct source password", organization_id=str(organization_id)
+        )
 
 
 def check_name(organization_id: UUID | str, name: str | None) -> Response:

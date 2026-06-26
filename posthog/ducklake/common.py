@@ -587,7 +587,9 @@ def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_nam
     existing = DuckgresServerTeam.objects.filter(team_id=team_id).first()
     if existing is not None:
         if existing.table_suffix == suffix:
-            # Same name — already set up; idempotent no-op.
+            # Same name — already set up; idempotent no-op. Still ensure the direct-query
+            # source exists so a row that failed to create on first setup is self-healed.
+            _ensure_managed_warehouse_direct_source(team_id=team_id, server=server)
             return suffix
         current = f"events_{existing.table_suffix}" if existing.table_suffix else "the shared tables"
         raise DucklingBackfillEnableError(
@@ -606,7 +608,33 @@ def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_nam
         )
 
     DuckgresServerTeam.objects.create(server=server, team_id=team_id, backfill_enabled=True, table_suffix=suffix)
+    _ensure_managed_warehouse_direct_source(team_id=team_id, server=server)
     return suffix
+
+
+def _ensure_managed_warehouse_direct_source(*, team_id: int, server: DuckgresServer) -> None:
+    """Best-effort: register the org's managed warehouse as a Postgres direct connection for this team.
+
+    A managed warehouse speaks the Postgres wire protocol, so each member team gets an
+    ExternalDataSource (postgres/direct) pointed at the org server, making the warehouse
+    queryable in the SQL editor. Isolated from backfill enablement: a failure here must never
+    block a team from joining the warehouse.
+    """
+    try:
+        # Lazy import: keep the data_warehouse/warehouse_sources stack off this module's import
+        # path (it's loaded by the API and by Dagster, which don't need it).
+        from products.data_warehouse.backend.facade.api import ensure_managed_warehouse_direct_source  # noqa: PLC0415
+
+        ensure_managed_warehouse_direct_source(
+            team_id=team_id,
+            host=server.host,
+            port=server.port,
+            database=server.database,
+            username=server.username,
+            password=server.password,
+        )
+    except Exception:
+        logger.exception("Failed to register managed warehouse direct source for team %s", team_id)
 
 
 def get_team_backfill_state(team_id: int) -> dict[str, object]:

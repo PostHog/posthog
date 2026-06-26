@@ -115,6 +115,34 @@ class TestEnableTeamBackfill:
         with pytest.raises(DucklingBackfillEnableError):
             enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="events")
 
+    def test_registers_a_postgres_direct_connection_for_the_team(self):
+        from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        server = self._server(org)
+
+        enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="prod")
+
+        source = ExternalDataSource.objects.get(team_id=team.id, access_method=ExternalDataSource.AccessMethod.DIRECT)
+        assert source.source_type == "Postgres"
+        assert source.job_inputs["host"] == server.host
+
+    def test_direct_connection_failure_does_not_block_enablement(self):
+        # The connection is a best-effort convenience; a failure must never stop a team joining.
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        self._server(org)
+
+        with patch(
+            "products.data_warehouse.backend.managed_warehouse_connection.ensure_managed_warehouse_direct_source",
+            side_effect=Exception("boom"),
+        ):
+            suffix = enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="prod")
+
+        assert suffix == "prod"
+        assert DuckgresServerTeam.objects.filter(team_id=team.id).count() == 1
+
 
 @pytest.mark.django_db
 class TestGetTeamBackfillState:
