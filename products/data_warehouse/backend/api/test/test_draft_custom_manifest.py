@@ -1,16 +1,25 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 import httpx
 from openai import APIConnectionError
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.models import Team
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.ai_builder import ManifestDraftResult
 
 _DRAFT_PATH = "products.data_warehouse.backend.api.external_data_source.draft_manifest_sync"
 _FETCH_PATH = "products.data_warehouse.backend.api.external_data_source.fetch_docs_text"
 _FLAG_PATH = "products.data_warehouse.backend.api.external_data_source.is_custom_source_ai_builder_enabled_for_team"
+_THROTTLE_SCOPES = (
+    "custom_source_ai_builder_burst",
+    "custom_source_ai_builder_sustained",
+    "custom_source_ai_builder_daily",
+)
 
 
 class TestDraftCustomManifest(APIBaseTest):
@@ -21,12 +30,16 @@ class TestDraftCustomManifest(APIBaseTest):
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
 
-    def _url(self) -> str:
-        return f"/api/environments/{self.team.pk}/external_data_sources/draft_custom_manifest/"
+    def _url(self, team_id: int | None = None) -> str:
+        return f"/api/environments/{team_id or self.team.pk}/external_data_sources/draft_custom_manifest/"
 
     def _approve_ai(self) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
+
+    def _reset_throttles(self, team_id: int | None = None) -> None:
+        for scope in _THROTTLE_SCOPES:
+            cache.delete(f"throttle_{scope}_{team_id or self.team.pk}")
 
     def test_blocks_when_feature_flag_disabled(self) -> None:
         self._approve_ai()
@@ -82,3 +95,24 @@ class TestDraftCustomManifest(APIBaseTest):
         self.assertEqual(response.status_code, expected)
         # A failure must surface as an error, never as a canned 200 manifest.
         self.assertNotIn("manifest_json", response.json())
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_throttled_per_team_after_burst_limit(self, _enabled) -> None:
+        self._approve_ai()
+        self._reset_throttles()
+        other = Team.objects.create(organization=self.organization, name="Other")
+        self._reset_throttles(team_id=other.pk)
+
+        result = ManifestDraftResult(status="ok", manifest_json="{}", resource_names=[], attempts=1, error=None)
+        with patch(_FETCH_PATH, return_value="DOCS"), patch(_DRAFT_PATH, return_value=result):
+            # Burst budget is 5/minute per team — the 6th request is rejected.
+            for _ in range(5):
+                ok = self.client.post(self._url(), {"docs_url": "https://docs.example.com"})
+                self.assertEqual(ok.status_code, status.HTTP_200_OK)
+            throttled = self.client.post(self._url(), {"docs_url": "https://docs.example.com"})
+            self.assertEqual(throttled.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertIn("Retry-After", throttled.headers)
+
+            # A different team shares no budget — the cap is keyed per team, not global.
+            other_team = self.client.post(self._url(team_id=other.pk), {"docs_url": "https://docs.example.com"})
+            self.assertEqual(other_team.status_code, status.HTTP_200_OK)

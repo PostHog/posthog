@@ -42,6 +42,11 @@ from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.rate_limit import (
+    CustomSourceAIBuilderBurstThrottle,
+    CustomSourceAIBuilderDailyThrottle,
+    CustomSourceAIBuilderSustainedThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -1473,6 +1478,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     # source type ("Stripe", "Postgres") and the HogQL table prefix.
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
+
+    def get_throttles(self):
+        # The AI manifest builder fans out to several Opus calls per request and isn't billed to the
+        # customer, so cap it per team: a burst guard against double-submits/retries, an hourly window
+        # for an intense setup session, and a daily backstop against scripted abuse.
+        if self.action == "draft_custom_manifest":
+            return [
+                CustomSourceAIBuilderBurstThrottle(),
+                CustomSourceAIBuilderSustainedThrottle(),
+                CustomSourceAIBuilderDailyThrottle(),
+            ]
+        return super().get_throttles()
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "create":
