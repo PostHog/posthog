@@ -1,12 +1,12 @@
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { ModifiedRequest } from '~/api/router'
 import { CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
-import { isDevEnv, isTestEnv } from '~/utils/env-utils'
-import { parseJSON } from '~/utils/json-parse'
+import { ModifiedRequest } from '~/common/api/router'
+import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 
-import { logger } from '../../../utils/logger'
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'

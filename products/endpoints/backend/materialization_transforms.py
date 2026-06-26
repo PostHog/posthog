@@ -23,7 +23,15 @@ from posthog.models.team import Team
 ENDPOINT_BREAKDOWN_LIMIT = 10_000
 
 
-class VariableInHavingClauseError(ValueError):
+class MaterializationNotSupportedError(ValueError):
+    """Raised when a query uses a construct materialization can't transform.
+
+    This is a user-input limitation (a 400), not a server fault — callers should surface
+    it as a validation error rather than letting it bubble up as an unhandled exception.
+    """
+
+
+class VariableInHavingClauseError(MaterializationNotSupportedError):
     """Raised when a variable is used in a HAVING clause, which is not supported for materialization."""
 
 
@@ -124,6 +132,7 @@ class VariableUsageInWhere:
     operator: ast.CompareOperationOp
     column_ast: Optional[ast.Expr] = None
     value_wrapper_fns: Optional[list[str]] = None
+    in_or: bool = False  # True when this usage sits inside an OR within the WHERE clause
 
 
 RANGE_OPS = frozenset(
@@ -276,6 +285,19 @@ def analyze_variables_for_materialization(
         if not all_usages:
             return False, "Variable not used in WHERE clause", []
 
+        # A variable nested in an OR can't be lifted into a single materialized key column:
+        # removing its predicate (as the transform does) would change the result set.
+        if any(usage.in_or for _, usage in all_usages):
+            return False, "Variables in OR conditions are not supported for materialization", []
+
+        # A variable compared against more than one column has no single bucket key to
+        # materialize on (the transform would silently keep only the first usage).
+        distinct_columns = {
+            tuple(usage.column_chain) if usage.column_chain else usage.column_expression for _, usage in all_usages
+        }
+        if len(distinct_columns) > 1:
+            return False, "Variable compared against multiple columns is not supported for materialization", []
+
         # Determine CTE context for this variable
         cte_names = {cte_name for cte_name, _ in all_usages}
         if len(cte_names) > 1:
@@ -386,7 +408,84 @@ def analyze_variables_for_materialization(
                 plans[d_cte_name] = plan
             var.downstream_plans = plans
 
+    # A variable whose code_name collides with a SELECT alias for a different expression
+    # can't be materialized (the table would need two columns of that name). This is the one
+    # limitation only the transform could detect, so reject it here — sharing the check with
+    # the transformer — instead of letting enable_materialization fail mid-transform.
+    conflict_reason = _find_alias_conflict(ast_node, result_vars)
+    if conflict_reason is not None:
+        return False, conflict_reason, []
+
     return True, "OK", result_vars
+
+
+def _alias_conflict_reason(code_name: str) -> str:
+    """Single source of truth for the variable/alias-conflict message, so the analyzer's
+    rejection reason and the transformer's exception always read identically."""
+    return (
+        f"Variable '{code_name}' conflicts with an existing SELECT alias for a different expression. "
+        f"Rename the variable or the conflicting column alias."
+    )
+
+
+def _variable_column_expr(var: MaterializableVariable) -> ast.Expr:
+    """Expression a variable contributes to SELECT/GROUP BY, without aliasing.
+
+    Uses the original AST expression when available (e.g. function calls like
+    toDate(timestamp) that can't be reconstructed from column_chain). Always returns a fresh
+    copy so SELECT and GROUP BY don't share nodes. Wraps with bucket_fn when set.
+    """
+    if var.column_ast is not None:
+        base = CloningVisitor().visit(var.column_ast)
+    else:
+        base = ast.Field(chain=list(var.column_chain))
+
+    if var.bucket_fn:
+        return ast.Call(name=var.bucket_fn, args=[base])
+
+    return base
+
+
+def _select_alias_conflict(select: ast.SelectQuery, vars_in_context: list[MaterializableVariable]) -> Optional[str]:
+    """code_name of the first variable colliding with a SELECT alias bound to a *different*
+    expression, or None. Shared by the analyzer (pre-flight reject) and the transformer
+    (enable-time backstop) so both agree on what's unmaterializable."""
+    existing_aliases = {
+        alias.alias: alias.expr.to_hogql() for alias in select.select or [] if isinstance(alias, ast.Alias)
+    }
+    for var in vars_in_context:
+        existing = existing_aliases.get(var.code_name)
+        if existing is not None and existing != _variable_column_expr(var).to_hogql():
+            return var.code_name
+    return None
+
+
+def _context_select(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery, cte_name: Optional[str]
+) -> Optional[ast.SelectQuery]:
+    """The SELECT a variable's columns get added to — the CTE body for CTE-bound variables,
+    else the top-level query — mirroring the contexts the transformer visits."""
+    if cte_name is None:
+        return ast_node if isinstance(ast_node, ast.SelectQuery) else None
+    if isinstance(ast_node, ast.SelectQuery) and ast_node.ctes and cte_name in ast_node.ctes:
+        body = ast_node.ctes[cte_name].expr
+        return body if isinstance(body, ast.SelectQuery) else None
+    return None
+
+
+def _find_alias_conflict(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery, result_vars: list[MaterializableVariable]
+) -> Optional[str]:
+    """Pre-flight equivalent of the transformer's per-context alias-conflict check: group
+    variables by their context and run the shared conflict check on each."""
+    contexts: dict[Optional[str], list[MaterializableVariable]] = {}
+    for var in result_vars:
+        contexts.setdefault(var.cte_name, []).append(var)
+    for cte_name, vars_in_context in contexts.items():
+        select = _context_select(ast_node, cte_name)
+        if select is not None and (conflict := _select_alias_conflict(select, vars_in_context)) is not None:
+            return _alias_conflict_reason(conflict)
+    return None
 
 
 def _has_joins(node: ast.SelectQuery) -> bool:
@@ -868,6 +967,7 @@ class VariableInWhereFinder(TraversingVisitor):
         self.target = target_placeholder
         self.all_results: list[tuple[Optional[str], VariableUsageInWhere]] = []
         self.in_where = False
+        self._or_depth = 0
         self._current_cte_name: Optional[str] = None
 
     @property
@@ -891,9 +991,20 @@ class VariableInWhereFinder(TraversingVisitor):
                 self._current_cte_name = prev_cte
 
         if node.where:
-            self.in_where = True
+            prev_in_where, prev_or_depth = self.in_where, self._or_depth
+            self.in_where, self._or_depth = True, 0
             self.visit(node.where)
-            self.in_where = False
+            self.in_where, self._or_depth = prev_in_where, prev_or_depth
+
+    def visit_or(self, node: ast.Or):
+        # Only OR nesting within a WHERE clause matters for materialization.
+        track = self.in_where
+        if track:
+            self._or_depth += 1
+        for expr in node.exprs:
+            self.visit(expr)
+        if track:
+            self._or_depth -= 1
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         if not self.in_where:
@@ -923,6 +1034,7 @@ class VariableInWhereFinder(TraversingVisitor):
                         column_expression=".".join(column_chain),
                         operator=node.op,
                         value_wrapper_fns=wrapper_fns,
+                        in_or=self._or_depth > 0,
                     ),
                 )
             )
@@ -937,6 +1049,7 @@ class VariableInWhereFinder(TraversingVisitor):
                         operator=node.op,
                         column_ast=field_side if not column_chain else None,
                         value_wrapper_fns=wrapper_fns,
+                        in_or=self._or_depth > 0,
                     ),
                 )
             )
@@ -1262,20 +1375,16 @@ class MaterializationTransformer(CloningVisitor):
 
     def _add_variable_columns(self, node: ast.SelectQuery, vars_for_context: list[MaterializableVariable]) -> None:
         """Add aliased variable columns to SELECT, update GROUP BY, and remove variable WHERE clauses."""
-        existing_aliases: dict[str, str] = {
-            expr.alias: expr.expr.to_hogql() for expr in node.select or [] if isinstance(expr, ast.Alias)
-        }
-        vars_to_add: list[MaterializableVariable] = []
-        for var in vars_for_context:
-            existing_expr = existing_aliases.get(var.code_name)
-            if existing_expr is not None:
-                if existing_expr == self._variable_expr(var).to_hogql():
-                    # SELECT already exposes this column under the variable's name
-                    continue
-                raise ValueError(
-                    f"Variable '{var.code_name}' conflicts with an existing SELECT alias for a different expression"
-                )
-            vars_to_add.append(var)
+        # Backstop: pre-flight analysis normally rejects this first (analyze_variables_for_materialization),
+        # so reaching here means a pre-flight gap. Surfaced as a 400, not a server fault.
+        conflict = _select_alias_conflict(node, vars_for_context)
+        if conflict is not None:
+            raise MaterializationNotSupportedError(_alias_conflict_reason(conflict))
+
+        # A code_name already aliased here is — after the conflict check — the same expression
+        # already exposed under that name, so skip it; add the rest.
+        existing_alias_names = {expr.alias for expr in node.select or [] if isinstance(expr, ast.Alias)}
+        vars_to_add = [var for var in vars_for_context if var.code_name not in existing_alias_names]
 
         select_additions = [self._create_column_field(var) for var in vars_to_add]
         if select_additions:
@@ -1348,7 +1457,7 @@ class MaterializationTransformer(CloningVisitor):
                 if use_field_ref:
                     group_by_additions.append(ast.Field(chain=[var.code_name]))
                 else:
-                    group_by_additions.append(self._variable_expr(var))
+                    group_by_additions.append(_variable_column_expr(var))
 
         if node.group_by:
             node.group_by = [*list(node.group_by), *group_by_additions]
@@ -1358,27 +1467,8 @@ class MaterializationTransformer(CloningVisitor):
     def _create_column_field(self, var: MaterializableVariable) -> ast.Expr:
         return ast.Alias(
             alias=var.code_name,
-            expr=self._variable_expr(var),
+            expr=_variable_column_expr(var),
         )
-
-    @staticmethod
-    def _variable_expr(var: MaterializableVariable) -> ast.Expr:
-        """Expression used for the variable column without aliasing.
-
-        Uses the original AST expression when available (e.g. for function calls
-        like toDate(timestamp) that can't be reconstructed from column_chain).
-        Always returns a fresh copy to avoid sharing AST nodes between SELECT and GROUP BY.
-        When bucket_fn is set, wraps the column expression with the bucket function.
-        """
-        if var.column_ast is not None:
-            base = CloningVisitor().visit(var.column_ast)
-        else:
-            base = ast.Field(chain=list(var.column_chain))
-
-        if var.bucket_fn:
-            return ast.Call(name=var.bucket_fn, args=[base])
-
-        return base
 
     def _remove_variable_from_where(self, where_node: Optional[ast.Expr]) -> Optional[ast.Expr]:
         if where_node is None:
@@ -1400,7 +1490,7 @@ class MaterializationTransformer(CloningVisitor):
             return ast.And(exprs=filtered_exprs)
 
         if isinstance(where_node, ast.Or):
-            raise ValueError("Variables in OR conditions not supported")
+            raise MaterializationNotSupportedError("Variables in OR conditions not supported")
 
         return where_node
 

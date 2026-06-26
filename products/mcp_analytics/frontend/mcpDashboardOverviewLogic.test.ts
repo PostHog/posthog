@@ -1,15 +1,18 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { harnessLogo } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
-    aggregateHarnessRows,
     type BucketRow,
     buildBucketKeys,
     buildDailyActivity,
@@ -18,7 +21,6 @@ import {
     buildToolDailySeries,
     categorizeHarness,
     deltaPct,
-    type HarnessRawRow,
     mcpDashboardOverviewLogic,
     normalizeBucket,
     pickNotableSessions,
@@ -66,6 +68,22 @@ describe('mcpDashboardOverviewLogic', () => {
             ['cursor/0.42', 'Cursor'],
             ['cursor darwin arm64', 'Cursor'],
             ['codex-cli', 'OpenAI Codex'],
+            // Raw clientInfo.name tokens the harness coalesce now surfaces from
+            // mcp_session_client_name (these clients send no useful User-Agent).
+            ['codex-mcp-client', 'OpenAI Codex'],
+            ['cursor-vscode', 'Cursor'],
+            ['opencode', 'opencode'],
+            ['Lovable MCP Client', 'Lovable'],
+            ['linear-agent', 'Linear'],
+            ['@librechat/api-client', 'LibreChat'],
+            ['pi-client', 'Pi'],
+            ['antigravity-client', 'Antigravity'],
+            ['coderabbit', 'CodeRabbit'],
+            ['notion-mcp-client', 'Notion'],
+            ['replit-agent-mcp-client', 'Replit'],
+            ['windsurf', 'Windsurf'],
+            ['claude-code sdk-cli', 'Claude Agent SDK'],
+            ['claude-code sdk-py', 'Claude Agent SDK'],
             ['visual studio code', 'VS Code'],
             ['something-nobody-knows', 'Other'],
             ['', 'Other'],
@@ -76,6 +94,32 @@ describe('mcpDashboardOverviewLogic', () => {
         it('strips the "(via mcp-remote …)" suffix before matching', () => {
             expect(categorizeHarness('claude-code (via mcp-remote 1.2.3)')).toBe('Claude Code')
         })
+
+        it.each([
+            'Claude Code',
+            'OpenAI',
+            'Cursor',
+            'Linear',
+            'CodeRabbit',
+            'Notion',
+            'Replit',
+            'Windsurf',
+            'opencode',
+            'Lovable',
+            'Manus',
+            'LibreChat',
+            'Pi',
+            'Antigravity',
+        ])('resolves a logo for the %s category', (category) => {
+            expect(harnessLogo(category)?.src).toBeTruthy()
+        })
+
+        it.each(['Anthropic API', 'Poke', 'Kiro', 'Desktop Commander', 'Other'])(
+            'has no logo for the logo-less %s category',
+            (category) => {
+                expect(harnessLogo(category)).toBeUndefined()
+            }
+        )
     })
 
     describe('deltaPct', () => {
@@ -86,27 +130,6 @@ describe('mcpDashboardOverviewLogic', () => {
             [100, 0, null],
         ])('deltaPct(%s, %s) = %s', (current, previous, expected) => {
             expect(deltaPct(current, previous)).toBe(expected)
-        })
-    })
-
-    describe('aggregateHarnessRows', () => {
-        it('folds raw clients into categories, sums counts, and sorts by volume', () => {
-            const raw: HarnessRawRow[] = [
-                { client: 'claude-code/1.0', total_calls: 100, errors: 10, sessions: 5 },
-                { client: 'claude-code/2.0', total_calls: 50, errors: 5, sessions: 3 },
-                { client: 'cursor/0.4', total_calls: 40, errors: 0, sessions: 2 },
-            ]
-            const result = aggregateHarnessRows(raw)
-            expect(result).toHaveLength(2)
-            expect(result[0]).toEqual({
-                category: 'Claude Code',
-                total_calls: 150,
-                errors: 15,
-                error_rate_pct: 10,
-                sessions: 8,
-                raw_clients: ['claude-code/1.0', 'claude-code/2.0'],
-            })
-            expect(result[1]).toMatchObject({ category: 'Cursor', total_calls: 40, error_rate_pct: 0 })
         })
     })
 
@@ -387,9 +410,14 @@ describe('mcpDashboardOverviewLogic', () => {
             jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
         })
 
-        function reloadCallsSince(callIndex: number): { query: string; filters: Record<string, any> }[] {
+        function reloadCallsSince(callIndex: number): any[] {
             return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
         }
+
+        // HogQL query nodes carry filters under `.filters`; the typed
+        // MCPHarnessBreakdownQuery node carries dateRange/properties/filterTestAccounts
+        // at the top level. This reads whichever shape a reload used.
+        const filtersOf = (call: any): Record<string, any> => call.filters ?? call
 
         it('reloads every tile when the date filter changes', async () => {
             const logic = mcpDashboardOverviewLogic()
@@ -405,10 +433,10 @@ describe('mcpDashboardOverviewLogic', () => {
             // Six tiles: KPI + the five breakdown queries.
             expect(reloads.length).toBe(6)
             // The five breakdowns pass the raw selected range straight through.
-            const breakdowns = reloads.filter((call) => call.filters.dateRange.date_from === '-30d')
+            const breakdowns = reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')
             expect(breakdowns).toHaveLength(5)
             // The KPI tile widens to an absolute doubled window so it can compare against the prior period.
-            const kpi = reloads.find((call) => call.query.includes('AS bucket'))
+            const kpi = reloads.find((call) => call.query?.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
             expect(dayjs(kpi?.filters.dateRange.date_from).isValid()).toBe(true)
         })
@@ -428,7 +456,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             const reloads = reloadCallsSince(callsBefore)
             expect(reloads.length).toBe(6)
-            expect(reloads.every((call) => call.filters.filterTestAccounts === enabled)).toBe(true)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
         })
 
         it('defaults the filter from the team test_account_filters_default_checked setting', async () => {
@@ -441,7 +469,65 @@ describe('mcpDashboardOverviewLogic', () => {
             // No explicit toggle, yet every tile filters internal users because the team default is on.
             const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
             expect(reloads.length).toBeGreaterThanOrEqual(6)
-            expect(reloads.every((call) => call.filters.filterTestAccounts === true)).toBe(true)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
+        })
+
+        const EVENT_FILTER: AnyPropertyFilter = {
+            key: '$mcp_tool_name',
+            value: ['create_insight'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+        // Feature-flag filters arrive as ordinary $feature/<key> event-property filters.
+        const FLAG_FILTER: AnyPropertyFilter = {
+            key: '$feature/mcp-new-thing',
+            value: ['test'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+
+        it.each([
+            ['event property', EVENT_FILTER],
+            ['feature flag', FLAG_FILTER],
+        ])('passes %s filters to every tile', async (_label, filter) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([filter])
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads.length).toBe(6)
+            expect(
+                reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
+            ).toBe(true)
+        })
+
+        it('syncs property filters to the URL and clears the param when emptied', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([EVENT_FILTER])
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.properties).toEqual([EVENT_FILTER])
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([])
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.properties).toBeUndefined()
+        })
+
+        it('hydrates property filters from the URL on mount', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard(), { properties: [EVENT_FILTER] })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.propertyFilters).toEqual([EVENT_FILTER])
         })
     })
 })

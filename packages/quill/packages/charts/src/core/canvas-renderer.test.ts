@@ -498,6 +498,62 @@ describe('hog-charts canvas-renderer', () => {
             drawArea(makeDrawContext(ctx, labels), series)
             expect(ctx.fill).toHaveBeenCalledTimes(expectedFills)
         })
+
+        // The shaded (solid) area must end exactly where the trailing dashed/hatched area begins — same
+        // boundary the stroke uses — so the fill doesn't bleed a segment past where the line turns dashed.
+        it('solid fill meets the trailing hatch at one shared boundary, no overlap or gap', () => {
+            const fillRanges: { min: number; max: number }[] = []
+            let xs: number[] = []
+            const ctx = Object.assign(mockCanvasContext(), {
+                beginPath: jest.fn(() => {
+                    xs = []
+                }),
+                moveTo: jest.fn((x: number) => {
+                    xs.push(x)
+                }),
+                lineTo: jest.fn((x: number) => {
+                    xs.push(x)
+                }),
+                fill: jest.fn(() => {
+                    fillRanges.push({ min: Math.min(...xs), max: Math.max(...xs) })
+                }),
+            }) as unknown as jest.Mocked<CanvasRenderingContext2D>
+
+            const labels = ['a', 'b', 'c', 'd', 'e']
+            const series = makeSeries({ key: 's', data: [10, 20, 30, 40, 50], stroke: { partial: { fromIndex: 3 } } })
+            drawArea(makeDrawContext(ctx, labels), series)
+
+            // Call order is solid then trailing hatch.
+            expect(fillRanges).toHaveLength(2)
+            const [solid, hatch] = fillRanges
+            expect(solid.max).toBe(hatch.min)
+        })
+
+        // A gradient fill must survive partial dashing — only the stroke dashes, so the fill stays a
+        // single gradient area rather than flipping to the solid + hatch treatment.
+        it('keeps a single gradient fill (no hatch) when the line is partially dashed', () => {
+            const ctx = mockCanvasContext()
+            const gradient = { addColorStop: jest.fn() } as unknown as CanvasGradient
+            ;(ctx as unknown as { createLinearGradient: jest.Mock }).createLinearGradient = jest
+                .fn()
+                .mockReturnValue(gradient)
+            const recordedFillStyles: unknown[] = []
+            Object.defineProperty(ctx, 'fillStyle', {
+                get: () => undefined,
+                set: (v) => recordedFillStyles.push(v),
+            })
+
+            const series = makeSeries({
+                key: 's',
+                data: [10, 20, 30, 40, 50],
+                fill: { gradient: true },
+                stroke: { partial: { fromIndex: 3 } },
+            })
+            drawArea(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
+
+            expect(ctx.fill).toHaveBeenCalledTimes(1)
+            expect(recordedFillStyles).toEqual([gradient])
+        })
     })
 
     describe('drawArea — fill.lowerData edge cases', () => {

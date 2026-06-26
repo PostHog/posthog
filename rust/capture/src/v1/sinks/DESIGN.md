@@ -29,6 +29,11 @@ they register their own paths under the same scheme.
                            └──────┬───────┘
                                   │  Vec<WrappedEvent>
                                   ▼
+                           ┌──────────────┐
+                           │serialize_batch│─ scatter-gather (prepare.rs)
+                           └──────┬────────┘
+                                  │  Vec<PreparedEvent>
+                                  ▼
                            ┌─────────────┐
                            │   Router     │─── resolves SinkName
                            └──────┬───────┘
@@ -55,8 +60,15 @@ Key properties:
   WarpStream during a migration).
 - **Per-event results** — `publish_batch` returns one `Box<dyn SinkResult>`
   per published event, correlating outcomes back to request events by UUID.
-- **Owned-return API** — `serialize()` and `partition_key()` each return
-  a fresh `String`, keeping the trait simple and parallelism-ready.
+- **Hoisted serialization** — events are serialized into storage-agnostic
+  `PreparedEvent`s by `serialize_batch` (`prepare.rs`) _before_ any sink is
+  touched. Sinks consume `&[PreparedEvent]`, never raw `Event` trait objects.
+  This isolates CPU-bound encoding from sink I/O, lets the same prepared
+  batch fan out to multiple sinks without re-encoding, and enables the
+  scatter-gather parallelism described in [section 2a](#2a-serialize_batch-scatter-gather).
+- **Owned-payload API** — `Event::serialize()` returns `bytes::Bytes` and
+  `partition_key()` returns a fresh `String`, keeping the trait simple and
+  cheap to move into spawned tasks.
 
 ---
 
@@ -68,7 +80,8 @@ graph TD
     constants["constants.rs<br>DEFAULT_PRODUCE_TIMEOUT,<br>SINK_LIVENESS_DEADLINE,<br>SINK_STALL_THRESHOLD"]
     event["event.rs<br>trait Event"]
     sink["sink.rs<br>trait Sink"]
-    types["types.rs<br>Destination, Outcome,<br>trait SinkResult,<br>BatchSummary"]
+    types["types.rs<br>Destination, Outcome,<br>trait SinkResult, BatchSummary,<br>PreparedEvent, SerializationFailure"]
+    prepare["prepare.rs<br>serialize_batch,<br>SerializedBatch"]
     router["router.rs<br>Router,<br>RouterError"]
 
     kmod["kafka/mod.rs<br>KafkaProducerTrait"]
@@ -84,8 +97,12 @@ graph TD
     mod --> event
     mod --> sink
     mod --> types
+    mod --> prepare
     mod --> router
     mod --> kmod
+
+    prepare --> event
+    prepare --> types
 
     kmod --> kconfig
     kmod --> kctx
@@ -113,9 +130,10 @@ Two layers:
 ```rust
 pub use event::Event;
 pub use kafka::KafkaSink;
+pub use prepare::{serialize_batch, SerializedBatch};
 pub use router::{Router, RouterError};
 pub use sink::Sink;
-pub use types::{Destination, Outcome, SinkResult};
+pub use types::{Destination, Outcome, PreparedEvent, SerializationFailure, SinkResult};
 ```
 
 ---
@@ -133,18 +151,20 @@ pub trait Sink: Send + Sync {
 
     async fn publish_batch(
         &self,
-        ctx: &Context,
-        events: &[&(dyn Event + Send + Sync)],
+        ctx: &RequestContext,
+        events: &[PreparedEvent],
     ) -> Vec<Box<dyn SinkResult>>;
 
     async fn flush(&self) -> anyhow::Result<()>;
 }
 ```
 
-Each `Sink` owns its identity (`name`), accepts a batch of trait-object
-events, and returns one `Box<dyn SinkResult>` per _published_ event.
-Skipped events (not publishable, or `Destination::Drop`) produce no
-result entry.
+Each `Sink` owns its identity (`name`), accepts a batch of
+already-serialized `PreparedEvent`s, and returns one `Box<dyn SinkResult>`
+per event it attempts. Events that never reach the sink — filtered by
+`should_publish()` or routed to `Destination::Drop` during
+`serialize_batch` — are simply absent from the input slice. A
+`Destination` with no configured topic still produces no result entry.
 
 `KafkaSink<P: KafkaProducerTrait>` is currently the only implementation.
 It is generic over the producer trait so tests inject `MockProducer`
@@ -209,13 +229,13 @@ pub trait Event: Send + Sync {
     fn uuid(&self) -> Uuid;
     fn should_publish(&self) -> bool;
     fn destination(&self) -> &Destination;
-    fn headers(&self, ctx: &Context) -> CapturedEventHeaders;
-    fn partition_key(&self, ctx: &Context) -> String;
-    fn serialize(&self, ctx: &Context) -> anyhow::Result<String>;
+    fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders;
+    fn partition_key(&self, ctx: &RequestContext) -> String;
+    fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes>;
 }
 ```
 
-`headers` receives the request `Context` so each `Event` implementation
+`headers` receives the request `RequestContext` so each `Event` implementation
 can combine batch-scoped fields (token, now, historical_migration) with
 event-scoped fields into a single `CapturedEventHeaders`
 (`common_types`). The sink converts the returned struct to its
@@ -227,16 +247,26 @@ The analytics capture endpoint's `WrappedEvent` implements this trait
 Other capture endpoints (e.g. session replay, exceptions) provide
 their own `Event` implementations without changing any sink code.
 
+### Context split
+
+Trait methods take `&RequestContext` — the mode-agnostic request context
+(token, IP, timing, raw query string) shared by every future capture mode.
+The analytics endpoint wraps it in `analytics::Context { req, query }`,
+which `Deref`s to `RequestContext`, so the typed `Query` stays an
+analytics-only concern while the sink layer remains capture-mode-agnostic.
+
 ### Owned-return serialization
 
-`partition_key(ctx)` and `serialize(ctx)` each return a fresh owned
-`String`. This trades a small per-event allocation for a simpler trait
-contract that needs no shared mutable buffers — making the prep loop
-trivially parallelizable if needed in the future.
+`serialize(ctx)` returns `bytes::Bytes` and `partition_key(ctx)` returns a
+fresh owned `String`. `Bytes` is zero-copy to construct from a `Vec<u8>`
+and cheap (refcounted) to clone, so a `PreparedEvent` can be moved into a
+tokio task and fanned out to multiple sinks without re-encoding.
+The owned contract needs no shared mutable buffers, which is what makes
+the scatter-gather prep loop safe to parallelize.
 
 `WrappedEvent::serialize` pre-sizes its buffer via
-`String::with_capacity(data.len() + 512)` to minimize reallocations
-for typical payloads.
+`Vec::with_capacity(data.len() + 512)` to minimize reallocations
+for typical payloads, then returns `Bytes::from(buf)`.
 
 ### Skip mechanisms
 
@@ -256,7 +286,7 @@ timestamp, session_id, etc.):
 
 ```text
   ┌──────────────────────────────────────────────┐
-  │ event.headers(ctx: &Context)                 │
+  │ event.headers(ctx: &RequestContext)          │
   │                                              │
   │   CapturedEventHeaders {                     │
   │     token,                     ◄─ from ctx   │
@@ -286,6 +316,106 @@ a single structured type flows from event to transport.
 
 ---
 
+## 2a. serialize_batch (scatter-gather)
+
+`serialize_batch` (`prepare.rs`) is the mode-agnostic step that turns a
+`Vec<E: Event>` into a `SerializedBatch` _before_ the router/sink layer.
+It is generic over the `Event` impl, so analytics, replay, and AI capture
+modes share one implementation.
+
+```rust
+pub async fn serialize_batch<E: Event + Send + Sync + 'static>(
+    events: Vec<E>,
+    ctx: &RequestContext,
+    scatter_gather_threshold: usize,
+) -> (Vec<E>, SerializedBatch);
+
+pub struct SerializedBatch {
+    pub prepared: Vec<PreparedEvent>,        // publishable, in input order
+    pub failures: Vec<Box<dyn SinkResult>>,  // SerializationFailure per failed event
+}
+```
+
+The caller gets its `Vec<E>` back so it can still build the per-event HTTP
+response after publishing (the prepared events alone don't carry the
+original request event). Recovery uses `Arc::try_unwrap` after the spawned
+tasks finish — see "Ownership" below.
+
+### PreparedEvent
+
+```rust
+pub struct PreparedEvent {
+    pub uuid: Uuid,
+    pub destination: Destination,
+    pub payload: bytes::Bytes,
+    pub headers: CapturedEventHeaders,
+    pub partition_key: String,  // raw; the sink decides whether to null it
+}
+```
+
+Storage-agnostic and fully owned. It carries everything a sink needs to
+produce a record, so the sink does no serialization and holds no reference
+back into the request. `Bytes` makes it cheap to clone across a dual-write.
+
+### Sequential vs parallel
+
+The threshold is configurable via `CAPTURE_V1_SCATTER_GATHER_MIN_BATCH`
+(default 8). Set to 0 to force sequential serialization for all batch
+sizes (useful for modes like replay where batches are always single large events).
+
+```text
+  scatter_gather_threshold == 0  OR  events.len() < threshold
+    └── serialize inline on the request task (no spawn overhead)
+
+  events.len() >= threshold  (threshold > 0)
+    └── Arc<Vec<E>> + Arc<RequestContext>
+        └── JoinSet of tokio tasks (spawn, not spawn_blocking), one per event index
+            └── each task: catch_unwind(prepare_one(&events[i], &ctx))
+        └── collect by index → preserves input order
+```
+
+Small batches stay inline because a `JoinSet` of tokio tasks costs more
+than the serialization itself for a handful of events. Large batches fan
+out across the async worker pool to cut tail latency on big payloads. We
+use `spawn` (not `spawn_blocking`) to match v0's `send_batch`: per-event
+serialize is short CPU work, so concurrent execution is naturally bounded
+by `worker_threads` (~num_cpus) and excess events queue cheaply, rather
+than spawning one blocking-pool task per event and risking saturation of
+the shared `spawn_blocking` pool on very large batches. Both paths produce
+identical output (ordering, skips, failures)
+— verified by parity tests in `prepare.rs`.
+
+### Panic isolation
+
+Each event is serialized inside `std::panic::catch_unwind`. A panic in one
+event's `serialize` becomes a `SerializationFailure { is_panic: true }`
+for that event only; the rest of the batch is unaffected. Regular `Err`
+returns become `SerializationFailure::from_error`. Both are fatal
+(non-retriable) — re-running the same bytes would panic/err again.
+
+### Ownership (Arc::try_unwrap)
+
+`spawn` requires `'static`, so the parallel path wraps the events
+in `Arc<Vec<E>>` and tasks borrow by index. After the `JoinSet` drains,
+every task has dropped its `Arc` clone, so `Arc::try_unwrap` reclaims the
+sole-owner `Vec<E>` and hands it back to the caller. This is why
+`serialize_batch` can be parallel yet still return owned events.
+
+### Metrics
+
+| Metric | Type | Labels | When |
+|---|---|---|---|
+| `capture_v1_serialize_duration_seconds` | histogram | `batch_size` | Per-batch serialize wall-time (sequential or parallel) |
+| `capture_v1_serialize_failed_total` | counter | — | Per event that failed to serialize |
+| `capture_v1_serialize_panic_total` | counter | — | Per event whose `serialize` panicked |
+
+These are sink- and product-agnostic (serialization happens before any
+sink is chosen). Per-mode faceting comes from the Kubernetes deployment
+(`capture-analytics` / `-replay` / `-ai`) via the `namespace` label
+injected by the metrics pipeline.
+
+---
+
 ## 3. SinkResult and outcome model
 
 ### The SinkResult trait
@@ -309,6 +439,11 @@ backend-agnostic: callers never need to know which backend produced a
 result. The per-event heap allocation is a deliberate trade-off for
 simplicity; at current batch sizes the cost is negligible compared to
 Kafka I/O.
+
+Two types implement `SinkResult`: `KafkaResult` (sink-level produce
+outcomes) and `SerializationFailure` (pre-sink serialize failures from
+`serialize_batch`). `process_batch` concatenates both into one
+`Vec<Box<dyn SinkResult>>` before correlating outcomes back to events.
 
 ### Outcome
 
@@ -344,10 +479,13 @@ Captures every failure mode within a single configured sink:
 | Variant | Outcome | When |
 |---|---|---|
 | `SinkUnavailable` | `RetriableError` | Producer health gate failed |
-| `SerializationFailed(String)` | `FatalError` | `serialize` returned `Err` |
 | `Produce(ProduceError)` | Depends on `ProduceError::is_retriable()` | rdkafka send or delivery error |
 | `Timeout` | `Timeout` | Ack not received within `produce_timeout` |
 | `TaskPanicked` | `RetriableError` | Ack task panicked (should not happen with `FuturesUnordered`) |
+
+Serialization failures are no longer a sink concern — they are produced by
+`serialize_batch` as `SerializationFailure` (see
+[section 2a](#2a-serialize_batch-scatter-gather)) before any sink runs.
 
 ### BatchSummary
 
@@ -428,13 +566,11 @@ corresponds 1:1 to a published event.
   ┌──────────────────────────▼───────────────────────────────────────┐
   │ Phase 1: Enqueue (sequential, per-partition ordering preserved)  │
   │                                                                 │
-  │   for each event:                                               │
-  │     ├── should_publish()? → skip if false                       │
+  │   input: &[PreparedEvent] (already serialized by serialize_batch)│
+  │   for each prepared event:                                      │
   │     ├── topic_for(destination)? → skip if Drop/None             │
-  │     ├── event.serialize(ctx) → payload String                   │
-  │     ├── event.headers(ctx) → CapturedEventHeaders               │
-  │     ├── should_null_partition_key(headers, dest)?                │
-  │     │     └── false → event.partition_key(ctx) → Some(key)      │
+  │     ├── payload: prepared.payload (Bytes, no re-encode)         │
+  │     ├── effective_partition_key(prepared.partition_key, dest)?  │
   │     ├── CapturedEventHeaders → OwnedHeaders (via From)          │
   │     └── producer.send(ProduceRecord)                            │
   │           ├── Ok(ack_future) → push to FuturesUnordered         │
@@ -480,18 +616,17 @@ corresponds 1:1 to a published event.
 
 ### Phase 1 — Enqueue
 
-Events are sent sequentially to preserve per-partition ordering. Two
-reusable `String` buffers (`payload_buf`, `key_buf`) are cleared and
-rewritten each iteration, amortizing allocations to zero after the first
-event.
+Events arrive already serialized as `PreparedEvent`s, so Phase 1 does no
+encoding — it reads `prepared.payload` (`Bytes`) directly. Events are sent
+sequentially to preserve per-partition ordering.
 
 If `producer.send()` returns `QueueFull`, the event is failed immediately
 as a retriable error. Backpressure is handled by librdkafka's internal
 queue and the client-level retry mechanism, not an app-level sleep loop.
 
-After serialization and header construction, `effective_partition_key()`
-(`kafka/sink.rs`) decides whether the partition key should be nulled.
-Events always write a key via `partition_key()`; the sink nulls it when
+`effective_partition_key()` (`kafka/sink.rs`) decides whether the
+prepared key should be nulled. Prepared events always carry a key;
+the sink nulls it when
 `force_disable_person_processing` is set and the destination is
 `AnalyticsMain` or `Overflow`. In that case `None` is passed to rdkafka
 so it round-robins; passing `Some("")` would hash to a single
@@ -752,7 +887,7 @@ Constructed by `KafkaProducer::new(sink, &KafkaConfig, handle, capture_mode)`:
 pub struct ProduceRecord<'a> {
     pub topic: &'a str,
     pub key: Option<&'a str>,
-    pub payload: &'a str,
+    pub payload: &'a [u8],
     pub headers: OwnedHeaders,
 }
 ```
@@ -891,7 +1026,11 @@ request-level context (`path`, `attempt`).
 | `capture_v1_kafka_publish_total` | counter | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Every event outcome (success, error, timeout, reject) |
 | `capture_v1_kafka_ack_duration_seconds` | histogram | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Per-event broker-ack latency (successful send → ack resolution), including `outcome="timeout"` for acks that miss `produce_timeout` |
 | `capture_v1_kafka_enqueue_duration_seconds` | histogram | `mode`, `cluster`, `path`, `attempt` (capped at "6+") | Per-batch enqueue wall-time (the `enqueue_events` call), isolated from broker-ack latency |
-| `capture_v1_kafka_serialize_duration_seconds` | histogram | `mode`, `cluster`, `path`, `attempt` (capped at "6+"), `batch_size` | Per-batch serialization time (serialize + partition-key + enqueue loop), bucketed by batch size for latency/size correlation |
+
+Serialization timing now lives in `capture_v1_serialize_duration_seconds`
+(emitted by `serialize_batch`, see
+[section 2a](#2a-serialize_batch-scatter-gather)) — it is no longer a
+sink-path metric.
 
 Cardinality note: the `destination` label is bounded at 9 values
 (`Destination::as_tag()` collapses all `Custom(_)` topics to `custom`)
@@ -920,7 +1059,7 @@ All error-related metrics use stable, low-cardinality tags derived from:
 - `error_code_tag()` — maps `RDKafkaErrorCode` variants to snake_case strings
   (e.g. `queue_full`, `message_size_too_large`, `all_brokers_down`)
 - `KafkaSinkError::as_tag()` — sink-level tags
-  (e.g. `sink_unavailable`, `serialization_failed`, `timeout`)
+  (e.g. `sink_unavailable`, `timeout`, `task_panicked`)
 - `ProduceError::as_tag()` — producer-level tags
   (e.g. `event_too_big`, `delivery_cancelled`)
 
@@ -935,7 +1074,6 @@ request-scoped context (token, path, attempt) to the log line.
 | `WARN` (via `ctx_log!`) | Partial batch failure | `kafka/sink.rs` |
 | `ERROR` (via `ctx_log!`) | Full batch failure | `kafka/sink.rs` |
 | `ERROR` (via `ctx_log!`) | Producer not ready | `kafka/sink.rs` |
-| `ERROR` (via `ctx_log!`) | Event serialization failed | `kafka/sink.rs` |
 | `error!` | rdkafka client error callback | `kafka/context.rs` |
 | `error!` | All brokers down | `kafka/context.rs` |
 | `info!` | Producer connected | `kafka/producer.rs` |
@@ -978,7 +1116,8 @@ keeping the Sink trait unaware of topic names.
 Partition key construction is split between the `Event` implementation
 and the sink:
 
-1. **`Event::partition_key(ctx)`** returns an owned key String.
+1. **`Event::partition_key(ctx)`** returns an owned key String, captured
+   into `PreparedEvent.partition_key` by `serialize_batch`.
    For analytics events (`WrappedEvent`):
 
 ```text
@@ -993,19 +1132,19 @@ and the sink:
 ```
 
 2. **`should_null_partition_key()`** (`kafka/sink.rs`) decides whether
-   the key should be nulled before sending to the producer:
+   the prepared key should be nulled before sending to the producer:
 
 ```rust
-fn effective_partition_key<'a>(
-    key_buf: &'a str,
+fn should_null_partition_key(
     force_disable_person_processing: bool,
     destination: &Destination,
-) -> Option<&'a str>
+) -> bool
 ```
 
    If `force_disable_person_processing` is set and the destination is
-   `AnalyticsMain` or `Overflow`, the function returns `None`. Otherwise
-   it returns `Some(key_buf)`.
+   `AnalyticsMain` or `Overflow`, it returns `true` and the sink passes
+   `None` to rdkafka. Otherwise the sink passes
+   `Some(prepared.partition_key)`.
 
 Key design choices:
 
@@ -1173,8 +1312,9 @@ Sent records are captured as `OwnedProduceRecord` (owned copies of
 ### Test infrastructure (sink_tests.rs)
 
 `FakeEvent` implements `Event` with configurable destination, publish
-flag, partition key, payload (including injectable serialization errors),
-and headers.
+flag, partition key, payload, and headers. Serialize-failure scenarios
+(errors, panics) are covered in `prepare.rs` tests, not the sink — the
+sink only ever sees already-prepared events.
 
 `TestHarness` / `HarnessBuilder` wrap sink construction with a
 `lifecycle::Manager` so tests can verify health heartbeat interactions.

@@ -11,6 +11,7 @@ from databricks.sql.exc import RequestError, ServerOperationError
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
     DatabricksConnectionError,
+    DatabricksIncompatibleSchemaError,
     DatabricksOperationTimeoutError,
 )
 
@@ -283,6 +284,39 @@ class TestQueryBuilders:
         COPY_OPTIONS ('force' = 'true', 'mergeSchema' = 'true')
         """
         )
+
+
+class TestCopyIntoSchemaMismatch:
+    MERGE_ERROR = "[DELTA_FAILED_TO_MERGE_FIELDS] Failed to merge fields 'properties' and 'properties'."
+
+    async def test_remaps_merge_error_to_schema_mismatch(self, client: DatabricksClient):
+        """The merge-fields error is remapped to a clear error reporting only the exported schema."""
+        fields = [("properties", "STRING"), ("event", "STRING")]
+        with patch.object(
+            client, "execute_async_query", new=AsyncMock(side_effect=ServerOperationError(self.MERGE_ERROR))
+        ):
+            with pytest.raises(DatabricksIncompatibleSchemaError) as exc_info:
+                await client.acopy_into_table_from_volume(
+                    table_name="test_table", volume_path="/Volumes/x", fields=fields
+                )
+
+        message = str(exc_info.value)
+        assert "Failed to merge fields" in message
+        assert "Exported data schema: `properties` STRING, `event` STRING" in message
+        # we must not disclose the destination table's schema (it could be any table the integration reaches)
+        assert "Destination table schema" not in message
+
+    async def test_non_merge_error_passes_through(self, client: DatabricksClient):
+        """A non-merge ServerOperationError should still be handled by handle_common_errors."""
+        with patch.object(
+            client,
+            "execute_async_query",
+            new=AsyncMock(side_effect=ServerOperationError("Statement has timed out after 5 seconds")),
+        ):
+            with pytest.raises(DatabricksOperationTimeoutError):
+                await client.acopy_into_table_from_volume(
+                    table_name="test_table", volume_path="/Volumes/x", fields=[("properties", "STRING")]
+                )
 
 
 @skip_without_real_databricks

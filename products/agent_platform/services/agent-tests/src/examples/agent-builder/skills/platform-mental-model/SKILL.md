@@ -49,9 +49,16 @@ the revision row. It declares:
 - `secrets[]` — names of encrypted env keys the agent uses
 - `limits` — per-session caps (`max_turns`, `max_tool_calls`,
   `max_wall_seconds`)
-- `auth` — how a connecting client authenticates (`public`, `pat`,
-  `shared_secret`, `posthog_internal`)
+- `auth` — per-trigger (`triggers[].auth`); how a connecting client
+  authenticates
 - `reasoning` — provider-specific thinking level (`minimal` → `xhigh`)
+
+This is the conceptual map. For the exact field shapes, enums, and
+defaults, don't guess — run a candidate spec through
+`posthog__agent-applications-revisions-validate-create` and read its
+errors, and cross-check tool ids against
+`posthog__agent-native-tools-list`. Those reflect what the API actually
+validates against, not this prose.
 
 A **bundle** is the content layer of a revision. A filesystem-like
 tree stored in S3, with a manifest in Postgres. Always contains
@@ -92,8 +99,8 @@ the team's slack integration.
 Read this whenever you find yourself reaching for "where does the
 agent's prompt live?" or "where do I edit the model?":
 
-- The **model** is in `spec.model`. Edit via
-  `revisions-partial-update` on a draft.
+- The **model** is in `spec.models` (auto level or manual
+  list). Edit via `revisions-partial-update` on a draft.
 - The **system prompt** is `bundle/agent.md`. Edit via
   `revisions-agent-md-update`.
 - The **skills the model can load** are listed in `spec.skills[]`
@@ -126,7 +133,7 @@ This is the most common source of confusion. Be precise.
 | **MCP** (`spec.mcps`) | Not in `tools[]` — listed in `spec.mcps[]` instead | In a remote MCP server   | Anything any MCP exposes. Routed by prefix `<id>__<name>`.               |
 | **Client**            | `{ kind: "client", id, description, args_schema }` | In the connecting client | `focus_revision`, `focus_session`, `focus_file`, `toast`                 |
 
-Native tools are catalogued via `@posthog/agent-applications-native-tools-list`. MCP
+Native tools are catalogued via `posthog__agent-native-tools-list`. MCP
 tools are discoverable per server via the MCP `tools/list` call
 made at session start. Client tools are declared in the spec; the
 connecting client opts into the subset it implements.

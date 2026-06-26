@@ -12,8 +12,6 @@ import type {
     AgentAggregateStatsApi,
     AgentApplicationApi,
     AgentApplicationApprovalsListResponseApi,
-    AgentApplicationEnvKeyStatusApi,
-    AgentApplicationEnvKeysResponseApi,
     AgentApplicationPreviewTokenResponseApi,
     AgentApplicationSessionLogsResponseApi,
     AgentApplicationSessionsListResponseApi,
@@ -22,6 +20,7 @@ import type {
     AgentApplicationsListParams,
     AgentApplicationsPreviewProxyGetParams,
     AgentApplicationsPreviewProxyParams,
+    AgentApplicationsPreviewTokenMintParams,
     AgentApplicationsPreviewTokenParams,
     AgentApplicationsRevisionsListParams,
     AgentApplicationsSessionLogsParams,
@@ -48,11 +47,14 @@ import type {
     AgentRevisionApi,
     AgentRevisionCronFireRequestApi,
     AgentRevisionCronFireResponseApi,
+    AgentRevisionEnvKeyStatusApi,
+    AgentRevisionEnvKeysResponseApi,
     AgentRevisionSlackManifestResponseApi,
     AgentRevisionSystemPromptResponseApi,
     AgentRevisionValidateResponseApi,
     AgentTableRowsResponseApi,
     AgentTablesListResponseApi,
+    AgentUsersListApi,
     CloneFromRequestApi,
     DecideApprovalRequestApi,
     NewDraftRevisionRequestApi,
@@ -64,8 +66,8 @@ import type {
     PreviewProxyInvokeRequestApi,
     SetEnvKeyRequestApi,
     SetEnvRequestApi,
+    SetSkillRefsRequestApi,
     WriteAgentMdRequestApi,
-    WriteSkillRequestApi,
     WriteSpecRequestApi,
     WriteToolRequestApi,
     WriteTypedBundleRequestApi,
@@ -868,6 +870,116 @@ export const agentApplicationsRevisionsCronFireCreate = async (
     )
 }
 
+export const getAgentRevisionsEnvKeysListUrl = (projectId: string, applicationId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/env_keys/`
+}
+
+/**
+ * List the names of secrets currently set on this revision.
+ *
+ * Returns names only — values stay server-side under
+ * `EncryptedTextField`. Use this to drive the "set / unset" badge next to
+ * a declared secret in the editor UI.
+ */
+export const agentRevisionsEnvKeysList = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AgentRevisionEnvKeysResponseApi> => {
+    return apiMutator<AgentRevisionEnvKeysResponseApi>(getAgentRevisionsEnvKeysListUrl(projectId, applicationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentRevisionsEnvKeysGetUrl = (projectId: string, applicationId: string, id: string, key: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/env_keys/${key}/`
+}
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const agentRevisionsEnvKeysGet = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    key: string,
+    options?: RequestInit
+): Promise<AgentRevisionEnvKeyStatusApi> => {
+    return apiMutator<AgentRevisionEnvKeyStatusApi>(getAgentRevisionsEnvKeysGetUrl(projectId, applicationId, id, key), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentRevisionsEnvKeysSetUrl = (projectId: string, applicationId: string, id: string, key: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/env_keys/${key}/`
+}
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const agentRevisionsEnvKeysSet = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    key: string,
+    setEnvKeyRequestApi: SetEnvKeyRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionEnvKeyStatusApi> => {
+    return apiMutator<AgentRevisionEnvKeyStatusApi>(getAgentRevisionsEnvKeysSetUrl(projectId, applicationId, id, key), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setEnvKeyRequestApi),
+    })
+}
+
+export const getAgentRevisionsEnvKeysClearUrl = (projectId: string, applicationId: string, id: string, key: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/env_keys/${key}/`
+}
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const agentRevisionsEnvKeysClear = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    key: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAgentRevisionsEnvKeysClearUrl(projectId, applicationId, id, key), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getAgentApplicationsRevisionsFreezeCreateUrl = (projectId: string, applicationId: string, id: string) => {
     return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/freeze/`
 }
@@ -943,107 +1055,58 @@ export const agentApplicationsRevisionsPromoteCreate = async (
     })
 }
 
-export const getAgentApplicationsRevisionsSkillsUpdateUrl = (
-    projectId: string,
-    applicationId: string,
-    id: string,
-    skillId: string
-) => {
-    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skills/${skillId}/`
+export const getAgentApplicationsRevisionsSetEnvCreateUrl = (projectId: string, applicationId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/set_env/`
 }
 
 /**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
+ * Replace this revision's encrypted env block.
  *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
+ * text is stored on `AgentRevision.encrypted_env`; the worker decrypts it
+ * at session start via the same Fernet schedule (see
+ * agent-shared/src/runtime/encryption.ts).
  */
-export const agentApplicationsRevisionsSkillsUpdate = async (
+export const agentApplicationsRevisionsSetEnvCreate = async (
     projectId: string,
     applicationId: string,
     id: string,
-    skillId: string,
-    writeSkillRequestApi: WriteSkillRequestApi,
+    setEnvRequestApi: SetEnvRequestApi,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
-    return apiMutator<AgentRevisionApi>(
-        getAgentApplicationsRevisionsSkillsUpdateUrl(projectId, applicationId, id, skillId),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(writeSkillRequestApi),
-        }
-    )
+    return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsSetEnvCreateUrl(projectId, applicationId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setEnvRequestApi),
+    })
 }
 
-export const getAgentApplicationsRevisionsSkillsDestroyUrl = (
+export const getAgentApplicationsRevisionsSkillRefsUpdateUrl = (
     projectId: string,
     applicationId: string,
-    id: string,
-    skillId: string
+    id: string
 ) => {
-    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skills/${skillId}/`
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skill_refs/`
 }
 
 /**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
- *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * Full-replace the draft's store-skill references. They are resolved
+ * and materialized into the bundle at freeze, not here — this only records
+ * which skills (and pinned versions) the freeze should pull in.
  */
-export const agentApplicationsRevisionsSkillsDestroy = async (
+export const agentApplicationsRevisionsSkillRefsUpdate = async (
     projectId: string,
     applicationId: string,
     id: string,
-    skillId: string,
+    setSkillRefsRequestApi: SetSkillRefsRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getAgentApplicationsRevisionsSkillsDestroyUrl(projectId, applicationId, id, skillId), {
+): Promise<AgentRevisionApi> => {
+    return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsSkillRefsUpdateUrl(projectId, applicationId, id), {
         ...options,
-        method: 'DELETE',
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setSkillRefsRequestApi),
     })
 }
 
@@ -1262,10 +1325,10 @@ export const getAgentApplicationsRevisionsValidateCreateUrl = (
 }
 
 /**
- * Pre-flight checks before freeze + promote: entrypoint file exists,
+ * Pre-flight checks before freeze + promote: agent.md exists,
  * every native tool id is registered, every custom tool has its
  * compiled.js + schema.json, every skill path exists, every declared
- * secret has a value set in the application's env block. Returns
+ * secret has a value set in this revision's env block. Returns
  * `{ ok, errors: [...] }`. Works on any revision state.
  */
 export const agentApplicationsRevisionsValidateCreate = async (
@@ -1493,9 +1556,13 @@ export const getAgentApplicationsApprovalsDecideUrl = (projectId: string, id: st
 }
 
 /**
- * Approve or reject a queued tool-approval request. Team-admin only
- * (plan §6.1). The runtime side runs the tool platform-side on approve
- * and wakes the session with a synthetic tool_result either way.
+ * Approve or reject a queued `agent`-type tool-approval request.
+ *
+ * This is the OWNER decision surface — the only PostHog-authoritative one:
+ * team admins decide here, in the console. `principal`-type approvals are
+ * decided by the session principal at the ingress decision API, not here.
+ * The runtime side runs the tool platform-side on approve and wakes the
+ * session with a synthetic tool_result either way.
  */
 export const agentApplicationsApprovalsDecide = async (
     projectId: string,
@@ -1513,112 +1580,6 @@ export const agentApplicationsApprovalsDecide = async (
             body: JSON.stringify(decideApprovalRequestApi),
         }
     )
-}
-
-export const getAgentApplicationsEnvKeysListUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/agent_applications/${id}/env_keys/`
-}
-
-/**
- * List the names of secrets currently set on the application.
- *
- * Returns names only — values stay server-side under
- * `EncryptedTextField`. Use this to drive the "set / unset" badge
- * next to a declared secret in the editor UI.
- */
-export const agentApplicationsEnvKeysList = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<AgentApplicationEnvKeysResponseApi> => {
-    return apiMutator<AgentApplicationEnvKeysResponseApi>(getAgentApplicationsEnvKeysListUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getAgentApplicationsEnvKeysGetUrl = (projectId: string, id: string, key: string) => {
-    return `/api/projects/${projectId}/agent_applications/${id}/env_keys/${key}/`
-}
-
-/**
- * GET / PUT / DELETE one secret by name.
- *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
- *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
- */
-export const agentApplicationsEnvKeysGet = async (
-    projectId: string,
-    id: string,
-    key: string,
-    options?: RequestInit
-): Promise<AgentApplicationEnvKeyStatusApi> => {
-    return apiMutator<AgentApplicationEnvKeyStatusApi>(getAgentApplicationsEnvKeysGetUrl(projectId, id, key), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getAgentApplicationsEnvKeysSetUrl = (projectId: string, id: string, key: string) => {
-    return `/api/projects/${projectId}/agent_applications/${id}/env_keys/${key}/`
-}
-
-/**
- * GET / PUT / DELETE one secret by name.
- *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
- *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
- */
-export const agentApplicationsEnvKeysSet = async (
-    projectId: string,
-    id: string,
-    key: string,
-    setEnvKeyRequestApi: SetEnvKeyRequestApi,
-    options?: RequestInit
-): Promise<AgentApplicationEnvKeyStatusApi> => {
-    return apiMutator<AgentApplicationEnvKeyStatusApi>(getAgentApplicationsEnvKeysSetUrl(projectId, id, key), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(setEnvKeyRequestApi),
-    })
-}
-
-export const getAgentApplicationsEnvKeysClearUrl = (projectId: string, id: string, key: string) => {
-    return `/api/projects/${projectId}/agent_applications/${id}/env_keys/${key}/`
-}
-
-/**
- * GET / PUT / DELETE one secret by name.
- *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
- *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
- */
-export const agentApplicationsEnvKeysClear = async (
-    projectId: string,
-    id: string,
-    key: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getAgentApplicationsEnvKeysClearUrl(projectId, id, key), {
-        ...options,
-        method: 'DELETE',
-    })
 }
 
 export const getAgentApplicationsPreviewProxyGetUrl = (
@@ -1727,18 +1688,14 @@ export const getAgentApplicationsPreviewTokenUrl = (
 }
 
 /**
- * Mint a short-lived JWT for talking to a non-live revision
- * directly via the public ingress URL. The caller attaches it as
- * the `x-agent-preview-token` header (or `?preview_token=` query
- * param for `EventSource`). See `_mint_preview_jwt` for the
- * payload + claim binding.
- *
- * The response also includes `endpoints`, `auth`, and
- * `preview_proxy` blocks so the caller can wire a preview
- * invocation without grepping the agent-ingress source for which
- * path each trigger exposes or which header name carries the
- * token. This is the "self-describing" half of preview-mode —
- * every piece of info you need to hit ingress is in one response.
+ * GET sibling of `preview_token_mint`. Same body and response
+ * shape — exists because `EventSource` can't set headers, so SSE
+ * callers fetch the token via GET and then attach `?preview_token=`
+ * to the ingress URL. Behind the same URL (`url_path="preview-token"`)
+ * thanks to DRF's `@<action>.mapping.get`; DRF resolves it to a
+ * distinct `view.action`, but it is in `scope_object_write_actions`
+ * alongside the POST sibling — both return a usable credential, so
+ * both require `agents:write`.
  */
 export const agentApplicationsPreviewToken = async (
     projectId: string,
@@ -1751,6 +1708,60 @@ export const agentApplicationsPreviewToken = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getAgentApplicationsPreviewTokenMintUrl = (
+    projectId: string,
+    id: string,
+    params: AgentApplicationsPreviewTokenMintParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/preview-token/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/preview-token/`
+}
+
+/**
+ * Mint a short-lived JWT for talking to a non-live revision
+ * directly via the public ingress URL. The caller attaches it as
+ * the `x-agent-preview-token` header (or `?preview_token=` query
+ * param for `EventSource`). See `_mint_preview_jwt` for the
+ * payload + claim binding.
+ *
+ * The response also includes `endpoints`, `auth`, and
+ * `preview_proxy` blocks so the caller can wire a preview
+ * invocation without grepping the agent-ingress source for which
+ * path each trigger exposes or which header name carries the
+ * token. This is the "self-describing" half of preview-mode —
+ * every piece of info you need to hit ingress is in one response.
+ *
+ * POST is the canonical verb — minting credentials for downstream
+ * `run`/`send`/`cancel` is a write-class capability. A GET sibling
+ * exists at the same URL for `EventSource` callers (which can't set
+ * headers); it is also write-scoped, since it returns the same token.
+ */
+export const agentApplicationsPreviewTokenMint = async (
+    projectId: string,
+    id: string,
+    params: AgentApplicationsPreviewTokenMintParams,
+    options?: RequestInit
+): Promise<AgentApplicationPreviewTokenResponseApi> => {
+    return apiMutator<AgentApplicationPreviewTokenResponseApi>(
+        getAgentApplicationsPreviewTokenMintUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'POST',
         }
     )
 }
@@ -1883,32 +1894,6 @@ export const agentApplicationsSessionLogs = async (
     )
 }
 
-export const getAgentApplicationsSetEnvCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/agent_applications/${id}/set_env/`
-}
-
-/**
- * Replace the agent's encrypted env block.
- *
- * The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
- * text gets stored on AgentApplication.encrypted_env; the worker
- * decrypts it at session start via the same Fernet schedule (see
- * agent-shared/src/runtime/encryption.ts).
- */
-export const agentApplicationsSetEnvCreate = async (
-    projectId: string,
-    id: string,
-    setEnvRequestApi: SetEnvRequestApi,
-    options?: RequestInit
-): Promise<AgentApplicationApi> => {
-    return apiMutator<AgentApplicationApi>(getAgentApplicationsSetEnvCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(setEnvRequestApi),
-    })
-}
-
 export const getAgentApplicationsStatsUrl = (projectId: string, id: string, params?: AgentApplicationsStatsParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1935,6 +1920,66 @@ export const agentApplicationsStats = async (
     options?: RequestInit
 ): Promise<AgentAggregateStatsApi> => {
     return apiMutator<AgentAggregateStatsApi>(getAgentApplicationsStatsUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsUsersListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/users/`
+}
+
+/**
+ * List this agent's end-users (the stable identities behind inbound principals) and each user's linked external connections. Connection metadata only — credential material is never returned.
+ */
+export const agentApplicationsUsersList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AgentUsersListApi> => {
+    return apiMutator<AgentUsersListApi>(getAgentApplicationsUsersListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsUsersConnectionDeleteUrl = (
+    projectId: string,
+    id: string,
+    agentUserId: string,
+    provider: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/users/${agentUserId}/connections/${provider}/`
+}
+
+/**
+ * Revoke one of an end-user's linked connections. The credential is marked revoked (kept for audit), so the agent can no longer act as that user on the provider.
+ */
+export const agentApplicationsUsersConnectionDelete = async (
+    projectId: string,
+    id: string,
+    agentUserId: string,
+    provider: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAgentApplicationsUsersConnectionDeleteUrl(projectId, id, agentUserId, provider), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getAgentApplicationsModelsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/agent_applications/models/`
+}
+
+/**
+ * Served-model catalog — each model's id, provider, context window, and USD-per-million-token pricing — plus the curated auto-level → model map. Project-agnostic; sourced from the AI gateway catalog. Powers the config UI model browser and the agent builder's model-choosing skill.
+ */
+export const agentApplicationsModels = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsModelsUrl(projectId), {
         ...options,
         method: 'GET',
     })

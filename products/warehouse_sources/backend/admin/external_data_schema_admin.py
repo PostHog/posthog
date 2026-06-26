@@ -13,15 +13,12 @@ from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.data_load.service import (
-    pause_external_data_schedule,
-    unpause_external_data_schedule,
-)
+from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
 
 # Source of truth lives in pipeline.typings.PartitionFormat. Re-deriving here keeps
 # the dropdown in sync if a new format is ever added.
@@ -55,7 +52,7 @@ async def _is_schedule_paused(client: Client, schedule_id: str) -> bool:
 
 
 def _change_url(schema_id) -> str:
-    return reverse("admin:data_warehouse_externaldataschema_change", args=[schema_id])
+    return reverse("admin:warehouse_sources_externaldataschema_change", args=[schema_id])
 
 
 @admin.register(ExternalDataSchema)
@@ -128,7 +125,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id)
         except ExternalDataSchema.DoesNotExist:
             messages.error(request, f"Schema {schema_id} not found.")
-            return redirect(reverse("admin:data_warehouse_externaldataschema_changelist"))
+            return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
 
         if schema.partition_mode is None:
             messages.error(
@@ -162,7 +159,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             if new_size < 1:
                 messages.error(request, f"partition_size must be >= 1; got {new_size}.")
                 return redirect(_change_url(schema_id))
-            partition_field = "partition_size"
+            # Write the *_override key, not partition_size directly: the bundled reset below
+            # wipes partition_size, so a plain write would be discarded and the source would
+            # re-derive its own value. The override survives the reset and is consumed once
+            # applied (see ExternalDataSchema.set_partitioning_enabled).
+            partition_field = "partition_size_override"
             partition_value = new_size
             previous_value = schema.partition_size
         elif schema.partition_mode == "md5":
@@ -175,7 +176,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             if new_count < 1:
                 messages.error(request, f"partition_count must be >= 1; got {new_count}.")
                 return redirect(_change_url(schema_id))
-            partition_field = "partition_count"
+            # Write the *_override key (survives the reset); see the numerical branch above.
+            partition_field = "partition_count_override"
             partition_value = new_count
             previous_value = schema.partition_count
         else:
@@ -184,7 +186,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             # updating this view.
             assert_never(schema.partition_mode)
 
-        change_label = f"{partition_field}: {previous_value!r} → {partition_value!r}"
+        # Display the logical knob name (without the _override suffix). *_override keys are
+        # one-shot (consumed on the next reset); partition_format (datetime mode) survives every
+        # reset, so the "pinned for this reset" note only applies to the override variants.
+        display_field = partition_field.removesuffix("_override")
+        pin_note = " (pinned for this reset)" if partition_field.endswith("_override") else ""
+        change_label = f"{display_field}: {previous_value!r} → {partition_value!r}{pin_note}"
 
         # Pause the schedule before triggering an admin resync so the scheduled
         # workflow doesn't race with the admin one (Temporal's "OnlyOne" overlap
@@ -272,7 +279,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id)
         except ExternalDataSchema.DoesNotExist:
             messages.error(request, f"Schema {schema_id} not found.")
-            return redirect(reverse("admin:data_warehouse_externaldataschema_changelist"))
+            return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
 
         # Both checkboxes default to off: an unchecked checkbox isn't sent in the
         # POST body, so .get() returns None, and `None == "on"` is False.
@@ -299,15 +306,28 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         # marker. reset_pipeline goes on sync_type_config rather than the workflow
         # input — the pipeline pops it after the first reset; on the input it
         # would re-fire on every activity retry and wipe progress.
-        sync_type_config_dirty = False
+        update_fields: list[str] = []
         if reset_pipeline:
             schema.sync_type_config["reset_pipeline"] = True
-            sync_type_config_dirty = True
+            update_fields.append("sync_type_config")
+            # A streaming CDC schema no-ops a normal reset — CDCExtractionWorkflow owns it and the
+            # per-schema run raises CDCHandledExternally. Flip it back to snapshot so this run does a
+            # full re-snapshot, mirroring ExternalDataSchemaViewSet.reset. The job below is created
+            # billable=False, and on completion set_initial_sync_complete transitions it back to
+            # streaming, so ongoing CDC stays billable. The save must precede the workflow start so
+            # the source reloads cdc_mode="snapshot" instead of racing on stale "streaming".
+            if schema.is_cdc and schema.cdc_mode == "streaming":
+                schema.sync_type_config["cdc_mode"] = "snapshot"
+                schema.sync_type_config.pop("cdc_last_log_position", None)
+                schema.sync_type_config.pop("cdc_deferred_runs", None)
+                schema.initial_sync_complete = False
+                update_fields.append("initial_sync_complete")
         if admin_paused_now:
             schema.sync_type_config["admin_unpause_schedule_after_run"] = True
-            sync_type_config_dirty = True
-        if sync_type_config_dirty:
-            schema.save(update_fields=["sync_type_config"])
+            if "sync_type_config" not in update_fields:
+                update_fields.append("sync_type_config")
+        if update_fields:
+            schema.save(update_fields=update_fields)
 
         inputs = ExternalDataWorkflowInputs(
             team_id=schema.team_id,
@@ -386,6 +406,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["current_partition_keys"] = obj.partitioning_keys
             extra_context["current_partition_size"] = obj.partition_size
             extra_context["current_partition_count"] = obj.partition_count
+            extra_context["current_partition_count_override"] = obj.partition_count_override
+            extra_context["current_partition_size_override"] = obj.partition_size_override
             extra_context["partitioning_enabled"] = obj.partitioning_enabled
             extra_context["repartition_url"] = reverse("admin:external_data_schema_repartition", args=[obj.id])
             extra_context["trigger_sync_url"] = reverse("admin:external_data_schema_trigger_sync", args=[obj.id])

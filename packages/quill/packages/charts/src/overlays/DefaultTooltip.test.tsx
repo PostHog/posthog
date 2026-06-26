@@ -1,7 +1,7 @@
 import { cleanup, screen } from '@testing-library/react'
 
 import type { TooltipContext } from '../core/types'
-import { makeOverlayContext, renderOverlayInChart } from '../testing'
+import { createDefaultTooltipAccessor, makeOverlayContext, renderOverlayInChart } from '../testing'
 import { DefaultTooltip } from './DefaultTooltip'
 
 const SCALES = { x: () => 0, y: (v: number) => v, yTicks: () => [] }
@@ -73,20 +73,24 @@ describe('DefaultTooltip', () => {
 
         it('sums the visible series and labels the row', () => {
             renderTooltip({ showTotal: true }, TWO_SERIES)
-            screen.getByText('Total:')
+            screen.getByText('Total')
             screen.getByText((35).toLocaleString())
         })
 
         it('uses a custom label and total formatter', () => {
             renderTooltip({ showTotal: true, totalLabel: 'Sum', totalFormatter: (v) => `$${v}` }, TWO_SERIES)
-            screen.getByText('Sum:')
+            screen.getByText('Sum')
             screen.getByText('$35')
         })
 
         it('falls back to valueFormatter for the total, applied with the first summable entry', () => {
             const metaSeries: TooltipContext['seriesData'] = [
                 { series: { key: 'usd', label: 'Revenue', data: [], meta: { unit: '$' } }, value: 10, color: '#000' },
-                { series: { key: 'usd2', label: 'Revenue 2', data: [], meta: { unit: '€' } }, value: 25, color: '#111' },
+                {
+                    series: { key: 'usd2', label: 'Revenue 2', data: [], meta: { unit: '€' } },
+                    value: 25,
+                    color: '#111',
+                },
             ]
             renderTooltip(
                 {
@@ -102,12 +106,12 @@ describe('DefaultTooltip', () => {
 
         it('is suppressed for a single series', () => {
             renderTooltip({ showTotal: true }, SERIES_DATA)
-            expect(screen.queryByText('Total:')).toBeNull()
+            expect(screen.queryByText('Total')).toBeNull()
         })
 
         it('is suppressed when showTotal is not set', () => {
             renderTooltip({}, TWO_SERIES)
-            expect(screen.queryByText('Total:')).toBeNull()
+            expect(screen.queryByText('Total')).toBeNull()
         })
 
         it('excludes overlay series from the sum and the summable count', () => {
@@ -126,7 +130,39 @@ describe('DefaultTooltip', () => {
                 { series: { key: 'goal', label: 'Goal', data: [], overlay: true }, value: 30, color: '#222' },
             ]
             renderTooltip({ showTotal: true }, oneRealOneOverlay)
-            expect(screen.queryByText('Total:')).toBeNull()
+            expect(screen.queryByText('Total')).toBeNull()
+        })
+    })
+
+    describe('createDefaultTooltipAccessor', () => {
+        it('reads the label, rows, values, swatch colors, and total', () => {
+            const seriesData: TooltipContext['seriesData'] = [
+                { series: { key: 'a', label: 'Revenue', data: [] }, value: 100, color: 'rgb(255, 0, 0)' },
+                { series: { key: 'b', label: 'Cost', data: [] }, value: 40, color: 'rgb(0, 255, 0)' },
+            ]
+            renderTooltip({ showTotal: true, valueFormatter: (v) => `$${v}` }, seriesData)
+
+            const tooltip = createDefaultTooltipAccessor(document.body)
+            expect(tooltip.label()).toBe('When')
+            expect(tooltip.rows()).toEqual(['Revenue', 'Cost'])
+            expect(tooltip.value('Revenue')).toBe('$100')
+            expect(tooltip.value('Cost')).toBe('$40')
+            expect(tooltip.swatchColors()).toEqual(['rgb(255, 0, 0)', 'rgb(0, 255, 0)'])
+            expect(tooltip.total()).toBe('$140')
+        })
+
+        it('returns undefined total when no total row is shown', () => {
+            renderTooltip({})
+            expect(createDefaultTooltipAccessor(document.body).total()).toBeUndefined()
+        })
+
+        it('includes overlay series in rows (rows is every rendered row, not summable-only)', () => {
+            const seriesData: TooltipContext['seriesData'] = [
+                { series: { key: 'a', label: 'Visits', data: [] }, value: 100, color: 'rgb(1, 2, 3)' },
+                { series: { key: 'goal', label: 'Goal', data: [], overlay: true }, value: 30, color: 'rgb(4, 5, 6)' },
+            ]
+            renderTooltip({}, seriesData)
+            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(['Visits', 'Goal'])
         })
     })
 })

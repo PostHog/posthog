@@ -1,6 +1,7 @@
+import { isDevEnv } from '~/common/utils/env-utils'
+
 import { CommonConfig } from './common/config'
 import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
-import { isDevEnv } from './utils/env-utils'
 
 // =============================================================================
 // Capability Groups for Local Development
@@ -134,6 +135,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_cyclotron_worker_email:
             return {
                 cdpCyclotronWorkerEmail: true,
+            }
+        case PluginServerMode.cdp_cyclotron_worker_email_legacy_pg:
+            return {
+                cdpCyclotronWorkerEmailLegacyPg: true,
             }
         case PluginServerMode.cdp_precalculated_filters:
             return {

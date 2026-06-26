@@ -281,8 +281,10 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         offset: values.paramsFromFilters.offset,
                     }
                 },
-                archiveExperiment: async (id: number) => {
-                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`)
+                archiveExperiment: async ({ id, disableFeatureFlag }: { id: number; disableFeatureFlag: boolean }) => {
+                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`, {
+                        disable_feature_flag: disableFeatureFlag,
+                    })
                     lemonToast.info('Experiment archived')
                     return {
                         ...values.experiments,
@@ -468,7 +470,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
         shouldShowEmptyState: [
             (s) => [s.experimentsLoading, s.experiments, s.filters],
             (experimentsLoading, experiments, filters): boolean => {
-                return !experimentsLoading && experiments.results.length === 0 && objectsEqual(filters, DEFAULT_FILTERS)
+                return (
+                    !experimentsLoading &&
+                    (experiments.results?.length ?? 0) === 0 &&
+                    objectsEqual(filters, DEFAULT_FILTERS)
+                )
             },
         ],
         pagination: [

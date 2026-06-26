@@ -264,3 +264,75 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
         }
         for row in rows
     ]
+
+
+def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
+    """Synthetic 'completed' recalculation payload built from each metric's latest completed timeseries point.
+
+    Pure read. Used by GET /metrics_recalculation/latest as a cold-start placeholder when no real
+    metrics-recalculation run exists yet. Timeseries rows live in ExperimentMetricResult under the metric's
+    CONFIG fingerprint (not a per-run recalc fingerprint), so they're found without any recalc row.
+
+    Returns None when no metric has a completed timeseries point (caller then keeps the 404). query_to and
+    completed_at both pin to the freshest point's date so the frontend's >24h staleness path fires its own
+    recompute trigger (GET never triggers anything itself).
+    """
+    with team_scope(experiment.team_id, canonical=True):
+        metrics = discover_experiment_metrics(experiment)
+        stats_method = get_experiment_stats_method(experiment)
+
+        results: list[dict] = []
+        latest_query_to = None
+        for metric in metrics:
+            metric_dict = find_metric_dict(experiment, metric.metric_uuid)
+            if metric_dict is None:
+                continue
+            config_fp = compute_metric_fingerprint(
+                metric_dict,
+                experiment.start_date,
+                stats_method,
+                experiment.exposure_criteria,
+                only_count_matured_users=experiment.only_count_matured_users,
+            )
+            row = (
+                ExperimentMetricResult.objects.filter(
+                    experiment=experiment,
+                    metric_uuid=metric.metric_uuid,
+                    fingerprint=config_fp,
+                    status=ExperimentMetricResult.Status.COMPLETED,
+                )
+                .order_by("-query_to")
+                .first()
+            )
+            if row is None:
+                continue
+            results.append(
+                {
+                    "metric_uuid": row.metric_uuid,
+                    "status": row.status,
+                    "result": strip_step_sessions(row.result),
+                    "error_message": None,
+                }
+            )
+            if latest_query_to is None or row.query_to > latest_query_to:
+                latest_query_to = row.query_to
+
+        if not results:
+            return None
+
+        return {
+            "id": "timeseries-fallback",
+            "experiment_id": experiment.id,
+            "status": ExperimentMetricsRecalculation.Status.COMPLETED,
+            "total_metrics": len(metrics),
+            "completed_metrics": len(results),
+            "failed_metrics": 0,
+            "metric_errors": {},
+            "trigger": ExperimentMetricsRecalculation.Trigger.COLD_RUN,
+            "created_at": latest_query_to,
+            "started_at": latest_query_to,
+            "completed_at": latest_query_to,
+            "query_to": latest_query_to,
+            "results": results,
+            "result_source": "timeseries_fallback",
+        }
