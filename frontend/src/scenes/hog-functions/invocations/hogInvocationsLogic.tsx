@@ -52,6 +52,13 @@ export interface HogInvocationRow {
     distinct_id: string
     person_id: string
     parent_run_id: string
+    /**
+     * Worst log-entry level for this invocation (`error` > `warn`), or null.
+     * Surfaces async problems (e.g. an SES bounce/complaint logged after the
+     * invocation already finished `succeeded`) so a run that went wrong doesn't
+     * read as a clean success at the row level.
+     */
+    problem_log_level: 'warn' | 'error' | null
 }
 
 export type RunsOrderBy = 'latest_scheduled' | 'first_scheduled'
@@ -490,7 +497,7 @@ async function fetchRunsPage(
         }
     )
 
-    return (response.results ?? []).map((row): HogInvocationRow => {
+    const rows = (response.results ?? []).map((row): HogInvocationRow => {
         const [
             invocation_id,
             function_kind,
@@ -543,8 +550,44 @@ async function fetchRunsPage(
             distinct_id,
             person_id,
             parent_run_id,
+            problem_log_level: null,
         }
     })
+
+    // Enrich the page with the worst log-entry level per invocation. An SES bounce/complaint
+    // (and similar async failures) writes an error/warn log entry after the invocation already
+    // finished `succeeded`, so without this a delivery failure reads as a clean success here.
+    // Best-effort: a failed lookup just leaves the rows without the indicator.
+    const ids = rows.map((r) => r.invocation_id)
+    if (ids.length > 0) {
+        const idClause = hogql.raw(`instance_id IN (${ids.map(escapeHogQLString).join(',')})`)
+        const severityQuery = hogql`
+            SELECT instance_id, max(multiIf(lower(level) = 'error', 2, lower(level) = 'warn', 1, 0)) AS sev
+            FROM log_entries
+            WHERE log_source = ${props.functionKind}
+              AND log_source_id = ${props.id}
+              AND ${idClause}
+            GROUP BY instance_id
+            HAVING sev > 0
+        `
+        try {
+            const severityResponse = await api.queryHogQL(severityQuery, {
+                scene: 'HogInvocations',
+                productKey: 'pipeline_destinations',
+            })
+            const levelByInvocationId: Record<string, 'warn' | 'error'> = {}
+            for (const severityRow of severityResponse.results ?? []) {
+                const [instanceId, sev] = severityRow as unknown as [string, number]
+                levelByInvocationId[instanceId] = Number(sev) >= 2 ? 'error' : 'warn'
+            }
+            for (const row of rows) {
+                row.problem_log_level = levelByInvocationId[row.invocation_id] ?? null
+            }
+        } catch {
+            // Leave problem_log_level as null — the run statuses are still accurate.
+        }
+    }
+    return rows
 }
 
 /**

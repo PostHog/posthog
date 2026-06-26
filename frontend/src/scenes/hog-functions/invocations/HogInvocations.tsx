@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useState } from 'react'
 
-import { IconChevronDown, IconRefresh, IconRevert, IconSearch } from '@posthog/icons'
+import { IconChevronDown, IconRefresh, IconRevert, IconSearch, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -15,6 +15,7 @@ import {
     LemonTableColumns,
     LemonTag,
     LemonTagProps,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -297,7 +298,28 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
             key: 'status',
             dataIndex: 'status',
             width: 0,
-            render: (_, row) => <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>,
+            render: (_, row) => (
+                <div className="flex items-center gap-1">
+                    <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
+                    {row.problem_log_level && row.status === 'succeeded' ? (
+                        <Tooltip
+                            title={
+                                row.problem_log_level === 'error'
+                                    ? 'This run finished but logged an error (for example an email bounce). Expand the row to view it.'
+                                    : 'This run finished but logged a warning (for example an email complaint). Expand the row to view it.'
+                            }
+                        >
+                            <IconWarning
+                                className={
+                                    row.problem_log_level === 'error'
+                                        ? 'text-danger text-base'
+                                        : 'text-warning text-base'
+                                }
+                            />
+                        </Tooltip>
+                    ) : null}
+                </div>
+            ),
         },
         {
             title: 'Attempts',
