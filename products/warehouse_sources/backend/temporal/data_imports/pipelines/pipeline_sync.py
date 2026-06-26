@@ -217,7 +217,10 @@ async def validate_schema_and_update_table(
                     table_created.row_count = table_created.get_count()
                 else:
                     table_created.row_count = row_count
-                table_created.save()
+                # Scope to the fields changed here. This save is now outside the transaction, so a
+                # full save would rewrite `columns` with its pre-merge value and could clobber a
+                # concurrent sync's column update before the select_for_update merge below runs.
+                table_created.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
 
             if not table_created:
                 # Check if we already have an orphaned table that we can repurpose
@@ -359,7 +362,9 @@ async def register_cdc_companion_table(
                 companion_table.url_pattern = new_url_pattern
                 companion_table.queryable_folder = queryable_folder
                 companion_table.row_count = companion_table.get_count()
-                companion_table.save()
+                # Scope to the fields changed here so this out-of-transaction save doesn't rewrite
+                # `columns` with its pre-merge value before the column save below.
+                companion_table.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
             else:
                 logger.debug(f"Creating CDC companion table: {companion_table_name}")
                 companion_table = DataWarehouseTable.objects.create(

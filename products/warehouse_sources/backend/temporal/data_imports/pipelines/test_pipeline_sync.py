@@ -106,7 +106,7 @@ def _register_companion_sync(
         companion_table.url_pattern = new_url_pattern
         companion_table.queryable_folder = queryable_folder
         companion_table.row_count = companion_table.get_count()
-        companion_table.save()
+        companion_table.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
     else:
         companion_table = DataWarehouseTable.objects.create(external_data_source_id=job.pipeline.id, **table_params)
 
