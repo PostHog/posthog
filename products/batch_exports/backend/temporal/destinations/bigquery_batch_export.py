@@ -11,6 +11,7 @@ import collections.abc
 
 from django.conf import settings
 
+import grpc
 import boto3
 import pyarrow as pa
 import requests
@@ -33,6 +34,7 @@ from google.api_core.exceptions import (
 from google.cloud import bigquery, bigquery_storage_v1, iam_admin_v1
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.cloud.bigquery_storage_v1 import types
+from google.cloud.bigquery_storage_v1.services.big_query_write.transports import BigQueryWriteGrpcTransport
 from google.cloud.bigquery_storage_v1.writer import AppendRowsStream
 from google.oauth2 import service_account
 from structlog.contextvars import bind_contextvars
@@ -1166,9 +1168,13 @@ class BigQueryStorageConsumer(Consumer):
         model: str = "events",
     ):
         super().__init__(model=model)
-
+        channel = BigQueryWriteGrpcTransport.create_channel(
+            compression=grpc.Compression.Gzip,
+        )
+        transport = BigQueryWriteGrpcTransport(channel=channel)
         self.write_client = bigquery_storage_v1.BigQueryWriteClient(
             credentials=client.sync_client._credentials,
+            transport=transport,
         )
         self.stream: AppendRowsStream | None = None
 
