@@ -288,20 +288,13 @@ fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<Wrapped
         match validate_event(&event) {
             Ok(raw_ts) => {
                 // Options validation: coerce known fields or drop the event.
-                // The malformed-event metric is emitted uniformly by
-                // observe_malformed_events (keyed on the details tag), matching
-                // the other validate-stage drops; here we only log the offending
-                // field names, which the aggregate metric can't carry.
+                // The malformed-event metric (CAPTURE_V1_PARSED_EVENTS{malformed})
+                // is emitted uniformly by observe_malformed_events, matching the
+                // other validate-stage drops. Per-field detail is deferred to the
+                // sampled verbose-logging mode rather than logged per-event here.
                 let options = match event.options.validate() {
                     Ok(opts) => opts,
-                    Err(opts_err) => {
-                        crate::ctx_log!(
-                            Level::WARN,
-                            context,
-                            event_uuid = %uuid,
-                            invalid_fields = ?opts_err.invalid_fields,
-                            "dropping event: uncoercible options fields"
-                        );
+                    Err(_) => {
                         events.push(WrappedEvent {
                             event,
                             uuid,
