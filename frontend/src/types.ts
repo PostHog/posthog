@@ -5365,6 +5365,8 @@ export const INTEGRATION_KINDS = [
     'customerio-webhook',
     'customerio-track',
     'postgresql',
+    'aws-s3',
+    's3-compatible',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
