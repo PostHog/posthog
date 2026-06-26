@@ -1,7 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
-import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.data_warehouse.backend.api import (
+import products.data_warehouse.backend.presentation.views.fix_hogql as fix_hogql
+from products.data_warehouse.backend.presentation.views import (
     column_annotation,
     data_modeling_job,
     data_warehouse,
@@ -15,7 +15,7 @@ from products.data_warehouse.backend.api import (
     table,
     view_link,
 )
-from products.data_warehouse.backend.api.lineage import LineageViewSet
+from products.data_warehouse.backend.presentation.views.lineage import LineageViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:

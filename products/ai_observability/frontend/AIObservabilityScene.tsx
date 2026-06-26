@@ -46,6 +46,7 @@ import { AIObservabilityTraces } from './AIObservabilityTracesScene'
 import { AIObservabilityUsers } from './AIObservabilityUsers'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityErrorsLogic } from './tabs/aiObservabilityErrorsLogic'
 import { getDefaultGenerationsColumns, aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
@@ -300,7 +301,7 @@ function AIObservabilityGenerations(): JSX.Element {
                         ),
                     },
                     person: aiObservabilityColumnRenderers.person,
-                    "'' -- Sentiment": aiObservabilityColumnRenderers["'' -- Sentiment"],
+                    [GENERATION_SENTIMENT_SELECT]: aiObservabilityColumnRenderers[GENERATION_SENTIMENT_SELECT],
                     'properties.$ai_tools_called': aiObservabilityColumnRenderers['properties.$ai_tools_called'],
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),

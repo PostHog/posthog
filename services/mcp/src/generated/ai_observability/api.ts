@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 53 enabled ops
+ * PostHog API - MCP 57 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -97,6 +97,12 @@ export const EvaluationsListParams = /* @__PURE__ */ zod.object({
 
 export const EvaluationsListQueryParams = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe('Filter by enabled status'),
+    evaluation_type: zod
+        .enum(['hog', 'llm_judge', 'sentiment'])
+        .optional()
+        .describe(
+            'Filter by evaluation type\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis'
+        ),
     id__in: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -431,7 +437,37 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const LlmAnalyticsClusteringConfigListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const LlmAnalyticsClusteringConfigSetEventFiltersCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LlmAnalyticsClusteringConfigSetEventFiltersCreateBody = /* @__PURE__ */ zod.object({
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .describe(
+            'PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters.'
+        ),
+})
+
+/**
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const LlmAnalyticsClusteringJobsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -447,9 +483,67 @@ export const LlmAnalyticsClusteringJobsListQueryParams = /* @__PURE__ */ zod.obj
 })
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
+ */
+export const LlmAnalyticsClusteringJobsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const llmAnalyticsClusteringJobsCreateBodyNameMax = 100
+
+export const LlmAnalyticsClusteringJobsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(llmAnalyticsClusteringJobsCreateBodyNameMax),
+    analysis_level: zod
+        .enum(['trace', 'generation', 'evaluation'])
+        .describe('* `trace` - trace\n* `generation` - generation\n* `evaluation` - evaluation'),
+    event_filters: zod.unknown().optional(),
+    enabled: zod.boolean().optional(),
+})
+
+/**
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const LlmAnalyticsClusteringJobsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this clustering job.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * CRUD for clustering job configurations (max 10 per team).
+ */
+export const LlmAnalyticsClusteringJobsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this clustering job.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const llmAnalyticsClusteringJobsPartialUpdateBodyNameMax = 100
+
+export const LlmAnalyticsClusteringJobsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(llmAnalyticsClusteringJobsPartialUpdateBodyNameMax).optional(),
+    analysis_level: zod
+        .enum(['trace', 'generation', 'evaluation'])
+        .optional()
+        .describe('* `trace` - trace\n* `generation` - generation\n* `evaluation` - evaluation'),
+    event_filters: zod.unknown().optional(),
+    enabled: zod.boolean().optional(),
+})
+
+/**
+ * CRUD for clustering job configurations (max 10 per team).
+ */
+export const LlmAnalyticsClusteringJobsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this clustering job.'),
     project_id: zod
         .string()
@@ -1192,43 +1286,6 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
         .describe(
             "Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check."
         ),
-})
-
-export const LlmAnalyticsSentimentCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const llmAnalyticsSentimentCreateBodyIdsMax = 5
-
-export const llmAnalyticsSentimentCreateBodyAnalysisLevelDefault = `trace`
-export const llmAnalyticsSentimentCreateBodyForceRefreshDefault = false
-
-export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.string())
-        .min(1)
-        .max(llmAnalyticsSentimentCreateBodyIdsMax)
-        .describe('Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).'),
-    analysis_level: zod
-        .enum(['trace', 'generation'])
-        .describe('* `trace` - trace\n* `generation` - generation')
-        .default(llmAnalyticsSentimentCreateBodyAnalysisLevelDefault)
-        .describe(
-            "Whether the IDs are 'trace' IDs or 'generation' IDs.\n\n* `trace` - trace\n* `generation` - generation"
-        ),
-    force_refresh: zod
-        .boolean()
-        .default(llmAnalyticsSentimentCreateBodyForceRefreshDefault)
-        .describe('If true, bypass cache and reclassify.'),
-    date_from: zod
-        .string()
-        .nullish()
-        .describe("Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d."),
-    date_to: zod.string().nullish().describe('End of date range for the lookup. Defaults to now.'),
 })
 
 /**

@@ -105,6 +105,7 @@ from posthog.schema_enums import (
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
+    FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
     FunnelCorrelationResultsType as FunnelCorrelationResultsType,
     FunnelLayout as FunnelLayout,
@@ -1449,6 +1450,7 @@ class FunnelTimeToConvertResults(BaseModel):
     )
     average_conversion_time: float | None = None
     bins: list[list[int]]
+    median_conversion_time: float | None = None
 
 
 class FunnelTrendsResults(RootModel[list[dict[str, Any]]]):
@@ -1548,6 +1550,26 @@ class IntegrationFilter(BaseModel):
     )
 
 
+class LLMSentimentMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    score: float
+    scores: dict[str, float] | None = None
+
+
+class LLMSentimentResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    message_count: float | None = None
+    messages: dict[str, LLMSentimentMessage] | None = None
+    score: float
+    scores: dict[str, float] | None = None
+
+
 class LLMTraceEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1556,6 +1578,7 @@ class LLMTraceEvent(BaseModel):
     event: AIEventType | str
     id: str
     properties: dict[str, Any]
+    sentiment: LLMSentimentResult | None = None
 
 
 class LLMTracePerson(BaseModel):
@@ -2301,7 +2324,24 @@ class ReplayVisionScannerFindingSignalExtra(BaseModel):
         ...,
         description=("The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`."),
     )
+    distinct_id: str | None = None
+    end_time: float = Field(
+        ...,
+        description=("When the issue ends in the recording, in seconds (the footer's REC_T value)."),
+    )
+    exported_asset_id: float = Field(..., description="The rasterized MP4 asset the scanner analysed.")
     observation_id: str
+    problem_type: str = Field(
+        ...,
+        description=(
+            "Issue category: 'bug' / 'crash' / 'design_flaw' / 'ux_friction'. Kept open"
+            " so new categories don't fail validation."
+        ),
+    )
+    recording_active_seconds: float | None = None
+    recording_duration: float | None = None
+    recording_end_time: str | None = Field(default=None, description="ISO 8601 recording end.")
+    recording_start_time: str | None = Field(default=None, description="ISO 8601 recording start (the REC_T=0 anchor).")
     scanner_id: str
     scanner_name: str
     scanner_type: str = Field(
@@ -2313,6 +2353,13 @@ class ReplayVisionScannerFindingSignalExtra(BaseModel):
         ),
     )
     session_id: str
+    start_time: float = Field(
+        ...,
+        description=(
+            "When the issue starts in the recording, in seconds from recording start (the footer's REC_T value)."
+        ),
+    )
+    url: str = Field(..., description="The page the issue happened on (the footer's URL value).")
 
 
 class ResolvedDateRangeResponse(BaseModel):
@@ -5247,6 +5294,18 @@ class FunnelExclusionSteps(BaseModel):
     funnelToStep: int
 
 
+class FunnelsAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnel_step: int | None = Field(
+        default=None,
+        description=("Zero-based step index to evaluate. Null = the last step (overall conversion)."),
+    )
+    metric: FunnelConversionMetric
+    type: Literal["FunnelsAlertConfig"] = "FunnelsAlertConfig"
+
+
 class FunnelsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5504,6 +5563,7 @@ class LLMTrace(BaseModel):
     outputTokens: float | None = None
     person: LLMTracePerson | None = None
     requestCost: float | None = None
+    sentiment: LLMSentimentResult | None = None
     tools: list[str] | None = None
     totalCost: float | None = None
     totalLatency: float | None = None
@@ -10558,6 +10618,13 @@ class CachedFunnelsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+    total_median_conversion_time: float | None = Field(
+        default=None,
+        description=(
+            "Median total conversion time across all completers, computed"
+            " breakdown-agnostically for the Steps viz header."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
@@ -15662,6 +15729,13 @@ class FunnelsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    total_median_conversion_time: float | None = Field(
+        default=None,
+        description=(
+            "Median total conversion time across all completers, computed"
+            " breakdown-agnostically for the Steps viz header."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -19033,6 +19107,13 @@ class QueryResponseAlternative68(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    total_median_conversion_time: float | None = Field(
+        default=None,
+        description=(
+            "Median total conversion time across all completers, computed"
+            " breakdown-agnostically for the Steps viz header."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -20648,6 +20729,10 @@ class TraceQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    includeSentiment: bool | None = Field(
+        default=None,
+        description=("Include stored sentiment evaluation results for the trace and its generations."),
+    )
     kind: Literal["TraceQuery"] = "TraceQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: (
@@ -20721,6 +20806,10 @@ class TracesQuery(BaseModel):
     filterTestAccounts: bool | None = None
     groupKey: str | None = None
     groupTypeIndex: int | None = None
+    includeSentiment: bool | None = Field(
+        default=None,
+        description=("Include stored sentiment evaluation results for returned traces and direct generation events."),
+    )
     kind: Literal["TracesQuery"] = "TracesQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

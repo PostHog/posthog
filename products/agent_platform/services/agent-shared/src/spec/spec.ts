@@ -7,7 +7,12 @@
 
 import { z } from 'zod'
 
-export const ModelIdSchema = z.string().min(1)
+import type { TriggerMetadata } from '../runtime/trigger-metadata'
+
+export const ModelIdSchema = z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$/, 'must be "<provider>/<model-id>", e.g. "anthropic/claude-haiku-4-5"')
 
 /**
  * Auth modes. Auth is a property of the TRIGGER, not the spec — declarative
@@ -599,7 +604,10 @@ export const SkillRefSchema = z.object({
      */
     from_template: z.string().optional(),
     alias: z.string().optional(),
-    version: z.number().int().nonnegative().optional(),
+    version: z.number().int().min(1).optional(),
+    // Immutable per-version row id of the resolved store skill — the exact
+    // provenance anchor, stamped at freeze. Optional so older frozen specs parse.
+    source_version_id: z.string().optional(),
 })
 
 /**
@@ -1101,15 +1109,8 @@ export interface AgentSession {
      * `cron-trigger-scheduler.md` §6.
      */
     idempotency_key: string | null
-    /**
-     * Trigger-specific metadata stamped at enqueue time. Shape varies by
-     * trigger kind; for cron firings:
-     * `{ kind: 'cron', cron_name, schedule, fired_at }`. Read by the
-     * session-detail UI to render a "fired by `<cron_name>` at `<fired_at>`"
-     * badge. Stash-don't-parse — the runtime doesn't introspect this beyond
-     * forwarding it to the UI.
-     */
-    trigger_metadata: Record<string, unknown> | null
+    /** Trigger-specific metadata stamped at enqueue, discriminated on `kind`. */
+    trigger_metadata: TriggerMetadata | null
     /**
      * Session state. See the session-restart redesign for the contract:
      *
@@ -1171,18 +1172,6 @@ export interface AgentSession {
      * surfaces them in the chat UI / Slack thread.
      */
     pending_elevation_requests: PendingElevationRequest[]
-    /**
-     * Author iteration session — created via the preview ingress path (the
-     * Django-side preview-proxy, or a direct ingress call carrying a valid
-     * `aud=agent-ingress.preview` JWT). Output adapters (slack reply, webhook
-     * publish) noop instead of POSTing externally; the analytics sink tags
-     * `$ai_*` events with `preview: true` so production observability
-     * dashboards can filter author iteration noise. Cron is implicitly safe
-     * because the janitor only schedules off `live_revision_id`, so preview
-     * sessions never originate from cron. False for every session created via
-     * the live ingress path.
-     */
-    is_preview: boolean
     created_at: string
     updated_at: string
 }

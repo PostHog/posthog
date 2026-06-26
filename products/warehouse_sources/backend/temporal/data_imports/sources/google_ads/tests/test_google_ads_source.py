@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsColumn,
     GoogleAdsTable,
     _is_invalid_page_token_error,
-    _is_transient_grpc_unavailable,
+    _is_transient_grpc_error,
     _load_client_with_transient_retry,
     _search_as_arrow_tables,
 )
@@ -536,33 +536,54 @@ class TestLoadClientTransientRetry:
         assert sleep.call_args_list == []
 
 
-class _UnavailableRpcError(grpc.RpcError):
-    """A raw gRPC error whose ``code()`` reports ``UNAVAILABLE`` (502:Bad Gateway shape)."""
+class _StatusCodeRpcError(grpc.RpcError):
+    """A raw gRPC error whose ``code()`` reports a given ``StatusCode`` (``_InactiveRpcError`` shape)."""
+
+    def __init__(self, status_code: grpc.StatusCode):
+        self._status_code = status_code
 
     def code(self) -> grpc.StatusCode:
-        return grpc.StatusCode.UNAVAILABLE
+        return self._status_code
 
 
 def _grpc_unavailable_error() -> grpc.RpcError:
-    return _UnavailableRpcError()
+    return _StatusCodeRpcError(grpc.StatusCode.UNAVAILABLE)
 
 
-class TestTransientGrpcUnavailableDetection:
+def _google_ads_exception_wrapping(grpc_error: grpc.RpcError) -> GoogleAdsException:
+    """A ``GoogleAdsException`` carrying a transport-level error on ``error``, the shape the SDK
+    raises when it can pull an ads ``failure`` from the trailing metadata alongside the gRPC status.
+    """
+    return GoogleAdsException(error=grpc_error, call=None, failure=None, request_id="req-1")
+
+
+def _grpc_internal_error() -> grpc.RpcError:
+    return _StatusCodeRpcError(grpc.StatusCode.INTERNAL)
+
+
+class TestTransientGrpcErrorDetection:
     @pytest.mark.parametrize(
         "exc, expected",
         [
             (google_api_exceptions.ServiceUnavailable("502:Bad Gateway"), True),
             (_grpc_unavailable_error(), True),
-            # A different gapic error must not be treated as transient-unavailable.
+            # The SDK wraps the transport status in a GoogleAdsException when an ads failure rides
+            # along (e.g. a backend DEADLINE_EXCEEDED) — still transient, so we unwrap it.
+            (_google_ads_exception_wrapping(_grpc_unavailable_error()), True),
+            # gRPC INTERNAL ("Internal error encountered.") is a transient Google-side blip — the
+            # gapic wrapper and the raw _InactiveRpcError must both be ridden out in-process.
+            (google_api_exceptions.InternalServerError("500 Internal error encountered."), True),
+            (_grpc_internal_error(), True),
+            # A different gapic error must not be treated as transient.
             (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
-            # Google Ads API errors carry no UNAVAILABLE gRPC status — they route through
-            # the existing GoogleAdsException handling, not the transient retry.
+            # Google Ads API errors carry no transient gRPC status — they route through the existing
+            # INVALID_PAGE_TOKEN / GoogleAdsException handling, not the transient retry.
             (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), False),
             (ValueError("boom"), False),
         ],
     )
-    def test_is_transient_grpc_unavailable(self, exc, expected):
-        assert _is_transient_grpc_unavailable(exc) is expected
+    def test_is_transient_grpc_error(self, exc, expected):
+        assert _is_transient_grpc_error(exc) is expected
 
 
 class _FlakyService:
@@ -587,9 +608,12 @@ class TestSearchTransientRetry:
         [
             google_api_exceptions.ServiceUnavailable("502:Bad Gateway"),
             _grpc_unavailable_error(),
+            _google_ads_exception_wrapping(_grpc_unavailable_error()),
+            google_api_exceptions.InternalServerError("500 Internal error encountered."),
+            _grpc_internal_error(),
         ],
     )
-    def test_rides_out_transient_unavailable(self, error):
+    def test_rides_out_transient_error(self, error):
         service = _FlakyService(_single_page(), error=error, fail_times=2)
         manager = _FakeResumableManager(saved_token=None)
 

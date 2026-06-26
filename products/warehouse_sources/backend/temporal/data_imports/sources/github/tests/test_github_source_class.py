@@ -110,3 +110,25 @@ class TestGithubSource:
                 self.source._get_access_token(config, self.team_id)
 
         assert "GitHub access token not found" in self.source.get_non_retryable_errors()
+
+    @pytest.mark.parametrize(
+        "selection,expected_message",
+        [
+            ("oauth", "No GitHub account is connected. Please reconnect your GitHub account."),
+            ("pat", "GitHub personal access token is not configured. Please update the source configuration."),
+        ],
+    )
+    def test_validate_credentials_maps_config_errors_to_friendly_message(self, selection, expected_message):
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(
+                github_integration_id=None, selection=selection, personal_access_token=""
+            ),
+            repository="owner/repo",
+        )
+
+        valid, message = self.source.validate_credentials(config, self.team_id)
+
+        assert valid is False
+        # The wizard surfaces this string directly, so it must be the friendly copy, not the
+        # internal "Missing ..." developer string raised by `_get_access_token`.
+        assert message == expected_message

@@ -341,7 +341,7 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service hypercache-server
-        capability: hypercache
+        # no capability: always_required via intent-map.yaml
         ready_pattern: 'listening on *'
         groups:
             layer: Product services
@@ -476,14 +476,13 @@ procs:
         ready_pattern: 'Metrics server listening on *'
 
     # Behavioral Cohorts stream rebuild (Rust). The shuffler keys clickhouse_events_json into
-    # cohort_stream_events; the processor consumes that and emits membership changes. Both are gated
-    # behind the `behavioral_cohorts` capability (wired into the `cohorts` intent) so they only run
-    # when a dev opts in — the default no-intent manifest is unchanged.
+    # cohort_stream_events; the processor consumes that and emits membership changes. Opt-in
+    # (autostart: false).
     cohort-event-shuffler:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service cohort-event-shuffler
-        capability: behavioral_cohorts
+        autostart: false
         ready_pattern: 'observability server starting'
         groups:
             layer: Product services
@@ -493,7 +492,7 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service cohort-stream-processor
-        capability: behavioral_cohorts
+        autostart: false
         ready_pattern: 'observability server starting'
         groups:
             layer: Product services
