@@ -13,6 +13,9 @@ _B = "products.warehouse_sources.backend.temporal.data_imports."
 
 _LAZY = {
     "SourceRegistry": "sources",
+    "DocsFetchError": "sources.custom.ai_builder",
+    "draft_manifest_sync": "sources.custom.ai_builder",
+    "fetch_docs_text": "sources.custom.ai_builder",
     "CDCSourceAdapter": "cdc.adapters",
     "get_cdc_adapter": "cdc.adapters",
     "source_type_supports_cdc": "cdc.adapters",
