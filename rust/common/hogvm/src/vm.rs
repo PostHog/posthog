@@ -11,6 +11,10 @@ use crate::{
     error::VmError,
     memory::{HeapReference, VmHeap},
     ops::Operation,
+    state::{
+        close_over_cells, collect_cells, rebuild_cells, value_from_json, value_to_json,
+        CellRegistry, FrameJson, Resumable, SymbolJson, ThrowJson, UpvalueJson, VmSnapshot,
+    },
     util::{get_json_nested, like, regex_match},
     values::{
         compare_values, Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable,
@@ -25,7 +29,10 @@ pub const MAX_JSON_SERDE_DEPTH: usize = 64;
 pub enum StepOutcome {
     /// The program has completed, returning a value
     Finished(JsonValue),
-    /// The program has requested a native function call
+    /// The program has requested a global function call. The driver dispatches it: a registered
+    /// native (STL/ext) runs inline; a registered *async* function (see [`ExecutionContext::is_async`])
+    /// suspends the resumable driver instead — at this point the args are already popped and `ip` is
+    /// past the call, so a snapshot taken now resumes correctly once the result is pushed.
     NativeCall(String, Vec<HogValue>),
     /// The program has requested another step
     Continue,
@@ -55,6 +62,9 @@ pub struct HogVM<'a> {
     // and removed from here. See `capture_upvalue` / `close_upvalues`.
     open_upvalues: Vec<UpvalueCell>,
     ip: usize,
+    // How many times this run has suspended on an async function call. Carried into snapshots and
+    // restored on resume, so the per-run async budget survives the suspend/resume round-trip.
+    async_steps: usize,
 
     context: &'a ExecutionContext,
     // The base program is None, but calling into e.g. hog standard library functions involves changing the "module"
@@ -85,6 +95,7 @@ impl<'a> HogVM<'a> {
             throw_frames: Vec::new(),
             open_upvalues: Vec::new(),
             ip: 0,
+            async_steps: 0,
             current_symbol: None,
             context,
             heap: VmHeap::new(context.max_heap_size),
@@ -194,8 +205,9 @@ impl<'a> HogVM<'a> {
                     // but always popping, but then maybe reversing
                     args.reverse();
                 }
-                // This VM does native calls like so: it returns a "native call" struct,
-                // which the executing environment can use to execute the native call.
+                // This VM does native calls like so: it returns a "native call" struct, which the
+                // executing environment dispatches — inline for a native, or as a suspension for a
+                // registered async function (handled in the resumable driver).
                 return Ok(self.prep_native_call(name, args));
             }
             Operation::And => {
@@ -318,7 +330,10 @@ impl<'a> HogVM<'a> {
                     self.ip += 1;
                     self.push_stack(i)?;
                 } else {
-                    let token = self.context.get_bytecode(self.ip, &self.current_symbol)?.clone();
+                    let token = self
+                        .context
+                        .get_bytecode(self.ip, &self.current_symbol)?
+                        .clone();
                     self.ip += 1;
                     let val = self.json_to_hog(token)?;
                     self.push_stack(val)?;
@@ -408,8 +423,7 @@ impl<'a> HogVM<'a> {
                 }
                 // keys/values were popped in reverse (stack order), so reverse the zip to restore
                 // the source insertion order in the IndexMap.
-                let map: IndexMap<String, HogValue> =
-                    keys.into_iter().zip(values).rev().collect();
+                let map: IndexMap<String, HogValue> = keys.into_iter().zip(values).rev().collect();
                 let obj = HogLiteral::Object(map);
                 // For the non-primitive types below (objects, arrays, "tuples"), we /always/ heap allocate them. The reason
                 // is that the pattern for e.g. nestedly setting an array value is to GetLocal followed by GetProperty, followed
@@ -825,7 +839,11 @@ impl<'a> HogVM<'a> {
             if matches!(val_lit, HogLiteral::Null) || matches!(pat_lit, HogLiteral::Null) {
                 false
             } else {
-                regex_match(val_lit.try_as::<str>()?, pat_lit.try_as::<str>()?, case_sensitive)?
+                regex_match(
+                    val_lit.try_as::<str>()?,
+                    pat_lit.try_as::<str>()?,
+                    case_sensitive,
+                )?
             }
         };
         self.push_stack(HogLiteral::Boolean(matched ^ negate))
@@ -1052,6 +1070,150 @@ impl<'a> HogVM<'a> {
             }
         }
     }
+
+    /// Capture the full live state as a serializable [`VmSnapshot`]. The program/STL are not part of
+    /// the snapshot — [`resume`] re-supplies them via the `ExecutionContext`. The upvalue graph
+    /// (`Rc<RefCell<Upvalue>>`, shared between the open list and closures) is flattened to ids.
+    pub fn snapshot(&self) -> Result<VmSnapshot, VmError> {
+        let mut registry = CellRegistry::default();
+        // Intern open upvalues first (stable low ids), then everything reachable from the stack and
+        // frame captures, then chase closed-cell values for nested closures.
+        for cell in &self.open_upvalues {
+            registry.intern(cell);
+        }
+        for value in &self.stack {
+            collect_cells(value, &self.heap, &mut registry)?;
+        }
+        for frame in &self.stack_frames {
+            for cell in &frame.captures {
+                registry.intern(cell);
+            }
+        }
+        close_over_cells(&self.heap, &mut registry)?;
+
+        // Read each cell's data out before serializing (so the value walk isn't aliasing the
+        // registry it borrows; it is already complete, so no new ids are minted).
+        let cell_data: Vec<(usize, bool, Option<HogValue>)> = registry
+            .cells()
+            .iter()
+            .map(|c| {
+                let b = c.borrow();
+                (b.location, b.closed, b.value.clone())
+            })
+            .collect();
+
+        let mut stack = Vec::with_capacity(self.stack.len());
+        for value in &self.stack {
+            stack.push(value_to_json(value, &self.heap, &mut registry)?);
+        }
+
+        let mut upvalues = Vec::with_capacity(cell_data.len());
+        for (id, (location, closed, value)) in cell_data.into_iter().enumerate() {
+            let value_json = match (closed, &value) {
+                (true, Some(v)) => value_to_json(v, &self.heap, &mut registry)?,
+                _ => JsonValue::Null,
+            };
+            upvalues.push(UpvalueJson {
+                marker: true,
+                id,
+                location,
+                closed,
+                value: value_json,
+            });
+        }
+
+        let call_stack = self
+            .stack_frames
+            .iter()
+            .map(|f| FrameJson {
+                ret_ptr: f.ret_ptr,
+                ret_chunk: SymbolJson::of(&f.ret_symbol),
+                stack_start: f.stack_start,
+                captures: f.captures.iter().map(|c| registry.intern(c)).collect(),
+            })
+            .collect();
+
+        let throw_stack = self
+            .throw_frames
+            .iter()
+            .map(|t| ThrowJson {
+                catch_ptr: t.catch_ptr,
+                catch_chunk: SymbolJson::of(&t.catch_symbol),
+                stack_start: t.stack_start,
+                call_depth: t.call_depth,
+            })
+            .collect();
+
+        Ok(VmSnapshot {
+            stack,
+            upvalues,
+            call_stack,
+            throw_stack,
+            ip: self.ip,
+            chunk: SymbolJson::of(&self.current_symbol),
+            async_steps: self.async_steps,
+        })
+    }
+
+    /// Rebuild a VM from a [`VmSnapshot`] against `context`. Inverse of [`Self::snapshot`]: cells are
+    /// created empty first so closure captures resolve by id, containers are re-emplaced onto a fresh
+    /// heap, and the open-upvalue list is reconstructed from the still-open cells.
+    pub fn restore(
+        context: &'a ExecutionContext,
+        snapshot: &VmSnapshot,
+    ) -> Result<HogVM<'a>, VmError> {
+        let mut vm = HogVM::new(context)?;
+
+        let cells = rebuild_cells(&snapshot.upvalues, &mut vm.heap)?;
+
+        let mut stack = Vec::with_capacity(snapshot.stack.len());
+        for json in &snapshot.stack {
+            stack.push(value_from_json(json, &mut vm.heap, &cells)?);
+        }
+
+        let mut stack_frames = Vec::with_capacity(snapshot.call_stack.len());
+        for f in &snapshot.call_stack {
+            let mut captures = Vec::with_capacity(f.captures.len());
+            for id in &f.captures {
+                let cell = cells
+                    .get(*id)
+                    .ok_or_else(|| VmError::Other(format!("frame upvalue id {id} out of range")))?;
+                captures.push(cell.clone());
+            }
+            stack_frames.push(CallFrame {
+                ret_ptr: f.ret_ptr,
+                ret_symbol: SymbolJson::to_symbol(&f.ret_chunk),
+                stack_start: f.stack_start,
+                captures,
+            });
+        }
+
+        let throw_frames = snapshot
+            .throw_stack
+            .iter()
+            .map(|t| ThrowFrame {
+                catch_ptr: t.catch_ptr,
+                catch_symbol: SymbolJson::to_symbol(&t.catch_chunk),
+                stack_start: t.stack_start,
+                call_depth: t.call_depth,
+            })
+            .collect();
+
+        let open_upvalues = cells
+            .iter()
+            .filter(|c| !c.borrow().closed)
+            .cloned()
+            .collect();
+
+        vm.stack = stack;
+        vm.stack_frames = stack_frames;
+        vm.throw_frames = throw_frames;
+        vm.open_upvalues = open_upvalues;
+        vm.ip = snapshot.ip;
+        vm.current_symbol = SymbolJson::to_symbol(&snapshot.chunk);
+        vm.async_steps = snapshot.async_steps;
+        Ok(vm)
+    }
 }
 
 // Helper function to simply run a program until it either finishes or returns an error
@@ -1078,6 +1240,9 @@ pub fn sync_execute(context: &ExecutionContext, print_debug: bool) -> Result<Jso
             StepOutcome::Continue => {}
             StepOutcome::Finished(res) => return Ok(res),
             StepOutcome::NativeCall(name, args) => {
+                // Sync execution can't suspend: an async function name isn't a registered native, so
+                // this surfaces as an `UnknownFunction` error here — the correct outcome for a sync
+                // consumer that hits an async call. Resumable execution handles it via [`resume`].
                 match context.execute_native_function_call(&mut vm, &name, args) {
                     Ok(_) => {}
                     Err(err) => return Err(fail(err, Some(&vm), i)),
@@ -1090,6 +1255,86 @@ pub fn sync_execute(context: &ExecutionContext, print_debug: bool) -> Result<Jso
     let err = VmError::OutOfResource("steps".to_string());
 
     Err(fail(err, Some(&vm), i))
+}
+
+/// Drive a fresh program to completion or its first async suspension — the resumable counterpart to
+/// [`sync_execute`]. On a registered async call it returns [`Resumable::Suspended`] with a
+/// serializable snapshot; the host performs the side effect and calls [`resume`].
+pub fn execute_resumable(context: &ExecutionContext) -> Result<Resumable, VmFailure> {
+    let vm = HogVM::new(context).map_err(|e| failure(e, None, 0))?;
+    drive_resumable(vm, context)
+}
+
+/// Resume a snapshot with the result of the async function it suspended on. The result is pushed as
+/// the value the suspended `CALL_GLOBAL` yields, and execution continues from where it left off.
+pub fn resume(
+    context: &ExecutionContext,
+    state: &VmSnapshot,
+    async_result: JsonValue,
+) -> Result<Resumable, VmFailure> {
+    let mut vm = HogVM::restore(context, state).map_err(|e| failure(e, None, 0))?;
+    let value = vm
+        .json_to_hog(async_result)
+        .map_err(|e| failure(e, Some(&vm), 0))?;
+    vm.push_stack(value).map_err(|e| failure(e, Some(&vm), 0))?;
+    drive_resumable(vm, context)
+}
+
+fn drive_resumable(mut vm: HogVM, context: &ExecutionContext) -> Result<Resumable, VmFailure> {
+    let mut i = 0;
+    while i < context.max_steps {
+        let res = vm.step().map_err(|e| failure(e, Some(&vm), i))?;
+        match res {
+            StepOutcome::Continue => {}
+            StepOutcome::Finished(result) => return Ok(Resumable::Finished(result)),
+            StepOutcome::NativeCall(name, args) => {
+                // A registered async function suspends instead of running inline: snapshot the state
+                // (args already popped, `ip` past the call) and hand it back for the host to perform
+                // the side effect and `resume`. Everything else is a normal inline native call.
+                if context.is_async(&name) {
+                    if vm.async_steps >= context.max_async_steps {
+                        return Err(failure(
+                            VmError::OutOfResource(format!(
+                                "async steps ({})",
+                                context.max_async_steps
+                            )),
+                            Some(&vm),
+                            i,
+                        ));
+                    }
+                    vm.async_steps += 1;
+                    let mut json_args = Vec::with_capacity(args.len());
+                    for arg in &args {
+                        json_args.push(vm.hog_to_json(arg).map_err(|e| failure(e, Some(&vm), i))?);
+                    }
+                    let state = vm.snapshot().map_err(|e| failure(e, Some(&vm), i))?;
+                    return Ok(Resumable::Suspended {
+                        function: name,
+                        args: json_args,
+                        state,
+                    });
+                }
+                context
+                    .execute_native_function_call(&mut vm, &name, args)
+                    .map_err(|e| failure(e, Some(&vm), i))?;
+            }
+        }
+        i += 1;
+    }
+    Err(failure(
+        VmError::OutOfResource("steps".to_string()),
+        Some(&vm),
+        i,
+    ))
+}
+
+fn failure(error: VmError, vm: Option<&HogVM>, step: usize) -> VmFailure {
+    VmFailure {
+        error,
+        ip: vm.map_or(0, |vm| vm.ip),
+        stack: vm.map_or(Vec::new(), |vm| vm.stack.clone()),
+        step,
+    }
 }
 
 fn next_type_name(next: &JsonValue) -> String {

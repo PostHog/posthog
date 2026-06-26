@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 use serde_json::{json, Value as JsonValue};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     error::VmError,
@@ -27,6 +27,14 @@ pub struct ExecutionContext {
     pub(crate) coerce_comparisons: bool,
     native_fns: HashMap<String, NativeFunction>,
     symbol_table: HashMap<Symbol, ExportedFunction>, // Flattened symbol table of all imported hog modules
+    // Names of global functions that suspend the VM instead of executing inline (the reference VM's
+    // `asyncFunctions` + `ASYNC_STL`). When the VM hits a `CALL_GLOBAL` for one of these and the
+    // async-step budget still allows it, execution suspends and the host performs the side effect
+    // (e.g. `fetch`) out-of-band, then resumes. See `HogVM::execute_resumable` / `resume`.
+    async_fns: HashSet<String>,
+    // How many async suspensions a single run may take before the VM errors instead of suspending
+    // (the reference VM's `maxAsyncSteps`). Default 0: no async allowed (matches the sync consumers).
+    pub(crate) max_async_steps: usize,
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -54,6 +62,8 @@ impl ExecutionContext {
             coerce_comparisons: false,
             native_fns,
             symbol_table: HashMap::new(),
+            async_fns: HashSet::new(),
+            max_async_steps: 0,
         }
         .with_modules(&modules)
     }
@@ -97,6 +107,24 @@ impl ExecutionContext {
     pub fn with_coercing_comparisons(mut self) -> Self {
         self.coerce_comparisons = true;
         self
+    }
+
+    /// Register the global function names that suspend the VM (the reference `asyncFunctions`). Pair
+    /// with [`Self::with_max_async_steps`] to allow at least one suspension, otherwise the VM errors
+    /// the moment it calls one.
+    pub fn with_async_functions(mut self, names: HashSet<String>) -> Self {
+        self.async_fns = names;
+        self
+    }
+
+    /// How many async suspensions a single run may take before erroring (reference `maxAsyncSteps`).
+    pub fn with_max_async_steps(mut self, max_async_steps: usize) -> Self {
+        self.max_async_steps = max_async_steps;
+        self
+    }
+
+    pub fn is_async(&self, name: &str) -> bool {
+        self.async_fns.contains(name)
     }
 
     pub fn with_max_stack_depth(mut self, max_stack_depth: usize) -> Self {

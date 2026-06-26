@@ -4,6 +4,7 @@ mod memory;
 mod ops;
 mod print;
 mod program;
+mod state;
 mod stl;
 mod util;
 mod values;
@@ -22,6 +23,12 @@ pub use vm::sync_execute;
 pub use vm::HogVM;
 pub use vm::StepOutcome;
 pub use vm::VmFailure;
+
+// Suspend/resume (async-coroutine) execution and state serialization
+pub use state::Resumable;
+pub use state::VmSnapshot;
+pub use vm::execute_resumable;
+pub use vm::resume;
 
 // Canonical value printing (the `print(...)` oracle), used by the parity harness
 pub use print::escape_string;
