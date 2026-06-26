@@ -213,9 +213,14 @@ export function ExperimentResultsWidget({
                     pickerKey={`results-tile-${tileId}`}
                     value={optimisticExperimentId}
                     fullWidth
-                    onChange={(value) => {
+                    onChange={async (value) => {
                         setOptimisticExperimentId(value)
-                        void onUpdateConfig(patchExperimentResultsWidgetConfig(config, value))
+                        try {
+                            await onUpdateConfig(patchExperimentResultsWidgetConfig(config, value))
+                        } catch {
+                            // Persist failed — drop the optimistic pick so we don't show a selection that wasn't saved.
+                            setOptimisticExperimentId((current) => (current === value ? null : current))
+                        }
                     }}
                     dataAttr="experiment-results-widget-empty-state-select"
                 />
