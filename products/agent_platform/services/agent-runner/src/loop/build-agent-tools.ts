@@ -34,6 +34,7 @@ import {
     type ApprovalType,
     BundleStore,
     CredentialBroker,
+    GatewayCatalog,
     getSecretAllowedHosts,
     HttpFetcher,
     IdentityAuthRequiredError,
@@ -175,6 +176,10 @@ export interface AgentToolDeps {
      * against. Forwarded straight onto `ToolContext.posthogApiBaseUrl`.
      */
     posthogApiBaseUrl: string
+    /** Gateway model catalog, forwarded onto `ToolContext.gatewayCatalog` for
+     *  the `@posthog/agent-applications-models` tool. Absent when the gateway
+     *  is disabled. */
+    gatewayCatalog?: GatewayCatalog
 }
 
 export interface BuiltAgentTools {
@@ -572,6 +577,7 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         resolvedIdentities,
         http: deps.http,
         posthogApiBaseUrl: deps.posthogApiBaseUrl,
+        gatewayCatalog: deps.gatewayCatalog,
     }
 }
 
