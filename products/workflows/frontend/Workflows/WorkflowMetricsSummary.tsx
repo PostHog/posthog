@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonLabel, LemonTable, LemonTableColumns, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonLabel, LemonTable, LemonTableColumns, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
@@ -35,6 +35,7 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
         conversionRate,
         conversionStats,
         conversionStatsLoading,
+        convertedUsersUrl,
     } = useValues(workflowMetricsSummaryLogic(props))
 
     const emailMetricsColumns: LemonTableColumns<EmailMetricRow> = useMemo(
@@ -147,6 +148,11 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
                                 </div>
                             )}
                         </div>
+                        {!conversionStatsLoading && conversionStats.conversions > 0 && (
+                            <Link to={convertedUsersUrl} className="text-xs text-center">
+                                View converted users
+                            </Link>
+                        )}
                     </div>
                 </div>
             </div>

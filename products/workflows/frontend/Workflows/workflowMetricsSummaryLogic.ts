@@ -1,5 +1,6 @@
 import { afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { combineUrl } from 'kea-router'
 
 import { getColorVar } from 'lib/colors'
 import {
@@ -10,10 +11,19 @@ import {
     type AppMetricsTotalsResponse,
 } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
+import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { urls } from 'scenes/urls'
+
+import { DataTableNode } from '~/queries/schema/schema-general'
+import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { isEmailAction } from './hogflows/steps/types'
 import { workflowLogic } from './workflowLogic'
 import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLogicType'
+
+// Each conversion is emitted as a `$workflows_conversion` PostHog event carrying `$workflow_id`, so
+// "View converted users" deep-links to the events explorer scoped to this workflow and date range.
+const CONVERSION_EVENT = '$workflows_conversion'
 
 // The run-level "succeeded" metric is emitted once per run that finishes successfully, with an
 // empty instance_id — for ANY terminal path, including early exits (e.g. exiting on conversion).
@@ -315,6 +325,31 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         conversionRate: [
             (s) => [s.conversionStats],
             ({ conversions, started }): number => (started > 0 ? conversions / started : 0),
+        ],
+
+        convertedUsersUrl: [
+            (s) => [s.getDateRangeAbsolute, (_, p: WorkflowMetricsSummaryLogicProps) => p.id],
+            (getDateRangeAbsolute, id): string => {
+                const { dateFrom, dateTo } = getDateRangeAbsolute()
+                const base = getDefaultEventsSceneQuery([
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$workflow_id',
+                        operator: PropertyOperator.Exact,
+                        value: id,
+                    },
+                ])
+                const query: DataTableNode = {
+                    ...base,
+                    source: {
+                        ...base.source,
+                        event: CONVERSION_EVENT,
+                        after: dateFrom.toISOString(),
+                        before: dateTo.toISOString(),
+                    },
+                }
+                return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
+            },
         ],
     }),
 
