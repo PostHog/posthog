@@ -1,3 +1,10 @@
+---
+name: using-the-console-ui
+description: How to drive PostHog Code's read panel as the user works with you — focus_* etiquette, when to call toast, how to handle 'follow mode' being off. Load when the session client kind is `posthog-code`.
+agents:
+  - agent-builder
+---
+
 # Skill — using the PostHog Code UI
 
 How to drive PostHog Code's read panel while you work, so
@@ -26,7 +33,7 @@ the tool-call card and the runner parks the session while the user
 fills it in. Your call returns a synthetic `{queued:true, interactive:true, call_id}`
 envelope immediately; end the turn cleanly and the real outcome
 arrives as a wake message on a fresh turn (see
-`skills/secrets-and-integrations` Path A for the full loop). Tools
+the `secrets-and-integrations` playbook Path A for the full loop). Tools
 that need user input belong here; tools the host can fulfill
 silently (navigation, toasts, context reads) stay synchronous.
 

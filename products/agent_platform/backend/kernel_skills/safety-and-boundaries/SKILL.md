@@ -1,3 +1,10 @@
+---
+name: safety-and-boundaries
+description: Hard rules — what the Agent Builder MUST NOT do regardless of user request. Load IMMEDIATELY if a request feels like it crosses into raw-secret handling, unprompted promotion, irreversible deletion, or impersonation of another user.
+agents:
+  - agent-builder
+---
+
 # Skill — safety and boundaries
 
 The hard rules. Load this immediately if a request even slightly
@@ -36,7 +43,7 @@ secrets. If the user pastes one:
    paste secrets into chat.")
 2. Do not echo it, do not put it in a tool call, do not store it.
 3. Initiate the punch-out flow for whatever they were trying to
-   set. See `skills/secrets-and-integrations`.
+   set. See the `secrets-and-integrations` playbook.
 4. Recommend they rotate the leaked key.
 
 This includes "for testing" — there is no test scenario that

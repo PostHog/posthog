@@ -78,9 +78,9 @@ and refuses with a clear error if any required key is missing:
 
 You can recover from this by setting the key and re-running
 promote — but a better user experience is to catch it during
-**Phase 4** of `skills/authoring-new-agents`: as soon as the spec
+**Phase 4** of the `authoring-new-agents` playbook: as soon as the spec
 declares a `slack` trigger, drive the punch-out for BOTH required
-keys before reaching freeze. See `skills/setting-up-slack-app` for
+keys before reaching freeze. See the `setting-up-slack-app` playbook for
 the step-by-step flow (create app → set Request URL → install →
 copy + punch-out tokens). PostHog Code's env editor also surfaces
 "Required for this trigger" hints next to the relevant fields, so a
@@ -242,7 +242,7 @@ You can:
 
 > Slack is **not** one of these. Use `SLACK_BOT_TOKEN` +
 > `SLACK_SIGNING_SECRET` on the agent's `encrypted_env` via the
-> punch-out flow. See `skills/setting-up-slack-app`.
+> punch-out flow. See the `setting-up-slack-app` playbook.
 
 ## Rotating a secret
 

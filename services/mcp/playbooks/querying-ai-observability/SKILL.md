@@ -161,8 +161,8 @@ GROUP BY agent
 ORDER BY cost_usd DESC
 ```
 
-This is the query `auditing-the-fleet` leans on for its nightly
-per-agent health line. Filter to one `$agent_application_id` for a
+This is the query a fleet-wide audit leans on for its per-agent
+health line. Filter to one `$agent_application_id` for a
 single-agent deep dive.
 
 ## How to use the evidence

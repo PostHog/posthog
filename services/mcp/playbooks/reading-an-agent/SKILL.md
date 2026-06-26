@@ -106,7 +106,7 @@ Drill in narrowly. Don't repeat the whole summary.
 | "what skills does it have?"    | Already in `spec.skills[]` — render the table                                                                                                                  |
 | "read me skill X"              | `posthog__agent-applications-revisions-bundle-retrieve` — the skill body is in the returned `skills[]`                                                         |
 | "what was the latest session?" | `posthog__agent-applications-sessions-list` with `limit: 1`, then `posthog__agent-applications-sessions-retrieve` + `posthog__agent-applications-session-logs` |
-| "how much is it costing?"      | Load `skills/cost-and-quota-analysis` and run the standard query                                                                                               |
+| "how much is it costing?"      | Load the `cost-and-quota-analysis` playbook and run the standard query                                                                                         |
 | "show me the bundle"           | `posthog__agent-applications-revisions-manifest-retrieve` — file tree only                                                                                     |
 | "what's its history?"          | `posthog__agent-applications-revisions-list` — chronological revision states                                                                                   |
 
@@ -130,6 +130,6 @@ load each one individually; that's a separate request the user can
 make after they see the list.
 
 For "audit this team's agents" — load
-`skills/cost-and-quota-analysis` for the cost lens, list the
+the `cost-and-quota-analysis` playbook for the cost lens, list the
 applications, and combine into one health view. That's its own
 mode; the bare inspect flow is per-agent.

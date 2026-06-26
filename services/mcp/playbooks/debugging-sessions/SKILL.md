@@ -44,7 +44,7 @@ completed | closed | failed`. There is no separate
 
 5. **For each non-trivial failure** pull the revision (so you can
    reason about the agent's design, not just the symptom) — same
-   calls as `skills/reading-an-agent` step 2 + 4.
+   calls as the `reading-an-agent` playbook step 2 + 4.
 
 6. **Produce a structured report** — see the report shape at the
    bottom.

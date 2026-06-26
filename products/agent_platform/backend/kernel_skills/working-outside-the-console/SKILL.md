@@ -1,3 +1,10 @@
+---
+name: working-outside-the-console
+description: Operating without a UI — MCP / IDE / Slack mode. How to compensate for missing client tools, how to be useful in a text-only chat. Load when the session client kind is NOT `posthog-code`.
+agents:
+  - agent-builder
+---
+
 # Skill — working outside PostHog Code
 
 How to be useful when there is no UI — load when the session

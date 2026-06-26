@@ -2,7 +2,7 @@
 
 How to build a deployable agent from scratch. Load this only when
 the user is creating a NEW agent. For editing existing agents,
-use `skills/editing-agents-safely` instead.
+use the `editing-agents-safely` playbook instead.
 
 ## Don't author until you know the brief
 
@@ -114,7 +114,7 @@ part of the spec:
   `spec.secrets[]`. They come from the platform-wide
   `TRIGGER_REQUIRED_SECRETS` registry and live in `encrypted_env`;
   the promote endpoint refuses if they're missing. See
-  `skills/secrets-and-integrations`.
+  the `secrets-and-integrations` playbook.
 - **Custom-tool `source.ts` shape** (Phase 5) is the tool's runtime
   contract, not spec structure — the field reference won't describe it.
 
@@ -159,14 +159,14 @@ posthog__agent-applications-revisions-partial-update revision_id=<rid> spec=<jso
 ## Phase 4 — configure secrets / integrations
 
 For each item in `spec.secrets[]`, you cannot accept the value
-directly. Load `skills/secrets-and-integrations` and follow the
+directly. Load the `secrets-and-integrations` playbook and follow the
 punch-out flow.
 
 **Also check trigger-required secrets** — some trigger types demand
 entries in `encrypted_env` that the spec doesn't name explicitly
 (`SLACK_SIGNING_SECRET` for `slack` triggers, today). The promote
 endpoint refuses if any are missing; catch them here so the user
-isn't surprised at the end. See `skills/secrets-and-integrations`
+isn't surprised at the end. See the `secrets-and-integrations` playbook
 → "Trigger-required secrets" for the registry + punch-out flow.
 
 For each item in `spec.integrations[]`, check whether the team
@@ -175,7 +175,7 @@ install it from the PostHog integrations UI — you can't do this
 for them.
 
 When the new agent must call PostHog or a third-party API as the
-user, load `skills/authenticating-as-the-user` to wire its identity
+user, load the `authenticating-as-the-user` playbook to wire its identity
 provider + scopes.
 
 ## Phase 5 — write the bundle (typed authoring API)
@@ -307,7 +307,7 @@ If you see leftover orphan-diagnostic prose in older docs, it's stale.
 
 ## Phase 7 — freeze + test
 
-Load `skills/running-and-evaluating-tests`. Write 3-5 test cases
+Load the `running-and-evaluating-tests` playbook. Write 3-5 test cases
 covering the happy path, the obvious edge cases, and one hostile
 input.
 
@@ -317,7 +317,7 @@ iterate.
 
 If tests fail: branch a new draft from the just-frozen ready,
 fix, re-freeze, re-test. (Same loop as
-`skills/editing-agents-safely`.)
+the `editing-agents-safely` playbook.)
 
 ## Phase 8 — promote
 
@@ -343,7 +343,7 @@ revision before promoting.
   before checking native ones. Cross-check `posthog__agent-native-tools-list`
   first — half the time the native tool exists.
 - **Secrets in `agent.md`.** Comes up often. Refuse hard, load
-  `skills/secrets-and-integrations`.
+  the `secrets-and-integrations` playbook.
 - **Public auth on a chat trigger.** Will be abused. Default to
   `posthog` and explain why.
 

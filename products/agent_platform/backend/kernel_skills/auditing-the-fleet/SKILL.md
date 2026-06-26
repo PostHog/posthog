@@ -1,3 +1,10 @@
+---
+name: auditing-the-fleet
+description: The fleet-wide audit — sweep every agent, mine recent sessions for failures/anomalies, classify root causes, and branch a DRAFT proposal per fix (never freeze/promote); write a report to memory. Load when asked to audit all agents or what's underperforming.
+agents:
+  - agent-builder
+---
+
 # Skill — auditing the fleet
 
 The fleet-wide sweep. When the user asks for a fleet-wide sweep
@@ -9,9 +16,9 @@ the durable outputs that survive past the conversation.
 This skill is the orchestration. It leans on two others:
 
 - `debugging-sessions` — the per-session failure taxonomy + how to
-  read an event log. Load it the first time you open a bad session.
-- `editing-agents-safely` — the draft → validate mechanics. Load it
-  before you branch your first proposal.
+  read an event log. Fetch the playbook the first time you open a bad session.
+- `editing-agents-safely` — the draft → validate mechanics. Fetch the
+  playbook before you branch your first proposal.
 
 ## What a fleet-wide sweep changes
 
@@ -89,7 +96,7 @@ behind it is a guess, and guesses are how this report loses trust.
 
 For the population view — failure-rate, cost, and p95 latency rolled
 up per agent, or "which sessions tripped up this week" in one query —
-load `skills/querying-ai-observability` and HogQL the `$ai_*` events
+load the `querying-ai-observability` playbook and HogQL the `$ai_*` events
 the runner captured into this team's project. It's cheaper than
 retrieving every session and surfaces systemic patterns (one root
 cause across many sessions) the per-session view misses; use it to
