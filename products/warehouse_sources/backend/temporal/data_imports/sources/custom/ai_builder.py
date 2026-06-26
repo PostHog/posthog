@@ -295,7 +295,10 @@ def _validate_manifest(manifest: dict, *, team_id: int) -> tuple[list[str], str 
 
 
 def _call_model(*, client: OpenAI, team_id: int, system_prompt: str, user_prompt: str) -> str:
-    response = client.chat.completions.create(
+    # Bound each call: the SDK defaults to a 600s timeout and automatic retries, so without this one
+    # synchronous draft request could pin a web worker for many minutes. Fail fast and let the draft
+    # loop / caller surface the error instead. (A Temporal-backed async path is the longer-term fix.)
+    response = client.with_options(timeout=90.0, max_retries=0).chat.completions.create(
         model=CUSTOM_SOURCE_BUILDER_MODEL,
         messages=[
             {"role": "system", "content": system_prompt},

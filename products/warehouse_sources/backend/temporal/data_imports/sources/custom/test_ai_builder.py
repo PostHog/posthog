@@ -41,6 +41,10 @@ class _FakeClient:
     def __init__(self, responses: list[str]) -> None:
         self.chat = type("Chat", (), {"completions": _FakeCompletions(responses)})
 
+    def with_options(self, **kwargs: object) -> "_FakeClient":
+        # Mirror the OpenAI client's per-call options override, which returns a configured client.
+        return self
+
 
 def _client(responses: list[str]) -> OpenAI:
     return cast(OpenAI, _FakeClient(responses))
