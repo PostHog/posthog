@@ -20,7 +20,7 @@ import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlowBatchJob } from './hogflows/types'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
-import { buildEmailMetricLogSearchParams } from './workflowMetricsSummaryLogic'
+import { type EmailMetric, buildEmailMetricLogSearchParams } from './workflowMetricsSummaryLogic'
 
 const OVERVIEW_OPTION_VALUE = '__workflow_overview__'
 
@@ -101,6 +101,15 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
         [workflow.actions, hogFunctionTemplatesById]
     )
 
+    // Drill an email metric into the logs tab filtered to its log entries over the current window.
+    const onEmailMetricClick = (metricKey: EmailMetric): void => {
+        const { dateFrom, dateTo } = getDateRangeAbsolute()
+        const searchParams = buildEmailMetricLogSearchParams(metricKey, dateFrom.toISOString(), dateTo.toISOString())
+        if (searchParams && props.id) {
+            router.actions.push(urls.workflow(props.id, 'logs'), searchParams)
+        }
+    }
+
     return (
         <div className="flex flex-col gap-2" data-attr="workflow-metrics">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
@@ -125,22 +134,10 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                     logicKey={logicKey}
                     id={props.id ?? ''}
                     onSelectAction={(actionId) => setParams({ ...params, instanceId: actionId })}
+                    onMetricClick={onEmailMetricClick}
                 />
             ) : selectedAction?.type === 'function_email' ? (
-                <EmailMetricsSummary
-                    logicKey={logicKey}
-                    onMetricClick={(metricKey) => {
-                        const { dateFrom, dateTo } = getDateRangeAbsolute()
-                        const searchParams = buildEmailMetricLogSearchParams(
-                            metricKey,
-                            dateFrom.toISOString(),
-                            dateTo.toISOString()
-                        )
-                        if (searchParams && props.id) {
-                            router.actions.push(urls.workflow(props.id, 'logs'), searchParams)
-                        }
-                    }}
-                />
+                <EmailMetricsSummary logicKey={logicKey} onMetricClick={onEmailMetricClick} />
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">

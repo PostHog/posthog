@@ -9,6 +9,7 @@ import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import {
+    type EmailMetric,
     WORKFLOW_SUMMARY_METRICS,
     type EmailMetricRow,
     withDisplayName,
@@ -18,9 +19,15 @@ import {
 
 interface WorkflowMetricsSummaryProps extends WorkflowMetricsSummaryLogicProps {
     onSelectAction?: (actionId: string) => void
+    /** Drill a per-email metric into its filtered logs (only bounced/blocked have a log filter). */
+    onMetricClick?: (metricKey: EmailMetric) => void
 }
 
-export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMetricsSummaryProps): JSX.Element {
+export function WorkflowMetricsSummary({
+    onSelectAction,
+    onMetricClick,
+    ...props
+}: WorkflowMetricsSummaryProps): JSX.Element {
     const {
         loading,
         summaryMetricKeys,
@@ -68,14 +75,28 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
                 dataIndex: 'bounced',
                 key: 'bounced',
                 align: 'right',
-                render: (_, row) => row.bounced.toLocaleString(),
+                render: (_, row) =>
+                    onMetricClick && row.bounced > 0 ? (
+                        <span className="cursor-pointer text-link" onClick={() => onMetricClick('email_bounced')}>
+                            {row.bounced.toLocaleString()}
+                        </span>
+                    ) : (
+                        row.bounced.toLocaleString()
+                    ),
             },
             {
                 title: 'Blocked',
                 dataIndex: 'blocked',
                 key: 'blocked',
                 align: 'right',
-                render: (_, row) => row.blocked.toLocaleString(),
+                render: (_, row) =>
+                    onMetricClick && row.blocked > 0 ? (
+                        <span className="cursor-pointer text-link" onClick={() => onMetricClick('email_blocked')}>
+                            {row.blocked.toLocaleString()}
+                        </span>
+                    ) : (
+                        row.blocked.toLocaleString()
+                    ),
             },
             {
                 title: 'Opened',
@@ -92,7 +113,7 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
                 render: (_, row) => row.linkClicked.toLocaleString(),
             },
         ],
-        [onSelectAction]
+        [onSelectAction, onMetricClick]
     )
 
     return (
