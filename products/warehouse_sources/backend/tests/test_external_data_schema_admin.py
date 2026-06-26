@@ -20,6 +20,8 @@ _ADMIN_MODULE = "products.warehouse_sources.backend.admin.external_data_schema_a
 class TestExternalDataSchemaAdmin(BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.user.is_staff = True
+        self.user.save()
         self.admin = ExternalDataSchemaAdmin(ExternalDataSchema, AdminSite())
         self.factory = RequestFactory()
 
@@ -27,6 +29,7 @@ class TestExternalDataSchemaAdmin(BaseTest):
         request = getattr(self.factory, method)("/", data=data or {})
         request.session = {}
         request._messages = FallbackStorage(request)
+        request.user = self.user
         return request
 
     def _schema(self, **kwargs) -> ExternalDataSchema:
