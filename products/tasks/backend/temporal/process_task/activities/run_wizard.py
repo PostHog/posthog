@@ -16,7 +16,18 @@ logger = logging.getLogger(__name__)
 
 # Published npm package, pinned to @latest so cloud runs exercise the same build users install.
 WIZARD_PACKAGE = "@posthog/wizard@latest"
-WIZARD_RUN_TIMEOUT_SECONDS = 25 * 60
+# Large repos can take ~45 min to integrate (observed p99.9 of real runs). The Temporal activity's
+# start_to_close_timeout (see workflow._run_wizard_if_configured) must stay above this so the
+# wizard's own timeout is what bounds the run, not the activity wrapper killing it early.
+WIZARD_RUN_TIMEOUT_SECONDS = 45 * 60
+
+# GNU `timeout` exit code when it kills a command. We wrap the wizard in `timeout` (see
+# _build_wizard_command) so an over-budget run comes back as a normal result carrying this code —
+# which we detect below — instead of the sandbox-level TimeoutError that would discard partial output.
+WIZARD_TIMEOUT_EXIT_CODE = 124
+# Sandbox-level backstop, above the shell `timeout` so the clean 124 path fires first; the sandbox
+# only aborts the exec if `timeout` itself wedges.
+_SANDBOX_EXEC_TIMEOUT_SECONDS = WIZARD_RUN_TIMEOUT_SECONDS + 120
 
 # The wizard's console output is written here in the repo so the downstream agent can read what the
 # wizard did (and why it failed). Local reference only — the agent prompt instructs not to commit it.
@@ -50,7 +61,9 @@ def _build_wizard_command(repo_path: str, project_id: int, package: str) -> str:
     return " ".join(
         [
             f"cd {shlex.quote(repo_path)} &&",
-            f"npx --yes {shlex.quote(package)}",
+            # Wrap in `timeout` so an over-budget run exits WIZARD_TIMEOUT_EXIT_CODE (124) we can
+            # detect, with partial output preserved. -k 30 escalates to SIGKILL 30s after SIGTERM.
+            f"timeout -k 30 {WIZARD_RUN_TIMEOUT_SECONDS} npx --yes {shlex.quote(package)}",
             "--headless-DONOTUSE-EXPERIMENTAL",
             "--install-dir .",
             f"--region {shlex.quote(_wizard_region())}",
@@ -85,7 +98,7 @@ def run_wizard(input: RunWizardInput) -> None:
         package = config.get("package") or WIZARD_PACKAGE
         command = _build_wizard_command(repo_path, ctx.team_id, package)
 
-        result = sandbox.execute(command, timeout_seconds=WIZARD_RUN_TIMEOUT_SECONDS)
+        result = sandbox.execute(command, timeout_seconds=_SANDBOX_EXEC_TIMEOUT_SECONDS)
 
         # Persist the wizard's output in the repo so the agent can consult what happened. Written
         # before the exit-code check so a failed run still leaves a record on disk for post-mortems.
@@ -93,6 +106,10 @@ def run_wizard(input: RunWizardInput) -> None:
 
         if result.stdout:
             emit_agent_log(ctx.run_id, "debug", result.stdout)
+        if result.exit_code == WIZARD_TIMEOUT_EXIT_CODE:
+            minutes = WIZARD_RUN_TIMEOUT_SECONDS // 60
+            emit_agent_log(ctx.run_id, "error", f"PostHog setup wizard timed out after {minutes} minutes")
+            raise RuntimeError(f"PostHog setup wizard timed out after {minutes} minutes")
         if result.exit_code != 0:
             emit_agent_log(
                 ctx.run_id, "error", f"PostHog setup wizard failed (exit {result.exit_code}): {result.stderr}"

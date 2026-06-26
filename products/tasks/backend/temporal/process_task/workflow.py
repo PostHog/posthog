@@ -816,7 +816,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_id=sandbox_output.sandbox_id,
                 repository=repository,
             ),
-            start_to_close_timeout=timedelta(minutes=30),
+            # Above WIZARD_RUN_TIMEOUT_SECONDS (45 min) so the wizard's own timeout bounds the run;
+            # the headroom covers the sandbox lookup and writing the output log.
+            start_to_close_timeout=timedelta(minutes=50),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         await self._emit_progress("wizard", "completed", "Ran PostHog setup wizard", "setup")

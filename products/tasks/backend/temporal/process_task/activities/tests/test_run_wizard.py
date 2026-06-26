@@ -7,6 +7,7 @@ from parameterized import parameterized
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.run_wizard import (
     WIZARD_PACKAGE,
+    WIZARD_RUN_TIMEOUT_SECONDS,
     _build_wizard_command,
     _format_wizard_output,
     _wizard_region,
@@ -24,6 +25,9 @@ class TestBuildWizardCommand(SimpleTestCase):
         assert "--headless-DONOTUSE-EXPERIMENTAL" in command
         assert "--ci" not in command
         assert "--api-key" not in command
+        # Wrapped in `timeout` so an over-budget run exits 124 and run_wizard reports a clean
+        # timeout instead of discarding partial output to a sandbox-level TimeoutError.
+        assert f"timeout -k 30 {WIZARD_RUN_TIMEOUT_SECONDS} npx" in command
         assert "cd /tmp/workspace/repos/acme/app" in command
         assert WIZARD_PACKAGE in command
         assert "--install-dir ." in command
