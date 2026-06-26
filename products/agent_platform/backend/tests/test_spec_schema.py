@@ -16,7 +16,7 @@ import pytest
 from rest_framework.exceptions import ValidationError
 
 from ..logic.spec_schema import SLACK_BOT_TOKEN_KEY, SLACK_SIGNING_SECRET_KEY, missing_required_secrets
-from ..presentation.serializers import AgentRevisionSerializer
+from ..presentation.serializers import AgentRevisionSerializer, AgentSpecField
 
 # Declarative triggers carry a per-trigger auth block; give them a minimal
 # public one so these fixtures can focus on the field under test.
@@ -125,3 +125,24 @@ def test_missing_required_secrets_for_slack_trigger(name: str, env: dict, expect
 def test_missing_required_secrets_skips_triggers_without_requirements() -> None:
     spec = {"triggers": [{"type": "chat", "config": {}}]}
     assert missing_required_secrets(spec, {}) == []
+
+
+# AgentSpecField coerces a stringified-JSON-object spec back to an object. The MCP
+# write tools expose `spec` as an opaque arg, so an authoring model sometimes
+# passes the whole spec as a JSON string; stored verbatim it's the characters of a
+# string and the janitor rejects it (`invalid_request`).
+
+
+def test_agent_spec_field_coerces_stringified_object() -> None:
+    field = AgentSpecField()
+    assert field.to_internal_value('{"models": {"mode": "auto"}}') == {"models": {"mode": "auto"}}
+    # A real object passes through untouched.
+    assert field.to_internal_value({"models": {"mode": "auto"}}) == {"models": {"mode": "auto"}}
+
+
+@pytest.mark.parametrize("bad", ["not json at all", "[1, 2, 3]", '"a string"', "42"])
+def test_agent_spec_field_rejects_non_object_string(bad: str) -> None:
+    # Non-JSON, or JSON that isn't an object, is rejected with a clear message
+    # rather than stored as a string that later fails freeze.
+    with pytest.raises(ValidationError):
+        AgentSpecField().to_internal_value(bad)
