@@ -163,7 +163,6 @@ export function FeatureFlagFiltersSection({
                                 <b>Tags</b>
                             </span>
                             <TagSelect
-                                logicKey="feature-flag-tags"
                                 defaultLabel="Any tags"
                                 value={filters.tags || []}
                                 onChange={(tags) => {
@@ -175,7 +174,6 @@ export function FeatureFlagFiltersSection({
                                 <b>Exclude tags</b>
                             </span>
                             <TagSelect
-                                logicKey="feature-flag-excluded-tags"
                                 defaultLabel="No tags"
                                 value={filters.excluded_tags || []}
                                 onChange={(excludedTags) => {
