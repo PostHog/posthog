@@ -21,6 +21,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.utils import str_to_bool
 
+from products.data_warehouse.backend.direct_snowflake import hide_direct_snowflake_table
 from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
     create_and_register_webhook,
@@ -41,6 +42,7 @@ from products.data_warehouse.backend.facade.api import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
+from products.data_warehouse.backend.snowflake_helpers import reproject_direct_snowflake_table
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
@@ -859,9 +861,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             newly_exposed = should_sync is True and instance.should_sync is False
             projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
             if newly_exposed or projection_needs_refresh:
-                reproject = (
-                    reproject_direct_postgres_table if source.is_direct_postgres else reproject_direct_mysql_table
-                )
+                if source.is_direct_postgres:
+                    reproject = reproject_direct_postgres_table
+                elif source.is_direct_snowflake:
+                    reproject = reproject_direct_snowflake_table
+                else:
+                    reproject = reproject_direct_mysql_table
                 validated_data["table"] = reproject(
                     instance,
                     source=source,
@@ -871,6 +876,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if should_sync is False and instance.should_sync is True:
                 if source.is_direct_postgres:
                     hide_direct_postgres_table(instance.table)
+                elif source.is_direct_snowflake:
+                    hide_direct_snowflake_table(instance.table)
                 else:
                     hide_direct_mysql_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
@@ -1328,6 +1335,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.source.is_direct_query:
             if instance.source.is_direct_postgres:
                 hide_direct_postgres_table(instance.table)
+            elif instance.source.is_direct_snowflake:
+                hide_direct_snowflake_table(instance.table)
             else:
                 hide_direct_mysql_table(instance.table)
             instance.should_sync = False

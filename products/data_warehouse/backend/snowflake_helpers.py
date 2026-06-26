@@ -22,7 +22,10 @@ from products.data_warehouse.backend.direct_snowflake import (
     upsert_direct_snowflake_table,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.util import snowflake_columns_to_dwh_columns
+from products.warehouse_sources.backend.models.util import (
+    snowflake_column_to_dwh_column,
+    snowflake_columns_to_dwh_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import sql_schema_metadata
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import normalize_namespace
@@ -31,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     filter_columns_by_enabled_columns,
+    filter_dwh_columns_by_enabled_columns,
     prune_enabled_columns,
 )
 
@@ -53,6 +57,58 @@ def get_default_snowflake_schema(source: ExternalDataSource) -> str | None:
 def get_default_snowflake_catalog(source: ExternalDataSource) -> str | None:
     database = (source.job_inputs or {}).get("database")
     return database if isinstance(database, str) and database.strip() else None
+
+
+def snowflake_schema_metadata_to_dwh_columns(schema_metadata: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    resolved: dict[str, dict[str, Any]] = {}
+    if not schema_metadata:
+        return resolved
+    columns = schema_metadata.get("columns")
+    if not isinstance(columns, list):
+        return resolved
+    for column in columns:
+        if not isinstance(column, dict):
+            continue
+        column_name = column.get("name")
+        snowflake_type = column.get("data_type")
+        nullable = bool(column.get("is_nullable"))
+        if not isinstance(column_name, str) or not isinstance(snowflake_type, str):
+            continue
+        resolved[column_name] = snowflake_column_to_dwh_column(column_name, snowflake_type, nullable)
+    return resolved
+
+
+def reproject_direct_snowflake_table(
+    schema_row: Any,
+    *,
+    source: ExternalDataSource,
+    enabled_columns: list[str] | None,
+) -> Any:
+    """Rebuild the direct-query `DataWarehouseTable` with a fresh column projection — used on
+    column-picker save and on `should_sync` False → True. No re-sync needed in direct mode.
+    """
+    source_catalog, source_schema, source_table_name = get_snowflake_source_location(
+        schema_name=schema_row.name,
+        schema_metadata=schema_row.schema_metadata,
+        default_catalog=get_default_snowflake_catalog(source),
+        default_schema=get_default_snowflake_schema(source),
+    )
+    return upsert_direct_snowflake_table(
+        schema_row.table,
+        schema_name=schema_row.name,
+        source=source,
+        columns=filter_dwh_columns_by_enabled_columns(
+            snowflake_schema_metadata_to_dwh_columns(schema_row.schema_metadata),
+            enabled_columns,
+            schema_row.primary_key_columns,
+            schema_row.incremental_field,
+            # Direct-snowflake columns are keyed by raw, case-sensitive source names.
+            normalize=False,
+        ),
+        source_catalog=source_catalog,
+        source_schema=source_schema,
+        source_table_name=source_table_name,
+    )
 
 
 def get_snowflake_source_location(
