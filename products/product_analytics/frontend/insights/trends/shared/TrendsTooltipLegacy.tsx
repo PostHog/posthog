@@ -1,0 +1,153 @@
+import { useCallback, useMemo } from 'react'
+
+import type { TooltipContext } from '@posthog/quill-charts'
+
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { toOpaqueHex } from 'lib/utils/colors'
+import { percentage } from 'lib/utils/numbers'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+
+import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
+
+import type { TrendsSeriesMeta } from './trendsSeriesMeta'
+
+const NOOP = (): void => {}
+
+interface TrendsTooltipLegacyProps {
+    context: TooltipContext<TrendsSeriesMeta>
+    timezone?: string
+    interval?: IntervalType
+    breakdownFilter?: BreakdownFilter
+    dateRange?: DateRange
+    trendsFilter?: TrendsFilter | null
+    formula?: string | null
+    showPercentView?: boolean
+    isPercentStackView?: boolean
+    baseCurrency?: CurrencyCode
+    groupTypeLabel?: string
+    formatCompareLabel?: (label: string, dateLabel?: string) => string
+    onRowClick?: (datum: SeriesDatum) => void
+    showHeader?: boolean
+    altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
+    renderCount?: (value: number) => string
+    renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
+}
+
+/** Legacy InsightTooltip-based tooltip — used when product-analytics-insights-tooltips is off. */
+export function TrendsTooltipLegacy({
+    context,
+    timezone,
+    interval,
+    breakdownFilter,
+    dateRange,
+    trendsFilter,
+    formula,
+    showPercentView,
+    isPercentStackView,
+    baseCurrency,
+    groupTypeLabel,
+    formatCompareLabel,
+    onRowClick,
+    showHeader,
+    altTitle,
+    renderCount: renderCountOverride,
+    renderSeriesOverride,
+}: TrendsTooltipLegacyProps): React.ReactElement {
+    const seriesData = useMemo<SeriesDatum[]>(() => {
+        const data = context.seriesData.map((entry, idx) => {
+            const meta = entry.series.meta ?? {}
+            return {
+                id: idx,
+                dataIndex: context.dataIndex,
+                datasetIndex: idx,
+                order: meta.order ?? idx,
+                label: entry.series.label,
+                color: entry.color,
+                count: entry.value,
+                action: meta.action,
+                breakdown_value: meta.breakdown_value,
+                compare_label: meta.compare_label,
+                date_label: meta.days?.[context.dataIndex],
+                filter: meta.filter,
+            }
+        })
+        data.sort(
+            (a, b) =>
+                b.count - a.count ||
+                (a.label === undefined || b.label === undefined ? 0 : a.label.localeCompare(b.label))
+        )
+        return data.map((s, id) => ({ ...s, id }))
+    }, [context.seriesData, context.dataIndex])
+
+    const date = context.seriesData[0]?.series.meta?.days?.[context.dataIndex]
+
+    const renderCount = useCallback(
+        (value: number): string => {
+            if (renderCountOverride) {
+                return renderCountOverride(value)
+            }
+            if (showPercentView) {
+                return `${value.toFixed(1)}%`
+            }
+            if (!isPercentStackView) {
+                return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
+            }
+            return percentage(value)
+        },
+        [renderCountOverride, showPercentView, isPercentStackView, trendsFilter, baseCurrency]
+    )
+
+    const hasMultipleSeries = seriesData.length > 1
+
+    const renderSeries = useCallback(
+        (value: React.ReactNode, datum: SeriesDatum): React.ReactElement => {
+            if (renderSeriesOverride) {
+                return <div className="datum-label-column">{renderSeriesOverride(datum)}</div>
+            }
+            const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
+
+            if (hasBreakdown && !hasMultipleSeries) {
+                const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
+                return <div className="datum-label-column">{title}</div>
+            }
+
+            return (
+                <div className="datum-label-column">
+                    {!formula && (
+                        <SeriesLetter
+                            className="mr-2"
+                            hasBreakdown={hasBreakdown}
+                            seriesIndex={datum.action?.order ?? datum.id}
+                            seriesColor={datum.color ? toOpaqueHex(datum.color) : undefined}
+                        />
+                    )}
+                    {value}
+                </div>
+            )
+        },
+        [hasMultipleSeries, breakdownFilter, formatCompareLabel, formula, renderSeriesOverride]
+    )
+
+    return (
+        <InsightTooltip
+            date={date}
+            timezone={timezone}
+            seriesData={seriesData}
+            breakdownFilter={breakdownFilter}
+            interval={interval}
+            dateRange={dateRange}
+            formatCompareLabel={formatCompareLabel}
+            groupTypeLabel={groupTypeLabel}
+            onClose={context.onUnpin ?? NOOP}
+            renderSeries={renderSeries}
+            renderCount={renderCount}
+            onRowClick={onRowClick}
+            hideInspectActorsSection={!onRowClick}
+            showHeader={showHeader}
+            altTitle={altTitle}
+        />
+    )
+}

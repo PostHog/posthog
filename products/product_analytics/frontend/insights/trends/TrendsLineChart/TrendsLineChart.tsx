@@ -34,6 +34,7 @@ import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { TrendsTooltipLegacy } from '../shared/TrendsTooltipLegacy'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
@@ -175,23 +176,22 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                       handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps)
                   }
                 : undefined
-            return (
-                <TrendsTooltip
-                    context={ctx}
-                    timezone={timezone}
-                    interval={interval ?? undefined}
-                    breakdownFilter={breakdownFilter ?? undefined}
-                    dateRange={insightData?.resolved_date_range ?? undefined}
-                    trendsFilter={trendsFilter}
-                    formula={formula}
-                    showPercentView={isStickiness}
-                    isPercentStackView={isPercentStackView}
-                    baseCurrency={baseCurrency}
-                    groupTypeLabel={resolvedGroupTypeLabel}
-                    formatCompareLabel={context?.formatCompareLabel}
-                    onRowClick={onRowClick}
-                />
-            )
+            const tooltipProps = {
+                context: ctx,
+                timezone,
+                interval: interval ?? undefined,
+                breakdownFilter: breakdownFilter ?? undefined,
+                dateRange: insightData?.resolved_date_range ?? undefined,
+                trendsFilter,
+                formula,
+                showPercentView: isStickiness,
+                isPercentStackView,
+                baseCurrency,
+                groupTypeLabel: resolvedGroupTypeLabel,
+                formatCompareLabel: context?.formatCompareLabel,
+                onRowClick,
+            }
+            return tooltipEnabled ? <TrendsTooltip {...tooltipProps} /> : <TrendsTooltipLegacy {...tooltipProps} />
         },
         [
             timezone,
@@ -207,6 +207,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             context?.formatCompareLabel,
             canHandleClick,
             clickDeps,
+            tooltipEnabled,
         ]
     )
 
