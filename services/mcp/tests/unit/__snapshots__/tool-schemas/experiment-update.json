@@ -46,6 +46,20 @@
             ],
             "description": "Description of the experiment hypothesis and expected outcomes."
         },
+        "excluded_variants": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`."
+        },
         "exposure_criteria": {
             "anyOf": [
                 {
@@ -3546,20 +3560,6 @@
             "anyOf": [
                 {
                     "properties": {
-                        "excluded_variants": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "type": "string"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis."
-                        },
                         "feature_flag_variants": {
                             "anyOf": [
                                 {
@@ -3659,7 +3659,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key)."
+            "description": "Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here."
         },
         "running_time_calculation": {
             "anyOf": [

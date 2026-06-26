@@ -152,10 +152,9 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         help_text=(
             "Experiment parameters JSON. Supported keys include "
             "`feature_flag_variants`, `rollout_percentage`, "
-            "`custom_exposure_filter`, `excluded_variants` "
-            "(list of variant keys to drop from statistical analysis; "
-            "the baseline variant and holdout pseudo-variants cannot be excluded), "
-            "and `variant_notes` (free-text notes per variant, keyed by variant key)."
+            "`custom_exposure_filter`, and `variant_notes` "
+            "(free-text notes per variant, keyed by variant key). "
+            "Excluded variants live on the top-level `excluded_variants` field, not here."
         ),
     )
     running_time_calculation = ExperimentRunningTimeCalculationField(
