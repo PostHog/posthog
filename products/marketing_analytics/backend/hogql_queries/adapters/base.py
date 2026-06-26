@@ -28,7 +28,7 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
     MATCH_KEY_FIELD,
     UNSYNCED_HIERARCHY_LABEL,
 )
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 

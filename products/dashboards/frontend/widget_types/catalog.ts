@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 
-import { IconFlask, IconLive, IconRewindPlay, IconWarning } from '@posthog/icons'
+import { IconFlask, IconList, IconLive, IconRewindPlay, IconWarning } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -12,6 +12,7 @@ import {
     errorTrackingWidgetConfigSchema,
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
+    logsWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
 } from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
@@ -21,6 +22,7 @@ import {
     ExperimentResultsWidgetPreview,
     ExperimentsListWidgetPreview,
 } from '../widgets/previews/ExperimentsWidgetPreviews'
+import { LogsWidgetPreview } from '../widgets/previews/LogsWidgetPreview'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
 import type { WidgetAvailabilityConfig, WidgetAvailabilityRequirementId } from './widgetAvailability'
 
@@ -79,6 +81,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     error_tracking: 'Error tracking',
     session_replay: 'Session replay',
     experiments: 'Experiments',
+    logs: 'Logs',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -91,6 +94,7 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     error_tracking: IconWarning,
     session_replay: IconRewindPlay,
     experiments: IconFlask,
+    logs: IconList,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
 export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
@@ -266,6 +270,22 @@ export const DASHBOARD_WIDGET_CATALOG = {
             message: 'Log in to PostHog to explore the latest events from this dashboard.',
         },
     },
+    logs_list: {
+        groupId: 'logs',
+        label: 'Recent logs',
+        description: 'Latest log lines, filterable by severity level and service.',
+        headerTitle: 'Recent logs',
+        defaultConfig: logsWidgetConfigSchema.parse({
+            dateRange: { date_from: '-1h' },
+        }),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'logs',
+        titleHref: urls.logs(),
+        sharedPlaceholder: {
+            title: 'Recent logs',
+            message: 'Log in to PostHog to see the latest logs from this dashboard.',
+        },
+    },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
 
 export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
@@ -277,6 +297,7 @@ export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => 
     session_replay_list: SessionReplayWidgetPreview,
     experiments_list: ExperimentsListWidgetPreview,
     experiment_results: ExperimentResultsWidgetPreview,
+    logs_list: LogsWidgetPreview,
 }
 
 export type ResolvedDashboardWidgetCatalogEntry = DashboardWidgetCatalogEntry & {
