@@ -307,7 +307,7 @@ class OrganizationFeatureFlagView(
                     dependency_id = safe_int(prop.get("key"))
                     if dependency_id is not None and dependency_id not in source_dependency_keys:
                         dependency_flag = (
-                            FeatureFlag.objects.filter(id=dependency_id, team__project_id=from_project)
+                            FeatureFlag.objects.filter(id=dependency_id, team__project_id=from_project, deleted=False)
                             .only("key")
                             .first()
                         )
