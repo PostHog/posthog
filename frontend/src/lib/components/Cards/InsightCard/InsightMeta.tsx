@@ -1,12 +1,12 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import type { AlertType } from 'lib/components/Alerts/types'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
@@ -95,6 +95,9 @@ interface InsightMetaProps extends Pick<
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     persistDisplayOptions?: (node: Node) => void
+    onCreateAlert?: () => void
+    onEditAlert?: (alertId: AlertType['id']) => void
+    onCreateAnomalyAlert?: () => void
 }
 
 export function InsightMeta({
@@ -126,6 +129,9 @@ export function InsightMeta({
     showCreateAnomalyAlertButton,
     onDragHandleMouseDown,
     persistDisplayOptions,
+    onCreateAlert,
+    onEditAlert,
+    onCreateAnomalyAlert,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
@@ -247,10 +253,13 @@ export function InsightMeta({
         ) : null
 
     const surveyOpportunityInsight = surveyOpportunity && isSurveyableFunnelInsight(insight) ? insight : null
-    const anomalyAlertInsightShortId =
-        showCreateAnomalyAlertButton && canViewInsight && canCreateAnomalyAlertForInsight && short_id
-            ? (short_id as InsightShortId)
-            : null
+    const canShowCreateAnomalyAlert =
+        showCreateAnomalyAlertButton &&
+        canViewInsight &&
+        canCreateAnomalyAlertForInsight &&
+        !!short_id &&
+        !!insight.id &&
+        !!onCreateAnomalyAlert
 
     // If user can't view the insight, show minimal interface
     if (!canViewInsight) {
@@ -604,10 +613,10 @@ export function InsightMeta({
                         : 'Duplicate, export, refresh and more…'
                 }
                 extraControls={
-                    surveyOpportunityInsight || anomalyAlertInsightShortId || feedbackButtons ? (
+                    surveyOpportunityInsight || canShowCreateAnomalyAlert || feedbackButtons ? (
                         <InsightMetaExtraControls
                             surveyOpportunityInsight={surveyOpportunityInsight}
-                            anomalyAlertInsightShortId={anomalyAlertInsightShortId}
+                            onCreateAnomalyAlert={canShowCreateAnomalyAlert ? onCreateAnomalyAlert : undefined}
                             feedbackButtons={feedbackButtons}
                         />
                     ) : null
@@ -622,6 +631,8 @@ export function InsightMeta({
                     insightId={insight.id}
                     insightShortId={short_id as InsightShortId}
                     canCreateAlertForInsight={canCreateAlertForInsight}
+                    onCreateAlert={onCreateAlert}
+                    onEditAlert={onEditAlert}
                     deferInitialAlertsLoad
                 />
             ) : null}
@@ -632,23 +643,17 @@ export function InsightMeta({
 interface InsightMetaExtraControlsProps {
     showLabel?: boolean
     surveyOpportunityInsight?: SurveyableFunnelInsight | null
-    anomalyAlertInsightShortId?: InsightShortId | null
+    onCreateAnomalyAlert?: () => void
     feedbackButtons?: JSX.Element | null
 }
 
-function CreateAnomalyAlertButton({
-    insightShortId,
-    showLabel,
-}: {
-    insightShortId: InsightShortId
-    showLabel?: boolean
-}): JSX.Element {
+function CreateAnomalyAlertButton({ onClick, showLabel }: { onClick: () => void; showLabel?: boolean }): JSX.Element {
     return (
         <LemonButton
             size="xsmall"
             type="primary"
             icon={<IconPulse />}
-            to={combineUrl(urls.insightAlert(insightShortId, 'new'), { alert_type: 'anomaly' }).url}
+            onClick={onClick}
             tooltip={!showLabel ? 'Create anomaly alert' : undefined}
             data-attr="create-anomaly-alert-button"
         >
@@ -660,7 +665,7 @@ function CreateAnomalyAlertButton({
 function InsightMetaExtraControls({
     showLabel,
     surveyOpportunityInsight,
-    anomalyAlertInsightShortId,
+    onCreateAnomalyAlert,
     feedbackButtons,
 }: InsightMetaExtraControlsProps): JSX.Element {
     return (
@@ -675,8 +680,8 @@ function InsightMetaExtraControls({
                     tooltip="Create a survey to understand why users are dropping off"
                 />
             ) : null}
-            {anomalyAlertInsightShortId ? (
-                <CreateAnomalyAlertButton insightShortId={anomalyAlertInsightShortId} showLabel={showLabel} />
+            {onCreateAnomalyAlert ? (
+                <CreateAnomalyAlertButton onClick={onCreateAnomalyAlert} showLabel={showLabel} />
             ) : null}
             {feedbackButtons}
         </div>

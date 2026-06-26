@@ -35,6 +35,7 @@ interface DashboardProps {
     themes?: DataColorThemeModel[]
     /** When set, the "Edit dashboard" menu item links to the dashboard editor with a back button pointing here. */
     backTo?: { url: string; name: string }
+    showCreateAnomalyAlertButton?: boolean
 }
 
 const parseDashboardId = (id: string | undefined): number => (typeof id === 'string' ? parseInt(id, 10) : NaN)
@@ -52,17 +53,30 @@ export const scene: SceneExport<DashboardLogicProps> = {
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
-export function Dashboard({ id, dashboard, placement, themes, backTo }: DashboardProps): JSX.Element {
+export function Dashboard({
+    id,
+    dashboard,
+    placement,
+    themes,
+    backTo,
+    showCreateAnomalyAlertButton,
+}: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard }}>
-            <DashboardScene backTo={backTo} />
+            <DashboardScene backTo={backTo} showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
         </BindLogic>
     )
 }
 
-function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }): JSX.Element {
+function DashboardScene({
+    backTo,
+    showCreateAnomalyAlertButton,
+}: {
+    backTo?: { url: string; name: string }
+    showCreateAnomalyAlertButton?: boolean
+}): JSX.Element {
     const {
         placement,
         dashboard,
@@ -130,7 +144,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                             )}
                     </SceneStickyBar>
 
-                    <DashboardItems />
+                    <DashboardItems showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
                 </div>
             )}
         </SceneContent>

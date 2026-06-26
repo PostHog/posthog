@@ -35,7 +35,11 @@ const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
 
-export function DashboardItems(): JSX.Element {
+interface DashboardItemsProps {
+    showCreateAnomalyAlertButton?: boolean
+}
+
+export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsProps = {}): JSX.Element {
     const {
         dashboard,
         tiles,
@@ -503,6 +507,7 @@ export function DashboardItems(): JSX.Element {
                                         breakdownColorOverride={temporaryBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
+                                        showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
                                         {...commonTileProps}
                                     />
                                 )

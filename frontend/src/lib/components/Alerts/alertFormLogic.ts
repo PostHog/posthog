@@ -198,7 +198,10 @@ const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBou
 export const alertFormLogic = kea<alertFormLogicType>([
     path(['lib', 'components', 'Alerts', 'alertFormLogic']),
     props({} as AlertFormLogicProps),
-    key(({ alert, defaultToAnomalyDetection }) => alert?.id ?? (defaultToAnomalyDetection ? 'new-anomaly' : 'new')),
+    key(
+        ({ alert, defaultToAnomalyDetection, insightId }) =>
+            alert?.id ?? `${defaultToAnomalyDetection ? 'new-anomaly' : 'new'}-${insightId}`
+    ),
 
     connect((props: AlertFormLogicProps) => ({
         values: [
