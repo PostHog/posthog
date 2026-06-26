@@ -6,6 +6,7 @@ from typing import Literal
 import pytest
 from unittest.mock import MagicMock, patch
 
+import pyarrow as pa
 import psycopg.errors
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
@@ -868,6 +869,61 @@ class TestCDCExtractActivity:
         assert "S3 write failed" not in schema.latest_error
 
         # Slot should NOT have been advanced
+        mock_reader.confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_unmergeable_schema_fails_non_retryably(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", table="users", position="0/100")]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        # A cross-batch Arrow merge conflict (a column that drifted type mid-stream) surfaces
+        # from write_batch as ArrowTypeError. Replaying re-fails identically, so the run must
+        # stop rather than loop the schedule.
+        mock_s3.write_batch.side_effect = pa.ArrowTypeError(
+            "Unable to merge: Field seats has incompatible types: int64 vs string"
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+
+        with pytest.raises(NonRetryableException):
+            cdc_extract_activity(inputs)
+
+        assert schema.status == "Failed"
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE).friendly_message
+        # The raw column/type detail never reaches the user-facing message.
+        assert "int64" not in schema.latest_error
         mock_reader.confirm_position.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")

@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorInfo,
+    CDCSchemaMergeError,
     classify_cdc_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
@@ -591,7 +592,16 @@ class CDCExtractActivity:
                     key_columns,
                     schema,
                 )
-                batch_result = tracker.s3_writer.write_batch(write_table, batch_index=tracker.batch_index)
+                try:
+                    batch_result = tracker.s3_writer.write_batch(write_table, batch_index=tracker.batch_index)
+                except pa.ArrowTypeError as e:
+                    # The per-batch table is built consistently (typed columns + safe fallback),
+                    # so an Arrow type error here is a cross-batch merge conflict — a column whose
+                    # type genuinely drifted mid-stream. Replaying re-fails identically, so surface
+                    # it as non-retryable instead of looping the schedule.
+                    raise CDCSchemaMergeError(
+                        f"Incompatible column types across CDC batches for {write_resource_name}"
+                    ) from e
                 tracker.batch_results.append(batch_result)
                 tracker.batch_index += 1
                 tracker.total_rows += write_table.num_rows
@@ -782,6 +792,7 @@ class CDCExtractActivity:
             position_serialized=event.position_serialized,
             timestamp=event.timestamp,
             columns=filtered,
+            column_types=event.column_types,
         )
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
