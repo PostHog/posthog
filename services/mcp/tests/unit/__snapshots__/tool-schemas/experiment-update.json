@@ -228,6 +228,18 @@
                                     "type": "null"
                                 }
                             ]
+                        },
+                        "multiple_variant_handling": {
+                            "anyOf": [
+                                {
+                                    "enum": ["exclude", "first_seen"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
                         }
                     },
                     "type": "object"

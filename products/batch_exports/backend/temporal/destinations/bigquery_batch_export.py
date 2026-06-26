@@ -1169,11 +1169,11 @@ class BigQueryStorageConsumer(Consumer):
     ):
         super().__init__(model=model)
         channel = BigQueryWriteGrpcTransport.create_channel(
+            credentials=client.sync_client._credentials,
             compression=grpc.Compression.Gzip,
         )
         transport = BigQueryWriteGrpcTransport(channel=channel)
         self.write_client = bigquery_storage_v1.BigQueryWriteClient(
-            credentials=client.sync_client._credentials,
             transport=transport,
         )
         self.stream: AppendRowsStream | None = None
@@ -1277,6 +1277,9 @@ async def run_consumers(
                                 (pa.uint8(), pa.int64()): functools.partial(_cast_as_type, type=pa.int64()),
                                 # BigQuery Storage requires that TIMESTAMP columns be 'us'
                                 (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
+                                    _cast_to_lossless_timestamp, unit="us"
+                                ),
+                                (pa.timestamp("ms", tz="Etc/UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
                                     _cast_to_lossless_timestamp, unit="us"
                                 ),
                             },
@@ -1603,6 +1606,10 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                         (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
                                             _cast_to_lossless_timestamp, unit="us"
                                         ),
+                                        (
+                                            pa.timestamp("ms", tz="Etc/UTC"),
+                                            pa.timestamp("us", tz="UTC"),
+                                        ): functools.partial(_cast_to_lossless_timestamp, unit="us"),
                                     },
                                 ),
                                 serialized,

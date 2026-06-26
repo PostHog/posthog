@@ -7490,3 +7490,28 @@ class TestExperimentSerializerSuperset(unittest.TestCase):
             mismatches,
             "Shared fields have mismatched read_only/required between serializers:\n" + "\n".join(mismatches),
         )
+
+
+class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
+    """Structural guard: the slim API exposure-criteria schema must expose every writable field.
+
+    ``exposure_criteria`` is stored as a plain JSONField, so the backend accepts any field at
+    runtime. ``ExperimentApiExposureCriteria`` is the slim type that drives the OpenAPI spec and,
+    downstream, the MCP tool / frontend write schema. A field honored at runtime (read from
+    ``ExperimentExposureCriteria``) but missing from the slim type is silently stripped by the
+    generated client before it ever reaches the API — which is how ``multiple_variant_handling``
+    looked settable via ``experiment-get`` yet never saved via ``experiment-update``.
+    """
+
+    def test_api_schema_exposes_every_runtime_field(self) -> None:
+        from posthog.schema import ExperimentApiExposureCriteria, ExperimentExposureCriteria
+
+        runtime_fields = set(ExperimentExposureCriteria.model_fields)
+        api_fields = set(ExperimentApiExposureCriteria.model_fields)
+        dropped = runtime_fields - api_fields
+        self.assertFalse(
+            dropped,
+            f"ExperimentApiExposureCriteria omits exposure_criteria fields the runtime honors: {dropped}. "
+            "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
+            "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
+        )

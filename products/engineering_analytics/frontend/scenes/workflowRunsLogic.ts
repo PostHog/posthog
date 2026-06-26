@@ -13,9 +13,14 @@ import {
 } from '../generated/api'
 import type { WorkflowJobApi, WorkflowRunDetailApi, WorkflowRunnerCostApi } from '../generated/api.schemas'
 import { jobCacheKey } from '../lib/jobs'
+import { type CostSummary, type HealthSummary, computeHealthSummary } from '../lib/runHealth'
 import type { workflowRunsLogicType } from './workflowRunsLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
+
+// Mirrors the backend runs-list cap (`workflow_run_list.py` `_LIMIT`). When the list comes back this full
+// it's almost certainly truncated, so the header labels its run rollups as "recent" rather than full-window.
+const RUN_LIST_LIMIT = 200
 
 /** A workflow run mapped to the shared RunsTable shape: the RunRowBase fields the table needs, plus the
  *  lead-column data this page shows (run id, branch, attributed PR). */
@@ -156,6 +161,32 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     repoOwner: run.repo.owner,
                     repoName: run.repo.name,
                 })),
+        ],
+        // Verdict + headline stats for the health strip above the chart.
+        healthSummary: [(s) => [s.runRows], (runRows): HealthSummary => computeHealthSummary(runRows)],
+        // The runs list is capped server-side; when hit, the header's run rollups are over the most recent
+        // runs only (cost still comes from the full-window aggregate), so it labels them as such.
+        runsTruncated: [(s) => [s.runRows], (runRows): boolean => runRows.length >= RUN_LIST_LIMIT],
+        // Billable minutes + estimated cost summed across runner tiers, for the strip's cost rollup.
+        costSummary: [
+            (s) => [s.runnerCosts],
+            (runnerCosts): CostSummary | null => {
+                if (runnerCosts.length === 0) {
+                    return null
+                }
+                // Free (GitHub-hosted) runners report null cost; gate each field so an all-free workflow
+                // shows no cost rather than a misleading $0.00 / 0 min from summing nulls as zero.
+                const hasBillable = runnerCosts.some((cost) => cost.billable_minutes != null)
+                const hasEstimatedCost = runnerCosts.some((cost) => cost.estimated_cost_usd != null)
+                return {
+                    billableMinutes: hasBillable
+                        ? runnerCosts.reduce((sum, cost) => sum + (cost.billable_minutes ?? 0), 0)
+                        : null,
+                    estimatedCostUsd: hasEstimatedCost
+                        ? runnerCosts.reduce((sum, cost) => sum + (cost.estimated_cost_usd ?? 0), 0)
+                        : null,
+                }
+            },
         ],
         breadcrumbs: [
             (_, p) => [p.repoOwner, p.repoName, p.workflowName],

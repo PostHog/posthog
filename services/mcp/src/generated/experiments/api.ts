@@ -488,6 +488,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         ])
                         .optional(),
                     filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -2867,6 +2873,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         ])
                         .optional(),
                     filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -5311,6 +5323,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                         ])
                         .optional(),
                     filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])

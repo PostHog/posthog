@@ -14,12 +14,12 @@ This is the scene for **PostHog AI**, PostHog's agent. It hosts **two coexisting
 Per-concern mapping, `langgraph` (LEGACY, frozen) → `sandbox` (NEW, build here):
 
 - **Runtime flag**: `agent_runtime === 'langgraph'` → `agent_runtime === 'sandbox'`
-- **Stream logic**: `maxThreadLogic.tsx` (LangGraph stream loop) → `sandboxStreamLogic` (SSE; in `products/posthog_ai/frontend/logics/`)
-- **Activity renderer**: `components/Activity/LangGraphActivity.tsx` → `SandboxActivity` (in `products/posthog_ai/frontend/components/`)
-- **Thread renderer**: `Thread.tsx` (default path) → `Thread.tsx` binds the surface's `SandboxThreadView`
+- **Stream logic**: `maxThreadLogic.tsx` (LangGraph stream loop) → `runStreamLogic` (SSE; in `products/posthog_ai/frontend/logics/`)
+- **Activity renderer**: `components/Activity/LangGraphActivity.tsx` → `RunActivity` (in `products/posthog_ai/frontend/components/`)
+- **Thread renderer**: `Thread.tsx` (default path) → `Thread.tsx` binds the surface's `ThreadView`
 - **Context shape**: rich `MaxUIContext` (full objects) → flat `AttachedContext` (typed refs, agent fetches)
-- **Approvals**: `DangerousOperationApprovalCard.tsx` / `approvalOperationUtils.ts` → the surface's `SandboxPermissionInput` / `SandboxQuestionInput`
-- **Tool widgets**: `messages/` + `messages/adapters/` → the surface's `sandboxToolRegistry` (Max's product renderers register via `messages/adapters/registerMaxToolRenderers`)
+- **Approvals**: `DangerousOperationApprovalCard.tsx` / `approvalOperationUtils.ts` → the surface's `PermissionInput` / `QuestionInput`
+- **Tool widgets**: `messages/` + `messages/adapters/` → the surface's `toolRegistry` (Max's product renderers register via `messages/adapters/registerMaxToolRenderers`)
 
 ### Rule: do not extend the LangGraph path unless explicitly asked
 
@@ -34,38 +34,40 @@ If a task genuinely needs the LangGraph path extended, confirm that intent expli
 
 ## 2. Sandbox architecture &amp; conventions live with the surface
 
-The sandbox runtime's heart — `sandboxStreamLogic` (SSE connection, the append-only `log`, the pure
+The sandbox runtime's heart — `runStreamLogic` (SSE connection, the append-only `log`, the pure
 `foldLogToThread` projection, permission routing) — and the conventions for working on it (logic-not-
 component, runtime-agnostic plain-props UI, atomic memoized leaves, pure projection) are documented in
 **`products/posthog_ai/frontend/AGENTS.md`**, where that code now lives. Read it before touching the surface.
 
 What's Max-specific on the sandbox path and stays here: `Thread.tsx` branches **high** on
-`conversation.agent_runtime` and, for the sandbox branch, binds `sandboxStreamLogic` (keyed by the
-conversation id) and renders `SandboxThreadView` from the surface — passing resolved props down, never
+`conversation.agent_runtime` and, for the sandbox branch, binds `runStreamLogic` (keyed by the
+conversation id) and renders `ThreadView` from the surface — passing resolved props down, never
 parsing wire frames in a Max component.
 
 ## 4. The sandbox surface lives in `products/posthog_ai/frontend`
 
 The conversation-agnostic sandbox run surface (stream logic, thread/tool/permission/composer components,
 policy, wire types) **no longer lives under `scenes/max`** — it's the composable PostHog AI agent-run
-library at `products/posthog_ai/frontend`, consumed here via its barrel
-(`import { ... } from 'products/posthog_ai/frontend'`). See that directory's `AGENTS.md` for its layout,
-public component API (`RunViewer`, `Thread`, `Composer`, `sandboxStreamLogic`, the tool registry), and the
-hard rule that it must never import `scenes/max`.
+library at `products/posthog_ai/frontend`, consumed here through its tiered `api/<module>` facade
+(`import { ... } from 'products/posthog_ai/frontend/api/run'` / `api/primitives` / `api/logics` /
+`api/types` / `api/tools` — there is no root barrel; pick the narrowest tier). See that directory's
+`README.md` for the tier decision table + recipes and its `AGENTS.md` for layout, the public API
+(`RunViewer`, `Thread`, `Composer`, `runStreamLogic`, the tool registry), and the hard rule that it must
+never import `scenes/max`.
 
 What stays in `scenes/max`: conversation orchestration (`maxLogic`, `maxThreadLogic`, `maxGlobalLogic`), the
 Max Context subsystem, slash commands, `useMaxTool`/`MaxTool`, feedback/ratings, the frozen LangGraph path,
 and Max's **product-specific tool renderers** (`messages/adapters/*`), which register themselves into the
-shared `sandboxToolRegistry` via `messages/adapters/registerMaxToolRenderers` (imported once from
+shared `toolRegistry` via `messages/adapters/registerMaxToolRenderers` (imported once from
 `Thread.tsx`). Add a new product tool renderer there, not in `products/posthog_ai/frontend`.
 
 ## 5. Where do I add X?
 
 The first three now live in `products/posthog_ai/frontend` (the shared surface) — make the change there, not in `scenes/max`:
 
-- **A new thread-item type** → `products/posthog_ai/frontend/types/sandboxStreamTypes.ts` (the `ThreadItem` union), handle it in `foldLogToThread`, and add a memoized leaf renderer wired into `SandboxThreadView`/`SandboxThreadRow`.
-- **A new permission affordance / auto-approval rule** → `products/posthog_ai/frontend/policy/sandboxToolPolicy.ts`, then surface it through `SandboxPermissionInput`.
-- **New stream telemetry** → a guarded `posthog.capture` in the relevant `sandboxStreamLogic` listener (fire-once, suppressed on replay).
+- **A new thread-item type** → `products/posthog_ai/frontend/types/streamTypes.ts` (the `ThreadItem` union), handle it in `foldLogToThread`, and add a memoized leaf renderer wired into `ThreadView`/`ThreadRow`.
+- **A new permission affordance / auto-approval rule** → `products/posthog_ai/frontend/policy/toolPolicy.ts`, then surface it through `PermissionInput`.
+- **New stream telemetry** → a guarded `posthog.capture` in the relevant `runStreamLogic` listener (fire-once, suppressed on replay).
 - **A new product tool renderer** (renders a PostHog entity) → `scenes/max/messages/adapters/*` + register it in `messages/adapters/registerMaxToolRenderers`.
 - **New context the agent should see** → extend `AttachedContext` (not `MaxUIContext`).
 
