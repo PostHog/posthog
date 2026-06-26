@@ -1,5 +1,6 @@
+import math
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from django.db.models import Sum, Value
@@ -37,6 +38,24 @@ class QuotaSnapshot:
     @property
     def exhausted(self) -> bool:
         return self.usage_this_month >= self.monthly_quota
+
+
+def pace_candidate_limit(
+    snapshot: "QuotaSnapshot",
+    now: datetime,
+    tick_interval: timedelta = timedelta(minutes=5),
+) -> int:
+    """Cap a per-tick candidate limit so the org's remaining quota is paced evenly across the period.
+
+    Returns 0 when the period is exhausted or already over. Org-level (not per-scanner): multiple
+    scanners on the same team share this budget implicitly by reading the same snapshot.
+    """
+    if snapshot.remaining == 0 or now >= snapshot.period_end:
+        return 0
+    seconds_remaining = (snapshot.period_end - now).total_seconds()
+    tick_seconds = tick_interval.total_seconds()
+    ticks_remaining = max(1, math.ceil(seconds_remaining / tick_seconds))
+    return max(1, math.floor(snapshot.remaining / ticks_remaining))
 
 
 def next_month_start(now: datetime) -> datetime:

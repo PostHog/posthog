@@ -21,6 +21,12 @@ class ScannerType(models.TextChoices):
     SUMMARIZER = "summarizer", "Summarizer"
 
 
+class SamplingMode(models.TextChoices):
+    FOCUSED = "focused", "Focused"
+    BALANCED = "balanced", "Balanced"
+    COMPREHENSIVE = "comprehensive", "Comprehensive"
+
+
 class ScannerProvider(models.TextChoices):
     GOOGLE = "google", "Google"
 
@@ -62,6 +68,12 @@ class ReplayScanner(UUIDModel):
         default=1.0,
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="0..1 random downsample applied after the query matches.",
+    )
+    sampling_mode = models.CharField(
+        max_length=20,
+        choices=SamplingMode.choices,
+        default=SamplingMode.COMPREHENSIVE,
+        help_text="Quality pre-filter applied before random sampling. focused = top sessions by surfacing score, balanced = drops the lowest-quality sessions, comprehensive = no filter.",
     )
 
     provider = models.CharField(max_length=32, choices=ScannerProvider.choices, default=ScannerProvider.GOOGLE)
@@ -121,6 +133,7 @@ class ReplayScanner(UUIDModel):
         "scanner_config",
         "query",
         "sampling_rate",
+        "sampling_mode",
         "provider",
         "model",
         "emits_signals",

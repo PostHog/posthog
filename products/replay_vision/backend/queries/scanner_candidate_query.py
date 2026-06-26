@@ -39,6 +39,9 @@ MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
 DEFAULT_CANDIDATE_LIMIT = 5_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
+FOCUSED_SURFACING_THRESHOLD = 0.60
+BALANCED_SURFACING_THRESHOLD = 0.40
+
 
 def eligibility_predicates() -> list[ast.Expr]:
     # Mirror the scan-time eligibility gate (fetch_session_events) on the same ClickHouse aggregates the scan reads, so
@@ -82,6 +85,7 @@ class ScannerCandidateQuery:
         sampling_rate: float,
         # Per-scanner sampling salt (pass the scanner id); must stay stable across sweeps of the same scanner.
         sampling_salt: str,
+        sampling_mode: str = "comprehensive",
         last_seen_session_id: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
@@ -100,6 +104,7 @@ class ScannerCandidateQuery:
         self._last_seen_session_id = last_seen_session_id
         self._sampling_rate = max(0.0, min(1.0, sampling_rate))
         self._sampling_salt = sampling_salt
+        self._sampling_mode = sampling_mode
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
 
@@ -116,6 +121,8 @@ class ScannerCandidateQuery:
         extra_having: list[ast.Expr] = eligibility_predicates()
         if (sampling := self._sampling_predicate()) is not None:
             extra_having.append(sampling)
+        if (surfacing := self._surfacing_score_predicate()) is not None:
+            extra_having.append(surfacing)
 
         self._inner = SessionRecordingListFromQuery(team=team, query=inner_query, extra_having_predicates=extra_having)
 
@@ -200,6 +207,25 @@ class ScannerCandidateQuery:
                         ],
                     ),
                     ast.Constant(value=SAMPLE_RATE_PRECISION),
+                ],
+            ),
+            right=ast.Constant(value=threshold),
+        )
+
+    def _surfacing_score_predicate(self) -> ast.Expr | None:
+        if self._sampling_mode == "focused":
+            threshold = FOCUSED_SURFACING_THRESHOLD
+        elif self._sampling_mode == "balanced":
+            threshold = BALANCED_SURFACING_THRESHOLD
+        else:
+            return None
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Call(
+                name="coalesce",
+                args=[
+                    ast.Call(name="max", args=[ast.Field(chain=["s", "surfacing_score"])]),
+                    ast.Constant(value=0.36),
                 ],
             ),
             right=ast.Constant(value=threshold),

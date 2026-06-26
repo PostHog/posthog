@@ -18,7 +18,12 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.quota import MONTHLY_OBSERVATION_QUOTA, compute_quota_snapshot
+from products.replay_vision.backend.quota import (
+    MONTHLY_OBSERVATION_QUOTA,
+    QuotaSnapshot,
+    compute_quota_snapshot,
+    pace_candidate_limit,
+)
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
@@ -193,6 +198,44 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
         )
         self._make_receipt(observation)
         assert compute_quota_snapshot(organization_id=self.organization.id).usage_this_month == 1
+
+
+class TestPaceCandidateLimit:
+    @staticmethod
+    def _snapshot(remaining: int, period_end: datetime) -> QuotaSnapshot:
+        return QuotaSnapshot(
+            monthly_quota=remaining,
+            usage_this_month=0,
+            period_start=period_end - timedelta(days=30),
+            period_end=period_end,
+            projected_monthly_observations=0,
+        )
+
+    @parameterized.expand(
+        [
+            ("exhausted", 0, 100),
+            ("period_already_over", 100, -1),  # period ended in the past
+        ]
+    )
+    def test_returns_zero(self, _name: str, remaining: int, hours_until_end: int) -> None:
+        now = datetime(2026, 6, 15, tzinfo=UTC)
+        period_end = now + timedelta(hours=hours_until_end)
+        result = pace_candidate_limit(self._snapshot(remaining, period_end), now)
+        assert result == 0
+
+    def test_paces_remaining_across_remaining_ticks(self) -> None:
+        now = datetime(2026, 6, 15, tzinfo=UTC)
+        period_end = now + timedelta(minutes=50)  # 10 ticks of 5 minutes
+        snapshot = self._snapshot(remaining=100, period_end=period_end)
+        result = pace_candidate_limit(snapshot, now, tick_interval=timedelta(minutes=5))
+        assert result == 10
+
+    def test_minimum_of_one_when_remaining_is_positive(self) -> None:
+        now = datetime(2026, 6, 15, tzinfo=UTC)
+        period_end = now + timedelta(days=20)  # ~5760 ticks of 5 minutes
+        snapshot = self._snapshot(remaining=10, period_end=period_end)
+        result = pace_candidate_limit(snapshot, now, tick_interval=timedelta(minutes=5))
+        assert result == 1
 
 
 class TestProjectedMonthlyObservations(_VisionQuotaTestCase):

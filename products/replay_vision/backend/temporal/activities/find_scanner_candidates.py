@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from pydantic import ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -9,6 +11,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     ScannerCandidateQuery,
 )
+from products.replay_vision.backend.quota import compute_quota_snapshot, pace_candidate_limit
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.sweep_types import (
     CandidateSessionPayload,
@@ -43,19 +46,25 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         ) from exc
 
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
+    # Quota pacing: spread the org's remaining monthly observations evenly across the period.
+    paced = pace_candidate_limit(compute_quota_snapshot(scanner.team.organization_id), datetime.now(UTC))
+    effective_limit = min(limit, paced)
+    if effective_limit <= 0:
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
         query=query,
         last_swept_at=scanner.last_swept_at,
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
+        sampling_mode=scanner.sampling_mode,
         last_seen_session_id=scanner.last_seen_session_id or None,
-        candidate_limit=limit,
+        candidate_limit=effective_limit,
     )
     candidates = candidate_query.run()
 
     return FindScannerCandidatesOutput(
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
         # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
-        saturated=len(candidates) == limit,
+        saturated=len(candidates) == effective_limit,
     )

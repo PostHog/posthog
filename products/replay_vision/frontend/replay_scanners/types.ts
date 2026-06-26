@@ -194,6 +194,26 @@ export type ScannerConfig =
     | ClassifierScannerConfig
     | ScorerScannerConfig
 
+export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
+
+export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; description: string }[] = [
+    {
+        value: 'focused',
+        label: 'Focused',
+        description: 'Only top sessions by quality signal, skipping routine sessions.',
+    },
+    {
+        value: 'balanced',
+        label: 'Balanced',
+        description: 'Drops the lowest-quality sessions and keeps a broad mix.',
+    },
+    {
+        value: 'comprehensive',
+        label: 'Comprehensive',
+        description: 'No quality filter. Uniform across everything that matches.',
+    },
+]
+
 // hedgehog_config's nullable index-signature type trips DeepPartial and ProfilePicture; the UI never reads it.
 export type ScannerCreatedBy = Omit<UserBasicApi, 'hedgehog_config'>
 
@@ -202,6 +222,7 @@ export type BaseReplayScanner = Omit<ReplayScannerApi, 'scanner_type' | 'scanner
     Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
+        sampling_mode: SamplingMode
     }
 
 export interface MonitorScanner extends BaseReplayScanner {

@@ -22,7 +22,7 @@ import { CardHeader } from '../../components/CardHeader'
 import { LabeledRow } from '../../components/LabeledRow'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { MODEL_OPTIONS, ReplayScanner, ScannerType } from '../types'
+import { MODEL_OPTIONS, ReplayScanner, SAMPLING_MODE_OPTIONS, ScannerType } from '../types'
 
 const SUMMARY_LENGTHS = [
     { value: 'short', label: 'Short' },
@@ -189,6 +189,10 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconBolt />} title="Triggers" />
                     <div className="flex flex-col gap-3">
+                        <LabeledRow label="Quality filter">
+                            {SAMPLING_MODE_OPTIONS.find((o) => o.value === scanner.sampling_mode)?.label ??
+                                scanner.sampling_mode}
+                        </LabeledRow>
                         <LabeledRow label="Sampling">{samplingPercent}%</LabeledRow>
                         <LabeledRow label="Recording filters">
                             {!hasTriggers ? (

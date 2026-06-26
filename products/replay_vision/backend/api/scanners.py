@@ -37,6 +37,7 @@ from products.replay_vision.backend.api.trigger import (
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
+    SamplingMode,
     ScannerModel,
     ScannerProvider,
     ScannerType,
@@ -162,6 +163,11 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "the sampling precision."
         ),
     )
+    sampling_mode = serializers.ChoiceField(
+        choices=SamplingMode.choices,
+        required=False,
+        help_text="Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).",
+    )
     provider = serializers.ChoiceField(
         choices=ScannerProvider.choices,
         required=False,
@@ -209,6 +215,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "scanner_config",
             "query",
             "sampling_rate",
+            "sampling_mode",
             "provider",
             "model",
             "enabled",
