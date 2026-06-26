@@ -220,14 +220,14 @@ daily-digest? show the 30d trend graph?
 
 Useful to know when someone asks "how do I make it cheaper?":
 
-| Lever                              | Effect                                                              |
-| ---------------------------------- | ------------------------------------------------------------------- |
+| Lever                              | Effect                                                                                                                                       |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | Model (`spec.models`)              | Biggest factor — a `low`-level model is often ~5-10x cheaper than `high`; see `@posthog/agent-applications-models` for live per-Mtok pricing |
-| Reasoning level (`spec.reasoning`) | Higher levels (`high` / `xhigh`) add deliberation tokens            |
-| Skills layout                      | Many skills loaded per turn means a fatter system prompt every turn |
-| Custom tool egress                 | Tools that fetch large pages inflate input tokens on the next turn  |
-| Conversation length                | Longer multi-turn agents pay for the conversation re-feed           |
-| Limits                             | `spec.limits.max_turns` is the upper bound on cost per session      |
+| Reasoning level (`spec.reasoning`) | Higher levels (`high` / `xhigh`) add deliberation tokens                                                                                     |
+| Skills layout                      | Many skills loaded per turn means a fatter system prompt every turn                                                                          |
+| Custom tool egress                 | Tools that fetch large pages inflate input tokens on the next turn                                                                           |
+| Conversation length                | Longer multi-turn agents pay for the conversation re-feed                                                                                    |
+| Limits                             | `spec.limits.max_turns` is the upper bound on cost per session                                                                               |
 
 The reasoning levels are `minimal` | `low` | `medium` | `high` |
 `xhigh`. Treat the cost impact as directional, not a fixed multiplier —

@@ -16,7 +16,7 @@ every field, enum, and default — call
 `@posthog/agent-applications-spec-schema` with `section: "models"` rather
 than reciting it from memory; it stays current as the schema moves. The
 `mode`, `level`, and `reasoning` names used throughout this skill are the
-set that exists *today* — if the schema returns a different set, the schema
+set that exists _today_ — if the schema returns a different set, the schema
 wins. The judgment that schema can't give you is below.
 
 - **`auto`** (the default for almost every agent) — pick a `level`
@@ -93,9 +93,9 @@ same provider as the primary doesn't help when that provider is the
 thing that's down — list a different vendor next so an outage degrades
 instead of failing.
 
-- Good: a primary from one vendor, then a model from a *different* vendor —
+- Good: a primary from one vendor, then a model from a _different_ vendor —
   if the first vendor has an outage, the other still answers.
-- Pointless: two models from the *same* vendor — one provider outage takes
+- Pointless: two models from the _same_ vendor — one provider outage takes
   out both.
 
 Don't hardcode model ids from memory — they get added and retired. Call
