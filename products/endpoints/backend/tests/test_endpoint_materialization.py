@@ -25,7 +25,7 @@ from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.data_warehouse.backend.logic.data_load.saved_query_service import get_saved_query_schedule
+from products.data_warehouse.backend.facade.api import get_saved_query_schedule
 from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
 from products.endpoints.backend.models import EndpointVersion
 from products.endpoints.backend.services.execution import EndpointExecutionService

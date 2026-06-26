@@ -54,7 +54,7 @@ const render = (props: LineGraphProps): JSX.Element => (
     </Stage>
 )
 
-const baseSettings: ChartSettings = { showValuesOnSeries: true, showPieTotal: true }
+const baseSettings: ChartSettings = { pie: { sliceContent: 'values', showTotal: true } }
 
 export const Default: Story = {
     render: () =>

@@ -215,7 +215,7 @@ def _process_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: E
 
 def _duckgres_schema_name(team_id: int) -> str:
     # Resolves to posthog_data_imports_<table_suffix> when the team has set one
-    # (DuckLakeBackfill.table_suffix — the same suffix that names its
+    # (DuckgresServerTeam.table_suffix — the same suffix that names its
     # events/persons tables), else the legacy posthog_data_imports_team_<id>.
     return duckgres_data_imports_schema(team_id)
 

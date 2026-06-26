@@ -17,6 +17,7 @@ import structlog
 import temporalio
 from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from openai import APIConnectionError
 from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import APIException, ValidationError
@@ -41,6 +42,11 @@ from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.rate_limit import (
+    CustomSourceAIBuilderBurstThrottle,
+    CustomSourceAIBuilderDailyThrottle,
+    CustomSourceAIBuilderSustainedThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -59,6 +65,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     ensure_cdc_slot_cleanup_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    is_custom_source_ai_builder_enabled_for_team,
     is_xmin_enabled_for_team,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
@@ -131,6 +138,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.custom.ai_builder import (
+    DocsFetchError,
+    draft_manifest_sync,
+    fetch_docs_text,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_CUSTOM_SOURCES_PER_TEAM,
     PREVIEW_DEFAULT_ROWS,
@@ -1334,6 +1346,57 @@ class SourcePreviewResponseSerializer(serializers.Serializer):
     )
 
 
+class DraftCustomManifestRequestSerializer(serializers.Serializer):
+    source_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model.",
+    )
+    docs_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        help_text="URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy.",
+    )
+    docs_text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Raw API documentation or an OpenAPI/Swagger spec, pasted directly. Provide this or docs_url.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Strip first: a whitespace-only docs_text is truthy but useless (it'd fetch an empty URL).
+        if not ((attrs.get("docs_url") or "").strip() or (attrs.get("docs_text") or "").strip()):
+            raise serializers.ValidationError("Provide either docs_url or docs_text.")
+        return attrs
+
+
+class DraftCustomManifestResponseSerializer(serializers.Serializer):
+    draft_status = serializers.ChoiceField(
+        choices=["ok", "invalid", "model_error"],
+        help_text=(
+            "'ok' = a manifest validated; 'invalid' = a manifest was drafted but never validated within the budget "
+            "(see error; manifest_json holds the last attempt to fix by hand); 'model_error' = the model returned no "
+            "usable JSON."
+        ),
+    )
+    manifest_json = serializers.CharField(
+        allow_null=True,
+        help_text="The drafted RESTAPIConfig manifest as a JSON string (non-secret), or null if none was produced.",
+    )
+    resource_names = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Names of the resources (tables) the validated manifest exposes. Empty unless draft_status is 'ok'.",
+    )
+    attempts = serializers.IntegerField(
+        help_text="How many draft→validate→repair rounds were run.",
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text="The last validation error when draft_status is not 'ok'; null on success.",
+    )
+
+
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSource
@@ -1378,6 +1441,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Live outbound HTTP to a caller-supplied manifest (including POSTs) — a
         # side-effecting action, so it needs write scope, not read.
         "preview_resource",
+        # Fetches a caller-supplied docs URL and calls the (paid) LLM gateway — side-effecting.
+        "draft_custom_manifest",
     ]
     scope_object_read_actions = [
         "list",
@@ -1398,6 +1463,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     # source type ("Stripe", "Postgres") and the HogQL table prefix.
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
+
+    def get_throttles(self):
+        # The AI manifest builder fans out to several Opus calls per request and isn't billed to the
+        # customer, so cap it per team: a burst guard against double-submits/retries, an hourly window
+        # for an intense setup session, and a daily backstop against scripted abuse.
+        if self.action == "draft_custom_manifest":
+            return [
+                CustomSourceAIBuilderBurstThrottle(),
+                CustomSourceAIBuilderSustainedThrottle(),
+                CustomSourceAIBuilderDailyThrottle(),
+            ]
+        return super().get_throttles()
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "create":
@@ -2601,6 +2678,95 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "rows": result.rows,
                 "row_count": result.row_count,
                 "columns": result.columns,
+                "error": result.error,
+            },
+        )
+
+    @extend_schema(
+        request=DraftCustomManifestRequestSerializer,
+        responses={200: DraftCustomManifestResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def draft_custom_manifest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Draft a Custom REST source manifest from API documentation using an LLM.
+
+        Reads the docs (a URL fetched server-side, or pasted text / OpenAPI spec), asks the model to
+        author a RESTAPIConfig manifest, and validates it against the create-path checks — repairing
+        against validation errors up to a small budget. Returns the manifest for the user to review
+        and tweak in the builder before creating the source; it does NOT create anything. Gated by the
+        `dwh-custom-source-ai-builder` flag, and requires the org to have approved AI data processing,
+        since the docs are sent to the LLM gateway.
+        """
+        # Gate on access (flag) then consent before validating input shape, so a caller without the
+        # rollout or AI-data-processing opt-in is turned away before learning the request schema.
+        if not is_custom_source_ai_builder_enabled_for_team(self.team):
+            return Response(
+                status=status.HTTP_404_NOT_FOUND,
+                data={"message": "AI manifest drafting is not enabled for this organization."},
+            )
+
+        if self.team.organization.is_ai_data_processing_approved is not True:
+            return Response(
+                status=status.HTTP_403_FORBIDDEN,
+                data={"message": "Enable AI data processing for this organization to use AI manifest drafting."},
+            )
+
+        serializer = DraftCustomManifestRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        docs_text = (data.get("docs_text") or "").strip()
+        docs_source = "pasted_text" if docs_text else "fetched_url"
+        if not docs_text:
+            try:
+                docs_text = fetch_docs_text(data["docs_url"])
+            except DocsFetchError as e:
+                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+
+        try:
+            result = draft_manifest_sync(
+                team_id=self.team_id,
+                source_name=data.get("source_name") or "",
+                docs_text=docs_text,
+            )
+        except APIConnectionError as e:
+            capture_exception(e, {"team_id": self.team_id})
+            return Response(
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                data={
+                    "message": "Couldn't reach the AI service. If you're running locally, the LLM gateway isn't running — author the manifest manually instead."
+                },
+            )
+        except Exception as e:
+            capture_exception(e, {"team_id": self.team_id})
+            return Response(
+                status=status.HTTP_502_BAD_GATEWAY,
+                data={"message": "The manifest drafting service failed. Try again, or author the manifest manually."},
+            )
+
+        # Success-path telemetry: this is a paid, unbilled-to-customer Opus path, so capture how it
+        # performed (status, repair rounds, tables, where the docs came from) to drive a funnel from
+        # draft → source created. No docs content or credentials — none are accepted here anymore.
+        report_user_action(
+            cast(User, request.user),
+            "data warehouse custom source manifest drafted",
+            {
+                "draft_status": result.status,
+                "attempts": result.attempts,
+                "table_count": len(result.resource_names),
+                "docs_source": docs_source,
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "draft_status": result.status,
+                "manifest_json": result.manifest_json,
+                "resource_names": result.resource_names,
+                "attempts": result.attempts,
                 "error": result.error,
             },
         )
