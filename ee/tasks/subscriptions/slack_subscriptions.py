@@ -107,7 +107,9 @@ def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
         alt_text = asset.insight.name or asset.insight.derived_name
 
     if settings.DEBUG:
-        image_url = "https://source.unsplash.com/random"
+        # Locally the real asset URL points at localhost, which Slack's servers can't fetch,
+        # so substitute a publicly reachable PostHog-branded placeholder image.
+        image_url = "https://posthog.com/icons/icon-512x512.png"
 
     return {"type": "image", "image_url": image_url, "alt_text": alt_text}
 
