@@ -62,6 +62,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setViewMode: (viewMode: MetricsViewMode) => ({ viewMode }),
         setStatSummary: (statSummary: MetricSummary) => ({ statSummary }),
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
+        setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -79,6 +80,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // 'latest' (current value) is the natural default for a live single-metric stat.
         statSummary: ['latest' as MetricSummary, { setStatSummary: (_, { statSummary }) => statSummary }],
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
+        // Attribute keys to split the metric into one series each (e.g. ['service.name', 'env']).
+        groupByKeys: [[] as string[], { setGroupByKeys: (_, { groupByKeys }) => groupByKeys }],
         queryAbortController: [
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
@@ -133,6 +136,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                                 aggregation: values.aggregation,
                                 dateFrom: dateFromISO,
                                 ...(dateToISO ? { dateTo: dateToISO } : {}),
+                                ...(values.groupByKeys.length
+                                    ? { groupBy: values.groupByKeys.map((key) => ({ key })) }
+                                    : {}),
                             },
                         },
                         { signal: controller.signal }
