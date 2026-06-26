@@ -274,6 +274,9 @@ class SandboxBase(ABC):
     @abstractmethod
     def is_running(self) -> bool: ...
 
+    def read_agent_server_boot_ms(self) -> int | None:
+        return None
+
     def __enter__(self) -> Self:
         return self
 

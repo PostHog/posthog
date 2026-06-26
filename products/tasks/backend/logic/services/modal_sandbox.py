@@ -938,6 +938,17 @@ class ModalSandbox(SandboxBase):
     def _agent_server_is_healthy(self) -> bool:
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
 
+    def read_agent_server_boot_ms(self) -> int | None:
+        try:
+            result = self.execute(
+                f"curl -s --max-time 5 http://localhost:{AGENT_SERVER_PORT}/health", timeout_seconds=10
+            )
+            payload = json.loads(result.stdout or "{}")
+            boot_ms = payload.get("bootMs")
+            return int(boot_ms) if isinstance(boot_ms, int | float) else None
+        except Exception:
+            return None
+
     def _free_agent_server_port(self) -> None:
         self.execute(
             "pkill -TERM -f agent-server 2>/dev/null || true; "
