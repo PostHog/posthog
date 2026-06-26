@@ -176,7 +176,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "Variant keys to exclude from metric result calculations. Excluded variants are still "
             "served to users but omitted from statistical analysis. The baseline variant and holdout "
             "pseudo-variants cannot be excluded. Canonical home for what historically lived in "
-            "`parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window."
+            "`parameters.excluded_variants`."
         ),
     )
     conclusion = serializers.ChoiceField(

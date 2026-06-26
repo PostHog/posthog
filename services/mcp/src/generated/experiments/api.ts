@@ -380,7 +380,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe(
-                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.'
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -2768,7 +2768,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe(
-                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.'
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -5215,7 +5215,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe(
-                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.'
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod

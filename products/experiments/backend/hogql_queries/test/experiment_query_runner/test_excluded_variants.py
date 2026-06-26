@@ -57,17 +57,11 @@ class TestExcludedVariants(ExperimentQueryRunnerBaseTest):
             experiment.holdout = holdout
 
         if parameters != "unset":
-            resolved = parameters
-            if isinstance(parameters, dict):
-                holdout_key = f"holdout-{holdout.id}" if holdout is not None else self._HOLDOUT_KEY
-                resolved = {
-                    **parameters,
-                    "excluded_variants": [
-                        holdout_key if key == self._HOLDOUT_KEY else key
-                        for key in parameters.get("excluded_variants", [])
-                    ],
-                }
-            experiment.parameters = resolved
+            holdout_key = f"holdout-{holdout.id}" if holdout is not None else self._HOLDOUT_KEY
+            experiment.excluded_variants = [
+                holdout_key if key == self._HOLDOUT_KEY else key
+                for key in (parameters or {}).get("excluded_variants", [])
+            ]
         experiment.save()
 
         runner = self._make_runner(experiment)
