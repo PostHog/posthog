@@ -1,0 +1,100 @@
+import './SurveyPickerSelect.scss'
+
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
+
+import { LemonInputSelect, type LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
+
+import type { SurveyApi } from 'products/surveys/frontend/generated/api.schemas'
+
+import { surveyPickerLogic } from './surveyPickerLogic'
+
+export type SurveyPickerSelectProps = {
+    /** Isolates picker state per mount (modal vs. each tile). */
+    pickerKey: string
+    value: string | null
+    onChange: (surveyId: string | null) => void
+    disabled?: boolean
+    size?: 'small' | 'medium'
+    fullWidth?: boolean
+    dataAttr?: string
+}
+
+function surveyStatusLabel(survey: SurveyApi): string {
+    if (survey.archived) {
+        return 'Archived'
+    }
+    if (!survey.start_date) {
+        return 'Draft'
+    }
+    return survey.end_date ? 'Ended' : 'Active'
+}
+
+function SurveyOptionLabel({ survey }: { survey: SurveyApi }): JSX.Element {
+    return (
+        <span className="flex w-full items-center justify-between gap-2">
+            <span className="min-w-0 flex-1 truncate">{survey.name}</span>
+            <span className="shrink-0 text-xs text-muted">{surveyStatusLabel(survey)}</span>
+        </span>
+    )
+}
+
+export function SurveyPickerSelect({
+    pickerKey,
+    value,
+    onChange,
+    disabled,
+    size = 'small',
+    fullWidth = false,
+    dataAttr,
+}: SurveyPickerSelectProps): JSX.Element {
+    const logic = surveyPickerLogic({ pickerKey })
+    const { surveyOptions, surveyOptionsLoading, selectedSurvey, search } = useValues(logic)
+    const { ensureOptionsLoaded, setSearch, ensureSelectedLoaded } = useActions(logic)
+
+    // Resolve the selected label even when it falls outside the loaded/searched page.
+    useEffect(() => {
+        if (value != null) {
+            ensureSelectedLoaded(value)
+        }
+    }, [value, ensureSelectedLoaded])
+
+    const options = useMemo((): LemonInputSelectOption[] => {
+        const byId = new Map<string, SurveyApi>()
+        if (selectedSurvey) {
+            byId.set(selectedSurvey.id, selectedSurvey)
+        }
+        for (const survey of surveyOptions) {
+            byId.set(survey.id, survey)
+        }
+        return Array.from(byId.values(), (survey) => ({
+            key: survey.id,
+            label: survey.name,
+            labelComponent: <SurveyOptionLabel survey={survey} />,
+        }))
+    }, [surveyOptions, selectedSurvey])
+
+    return (
+        <LemonInputSelect
+            mode="single"
+            size={size}
+            fullWidth={fullWidth}
+            popoverClassName="SurveyPickerSelect__dropdown"
+            placeholder="Select a survey"
+            loading={surveyOptionsLoading}
+            disabled={disabled}
+            disableFiltering
+            value={value != null ? [value] : []}
+            options={options}
+            emptyStateComponent={
+                <p className="text-secondary italic p-1">
+                    {search ? `No surveys matching "${search}"` : 'No surveys yet'}
+                </p>
+            }
+            onFocus={() => ensureOptionsLoaded()}
+            onInputChange={(text) => setSearch(text)}
+            onChange={(values) => onChange(values.length > 0 ? values[0] : null)}
+            data-attr={dataAttr}
+        />
+    )
+}

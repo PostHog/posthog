@@ -42,6 +42,9 @@ import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplay
 import { SessionReplayWidget, SessionReplayWidgetTopHeading } from './session_replay/SessionReplayWidget'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
 import { SessionReplayWidgetTileFilters } from './session_replay/SessionReplayWidgetTileFilters'
+import { EditSurveyResultsWidgetModal } from './surveys/EditSurveyResultsWidgetModal'
+import { SurveyResultsWidget } from './surveys/SurveyResultsWidget'
+import { parseSurveyResultsWidgetConfigApiError } from './surveys/surveysWidgetConfigValidation'
 
 export type DashboardWidgetConfigApiErrorParser = (
     error: unknown,
@@ -177,6 +180,12 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditExperimentResultsWidgetModal,
         productAccess: 'experiment',
         parseConfigApiError: parseExperimentResultsWidgetConfigApiError,
+    },
+    survey_results: {
+        Component: SurveyResultsWidget,
+        EditModal: EditSurveyResultsWidgetModal,
+        productAccess: 'survey',
+        parseConfigApiError: parseSurveyResultsWidgetConfigApiError,
     },
     logs_list: {
         Component: LogsWidget,

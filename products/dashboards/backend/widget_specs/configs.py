@@ -23,6 +23,7 @@ ERROR_TRACKING_LIST_WIDGET_TYPE = "error_tracking_list"
 SESSION_REPLAY_LIST_WIDGET_TYPE = "session_replay_list"
 EXPERIMENTS_LIST_WIDGET_TYPE = "experiments_list"
 EXPERIMENT_RESULTS_WIDGET_TYPE = "experiment_results"
+SURVEY_RESULTS_WIDGET_TYPE = "survey_results"
 LOGS_LIST_WIDGET_TYPE = "logs_list"
 
 ErrorTrackingOrderBy = Literal["last_seen", "first_seen", "occurrences", "users", "sessions"]
@@ -119,6 +120,25 @@ class ExperimentResultsWidgetConfig(BaseModel):
         default=None,
         description="Experiment to show results for. Null until the user picks one in the widget settings.",
     )
+
+
+class SurveyResultsWidgetConfig(WidgetDateRangeConfigBase):
+    surveyId: str | None = Field(
+        default=None,
+        description="Survey to show performance stats and recent responses for. Null until the user picks one.",
+    )
+    limit: WidgetLimit = Field(
+        default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of recent responses to return."
+    )
+
+    @field_validator("surveyId", mode="before")
+    @classmethod
+    def validate_survey_id(cls, value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str):
+            raise ValueError("surveyId must be a string.")
+        return value
 
 
 class LogsListWidgetConfig(WidgetDateRangeConfigBase):
