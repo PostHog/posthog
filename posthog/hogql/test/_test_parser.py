@@ -6465,6 +6465,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                 # `std::stoi` returns `int`, so a count past INT_MAX (2147483647) is out_of_range. rust used to parse the count as i64 and silently accept these.
                 ("INTERVAL '2147483648 day'", "Unknown error: stoi"),
                 ("INTERVAL '1 SECOND'", "Unsupported interval unit: SECOND"),
+                # cpp accepts only the singular or single-`s` plural unit; a doubled plural is rejected. rust used to strip every trailing `s` and silently accept `dayss` as `day`.
+                ("INTERVAL '1 dayss'", "Unsupported interval unit: dayss"),
+                ("INTERVAL '1 secondss'", "Unsupported interval unit: secondss"),
                 # A string with no internal space can't be `<count> <unit>`: cpp commits to ColumnExprIntervalString and its visitor rejects with this message. rust used to fall through to the expr+unit form and raise a "expected interval unit keyword" SyntaxError instead — same base class, so only the message asserts the divergence.
                 ("INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
                 ("INTERVAL 'x'", "Unsupported interval type: must be in the format '<count> <unit>'"),
