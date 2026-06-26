@@ -1,7 +1,4 @@
-function values (obj) { if (typeof obj === 'object' && obj !== null) { if (Array.isArray(obj)) { return [...obj] } else if (obj instanceof Map) { return Array.from(obj.values()) } return Object.values(obj) } return [] }
-function tuple (...args) { const tuple = args.slice(); tuple.__isHogTuple = true; return tuple; }
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
-function keys (obj) { if (typeof obj === 'object' && obj !== null) { if (Array.isArray(obj)) { return Array.from(obj.keys()) } else if (obj instanceof Map) { return Array.from(obj.keys()) } return Object.keys(obj) } return [] }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
@@ -29,6 +26,11 @@ function __printHogValue(obj, marked = new Set()) {
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
+function __getProperty(objectOrArray, key, nullish) {
+    if ((nullish && !objectOrArray) || key === 0) { return null }
+    if (Array.isArray(objectOrArray)) { return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key] }
+    else { return objectOrArray[key] }
+}
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
@@ -40,15 +42,5 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
-let a = [3, 4, 5];
-let b = tuple(3, 4, 5);
-let c = {"key": "value", "other": "val"};
-print(">> A");
-print(keys(a));
-print(values(a));
-print(">> B");
-print(keys(b));
-print(values(b));
-print(">> C");
-print(keys(c));
-print(values(c));
+let obj = {"a`b": 10, "with space": 20, "a\\b": 30};
+print(__getProperty(obj, "a`b", true), __getProperty(obj, "with space", true), __getProperty(obj, "a\\b", true));
