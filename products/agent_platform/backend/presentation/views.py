@@ -73,7 +73,7 @@ from posthog.security.outbound_proxy import internal_requests
 from ..db import WRITER_DB
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
-from ..logic.kernel_skills import kernel_skills_for
+from ..logic.kernel_skills import all_kernel_skill_ids, kernel_skills_for
 from ..logic.posthog_identity_app import provision_posthog_identity_apps
 from ..logic.skill_resolution import assert_skill_refs_readable, resolve_skill_ref, stamp_skill_provenance
 from ..logic.spec_schema import missing_required_secrets
@@ -2383,18 +2383,30 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # left by a failed prior freeze — absent from the spec — is swept on retry
         # rather than misclassified as legacy. An unreferenced inline skill is
         # refused: silently dropping it would lose real content.
+        #
+        # Exempt ANY shipped kernel id (`all_kernel_ids`), not just this agent's
+        # applicable set (`kernel_ids`): an inline entry whose id is a platform
+        # kernel skill is platform-owned content the author can't author or remove
+        # (there is no `skills` write path). It reaches a fork two ways the guard
+        # must not brick — a kernel de-designated for this slug, or a cross-team
+        # `clone_from` that lands an opaque slug no kernel targets. In both the id
+        # is still a shipped kernel, so it's safe to let through: the sweep below
+        # drops it from the bundle when it's no longer applicable, re-injecting only
+        # what `kernel_ids` still designates. Only a genuinely deleted kernel folder
+        # falls through to the legacy path, which is the honest outcome.
+        all_kernel_ids = all_kernel_skill_ids()
         legacy_orphans = sorted(
             sid
             for s in ((revision.spec or {}).get("skills") or [])
-            if (sid := s.get("id")) and not s.get("source_version_id") and sid not in aliases and sid not in kernel_ids
+            if (sid := s.get("id"))
+            and not s.get("source_version_id")
+            and sid not in aliases
+            and sid not in all_kernel_ids
         )
         if legacy_orphans:
             raise ValidationError(
                 f"Revision carries inline skill(s) {legacy_orphans} not backed by a store reference. "
-                "If these were authored before the skill store became canonical, recreate them in the store and "
-                "set `skill_refs` before freezing. If one was a platform kernel skill that has since been removed "
-                "or de-designated for this agent, branch a fresh draft from the current live revision (which no "
-                "longer carries it) instead of re-freezing this fork — the freeze would otherwise silently drop it."
+                "These predate the skill store — recreate them in the store and set `skill_refs` before freezing."
             )
         # Materialize the resolved refs into the bundle, then seal. Skills are
         # store-only — nothing else writes `skills/` — so the frozen bundle must
@@ -2403,6 +2415,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # freeze already sealed the bundle (its HTTP response was lost): the
         # janitor refuses edits to a sealed bundle, and its `freeze` is idempotent
         # — it re-derives the sha + spec from what's already sealed.
+        bundle_already_sealed = False
         try:
             manifest = janitor_client.manifest(str(revision.id))
             # Only `skills/<alias>/<file>` paths whose alias matches the janitor's
@@ -2441,6 +2454,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # to the idempotent freeze below. Any other error is a real failure.
             if not _is_sealed_bundle_conflict(e):
                 raise JanitorUpstreamError(e) from e
+            bundle_already_sealed = True
         result = self._call(janitor_client.freeze, str(revision.id))
         # Pin resolved versions back into `skill_refs` so an unpinned ref becomes a
         # concrete pin after its first freeze. A fork copies `skill_refs` verbatim,
@@ -2465,13 +2479,23 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # otherwise flip a `ready` agent live while silently missing a kernel
             # skill — e.g. `safety-and-boundaries`. Fail before the draft→ready flip
             # so the revision stays a draft and the freeze is retriable.
-            materialized_ids = {s.get("id") for s in derived_spec.get("skills") or []}
-            missing_kernel = sorted(kernel_ids - materialized_ids)
-            if missing_kernel:
-                raise APIException(
-                    detail=f"Freeze sealed without kernel skill(s) {missing_kernel}; materialization failed — "
-                    "revision left in draft. Retry the freeze."
-                )
+            #
+            # Only enforce it when we actually (re)wrote the bundle this freeze. On
+            # the sealed-bundle fall-through the bytes are immutable and `put_skill`
+            # can no longer touch them — the freeze that sealed them already ran this
+            # check. Re-running it here would permanently wedge the draft whenever
+            # the kernel set drifted (grew/renamed) after that seal, or whenever a
+            # concurrent freeze won the seal first — turning a lost-response retry
+            # into a dead end. The conditional draft→ready UPDATE below is what keeps
+            # concurrent freezes consistent in that case.
+            if not bundle_already_sealed:
+                materialized_ids = {s.get("id") for s in derived_spec.get("skills") or []}
+                missing_kernel = sorted(kernel_ids - materialized_ids)
+                if missing_kernel:
+                    raise APIException(
+                        detail=f"Freeze sealed without kernel skill(s) {missing_kernel}; materialization failed — "
+                        "revision left in draft. Retry the freeze."
+                    )
             fields["spec"] = derived_spec
         # Conditional draft→ready flip: only the first freeze of a draft wins, so
         # two concurrent freezes can't both stamp the row, and a `set_skill_refs`

@@ -208,6 +208,9 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
 
         res = self.client.post(self.url)
         self.assertEqual(res.status_code, 200, res.content)
+        # Kernel selection keys on the agent's slug — pin the call arg so swapping
+        # the call site to anything else can't silently disable kernel injection.
+        mock_kernel.assert_called_once_with(self.application.slug)
         materialized = {call.args[1] for call in client.put_skill.call_args_list}
         self.assertEqual(materialized, {"triage", "safety-and-boundaries"})
         kernel_call = next(c for c in client.put_skill.call_args_list if c.args[1] == "safety-and-boundaries")
@@ -245,6 +248,7 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
 
         res = self.client.post(self.url)
         self.assertEqual(res.status_code, 200, res.content)
+        mock_kernel.assert_called_once_with(self.application.slug)
         swept = {call.args[1] for call in client.delete_skill.call_args_list}
         self.assertEqual(swept, {"stale"})
 
@@ -262,6 +266,7 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         res = self.client.post(self.url)
         self.assertEqual(res.status_code, 400, res.content)
         self.assertIn("collide", str(res.content))
+        mock_kernel.assert_called_once_with(self.application.slug)
         client.freeze.assert_not_called()
         self.revision.refresh_from_db()
         self.assertEqual(self.revision.state, "draft")
@@ -292,6 +297,75 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
                 "model": "x",
                 "triggers": [],
                 "skills": [{"id": "safety-and-boundaries", "path": "skills/safety-and-boundaries/SKILL.md"}],
+                "tools": [],
+            },
+        }
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 200, res.content)
+        mock_kernel.assert_called_once_with(self.application.slug)
+        client.freeze.assert_called_once()
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.state, "ready")
+
+    @patch("products.agent_platform.backend.presentation.views.all_kernel_skill_ids")
+    @patch("products.agent_platform.backend.presentation.views.kernel_skills_for")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_drops_inline_kernel_entry_no_kernel_targets_this_agent(
+        self, mock_janitor: MagicMock, mock_kernel: MagicMock, mock_all_kernel_ids: MagicMock
+    ) -> None:
+        # A cross-team `clone_from` of an agent-builder revision lands an opaque slug
+        # no kernel skill targets, but the carried spec still has the inline kernel
+        # entry (no `source_version_id`, no backing ref). It's a shipped kernel id, so
+        # the legacy-orphan guard must let the freeze through and the sweep must drop
+        # the now-inapplicable folder — not brick the fork permanently.
+        mock_kernel.return_value = []
+        mock_all_kernel_ids.return_value = frozenset({"safety-and-boundaries"})
+        self.revision.skill_refs = []
+        self.revision.spec = {
+            "model": "x",
+            "triggers": [],
+            "skills": [{"id": "safety-and-boundaries", "path": "skills/safety-and-boundaries/SKILL.md"}],
+        }
+        self.revision.save(update_fields=["skill_refs", "spec"])
+        client = mock_janitor.return_value
+        client.put_skill = MagicMock(return_value={"ok": True})
+        client.delete_skill = MagicMock(return_value={"ok": True})
+        client.manifest.return_value = {"files": [{"path": "skills/safety-and-boundaries/SKILL.md"}]}
+        client.freeze.return_value = {
+            "bundle_sha256": "a" * 64,
+            "derived_spec": {"model": "x", "triggers": [], "skills": [], "tools": []},
+        }
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 200, res.content)
+        client.delete_skill.assert_called_once_with(str(self.revision.id), "safety-and-boundaries")
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.state, "ready")
+
+    @patch("products.agent_platform.backend.presentation.views.kernel_skills_for")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_retry_on_sealed_bundle_does_not_wedge_on_kernel_drift(
+        self, mock_janitor: MagicMock, mock_kernel: MagicMock
+    ) -> None:
+        # A prior freeze sealed the bundle (response lost); the kernel set has since
+        # grown, so the sealed spec can't contain the newer kernel id. The retry hits
+        # a sealed-bundle 409, falls through to the idempotent freeze, and must NOT
+        # re-apply the post-seal kernel invariant against the immutable sealed bytes —
+        # otherwise every retry wedges the draft forever.
+        mock_kernel.return_value = [self._kernel("safety-and-boundaries")]
+        client = mock_janitor.return_value
+        client.manifest.return_value = {"files": [{"path": "skills/triage/SKILL.md"}]}
+        client.put_skill = MagicMock(
+            side_effect=JanitorClientError(409, "revision_not_draft", body={"error": "revision_not_draft"})
+        )
+        client.freeze.return_value = {
+            "bundle_sha256": "a" * 64,
+            # Sealed bytes predate the kernel skill — it can't appear here.
+            "derived_spec": {
+                "model": "x",
+                "triggers": [],
+                "skills": [{"id": "triage", "path": "skills/triage/SKILL.md"}],
                 "tools": [],
             },
         }

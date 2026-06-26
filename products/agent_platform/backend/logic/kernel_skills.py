@@ -118,7 +118,10 @@ def _agents_of(folder: Path) -> list[str] | None:
     md = folder / "SKILL.md"
     if not md.is_file():
         return None
-    block = _frontmatter_block(md.read_text())
+    # Force UTF-8: every shipped SKILL.md carries em dashes, and `read_text()`'s
+    # locale default (e.g. ASCII under `LC_ALL=C`) would raise on the first folder
+    # — taking down freeze for every agent, the exact blast radius this path avoids.
+    block = _frontmatter_block(md.read_text(encoding="utf-8"))
     if block is None:
         return None
     try:
@@ -150,7 +153,12 @@ def _load_skill(folder: Path) -> KernelSkill:
     block = _frontmatter_block(raw)
     if block is None:
         raise ValueError(f"kernel skill '{sid}' is missing a `---`-fenced YAML frontmatter block")
-    fm = yaml.safe_load(block)
+    try:
+        fm = yaml.safe_load(block)
+    except yaml.YAMLError as e:
+        # Re-raise as ValueError so broken YAML joins the rest of the malformation
+        # contract (`_all_kernel_skills`' CI check + the parameterized rejection tests).
+        raise ValueError(f"kernel skill '{sid}' has invalid YAML frontmatter: {e}") from e
     if not isinstance(fm, dict):
         raise ValueError(f"kernel skill '{sid}' frontmatter is not a YAML mapping")
 
@@ -184,7 +192,22 @@ def _skill_dirs() -> list[Path]:
     cruft like `__pycache__` or `.DS_Store` dirs) so a stray directory can't wedge
     freeze — but keeps any letter/digit-named dir so a genuinely mis-named skill
     folder still trips `_load_skill`'s id check rather than vanishing silently."""
+    # A deploy variant that ships the Django code without `kernel_skills/` must
+    # degrade to "no kernel skills", not 500 every freeze on a missing-dir
+    # `iterdir()`. The strict CI check (`_all_kernel_skills`) still guards the
+    # in-repo set, so an accidentally-empty dir can't slip kernel skills out.
+    if not _KERNEL_SKILLS_DIR.is_dir():
+        return []
     return sorted(p for p in _KERNEL_SKILLS_DIR.iterdir() if p.is_dir() and not p.name.startswith((".", "_")))
+
+
+def all_kernel_skill_ids() -> frozenset[str]:
+    """Every shipped kernel skill id, across all `agents` mappings — a cheap,
+    parse-free folder-name read (no malformation risk). Freeze uses this to tell
+    platform-owned inline skill entries (a former/cross-team kernel id carried in a
+    forked `spec.skills[]`) apart from genuine pre-store author content: the former
+    is the platform's to drop and re-inject, the latter must block the freeze."""
+    return frozenset(f.name for f in _skill_dirs())
 
 
 def _all_kernel_skills() -> tuple[KernelSkill, ...]:

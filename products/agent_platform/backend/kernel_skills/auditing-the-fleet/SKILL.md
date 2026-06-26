@@ -16,9 +16,9 @@ the durable outputs that survive past the conversation.
 This skill is the orchestration. It leans on two others:
 
 - `debugging-sessions` — the per-session failure taxonomy + how to
-  read an event log. Load it the first time you open a bad session.
-- `editing-agents-safely` — the draft → validate mechanics. Load it
-  before you branch your first proposal.
+  read an event log. Fetch the playbook the first time you open a bad session.
+- `editing-agents-safely` — the draft → validate mechanics. Fetch the
+  playbook before you branch your first proposal.
 
 ## What a fleet-wide sweep changes
 
