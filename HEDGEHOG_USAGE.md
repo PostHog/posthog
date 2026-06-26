@@ -153,20 +153,6 @@ We want to retire these hedgehogs and replace them with illustrations from [`@po
 | `graphs-hog.png`        | `GraphsHog`                | `products/dashboards/frontend/components/WidgetCard/WidgetCardBody.tsx`                           | `chart-hog`        |
 | `graphs-hog.png`        | `GraphsHog`                | `frontend/src/lib/components/ProductIntroduction/ProductIntroduction.stories.tsx` (Storybook)     | `chart-hog`        |
 
-## Unused (7)
-
-Imported into [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) and exported as components, but the components are never rendered anywhere in `frontend/` or `products/`.
-
-| Image                       | Exported component   | Status                                                            |
-| --------------------------- | -------------------- | ----------------------------------------------------------------- |
-| `3-bears-hogs.png`          | `ThreeBearsHogs`     | Exported, never consumed                                          |
-| `desk-hog.png`              | `DeskHog`            | Exported, never consumed                                          |
-| `disguise-hog.png`          | `DisguiseHog`        | Exported, never consumed                                          |
-| `hospital-hog.png`          | `HospitalHog`        | Exported, never consumed (was only in the Hogfetti pool; dropped) |
-| `laptop-hog-01.png`         | `LaptopHog1`         | Exported, never consumed                                          |
-| `laptop-hog-02.png`         | `LaptopHog2`         | Exported, never consumed                                          |
-| `pop-up-binoculars-hog.png` | `PopUpBinocularsHog` | Exported, never consumed                                          |
-
 ## Cleanup notes
 
 **Orphaned `police-hog`** — once nothing referenced its `public/hedgehog/` original any more:
@@ -179,7 +165,7 @@ Imported into [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) and e
 - **`public/hedgehog/space-hog.png` and `public/hedgehog/tron-hog.png`** were deleted (Hogfetti keeps its own `Hogfetti/hogs/` copies).
 - The **`SpaceHog` and `TronHog` registry exports** in [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) were removed along with them.
 
-**Dead registry exports** — never consumed, still awaiting removal: `HospitalHog`, `ThreeBearsHogs`, `DeskHog`, `DisguiseHog`, `LaptopHog1`, `LaptopHog2`, `PopUpBinocularsHog` (see [Unused](#unused-7)).
+**Removed dead registry exports** — never rendered anywhere, so the exports and their `public/hedgehog/` images were deleted: `ThreeBearsHogs`, `DeskHog`, `DisguiseHog`, `HospitalHog`, `LaptopHog1`, `LaptopHog2`, `PopUpBinocularsHog`.
 
 ## Missing from the brand library
 

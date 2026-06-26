@@ -1,7 +1,6 @@
 // Loads custom icons (some icons may come from a third-party library)
 import React, { ImgHTMLAttributes } from 'react'
 
-import threeBearsHogs from 'public/hedgehog/3-bears-hogs.png'
 import bigLeaguesHog from 'public/hedgehog/big-leagues.png'
 import blushingHog from 'public/hedgehog/blushing-hog.png'
 import builderHog1 from 'public/hedgehog/builder-hog-01.png'
@@ -10,9 +9,7 @@ import builderHog3 from 'public/hedgehog/builder-hog-03.png'
 import burningMoneyHog from 'public/hedgehog/burning-money-hog.png'
 import climberHog1 from 'public/hedgehog/climber-hog-01.png'
 import climberHog2 from 'public/hedgehog/climber-hog-02.png'
-import deskHog from 'public/hedgehog/desk-hog.png'
 import detectiveHog from 'public/hedgehog/detective-hog.png'
-import disguiseHog from 'public/hedgehog/disguise-hog.png'
 import experimentsHog from 'public/hedgehog/experiments-hog.png'
 import explorerHog from 'public/hedgehog/explorer-hog.png'
 import featureFlagHog from 'public/hedgehog/feature-flag-hog.png'
@@ -20,10 +17,7 @@ import filmCameraHog from 'public/hedgehog/filmcamera.png'
 import graphsHog from 'public/hedgehog/graphs-hog.png'
 import heartHog from 'public/hedgehog/heart-hog.png'
 import hogWelder from 'public/hedgehog/hog-welder.png'
-import hospitalHog from 'public/hedgehog/hospital-hog.png'
 import judgeHog from 'public/hedgehog/judge-hog.png'
-import laptopHog1 from 'public/hedgehog/laptop-hog-01.png'
-import laptopHog2 from 'public/hedgehog/laptop-hog-02.png'
 import laptopHog3 from 'public/hedgehog/laptop-hog-03.png'
 import laptopHog4 from 'public/hedgehog/laptop-hog-04.png'
 import laptopHogEU from 'public/hedgehog/laptop-hog-eu.png'
@@ -31,7 +25,6 @@ import listHog from 'public/hedgehog/list-hog.png'
 import mailHog from 'public/hedgehog/mail-hog.png'
 import microphoneHog from 'public/hedgehog/microphone-hog.png'
 import phonePairHogs from 'public/hedgehog/phone-pair-hogs.png'
-import popUpBinocularsHog from 'public/hedgehog/pop-up-binoculars-hog.png'
 import professorHog from 'public/hedgehog/professor-hog.png'
 import readingHog from 'public/hedgehog/reading-hog.png'
 import robotHog from 'public/hedgehog/robot-hog.png'
@@ -75,17 +68,8 @@ export const XRayHog2 = (props: HedgehogProps): JSX.Element => {
 export const HogWelder = (props: HedgehogProps): JSX.Element => {
     return <RectangularHedgehog src={hogWelder} {...props} />
 }
-export const HospitalHog = (props: HedgehogProps): JSX.Element => {
-    return <SquaredHedgehog src={hospitalHog} {...props} />
-}
 export const BlushingHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={blushingHog} {...props} />
-}
-export const LaptopHog1 = (props: HedgehogProps): JSX.Element => {
-    return <RectangularHedgehog src={laptopHog1} {...props} />
-}
-export const LaptopHog2 = (props: HedgehogProps): JSX.Element => {
-    return <RectangularHedgehog src={laptopHog2} {...props} />
 }
 export const LaptopHog3 = (props: HedgehogProps): JSX.Element => {
     return <RectangularHedgehog src={laptopHog3} {...props} />
@@ -186,22 +170,6 @@ export const BigLeaguesHog = (props: HedgehogProps): JSX.Element => {
 export const StopSignHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={stopSignHog} {...props} />
 }
-export const ThreeBearsHogs = (props: HedgehogProps): JSX.Element => {
-    return <SquaredHedgehog src={threeBearsHogs} {...props} />
-}
-export const PopUpBinocularsHog = React.forwardRef<HTMLImageElement, HedgehogProps>(
-    function PopUpBinocularsHog(props, ref): JSX.Element {
-        return <RectangularHedgehog src={popUpBinocularsHog} {...props} ref={ref} />
-    }
-)
-export const DeskHog = React.forwardRef<HTMLImageElement, HedgehogProps>(function DeskHog(props, ref): JSX.Element {
-    return <RectangularHedgehog src={deskHog} {...props} ref={ref} />
-})
 export const GraphsHog = React.forwardRef<HTMLImageElement, HedgehogProps>(function GraphsHog(props, ref): JSX.Element {
     return <RectangularHedgehog src={graphsHog} {...props} ref={ref} />
 })
-export const DisguiseHog = React.forwardRef<HTMLImageElement, HedgehogProps>(
-    function DisguiseHog(props, ref): JSX.Element {
-        return <RectangularHedgehog src={disguiseHog} {...props} ref={ref} />
-    }
-)
