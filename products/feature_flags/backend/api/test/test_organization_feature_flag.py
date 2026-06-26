@@ -1274,7 +1274,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         # so no "group now matches everyone" warning is added)
         self.assertEqual(len(success["flag_dependency_warnings"]), 1)
         self.assertIn("missing-parent", success["flag_dependency_warnings"][0])
-        self.assertTrue(copied_flag.active)
+        # A dependency was dropped, so the copy is forced inactive for review even though the
+        # remapped dependency still gates the group.
+        self.assertFalse(copied_flag.active)
 
     def test_copy_feature_flag_remaps_dependency_per_target_without_leak(self):
         # Each target has its own same-key parent under a different ID. The remap runs on a per-target
