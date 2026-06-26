@@ -2198,6 +2198,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             // Persist the repositioning (same raw-PATCH shape as duplicateTile / saveEditModeChanges).
+            // TODO: drop this follow-up request once the tile-create endpoints can insert at a position
+            // (and reflow the displaced tiles) server-side, so an inline insert is a single round trip.
             try {
                 const response: DashboardType<InsightModel> = await api.update(
                     `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
