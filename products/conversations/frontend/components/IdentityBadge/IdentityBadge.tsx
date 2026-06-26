@@ -1,4 +1,4 @@
-import { IconShield, IconWarning } from '@posthog/icons'
+import { IconShield, IconShieldEmpty, IconShieldExclamation } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 const DOCS_URL = 'https://posthog.com/docs/support/widget#identity-verification'
@@ -18,7 +18,8 @@ interface IdentityBadgeProps {
 
 export function IdentityBadge({ verified, iconOnly = false }: IdentityBadgeProps): JSX.Element {
     const tooltip = verified ? VERIFIED_TEXT : verified === false ? UNVERIFIED_TEXT : UNKNOWN_TEXT
-    const icon = verified ? <IconShield /> : <IconWarning />
+    // verified → shield+tick, unverified → shield+exclamation, unknown → empty shield
+    const icon = verified ? <IconShield /> : verified === false ? <IconShieldExclamation /> : <IconShieldEmpty />
     // verified → green, unverified → amber, unknown → muted grayscale
     const iconColor = verified ? 'text-success' : verified === false ? 'text-warning' : 'text-muted-alt'
     const tagType = verified ? 'success' : verified === false ? 'warning' : 'muted'
