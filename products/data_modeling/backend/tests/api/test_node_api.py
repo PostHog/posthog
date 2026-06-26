@@ -158,7 +158,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("table", response.json()["error"].lower())
 
-    @patch("products.data_modeling.backend.api.node.sync_connect")
+    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
     def test_run_upstream_starts_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -172,7 +172,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertIn(str(self.view_node.id), response.json()["node_ids"])
         mock_client.start_workflow.assert_called_once()
 
-    @patch("products.data_modeling.backend.api.node.sync_connect")
+    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
     def test_run_downstream_starts_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -193,7 +193,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("table", response.json()["error"].lower())
 
-    @patch("products.data_modeling.backend.api.node.sync_connect")
+    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
     def test_materialize_starts_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -205,8 +205,8 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_client.start_workflow.assert_called_once()
 
-    @patch("products.data_modeling.backend.api.node.feature_enabled_or_false", return_value=True)
-    @patch("products.data_modeling.backend.api.node.sync_connect")
+    @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=True)
+    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
     def test_run_uses_execute_dag_when_v2_enabled(self, mock_sync_connect, mock_feature_flag):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -220,8 +220,8 @@ class TestNodeViewSet(APIBaseTest):
         call_args = mock_client.start_workflow.call_args
         self.assertEqual(call_args[0][0], "data-modeling-execute-dag")
 
-    @patch("products.data_modeling.backend.api.node.feature_enabled_or_false", return_value=False)
-    @patch("products.data_modeling.backend.api.node.sync_connect")
+    @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=False)
+    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
     def test_run_uses_run_workflow_when_v2_disabled(self, mock_sync_connect, mock_feature_flag):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -235,8 +235,8 @@ class TestNodeViewSet(APIBaseTest):
         call_args = mock_client.start_workflow.call_args
         self.assertEqual(call_args[0][0], "data-modeling-run")
 
-    @patch("products.data_modeling.backend.api.node.feature_enabled_or_false", return_value=True)
-    @patch("products.data_modeling.backend.api.node.sync_connect")
+    @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=True)
+    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
     def test_materialize_uses_materialize_view_when_v2_enabled(self, mock_sync_connect, mock_feature_flag):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -249,8 +249,8 @@ class TestNodeViewSet(APIBaseTest):
         call_args = mock_client.start_workflow.call_args
         self.assertEqual(call_args[0][0], "data-modeling-materialize-view")
 
-    @patch("products.data_modeling.backend.api.node.feature_enabled_or_false", return_value=False)
-    @patch("products.data_modeling.backend.api.node.sync_connect")
+    @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=False)
+    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
     def test_materialize_uses_run_workflow_when_v2_disabled(self, mock_sync_connect, mock_feature_flag):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client

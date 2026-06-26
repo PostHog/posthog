@@ -309,7 +309,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True)
     def lineage(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Return the subgraph of nodes and edges reachable from this node (upstream + downstream)."""
-        from products.data_modeling.backend.api.edge import EdgeSerializer
+        from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
 
         node = self.get_object()
         upstream_ids = _get_upstream_nodes(node, include_tables=True)

@@ -509,6 +509,12 @@ ignore_imports = [
     # Allowed: presentation can import facade and itself
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
+    # data_modeling — presentation wave deferred (views routed through the facade in a follow-up)
+    "products.data_modeling.backend.presentation.views.dag -> products.data_modeling.backend.models",
+    "products.data_modeling.backend.presentation.views.edge -> products.data_modeling.backend.models",
+    "products.data_modeling.backend.presentation.views.node -> products.data_modeling.backend.graph",
+    "products.data_modeling.backend.presentation.views.node -> products.data_modeling.backend.models",
+    "products.data_modeling.backend.presentation.views.node -> products.data_modeling.backend.models.data_modeling_job",
     # TODO: existing violations — fix by routing through facade
     "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.logic.spec_schema",
     "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.models",
