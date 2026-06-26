@@ -15,6 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/LogsPatterns'
 import { LogsServices } from 'products/logs/frontend/components/LogsServices/LogsServices'
 import { LogsSqlEditor } from 'products/logs/frontend/components/LogsSqlEditor/LogsSqlEditor'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
@@ -90,12 +91,14 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const { activeTab } = useValues(logsSceneLogic)
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
+    const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
     const showAlerting = useFeatureFlag('LOGS_ALERTING')
     const showSqlView = useFeatureFlag('LOGS_SQL_VIEW')
 
     const tabs: { key: LogsSceneActiveTab; label: string }[] = [
         { key: 'viewer', label: 'Viewer' },
+        ...(showPatternsView ? [{ key: 'patterns' as const, label: 'Patterns' }] : []),
         ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
         ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
         ...(showSqlView ? [{ key: 'sql' as const, label: 'SQL' }] : []),
@@ -142,6 +145,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                     </div>
                 </LogsSetupPrompt>
             )}
+            {activeTab === 'patterns' && showPatternsView && <LogsPatterns />}
             {activeTab === 'services' && showServicesView && (
                 <>
                     <LogsServices />
