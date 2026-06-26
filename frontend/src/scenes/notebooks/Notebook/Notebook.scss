@@ -693,16 +693,27 @@ body:has(.Notebook--markdown-v2),
 }
 
 .Notebook--markdown-v2.Notebook--expanded {
+    .main-content-container > main > & {
+        width: 100%;
+        width: var(--scene-layout-rect-width);
+        max-width: none;
+        margin-left: -1rem;
+    }
+
     .Notebook_content {
         padding-right: 0;
         padding-left: 0;
-        margin-right: -1rem;
-        margin-left: -1rem;
+
+        .Notebook__markdown-v2,
+        .MarkdownNotebook__debug-layout,
+        .MarkdownNotebook__main,
+        .MarkdownNotebook__canvas {
+            width: 100%;
+            max-width: none;
+        }
 
         .SidePanel3000 & {
             padding: 0 0.75rem;
-            margin-right: 0;
-            margin-left: 0;
         }
     }
 }
