@@ -2,7 +2,7 @@
 // registry. The bare registry no longer knows product keys, so the resolution assertions below need it.
 import './registerMaxToolRenderers'
 
-import { lookupToolRenderer, toolRegistry } from 'products/posthog_ai/frontend'
+import { lookupToolRenderer, toolRegistry } from 'products/posthog_ai/frontend/api/tools'
 
 import type { ToolCallMessage } from '../../maxTypes'
 import { extractNotebook } from './CreateNotebookWidget'

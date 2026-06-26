@@ -85,6 +85,17 @@ const QuestionRenderer = lazy(() => import('../QuestionRenderer').then((m) => ({
  */
 export const toolRegistry: ToolRegistry = new MapBackedRegistry()
 
+/**
+ * Bulk-register tool renderers into the shared registry. The generic per-product seam: a product
+ * registers its tool cards from its own scene's entrypoint (as Max does via `registerMaxToolRenderers`).
+ * `toolRegistry.register` stays available for single-entry use.
+ */
+export function registerToolRenderers(entries: ToolRegistryEntry[]): void {
+    for (const entry of entries) {
+        toolRegistry.register(entry)
+    }
+}
+
 // Product-specific data-tool renderers (insight, dashboard, session recordings, error tracking,
 // notebooks, query wrappers) are NOT registered here — they live in scenes/max and register themselves
 // into this registry via `registerMaxToolRenderers` so this surface stays free of any scenes/max import.
