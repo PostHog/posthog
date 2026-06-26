@@ -54,8 +54,8 @@ and bump `max_migration.txt`.
   silently as a plain ALTER.
 - Env-specific statements get a `# NOTE: only [...] — gate with settings.CLOUD_DEPLOYMENT`
   comment; the human writes the `CLOUD_DEPLOYMENT` branch (auto-gating is a follow-up).
-- Output goes to stdout; placement as the next numbered migration + `max_migration.txt`
-  bump is manual.
+- `--auto` writes the next numbered `migrations/NNNN_<name>.py` and bumps `max_migration.txt`;
+  without it the body goes to stdout (or `--out`) for manual placement.
 - Scoped to OPS + LOGS (see `../nodes`). Other roles that also host the shared
   `query_log_archive` path are commented out, so shared-object changes target only
   OPS + LOGS; `events_recent` derives as OPS-only until the DATA node is modeled.
