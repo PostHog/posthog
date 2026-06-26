@@ -75,6 +75,12 @@ export interface HogInvocationsFilters {
     kind?: 'invocations' | 'rerun_jobs'
     search?: string
     order_by?: RunsOrderBy
+    /**
+     * Show only invocations that logged an error or warning entry (e.g. an SES bounce/complaint
+     * that arrives after the run already finished `succeeded`). Status is execution-based, so these
+     * aren't otherwise findable here without scanning the logs tab.
+     */
+    problem_only?: boolean
 }
 
 export interface HogInvocationsLogicProps {
@@ -113,6 +119,7 @@ const URL_PARAMS = {
     kind: `${URL_PARAM_PREFIX}kind`,
     search: `${URL_PARAM_PREFIX}search`,
     order_by: `${URL_PARAM_PREFIX}order`,
+    problem_only: `${URL_PARAM_PREFIX}problems`,
 } as const
 
 const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, string | undefined> => ({
@@ -123,6 +130,7 @@ const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, s
     [URL_PARAMS.kind]: filters.kind,
     [URL_PARAMS.search]: filters.search,
     [URL_PARAMS.order_by]: filters.order_by === 'first_scheduled' ? undefined : filters.order_by,
+    [URL_PARAMS.problem_only]: filters.problem_only ? '1' : undefined,
 })
 
 const searchParamsToFilters = (searchParams: Record<string, string | undefined>): Partial<HogInvocationsFilters> => {
@@ -152,6 +160,9 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
     const orderBy = searchParams[URL_PARAMS.order_by]
     if (orderBy === 'first_scheduled' || orderBy === 'latest_scheduled') {
         next.order_by = orderBy
+    }
+    if (searchParams[URL_PARAMS.problem_only]) {
+        next.problem_only = true
     }
     return next
 }
@@ -277,6 +288,29 @@ export const kindClauseFor = (
 }
 
 /**
+ * Optional predicate restricting to invocations that logged an error/warning entry. Uses a
+ * `log_entries` subquery (resolved server-side, so no client-side id list) keyed by the same
+ * source the per-row logs use. Deliberately not date-scoped: a bounce/complaint can land after
+ * the run's scheduled window, and the outer `scheduled_at` filter already constrains which
+ * invocations appear. Returns an empty clause when the filter is off.
+ */
+export const problemClauseFor = (
+    props: HogInvocationsLogicProps,
+    filters: HogInvocationsFilters
+): ReturnType<typeof hogql.raw> => {
+    if (!filters.problem_only) {
+        return hogql.raw('')
+    }
+    return hogql.raw(
+        `AND invocation_id IN (` +
+            `SELECT instance_id FROM log_entries ` +
+            `WHERE log_source = ${escapeHogQLString(props.functionKind)} ` +
+            `AND log_source_id = ${escapeHogQLString(props.id)} ` +
+            `AND lower(level) IN ('error', 'warn'))`
+    )
+}
+
+/**
  * Tier selection for the sparkline. Each tier carries both the HogQL bucket
  * expression and the equivalent client-side interval (in ms) so we can
  * generate every bucket boundary in the filter range, not just the ones CH
@@ -379,6 +413,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
                ${optionalStatusClause}
                ${optionalErrorKindClause}
                ${optionalSearchClause}
+               ${problemClauseFor(props, filters)}
         )
         GROUP BY bucket, status
         ORDER BY bucket
@@ -480,6 +515,7 @@ async function fetchRunsPage(
            ${optionalStatusClause}
            ${optionalErrorKindClause}
            ${optionalSearchClause}
+           ${problemClauseFor(props, filters)}
         ${orderClause}
         LIMIT ${HOG_INVOCATIONS_PAGE_SIZE}
         OFFSET ${offset}

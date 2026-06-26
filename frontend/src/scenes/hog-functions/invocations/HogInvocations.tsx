@@ -507,6 +507,16 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
                             { value: 'rerun_jobs', label: 'Rerun jobs only' },
                         ]}
                     />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconWarning />}
+                        active={!!filters.problem_only}
+                        onClick={() => setFilters({ problem_only: filters.problem_only ? undefined : true })}
+                        tooltip="Show only runs that logged an error or warning — e.g. an email bounce or complaint that arrived after the run finished"
+                    >
+                        Logged errors
+                    </LemonButton>
                     <DateFilter
                         size="small"
                         dateTo={filters.date_to ?? undefined}
