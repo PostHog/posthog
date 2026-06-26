@@ -5,7 +5,7 @@ import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 
 import { WizardModeShell } from './WizardModeShell'
 
-export function WizardCommandBlock(): JSX.Element {
+export function WizardCommandBlock({ hideHog = false }: { hideHog?: boolean } = {}): JSX.Element {
     const { wizardCommand, isCloudOrDev } = useWizardCommand()
     const [castKey, setCastKey] = useState(0)
 
@@ -17,7 +17,7 @@ export function WizardCommandBlock(): JSX.Element {
     }
 
     return (
-        <WizardModeShell hogCastKey={castKey} data-attr="wizard-command-block">
+        <WizardModeShell hogCastKey={castKey} hideHog={hideHog} data-attr="wizard-command-block">
             <CommandBlock
                 command={wizardCommand}
                 copyLabel="Wizard command"

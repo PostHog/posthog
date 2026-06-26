@@ -76,24 +76,39 @@ export function WizardFrameworkBadges(): JSX.Element {
 export function WizardModeShell({
     children,
     hogCastKey = 0,
+    hideHog = false,
     'data-attr': dataAttr,
 }: {
     children: ReactNode
     hogCastKey?: number
+    /** Drop the hedgehog (e.g. the compact context-first onboarding card has no room for it). */
+    hideHog?: boolean
     'data-attr'?: string
 }): JSX.Element {
     return (
         <div className="flex gap-6" data-attr={dataAttr}>
-            <img
-                key={`hog-${hogCastKey}`}
-                src={WIZARD_HOG_URL}
-                alt="PostHog wizard hedgehog"
+            {!hideHog && (
+                <img
+                    key={`hog-${hogCastKey}`}
+                    src={WIZARD_HOG_URL}
+                    alt="PostHog wizard hedgehog"
+                    className={cn(
+                        'w-28 h-28 hidden sm:block shrink-0 self-center',
+                        hogCastKey > 0 && 'WizardModeShell__hogCast'
+                    )}
+                />
+            )}
+            {/* With the hog hidden (compact context-first card), center the content at its natural
+                width instead of stretching it full-bleed — so the command block and the GitHub-connect
+                block sit centered without expanding. With the hog shown, keep the left-aligned column. */}
+            <div
                 className={cn(
-                    'w-28 h-28 hidden sm:block shrink-0 self-center',
-                    hogCastKey > 0 && 'WizardModeShell__hogCast'
+                    'flex-1 flex flex-col justify-center gap-3',
+                    hideHog && 'items-center text-center'
                 )}
-            />
-            <div className="flex-1 flex flex-col justify-center gap-3">{children}</div>
+            >
+                {children}
+            </div>
         </div>
     )
 }

@@ -21,7 +21,13 @@ import { WizardModeShell } from './WizardModeShell'
  * ready" payoff are carried by the shared session-sync surfaces (the global FAB),
  * not by this block — see wizardCloudRunLogic.
  */
-export function WizardCloudRunBlock({ onQueued }: { onQueued?: () => void }): JSX.Element {
+export function WizardCloudRunBlock({
+    onQueued,
+    hideHog = false,
+}: {
+    onQueued?: () => void
+    hideHog?: boolean
+}): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
     const { githubIntegration, selectedRepository, cloudRunStatus, connectGitHubUrl } = useValues(wizardCloudRunLogic)
     const { setSelectedRepository, startCloudRun } = useActions(wizardCloudRunLogic)
@@ -57,7 +63,7 @@ export function WizardCloudRunBlock({ onQueued }: { onQueued?: () => void }): JS
     }
 
     return (
-        <WizardModeShell data-attr="wizard-cloud-run-block">
+        <WizardModeShell hideHog={hideHog} data-attr="wizard-cloud-run-block">
             <p className="text-sm text-muted mb-0">
                 We'll run the wizard against your repo and open a pull request with the SDK installed and events
                 flowing. Review it and merge whenever you're ready.

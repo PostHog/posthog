@@ -25,7 +25,7 @@ const DEFAULT_VARIANT_CONFIG: OnboardingVariantConfig = { chrome: 'minimal' }
  * `onboardingVariantRegistry.tsx` — add a variant in both places to ship a new onboarding.
  */
 export const ONBOARDING_FLOW_VARIANTS: Record<OnboardingFlowVariant, OnboardingVariantConfig> = {
-    legacy: { chrome: 'minimal' },
+    legacy: { chrome: 'none' },
     redesign: { chrome: 'minimal' },
 }
 

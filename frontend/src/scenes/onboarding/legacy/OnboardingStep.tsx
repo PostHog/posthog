@@ -10,7 +10,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
-import { OnboardingBreadcrumbs } from './OnboardingBreadcrumbs'
 import { stepKeyToTitle } from './onboardingFlowUtils'
 import { onboardingLogic } from './onboardingLogic'
 
@@ -88,7 +87,6 @@ export const OnboardingStep = ({
         <>
             <div className="pb-2">
                 <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
-                    <OnboardingBreadcrumbs />
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center items-start gap-2 mt-3 px-4 sm:px-0">
                         {!hideTitle && (
                             <h1 className={clsx('font-bold m-0 px-0 sm:px-2', fullWidth && 'text-center')}>
