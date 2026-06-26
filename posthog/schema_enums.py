@@ -1817,6 +1817,9 @@ class ExternalDataSourceType(StrEnum):
     HIGHTOUCH = "Hightouch"
     LEMON_SQUEEZY = "LemonSqueezy"
     IKAS = "Ikas"
+    TALKWALKER = "Talkwalker"
+    NEXTDOOR_ADS = "NextdoorAds"
+    APP_LOVIN = "AppLovin"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2562,6 +2565,8 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
     MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
+    MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"
+    MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -2575,6 +2580,17 @@ class PathType(StrEnum):
     FIELD_SCREEN = "$screen"
     CUSTOM_EVENT = "custom_event"
     HOGQL = "hogql"
+
+
+class SliceContent(StrEnum):
+    LABELS = "labels"
+    VALUES = "values"
+    NONE = "none"
+
+
+class ValueDisplay(StrEnum):
+    ABSOLUTE = "absolute"
+    PERCENTAGE = "percentage"
 
 
 class PinterestAdsDefaultSources(StrEnum):

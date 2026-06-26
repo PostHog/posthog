@@ -663,8 +663,7 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
     """
     # Existing client: check cache freshness and if not fresh, fire refresh in the background, returning existing app immediately
     if app := OAuthApplication.objects.filter(cimd_metadata_url=url).first():
-        if not cache.get(_cache_key(url)):
-            refresh_cimd_metadata_task.delay(url)
+        enqueue_cimd_refresh_if_stale(url)
         return app
 
     # New client: synchronous fetch
@@ -680,6 +679,18 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
             return app
 
     raise CIMDFetchError(f"Another request is already registering this client ({url}). Please try again.")
+
+
+def enqueue_cimd_refresh_if_stale(url: str) -> None:
+    """Fire a background metadata refresh if the cached document has gone stale.
+
+    Single source of the freshness check, used both by get_or_create_cimd_application
+    and by callers that resolve an existing CIMD app via a direct lookup (the agentic
+    provisioning auth path) so document changes are picked up on the same TTL, instead
+    of freezing the app's scopes and config at first registration.
+    """
+    if not cache.get(_cache_key(url)):
+        refresh_cimd_metadata_task.delay(url)
 
 
 def get_application_by_client_id(client_id: str) -> OAuthApplication:

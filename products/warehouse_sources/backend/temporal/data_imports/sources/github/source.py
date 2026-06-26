@@ -89,6 +89,7 @@ class GithubSource(
         return SourceConfig(
             name=SchemaExternalDataSourceType.GITHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            featured=True,
             label="GitHub",
             releaseStatus=ReleaseStatus.GA,
             caption="Connect your GitHub repository to sync issues, pull requests, commits, and more.",

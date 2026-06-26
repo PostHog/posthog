@@ -78,6 +78,15 @@ _UNSUPPORTED_MODEL_PREFIXES = (
 )
 
 
+class ProviderError(HTTPException):
+    """An HTTPException raised from the upstream provider call itself, as opposed to gateway-local
+    validation (unsupported model, bad headers, timeouts). Lets downstream handlers tell a genuine
+    provider failure apart from a gateway 400 that merely echoes caller-controlled input — e.g. the
+    Anthropic billing-block detector must not key off an unsupported-model message containing the
+    caller's model name. Subclasses HTTPException so it serializes to the client identically.
+    """
+
+
 def _raise_unsupported_model(model: str) -> None:
     raise HTTPException(
         status_code=400,
@@ -204,7 +213,7 @@ async def handle_llm_request(
             provider_error_type=getattr(e, "type", None),
             provider_error_code=getattr(e, "code", None),
         )
-        raise HTTPException(
+        raise ProviderError(
             status_code=status_code,
             detail={
                 "error": {
@@ -286,7 +295,7 @@ async def _handle_streaming_request(
             streaming="true",
             product=product,
         ).observe(time.monotonic() - start_time)
-        raise HTTPException(
+        raise ProviderError(
             status_code=status_code,
             detail={
                 "error": {
