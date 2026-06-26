@@ -115,6 +115,7 @@ describe('example: agent-builder bundle', () => {
             .map((t) => t.id)
             .sort()
         expect(ids).toEqual([
+            'connect_mcp',
             'focus_file',
             'focus_revision',
             'focus_session',
