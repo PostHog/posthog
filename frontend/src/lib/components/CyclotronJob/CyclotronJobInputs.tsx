@@ -698,7 +698,12 @@ function CyclotronJobInputRenderer({
             if (CustomRenderer) {
                 return (
                     <Suspense>
-                        <CustomRenderer schema={schema} value={input.value} onChange={onValueChange} />
+                        <CustomRenderer
+                            schema={schema}
+                            value={input.value}
+                            onChange={onValueChange}
+                            sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                        />
                     </Suspense>
                 )
             }
