@@ -5,14 +5,17 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __dashboard_insight_card_legend_legacy from './__mocks__/dashboard_insight_card_legend_legacy.json'
+import __dashboard_insight_card_legend_query from './__mocks__/dashboard_insight_card_legend_query.json'
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Dashboards',
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/dashboards/1/': require('./__mocks__/dashboard_insight_card_legend_query.json'),
-                '/api/environments/:team_id/dashboards/2/': require('./__mocks__/dashboard_insight_card_legend_legacy.json'),
+                '/api/environments/:team_id/dashboards/1/': __dashboard_insight_card_legend_query as any,
+                '/api/environments/:team_id/dashboards/2/': __dashboard_insight_card_legend_legacy as any,
             },
         }),
     ],

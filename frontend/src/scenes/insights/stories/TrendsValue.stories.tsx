@@ -6,6 +6,14 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __trendsArea from '../../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json'
+import __trendsAreaBreakdown from '../../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'
+import __trendsNumber from '../../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
+import __trendsTable from '../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
+import __trendsTableBreakdown from '../../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'
+import __trendsValue from '../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
+import __trendsValueBreakdown from '../../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/TrendsValue',
@@ -38,100 +46,62 @@ const meta: Meta = {
 export default meta
 /* eslint-disable @typescript-eslint/no-var-requires */
 // Trends Value
-export const TrendsValue: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json')
-)
+export const TrendsValue: Story = createInsightStory(__trendsValue as any)
 TrendsValue.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-bar-value-graph] > canvas' },
 }
-export const TrendsValueEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'),
-    'edit'
-)
+export const TrendsValueEdit: Story = createInsightStory(__trendsValue as any, 'edit')
 TrendsValueEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-bar-value-graph] > canvas' },
 }
 
-export const TrendsValueBreakdown: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json')
-)
+export const TrendsValueBreakdown: Story = createInsightStory(__trendsValueBreakdown as any)
 TrendsValueBreakdown.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-bar-value-graph] > canvas' },
 }
-export const TrendsValueBreakdownEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'),
-    'edit'
-)
+export const TrendsValueBreakdownEdit: Story = createInsightStory(__trendsValueBreakdown as any, 'edit')
 TrendsValueBreakdownEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-bar-value-graph] > canvas' },
 }
 
 // Trends Area
-export const TrendsArea: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json')
-)
+export const TrendsArea: Story = createInsightStory(__trendsArea as any)
 TrendsArea.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
-export const TrendsAreaEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json'),
-    'edit'
-)
+export const TrendsAreaEdit: Story = createInsightStory(__trendsArea as any, 'edit')
 TrendsAreaEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const TrendsAreaBreakdown: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json')
-)
+export const TrendsAreaBreakdown: Story = createInsightStory(__trendsAreaBreakdown as any)
 TrendsAreaBreakdown.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
-export const TrendsAreaBreakdownEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'),
-    'edit'
-)
+export const TrendsAreaBreakdownEdit: Story = createInsightStory(__trendsAreaBreakdown as any, 'edit')
 TrendsAreaBreakdownEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
 // Trends Number
-export const TrendsNumber: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json')
-)
+export const TrendsNumber: Story = createInsightStory(__trendsNumber as any)
 TrendsNumber.parameters = { testOptions: { waitForSelector: '.BoldNumber__value' } }
-export const TrendsNumberEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'),
-    'edit'
-)
+export const TrendsNumberEdit: Story = createInsightStory(__trendsNumber as any, 'edit')
 TrendsNumberEdit.parameters = { testOptions: { waitForSelector: '.BoldNumber__value' } }
 
 // Trends Table
-export const TrendsTable: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json')
-)
+export const TrendsTable: Story = createInsightStory(__trendsTable as any)
 TrendsTable.parameters = { testOptions: { waitForSelector: '[data-attr=insights-table-graph] td' } }
-export const TrendsTableEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'),
-    'edit'
-)
+export const TrendsTableEdit: Story = createInsightStory(__trendsTable as any, 'edit')
 TrendsTableEdit.parameters = { testOptions: { waitForSelector: '[data-attr=insights-table-graph] td' } }
 
-export const TrendsTableBreakdown: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json')
-)
+export const TrendsTableBreakdown: Story = createInsightStory(__trendsTableBreakdown as any)
 TrendsTableBreakdown.parameters = { testOptions: { waitForSelector: '[data-attr=insights-table-graph] td' } }
-export const TrendsTableBreakdownEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'),
-    'edit'
-)
+export const TrendsTableBreakdownEdit: Story = createInsightStory(__trendsTableBreakdown as any, 'edit')
 TrendsTableBreakdownEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=insights-table-graph] td' },
 }
-export const TrendsValueEditViewports: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'),
-    'edit'
-)
+export const TrendsValueEditViewports: Story = createInsightStory(__trendsValue as any, 'edit')
 TrendsValueEditViewports.parameters = {
     testOptions: {
         waitForSelector: '[data-attr=trend-bar-value-graph] > canvas',

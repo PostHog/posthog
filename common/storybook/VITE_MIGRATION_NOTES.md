@@ -28,21 +28,28 @@ broke query-less serving. Deleting it fixed the 404. The `@babel/*` deps
 dropped from `package.json` only existed for that file.
 
 Next layer: `require is not defined` — source files using CommonJS `require()`,
-which Vite's ESM lacks. `frontend/src/mocks/handlers.ts` is fixed.
+which Vite's ESM lacks.
 
-## Remaining work (mechanical CJS→ESM)
+## CJS→ESM conversion (done)
 
-~35 story files still `require('….json')` fixtures. Hoist each to a top-level
-`import x from './….json'`. Find them with:
+All Storybook-bundled `require()` calls are converted to top-level imports:
 
-```bash
-grep -rnE "[^a-zA-Z.]require\(" frontend/src products/*/frontend \
-  --include="*.tsx" --include="*.ts" | grep -v node:
-```
+- `frontend/src/mocks/handlers.ts` — fixture requires → ESM imports.
+- 30 story files that `require('….json')` fixtures — hoisted to
+  `import x from './….json'`. Because `require()` returned `any` but a typed
+  JSON import does not, each fixture binding is cast `as any` at use (matches
+  the existing `as any` / `as unknown as …` idiom in `InsightCard.stories.tsx`)
+  so the fixtures stay loosely typed exactly as before.
+- 3 error-tracking stories — `require('…/batch_get')` → named import
+  `{ results }` passed as the mock body.
 
-Heaviest: `scenes/insights/Funnels.stories.tsx`, `UserPaths.stories.tsx`,
-`ActionFilter.stories.tsx`. A few more webpack-isms (`require.context`,
-`module.hot`) may surface as more stories load — same fix pattern.
+Left intentionally (not Storybook-bundled, or not a real import):
+`frontend/src/test/insight-testing/render-insight.tsx` (jest-only require that
+breaks a circular-dep cycle), `EndpointPlayground.tsx` (require inside a
+template-string code sample), and a `types.ts` comment.
+
+A few more webpack-isms (`require.context`, `module.hot`) may surface as more
+stories load — same fix pattern.
 
 ## Before merging
 
