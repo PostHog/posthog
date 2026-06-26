@@ -408,6 +408,15 @@ def is_xmin_enabled_for_team(team: Team) -> bool:
     )
 
 
+def is_custom_source_ai_builder_enabled_for_team(team: Team) -> bool:
+    return feature_enabled_or_false(
+        "dwh-custom-source-ai-builder",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+
 # ---------------------------------------------------------------------------
 # CDC extraction scheduling (source-level)
 # ---------------------------------------------------------------------------

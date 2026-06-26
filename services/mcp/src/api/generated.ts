@@ -18073,6 +18073,52 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface DraftCustomManifestRequest {
+      /** Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model. */
+      source_name?: string;
+      /** URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy. */
+      docs_url?: string;
+      /** Raw API documentation or an OpenAPI/Swagger spec, pasted directly. Provide this or docs_url. */
+      docs_text?: string;
+    }
+
+    /**
+     * * `ok` - ok
+     * * `invalid` - invalid
+     * * `model_error` - model_error
+     */
+    export type DraftStatusEnum = typeof DraftStatusEnum[keyof typeof DraftStatusEnum];
+
+
+    export const DraftStatusEnum = {
+      Ok: 'ok',
+      Invalid: 'invalid',
+      ModelError: 'model_error',
+    } as const;
+
+    export interface DraftCustomManifestResponse {
+      /** 'ok' = a manifest validated; 'invalid' = a manifest was drafted but never validated within the budget (see error; manifest_json holds the last attempt to fix by hand); 'model_error' = the model returned no usable JSON.
+       *
+       * * `ok` - ok
+       * * `invalid` - invalid
+       * * `model_error` - model_error */
+      draft_status: DraftStatusEnum;
+      /**
+         * The drafted RESTAPIConfig manifest as a JSON string (non-secret), or null if none was produced.
+         * @nullable
+         */
+      manifest_json: string | null;
+      /** Names of the resources (tables) the validated manifest exposes. Empty unless draft_status is 'ok'. */
+      resource_names: string[];
+      /** How many draft→validate→repair rounds were run. */
+      attempts: number;
+      /**
+         * The last validation error when draft_status is not 'ok'; null on success.
+         * @nullable
+         */
+      error: string | null;
+    }
+
     export interface DraftStatusResponse {
       updated_at: string;
       has_draft: boolean;
