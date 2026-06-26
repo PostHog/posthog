@@ -34,6 +34,20 @@ describe('runHealth', () => {
         expect(computeHealthSummary(runs).state).toBe(expected)
     })
 
+    it('counts only conclusion=success as a pass, matching the backend success_rate', () => {
+        // Skipped/neutral are completed but not successes — the header must not inflate pass rate past
+        // what the Workflows table shows for the same window.
+        const summary = computeHealthSummary([
+            { conclusion: 'success', durationSeconds: 600, startedAt: at(9) },
+            { conclusion: 'skipped', durationSeconds: 600, startedAt: at(10) },
+        ])
+        expect(summary.completedRuns).toBe(2)
+        expect(summary.passedRuns).toBe(1)
+        expect(summary.passRate).toBe(0.5)
+        expect(summary.failures).toBe(0)
+        expect(summary.state).toBe('healthy')
+    })
+
     it('excludes still-running runs from rates and durations, and counts re-runs', () => {
         const summary = computeHealthSummary([
             { conclusion: 'success', durationSeconds: 120, startedAt: at(9), runAttempt: 1 },

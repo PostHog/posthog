@@ -2,7 +2,7 @@
 // separate from the kea logic so both the workflow-runs page and (later) the PR page can derive the same
 // summary, and so the math is unit-testable without a logic harness.
 
-import { isDecisiveFailure, isPassingConclusion } from './lifecycle'
+import { isDecisiveFailure } from './lifecycle'
 
 // The minimum a run needs to score its health. Both WorkflowRunRow and PrRunRow satisfy this.
 export interface HealthRun {
@@ -84,7 +84,9 @@ export function percentileSorted(sortedAsc: number[], q: number): number | null 
 export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     const completed = runs.filter((run) => run.conclusion !== null)
     const running = runs.length - completed.length
-    const passed = completed.filter((run) => isPassingConclusion(run.conclusion as string)).length
+    // Strictly conclusion === 'success', mirroring the workflow-health endpoint's success_rate
+    // (skipped/neutral don't count as passes) so this header and the Workflows table agree.
+    const passed = completed.filter((run) => run.conclusion === 'success').length
     const failures = completed.filter((run) => isDecisiveFailure(run.conclusion)).length
     const reruns = runs.filter((run) => (run.runAttempt ?? 1) > 1).length
     const passRate = completed.length ? passed / completed.length : null

@@ -18,6 +18,10 @@ import type { workflowRunsLogicType } from './workflowRunsLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
+// Mirrors the backend runs-list cap (`workflow_run_list.py` `_LIMIT`). When the list comes back this full
+// it's almost certainly truncated, so the header labels its run rollups as "recent" rather than full-window.
+const RUN_LIST_LIMIT = 200
+
 /** A workflow run mapped to the shared RunsTable shape: the RunRowBase fields the table needs, plus the
  *  lead-column data this page shows (run id, branch, attributed PR). */
 export interface WorkflowRunRow {
@@ -160,6 +164,9 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         ],
         // Verdict + headline stats for the health strip above the chart.
         healthSummary: [(s) => [s.runRows], (runRows): HealthSummary => computeHealthSummary(runRows)],
+        // The runs list is capped server-side; when hit, the header's run rollups are over the most recent
+        // runs only (cost still comes from the full-window aggregate), so it labels them as such.
+        runsTruncated: [(s) => [s.runRows], (runRows): boolean => runRows.length >= RUN_LIST_LIMIT],
         // Billable minutes + estimated cost summed across runner tiers, for the strip's cost rollup.
         costSummary: [
             (s) => [s.runnerCosts],

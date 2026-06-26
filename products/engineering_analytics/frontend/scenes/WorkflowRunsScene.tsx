@@ -103,6 +103,7 @@ export function WorkflowRunsScene(): JSX.Element {
         workflowName,
         healthSummary,
         costSummary,
+        runsTruncated,
     } = useValues(workflowRunsLogic)
     const { loadRuns, setRunExpanded, setDateRange } = useActions(workflowRunsLogic)
 
@@ -202,7 +203,7 @@ export function WorkflowRunsScene(): JSX.Element {
                     size="small"
                 />
             </div>
-            <WorkflowHealthHeader summary={healthSummary} cost={costSummary} />
+            <WorkflowHealthHeader summary={healthSummary} cost={costSummary} truncated={runsTruncated} />
             <RunActivityChart runs={runRows} />
             {runnerCosts.length > 0 && <RunnerCostTable costs={runnerCosts} />}
             <div className="flex flex-col gap-2">

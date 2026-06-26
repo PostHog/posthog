@@ -1,4 +1,4 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
@@ -17,6 +17,8 @@ interface WorkflowHealthHeaderProps {
     summary: HealthSummary
     /** Cost rollup for the window; null (or all-null fields) hides the cost KPI when jobs aren't synced. */
     cost: CostSummary | null
+    /** Runs list was capped server-side — run rollups are over the most recent runs, not the full window. */
+    truncated?: boolean
     className?: string
 }
 
@@ -26,7 +28,7 @@ interface WorkflowHealthHeaderProps {
  * re-run rate (flakiness) and total CI cost — alongside. Adapted from the CI master-health design to a
  * single workflow over the selected window.
  */
-export function WorkflowHealthHeader({ summary, cost, className }: WorkflowHealthHeaderProps): JSX.Element {
+export function WorkflowHealthHeader({ summary, cost, truncated, className }: WorkflowHealthHeaderProps): JSX.Element {
     const meta = STATE_META[summary.state]
     const passRateLabel = summary.passRate == null ? '—' : percentage(summary.passRate, 0)
     const hasCost = cost?.estimatedCostUsd != null
@@ -62,14 +64,17 @@ export function WorkflowHealthHeader({ summary, cost, className }: WorkflowHealt
                             )}
                         </>
                     ) : (
-                        `${summary.passedRuns} of ${summary.completedRuns} runs passed`
+                        `${summary.passedRuns} of ${summary.completedRuns}${truncated ? ' recent' : ''} runs passed`
                     )}
                 </span>
             </div>
 
             <div className="flex flex-col border-l border-primary pl-6">
                 <span className="text-2xl font-semibold leading-7 tabular-nums">{passRateLabel}</span>
-                <span className="text-xs text-tertiary">pass rate · {summary.completedRuns} completed</span>
+                <span className="text-xs text-tertiary">
+                    pass rate · {truncated ? 'recent ' : ''}
+                    {summary.completedRuns} {truncated ? 'runs' : 'completed'}
+                </span>
             </div>
 
             <div className="flex-1" />
@@ -77,7 +82,20 @@ export function WorkflowHealthHeader({ summary, cost, className }: WorkflowHealt
             {/* Rollups the chart doesn't already show — median is the chart's dashed line, so it's omitted
                 here; p95 (tail latency), re-run rate, and total cost aren't anywhere on the scatter. */}
             <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-                <HealthKpi label="Runs" value={summary.totalRuns.toLocaleString()} />
+                <HealthKpi
+                    label="Runs"
+                    value={
+                        truncated ? (
+                            <Tooltip
+                                title={`Showing the most recent ${summary.totalRuns} runs. Failures and pass rate cover these; CI cost reflects the full window.`}
+                            >
+                                <span>{summary.totalRuns.toLocaleString()}+</span>
+                            </Tooltip>
+                        ) : (
+                            summary.totalRuns.toLocaleString()
+                        )
+                    }
+                />
                 <HealthKpi label="Failures" value={summary.failures.toLocaleString()} danger={summary.failures > 0} />
                 <HealthKpi label="Re-runs" value={summary.reruns.toLocaleString()} danger={summary.reruns > 0} />
                 <HealthKpi label="p95 duration" value={formatDuration(summary.p95Seconds)} />

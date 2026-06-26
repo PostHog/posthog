@@ -46,7 +46,9 @@ export function WorkflowsHealthHeader({ summary, className }: WorkflowsHealthHea
                             ? `${summary.failingNow} of ${summary.workflowCount} workflows failing right now`
                             : summary.flakyNow > 0
                               ? `${summary.flakyNow} flaky · below 90% pass rate`
-                              : `All ${summary.workflowCount} workflows healthy`}
+                              : summary.settledWorkflows < summary.workflowCount
+                                ? `${summary.settledWorkflows} of ${summary.workflowCount} settled · all green`
+                                : `All ${summary.workflowCount} workflows healthy`}
                 </span>
             </div>
 
