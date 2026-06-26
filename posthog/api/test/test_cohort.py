@@ -44,8 +44,8 @@ from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort, CohortType
-from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.cohorts.backend.models.dependencies import find_behavioral_cohorts
+from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
