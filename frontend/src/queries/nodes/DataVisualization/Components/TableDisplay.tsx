@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGraph, IconLifecycle, IconPieChart, IconTrends } from '@posthog/icons'
+import { IconGraph, IconLifecycle, IconPieChart, IconSparkles, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
@@ -35,6 +35,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         [ChartDisplayType.TwoDimensionalHeatmap]: '2d heatmap',
         [ChartDisplayType.BoxPlot]: 'Box plot',
         [ChartDisplayType.SlopeGraph]: 'Slope graph',
+        [ChartDisplayType.GeneratedQuill]: 'Generate',
     }
 
     const renderDisplayTypeLabel = (displayType: ChartDisplayType): string => {
@@ -112,6 +113,17 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     value: ChartDisplayType.TwoDimensionalHeatmap,
                     icon: <IconHeatmap />,
                     label: '2d heatmap',
+                },
+            ],
+        },
+        {
+            title: 'AI',
+            options: [
+                {
+                    value: ChartDisplayType.GeneratedQuill,
+                    icon: <IconSparkles />,
+                    label: 'Generate',
+                    disabledReason: columns.length === 0 ? 'Run a query first' : undefined,
                 },
             ],
         },

@@ -12,6 +12,7 @@ from products.data_warehouse.backend.presentation.views import (
     query_tab_state,
     saved_query,
     saved_query_draft,
+    sql_chart_spec,
     table,
     view_link,
 )
@@ -81,6 +82,9 @@ def register_routes(routers: RouterRegistry) -> None:
         r"data_modeling_jobs", data_modeling_job.DataModelingJobViewSet, "environment_data_modeling_jobs", ["team_id"]
     )
     routers.register_legacy_dual_route(r"lineage", LineageViewSet, "project_lineage", ["team_id"])
+    routers.projects.register(
+        r"sql_chart_spec", sql_chart_spec.SQLChartSpecViewSet, "project_sql_chart_spec", ["team_id"]
+    )
     routers.projects.register(
         r"warehouse_column_annotations",
         column_annotation.WarehouseColumnAnnotationViewSet,

@@ -2901,6 +2901,8 @@ export enum ChartDisplayType {
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
     BoxPlot = 'BoxPlot',
     SlopeGraph = 'SlopeGraph',
+    /** AI-generated quill chart for SQL editor results (column mapping → ChartSpec). */
+    GeneratedQuill = 'GeneratedQuill',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
