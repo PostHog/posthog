@@ -95,15 +95,6 @@ def convert_insight_query_to_hogql(
     query_kind = query.get("kind")
 
     if query_kind == "HogQLQuery":
-        if user is not None or bypass_warehouse_access_control:
-            hogql_query = HogQLQuery.model_validate(query)
-            _print_materialized_hogql(
-                parse_select(hogql_query.query),
-                team,
-                hogql_query.modifiers,
-                user=user,
-                bypass_warehouse_access_control=bypass_warehouse_access_control,
-            )
         return query
 
     query_runner = get_query_runner(
