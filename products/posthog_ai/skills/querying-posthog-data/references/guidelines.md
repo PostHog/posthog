@@ -92,7 +92,7 @@ Table | Description
 `sessions` | Session data captured by the SDK
 Data warehouse tables | Connected external data sources and custom views
 
-Use `posthog:read-data-warehouse-schema` to retrieve the full schema of the tables above.
+Query `system.information_schema.tables` and `system.information_schema.columns` via `execute-sql` to retrieve the full schema of the tables above (e.g. `SELECT column_name, data_type, description FROM system.information_schema.columns WHERE table_name = 'events'`).
 
 **Key concepts:**
 

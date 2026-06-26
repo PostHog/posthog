@@ -9,6 +9,7 @@ import {
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
+import { SQL_SCHEMA_DISCOVERY_FEATURE_FLAG } from '@/tools/posthogAiTools/readDataWarehouseSchema'
 import { RENDER_UI_FEATURE_FLAG } from '@/tools/render-ui'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
@@ -113,7 +114,9 @@ export class RequestStateResolver {
         // `mcp-render-ui` isn't a catalog tool flag, but it rides the same batched
         // evaluation and lives in the same map so the instructions layer can gate
         // the rendering prompt section on it (like `mcp-feedback-tool`).
-        const allFlagKeys = [...toolFlagKeys, RENDER_UI_FEATURE_FLAG]
+        // `mcp-sql-schema-discovery` is prompt-only too — no tool def references it, so it
+        // rides this set the same way `mcp-render-ui` does to reach the instructions layer.
+        const allFlagKeys = [...toolFlagKeys, RENDER_UI_FEATURE_FLAG, SQL_SCHEMA_DISCOVERY_FEATURE_FLAG]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
