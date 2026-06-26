@@ -40,6 +40,7 @@ SnowflakeErrors = {
     "Incorrect username or password was specified": "Incorrect username or password was specified",
     "This session does not have a current database": "Database specified not found",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
+    "Multi-factor authentication is required for this account": "This Snowflake account requires multi-factor authentication enrollment. Connect with a service user that uses key-pair authentication or is exempt from MFA.",
 }
 
 
@@ -205,6 +206,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # connector's login is rejected (250001 / 08001). An unattended sync can't answer a
             # Duo push, so retrying never succeeds — surface an actionable message instead.
             "Duo Security authentication is denied": "Snowflake rejected the login because multi-factor authentication (Duo Security) is enforced for this user. Automated syncs can't answer an MFA prompt — connect with a service user that uses key-pair authentication or is exempt from MFA.",
+            # Snowflake error 250001 (08001): the account requires MFA enrollment, so the login is
+            # rejected until the user enrolls via Snowsight. An unattended sync can't complete MFA, so
+            # retrying never succeeds. The codes and host in the message are volatile, so we match the
+            # stable phrase.
+            "Multi-factor authentication is required for this account": "Snowflake rejected the login because this account requires multi-factor authentication enrollment. Automated syncs can't complete MFA — connect with a service user that uses key-pair authentication or is exempt from MFA, then resync.",
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
             # Snowflake error 250001 (08001): the supplied username or password is wrong, so the
