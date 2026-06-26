@@ -558,6 +558,9 @@ export function LemonInputSelect<T = string>({
     }
 
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+        if (e.key === 'Enter' && e.nativeEvent.isComposing) {
+            return // IME candidate confirmation — don't add a tag
+        }
         if (e.key === 'Enter') {
             e.preventDefault()
             const itemToAdd = displayOptions[selectedIndex]?.key

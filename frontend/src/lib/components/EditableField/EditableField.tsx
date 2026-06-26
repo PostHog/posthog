@@ -164,6 +164,9 @@ export function EditableField({
     const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
         if (isEditing) {
             // Cmd/Ctrl are required in addition to Enter if newlines are permitted
+            if (isSaveable && e.key === 'Enter' && e.nativeEvent.isComposing) {
+                return // IME candidate confirmation — don't save
+            }
             if (isSaveable && e.key === 'Enter' && (!multiline || e.metaKey || e.ctrlKey)) {
                 save() // Save on Enter press
                 e.stopPropagation()

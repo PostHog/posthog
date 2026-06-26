@@ -200,6 +200,9 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         )
     }
 
+    const { onKeyDown: consumerOnKeyDown, ...restProps } = props as typeof props & {
+        onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>
+    }
     const InputComponent = autoWidth ? RawInputAutosize : 'input'
     return (
         <Tooltip
@@ -265,11 +268,15 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                         if (stopPropagation) {
                             event.stopPropagation()
                         }
-                        if (onPressEnter && event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                        if (event.key === 'Enter' && event.nativeEvent.isComposing) {
+                            return // IME candidate confirmation — don't fire Enter actions
+                        }
+                        if (onPressEnter && event.key === 'Enter') {
                             onPressEnter(event)
                         }
+                        consumerOnKeyDown?.(event)
                     }}
-                    {...props}
+                    {...restProps}
                 />
                 {suffix}
                 {badgeText && (

@@ -85,7 +85,10 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                     if (stopPropagation) {
                         e.stopPropagation()
                     }
-                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                    if (e.key === 'Enter' && e.nativeEvent.isComposing) {
+                        return // IME candidate confirmation — don't fire Enter actions
+                    }
+                    if (e.key === 'Enter') {
                         const target = e.currentTarget
                         // When shift is pressed, we always just want to add a new line
                         if (!e.shiftKey) {
