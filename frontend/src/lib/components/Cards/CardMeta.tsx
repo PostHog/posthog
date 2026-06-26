@@ -33,6 +33,10 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     moreButtons?: JSX.Element
     /** Tooltip for the editing controls dropdown. */
     moreTooltip?: string
+    /** Controlled visibility of the "more" dropdown (e.g. opened from a tile right-click). */
+    moreDropdownVisible?: boolean
+    /** Called when the "more" dropdown visibility changes. Passing this puts the dropdown in controlled mode. */
+    setMoreDropdownVisible?: (visible: boolean) => void
     /** Tooltip for the details button. */
     detailsTooltip?: string
     topHeading?: JSX.Element | null
@@ -62,6 +66,8 @@ export function CardMeta({
     metaDetails,
     moreButtons,
     moreTooltip,
+    moreDropdownVisible,
+    setMoreDropdownVisible,
     topHeading,
     areDetailsShown,
     setAreDetailsShown,
@@ -105,6 +111,18 @@ export function CardMeta({
         inStorybookTestRunner() ||
         (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
 
+    const moreButton = (
+        <More
+            overlay={moreButtons}
+            dropdown={
+                setMoreDropdownVisible
+                    ? { visible: moreDropdownVisible, onVisibilityChange: setMoreDropdownVisible }
+                    : undefined
+            }
+        />
+    )
+    const moreButtonWithTooltip = moreTooltip ? <Tooltip title={moreTooltip}>{moreButton}</Tooltip> : moreButton
+
     return (
         <div
             className={clsx(
@@ -129,14 +147,7 @@ export function CardMeta({
                                 <div className="CardMeta__heading">{topHeading}</div>
                                 <div className="CardMeta__controls">
                                     {refreshControl}
-                                    {showEditingControls &&
-                                        (moreTooltip ? (
-                                            <Tooltip title={moreTooltip}>
-                                                <More overlay={moreButtons} />
-                                            </Tooltip>
-                                        ) : (
-                                            <More overlay={moreButtons} />
-                                        ))}
+                                    {showEditingControls && moreButtonWithTooltip}
                                 </div>
                             </div>
                             {meta}
@@ -177,14 +188,7 @@ export function CardMeta({
                                             </LemonButton>
                                         </Tooltip>
                                     )}
-                                    {showEditingControls &&
-                                        (moreTooltip ? (
-                                            <Tooltip title={moreTooltip}>
-                                                <More overlay={moreButtons} />
-                                            </Tooltip>
-                                        ) : (
-                                            <More overlay={moreButtons} />
-                                        ))}
+                                    {showEditingControls && moreButtonWithTooltip}
                                 </div>
                             </div>
                             {meta}

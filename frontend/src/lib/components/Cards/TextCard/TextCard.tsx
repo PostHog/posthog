@@ -2,7 +2,7 @@ import './TextCard.scss'
 
 import { EditorContent } from '@tiptap/react'
 import clsx from 'clsx'
-import React, { memo, useEffect, useMemo } from 'react'
+import React, { memo, useEffect, useMemo, useState } from 'react'
 
 import 'lib/components/Cards/CardMeta.scss'
 import 'lib/components/MarkdownEditor/shared/RichMarkdownEditor.scss'
@@ -96,6 +96,17 @@ function TextCardInternal(
 
     const isTransparent = textTile.transparent_background
 
+    const [moreDropdownVisible, setMoreDropdownVisible] = useState(false)
+    const canOpenMoreMenu = !!moreButtonOverlay && !shouldHideMoreButton
+    // Right-clicking anywhere on the tile opens the same "⋯" actions menu instead of the browser's
+    // native context menu. Only when the editing controls (and therefore the menu) are present.
+    const onContextMenu = canOpenMoreMenu
+        ? (event: React.MouseEvent<HTMLDivElement>): void => {
+              event.preventDefault()
+              setMoreDropdownVisible(true)
+          }
+        : undefined
+
     return (
         <div
             className={clsx(
@@ -106,11 +117,15 @@ function TextCardInternal(
             )}
             data-attr="text-card"
             {...divProps}
+            onContextMenu={onContextMenu}
             ref={ref}
         >
-            {moreButtonOverlay && !shouldHideMoreButton && (
+            {canOpenMoreMenu && (
                 <div className="absolute right-4 top-4">
-                    <More overlay={moreButtonOverlay} />
+                    <More
+                        overlay={moreButtonOverlay}
+                        dropdown={{ visible: moreDropdownVisible, onVisibilityChange: setMoreDropdownVisible }}
+                    />
                 </div>
             )}
 

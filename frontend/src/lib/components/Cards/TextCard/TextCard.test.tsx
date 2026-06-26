@@ -35,6 +35,42 @@ describe('TextCard', () => {
         expect(getByText('more overlay')).toBeInTheDocument()
     })
 
+    it('opens the more menu on right-click and suppresses the native context menu', () => {
+        const { container, getByText, queryByText } = render(
+            <TextCard
+                textTile={makeTextTile()}
+                placement={DashboardPlacement.Dashboard}
+                moreButtonOverlay={<div>more overlay</div>}
+            />
+        )
+
+        expect(queryByText('more overlay')).not.toBeInTheDocument()
+
+        const card = container.querySelector('[data-attr="text-card"]') as HTMLElement
+        const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+        fireEvent(card, event)
+
+        expect(event.defaultPrevented).toBe(true)
+        expect(getByText('more overlay')).toBeInTheDocument()
+    })
+
+    it('does not hijack right-click when the more menu is hidden (Public placement)', () => {
+        const { container, queryByText } = render(
+            <TextCard
+                textTile={makeTextTile()}
+                placement={DashboardPlacement.Public}
+                moreButtonOverlay={<div>more overlay</div>}
+            />
+        )
+
+        const card = container.querySelector('[data-attr="text-card"]') as HTMLElement
+        const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+        fireEvent(card, event)
+
+        expect(event.defaultPrevented).toBe(false)
+        expect(queryByText('more overlay')).not.toBeInTheDocument()
+    })
+
     it('renders edit-mode edge overlay when enabled and not resizing', () => {
         const onEnterEditModeFromEdge = jest.fn()
 

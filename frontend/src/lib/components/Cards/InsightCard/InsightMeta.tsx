@@ -93,6 +93,9 @@ interface InsightMetaProps extends Pick<
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     persistDisplayOptions?: (node: Node) => void
+    /** Controlled visibility of the "more" dropdown (e.g. opened from a tile right-click). */
+    moreDropdownVisible?: boolean
+    setMoreDropdownVisible?: (visible: boolean) => void
 }
 
 export function InsightMeta({
@@ -123,6 +126,8 @@ export function InsightMeta({
     surveyOpportunity,
     onDragHandleMouseDown,
     persistDisplayOptions,
+    moreDropdownVisible,
+    setMoreDropdownVisible,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
@@ -602,6 +607,8 @@ export function InsightMeta({
                         ? 'Rename, duplicate, export, refresh and more…'
                         : 'Duplicate, export, refresh and more…'
                 }
+                moreDropdownVisible={moreDropdownVisible}
+                setMoreDropdownVisible={setMoreDropdownVisible}
                 extraControls={surveyOpportunityButton ?? feedbackButtons}
                 refreshControl={refreshControl}
             />

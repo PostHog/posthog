@@ -177,6 +177,9 @@ function InsightCardInternal(
     const canEditInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
         : true
+    const canViewInsight = insight.user_access_level
+        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
+        : true
     const canPersistDisplayOptions = !!dashboardId && canEditInsight
 
     // Base props without setQuery — used to mount insightDataLogic and retrieve the
@@ -211,7 +214,18 @@ function InsightCardInternal(
     }
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
+    const [moreDropdownVisible, setMoreDropdownVisible] = useState(false)
     const hasResults = !!insight?.result || !!(insight as any)?.results
+
+    // Right-clicking anywhere on the tile opens the same "⋯" actions menu instead of the browser's
+    // native context menu. Only when the editing controls (and therefore the menu) are present.
+    const canOpenMoreMenu = showEditingControls !== false && canViewInsight
+    const onContextMenu = canOpenMoreMenu
+        ? (event: React.MouseEvent<HTMLDivElement>): void => {
+              event.preventDefault()
+              setMoreDropdownVisible(true)
+          }
+        : undefined
 
     // Empty states that completely replace the Query component.
     const BlockingEmptyState = (() => {
@@ -306,6 +320,7 @@ function InsightCardInternal(
             )}
             data-attr="insight-card"
             {...divProps}
+            onContextMenu={onContextMenu}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...divProps?.style, ...theme?.boxStyle }}
             ref={mergedRefs}
@@ -340,6 +355,8 @@ function InsightCardInternal(
                         placement={placement}
                         surveyOpportunity={surveyOpportunity}
                         onDragHandleMouseDown={onDragHandleMouseDown}
+                        moreDropdownVisible={moreDropdownVisible}
+                        setMoreDropdownVisible={setMoreDropdownVisible}
                     />
                     {vizContent}
                 </BindLogic>
