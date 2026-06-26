@@ -330,6 +330,15 @@ class InputsItemSerializer(serializers.Serializer):
                 else:
                     if not re.fullmatch(r"[4-5]xx", entry, re.IGNORECASE):
                         raise serializers.ValidationError({"input": "Wildcards must be '4xx' or '5xx'."})
+        elif item_type == "choice":
+            # Restrict the value to the allowed choices defined in the schema. Without this,
+            # any value (e.g. a template string or an attacker-controlled host) passes through.
+            # Templates use `choice` fields to pin endpoints to approved hosts before attaching
+            # secret credentials, so an unconstrained value lets a destination's stored secret
+            # be redirected to an arbitrary URL.
+            allowed_choices = [choice.get("value") for choice in schema.get("choices", [])]
+            if value not in allowed_choices:
+                raise serializers.ValidationError({"input": "Value must be one of the allowed choices."})
 
         try:
             if value and schema.get("templating", True):

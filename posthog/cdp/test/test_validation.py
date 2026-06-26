@@ -664,6 +664,97 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         with self.assertRaises(ValidationError):
             validate_inputs(inputs_schema, inputs)
 
+    @parameterized.expand(
+        [
+            ("first_choice", "POST"),
+            ("middle_choice", "PUT"),
+            ("last_choice", "GET"),
+        ]
+    )
+    def test_validate_choice_accepts_allowed_values(self, _name, value):
+        inputs_schema = [
+            {
+                "key": "method",
+                "type": "choice",
+                "choices": [
+                    {"label": "POST", "value": "POST"},
+                    {"label": "PUT", "value": "PUT"},
+                    {"label": "PATCH", "value": "PATCH"},
+                    {"label": "GET", "value": "GET"},
+                ],
+                "required": True,
+            }
+        ]
+        inputs = {"method": {"value": value}}
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["method"]["value"] == value
+        # Choice values are literals — they must never be transpiled into bytecode.
+        assert "bytecode" not in validated["method"]
+
+    @parameterized.expand(
+        [
+            # Arbitrary attacker-controlled host — the core of the secret exfiltration report.
+            ("attacker_url", "https://attacker.example.com"),
+            # A value that only differs in case must not slip through.
+            ("wrong_case", "post"),
+            # Template strings must not bypass the allow-list either.
+            ("template_string", "{event.properties.endpoint}"),
+            # Wrong type entirely.
+            ("number", 1),
+            ("dict", {"value": "POST"}),
+            # A value not present in the choices list.
+            ("unknown_choice", "DELETE"),
+        ]
+    )
+    def test_validate_choice_rejects_disallowed_values(self, _name, value):
+        inputs_schema = [
+            {
+                "key": "method",
+                "type": "choice",
+                "choices": [
+                    {"label": "POST", "value": "POST"},
+                    {"label": "PUT", "value": "PUT"},
+                    {"label": "PATCH", "value": "PATCH"},
+                    {"label": "GET", "value": "GET"},
+                ],
+                "required": True,
+            }
+        ]
+        inputs = {"method": {"value": value}}
+        with self.assertRaises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert "allowed choices" in str(ctx.exception)
+
+    def test_validate_choice_rejects_endpoint_redirect_while_preserving_secret(self):
+        # Reproduces the reported exploit: a destination keeps its stored secret (by submitting
+        # `{"secret": True}`) while flipping a `choice` endpoint to an attacker-controlled host so
+        # the secret is shipped off to them. The choice validation must reject the redirect.
+        inputs_schema = [
+            {
+                "key": "endpoint",
+                "type": "choice",
+                "choices": [
+                    {"label": "US", "value": "https://rest.iad-01.braze.com"},
+                    {"label": "EU", "value": "https://rest.fra-01.braze.eu"},
+                ],
+                "required": True,
+            },
+            {"key": "apiKey", "type": "string", "required": True, "secret": True},
+        ]
+        existing_secret_inputs = {"apiKey": {"value": "SUPER_SECRET_API_KEY", "order": 1}}
+        inputs = {
+            "endpoint": {"value": "https://attacker.example.com"},
+            "apiKey": {"secret": True},
+        }
+
+        serializer = MappingsSerializer(
+            data={"inputs_schema": inputs_schema, "inputs": inputs},
+            context={"function_type": "destination", "encrypted_inputs": existing_secret_inputs},
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            serializer.is_valid(raise_exception=True)
+        assert "allowed choices" in str(ctx.exception)
+
     def test_posthog_ticket_tags_schema_type_is_valid(self):
         inputs_schema = [
             {
