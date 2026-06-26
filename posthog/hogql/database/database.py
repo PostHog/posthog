@@ -1561,24 +1561,18 @@ class Database(BaseModel):
 
                                 # For a chain of type a.b.c, we want to create a nested table node
                                 # where a is the parent, b is the child of a, and c is the child of b
-                                # where a.b.c will contain the table
+                                # where a.b.c will contain the table.
+                                # Snowflake stores identifiers uppercase but resolves them
+                                # case-insensitively, so mark its nodes so `from tpch_sf1.nation`
+                                # (any case) resolves to the canonical `TPCH_SF1.NATION`.
                                 warehouse_tables.add_child(
-                                    TableNode.create_nested_for_chain(table_chain, table_for_key),
+                                    TableNode.create_nested_for_chain(
+                                        table_chain,
+                                        table_for_key,
+                                        case_insensitive=table.external_data_source.is_direct_snowflake,
+                                    ),
                                     table_conflict_mode=table_conflict_mode,
                                 )
-
-                                # Snowflake stores identifiers uppercase but resolves them
-                                # case-insensitively; register an all-lowercase alias so a natural
-                                # `from tpch_sf1.nation` resolves to the canonical `TPCH_SF1.NATION`.
-                                if table.external_data_source.is_direct_snowflake:
-                                    lowercase_chain = [segment.lower() for segment in table_chain]
-                                    if lowercase_chain != table_chain:
-                                        warehouse_tables.add_child(
-                                            TableNode.create_nested_for_chain(
-                                                lowercase_chain, s3_table.model_copy(deep=True)
-                                            ),
-                                            table_conflict_mode="ignore",
-                                        )
 
                                 joined_table_chain = ".".join(table_chain)
                                 table_for_key.name = joined_table_chain

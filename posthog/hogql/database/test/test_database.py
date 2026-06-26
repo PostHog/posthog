@@ -997,12 +997,40 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         canonical = db.get_table("TPCH_SF1.NATION")
         assert isinstance(canonical, DirectSnowflakeTable)
-        # The lowercase alias resolves to the same direct table.
-        lowercased = db.get_table("tpch_sf1.nation")
-        assert isinstance(lowercased, DirectSnowflakeTable)
+        # Any-case table name resolves to the same direct table (Snowflake folds unquoted names).
+        for typed_name in ("tpch_sf1.nation", "Tpch_Sf1.Nation", "TPCH_SF1.nation"):
+            resolved = db.get_table(typed_name)
+            assert isinstance(resolved, DirectSnowflakeTable), typed_name
         # Columns resolve regardless of case and report their canonical stored name.
-        assert lowercased.has_field("n_name")
-        assert lowercased.get_field("n_name").name == "N_NAME"
+        assert canonical.has_field("n_name")
+        assert canonical.get_field("N_Name").name == "N_NAME"
+
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_build_from_sources_keeps_non_snowflake_tables_case_sensitive(self, patch_execute):
+        # The case-insensitive fallback is opt-in per node, so a non-Snowflake direct table must NOT
+        # resolve under a different case.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="pg_source",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": "public"},
+        )
+        DataWarehouseTable.objects.create(
+            name="accounts",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            columns={"id": {"clickhouse": "Int64", "hogql": "integer"}},
+        )
+
+        sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
+        db = Database._build_from_sources(sources)
+
+        assert db.has_table("accounts")
+        assert not db.has_table("ACCOUNTS")
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
