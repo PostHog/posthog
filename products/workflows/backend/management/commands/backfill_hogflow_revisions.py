@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.models.hog_flow.hog_flow_revision import HogFlowRevision, create_revision_from_hog_flow
+from products.workflows.backend.models.hog_flow.hog_flow_revision import sync_mirror_revision
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +27,16 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.WARNING("Running in DRY RUN mode - no changes will be made"))
 
-        queryset = HogFlow.objects.filter(active_revision__isnull=True)
+        # Only touch genuinely unmigrated workflows - ones the live double-write hasn't already given a
+        # revision. Filtering on active_revision instead would re-select drafts (which never get the
+        # pointer) and collide with their existing mirror on the unique (team, hog_flow, version) constraint.
+        queryset = HogFlow.objects.filter(revisions__isnull=True)
         if team_id:
             queryset = queryset.filter(team_id=team_id)
             self.stdout.write(f"Processing HogFlows for team: {team_id}")
 
         total_count = queryset.count()
-        self.stdout.write(f"Found {total_count} HogFlows without an active revision")
+        self.stdout.write(f"Found {total_count} HogFlows without a revision")
 
         if total_count == 0:
             self.stdout.write(self.style.SUCCESS("Nothing to backfill"))
@@ -53,9 +56,10 @@ class Command(BaseCommand):
                         created_count += 1
                         continue
 
-                    revision = create_revision_from_hog_flow(hog_flow, status=HogFlowRevision.State.ACTIVE)
-                    # .update() avoids re-triggering the post_save reload signal for a no-op content change.
-                    HogFlow.objects.filter(pk=hog_flow.pk).update(active_revision=revision)
+                    # Same upsert the live write paths use: mirrors content per status (active workflows
+                    # get an active revision + pointer, drafts get a draft revision), and never fires the
+                    # worker reload signal.
+                    sync_mirror_revision(hog_flow)
                     created_count += 1
                 except Exception as e:
                     error_count += 1

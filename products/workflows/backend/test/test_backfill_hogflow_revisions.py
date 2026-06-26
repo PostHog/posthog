@@ -9,7 +9,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.models.hog_flow.hog_flow_revision import HogFlowRevision
+from products.workflows.backend.models.hog_flow.hog_flow_revision import HogFlowRevision, sync_mirror_revision
 
 
 @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
@@ -90,6 +90,30 @@ class TestBackfillHogFlowRevisions(TestCase):
 
         assert HogFlowRevision.objects.filter(team=self.team).count() == 1
         assert HogFlowRevision.objects.filter(team=self.team2).count() == 0
+
+    def test_backfill_draft_workflow_gets_draft_revision_without_pointer(self, _mock):
+        flow = self._create_flow(self.team, status=HogFlow.State.DRAFT)
+
+        call_command("backfill_hogflow_revisions", stdout=StringIO())
+
+        flow.refresh_from_db()
+        assert flow.active_revision_id is None
+        assert flow.revisions.get().status == HogFlowRevision.State.DRAFT
+
+    def test_backfill_skips_draft_already_double_written(self, _mock):
+        # A draft created after double-write went live has a null pointer but an existing mirror revision.
+        # Selecting on active_revision instead of revisions would re-pick it and collide on the unique
+        # (team, hog_flow, version) constraint.
+        flow = self._create_flow(self.team, status=HogFlow.State.DRAFT)
+        sync_mirror_revision(flow)
+        assert flow.active_revision_id is None
+        assert HogFlowRevision.objects.filter(hog_flow=flow).count() == 1
+
+        out = StringIO()
+        call_command("backfill_hogflow_revisions", stdout=out)
+
+        assert HogFlowRevision.objects.filter(hog_flow=flow).count() == 1
+        assert "Nothing to backfill" in out.getvalue()
 
     def test_dry_run_writes_nothing(self, _mock):
         self._create_flow(self.team)

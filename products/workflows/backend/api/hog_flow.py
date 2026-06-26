@@ -1237,9 +1237,10 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
-        serializer.save()
-        # Double-write a mirror revision so the revisions table stays consistent before anything reads it.
-        sync_mirror_revision(serializer.instance)
+        with transaction.atomic():
+            serializer.save()
+            # Double-write a mirror revision so the workflow row and its revision commit together.
+            sync_mirror_revision(serializer.instance)
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
 
         try:
@@ -1294,8 +1295,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         except HogFlow.DoesNotExist:
             before_update = None
 
-        serializer.save()
-        sync_mirror_revision(serializer.instance)
+        with transaction.atomic():
+            serializer.save()
+            sync_mirror_revision(serializer.instance)
 
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
 

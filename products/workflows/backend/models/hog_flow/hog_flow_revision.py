@@ -23,13 +23,6 @@ CONTENT_FIELDS: Final[tuple[str, ...]] = (
     "billable_action_types",
 )
 
-# Metadata that stays editable on a live workflow and is synced straight to the active revision
-# without going through the draft/publish cycle.
-METADATA_FIELDS: Final[tuple[str, ...]] = (
-    "name",
-    "description",
-)
-
 
 class HogFlowRevision(UUIDTModel):
     """
@@ -77,42 +70,6 @@ class HogFlowRevision(UUIDTModel):
 
     def __str__(self) -> str:
         return f"HogFlowRevision {self.hog_flow_id}/v{self.version} ({self.status})"
-
-
-def snapshot_content(hog_flow: "HogFlow") -> dict:
-    """Read the content fields off a HogFlow as a plain dict, ready to copy onto a revision."""
-    return {field: getattr(hog_flow, field) for field in CONTENT_FIELDS}
-
-
-def create_revision_from_hog_flow(hog_flow: "HogFlow", status: str, version: int | None = None) -> HogFlowRevision:
-    """Snapshot a HogFlow's current content into a new revision row."""
-    revision = HogFlowRevision(
-        hog_flow=hog_flow,
-        team_id=hog_flow.team_id,
-        version=version if version is not None else hog_flow.version,
-        status=status,
-        **snapshot_content(hog_flow),
-    )
-    revision.save()
-    return revision
-
-
-def get_open_draft_revision(hog_flow: "HogFlow") -> HogFlowRevision | None:
-    """The single in-progress draft revision for a workflow, if one exists."""
-    return (
-        HogFlowRevision.objects.filter(
-            hog_flow=hog_flow,
-            team_id=hog_flow.team_id,
-            status=HogFlowRevision.State.DRAFT,
-        )
-        .order_by("-version")
-        .first()
-    )
-
-
-def next_revision_version(hog_flow: "HogFlow") -> int:
-    latest = hog_flow.revisions.order_by("-version").values_list("version", flat=True).first()
-    return (latest or 0) + 1
 
 
 def sync_mirror_revision(hog_flow: "HogFlow") -> HogFlowRevision:
