@@ -11,8 +11,12 @@
 // PR title only ever selects from a fixed, pre-approved set of labels.
 
 const fs = require('fs')
+const path = require('path')
 
-const DEFAULT_CONFIG_PATH = '.github/auto-assign-labels.json'
+// Anchored to this script's location, not the cwd, so it resolves the same
+// whether the workflow runs `node .github/scripts/…` from the repo root or a
+// test invokes it from elsewhere.
+const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', 'auto-assign-labels.json')
 
 function loadRules(configPath = process.env.CONFIG_PATH || DEFAULT_CONFIG_PATH) {
     if (!fs.existsSync(configPath)) {

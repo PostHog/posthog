@@ -7,6 +7,7 @@ on:
     pull_request:
         paths:
             - .github/scripts/**
+            - .github/auto-assign-labels.json
             - .github/workflows/ci-scripts.yml
 
 concurrency:

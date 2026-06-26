@@ -78,3 +78,11 @@ test('the shipped config loads into well-formed rules', () => {
         assert.ok(Array.isArray(rule.labels) && rule.labels.length > 0, 'rule missing labels')
     }
 })
+
+// The logic tests above run against the local RULES mirror, so a config-only
+// edit (the supported workflow) that deletes or renames the `flags` rule would
+// ship green. Bind one known scope to the real config to catch that. Asserts
+// non-empty rather than exact labels so an intentional label rename doesn't fail.
+test('the shipped config still maps the flags scope to labels', () => {
+    assert.ok(labelsForTitle('feat(flags): x', loadRules()).length > 0, 'flags scope maps to no labels')
+})
