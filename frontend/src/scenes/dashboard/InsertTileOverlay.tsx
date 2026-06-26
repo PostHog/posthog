@@ -9,30 +9,19 @@ import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { computeBoundaries, InsertZone, LineSegment, TileRect } from 'scenes/dashboard/insertTileGeometry'
 
 interface InsertTileOverlayProps {
-    /** The current breakpoint's tile layout (sm) — a dependency that triggers re-measuring on change. */
+    // `layout` is unused at render but its identity change drives re-measuring (effect dep).
     layout: Layout | undefined
     gridWidth: number
-    /** Grid column count (sm breakpoint). */
     cols: number
     rowHeight: number
-    /** Horizontal grid margin (px) between columns. */
     marginX: number
-    /** Vertical grid margin (px) between rows. */
     marginY: number
     canEditDashboard: boolean
     isMobileView: boolean
-    /** Hide while a drag/resize gesture is in progress. */
     disabled?: boolean
-    /** Builds the add-tile menu for an insertion at the given grid column + row, optionally full-width. */
     getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItem[]
 }
 
-/**
- * Overlays an insert affordance in the gaps between dashboard tiles. Hovering a gap reveals a line
- * (drawn behind the cards) and a "+" that opens the same add-tile menu as the header. Over a tile that
- * borders the line, the insert is column-aware; over empty space in the gap, it falls back to a
- * full-width tile so it still lands at the line (compaction can't float it above). Edit access only.
- */
 export function InsertTileOverlay({
     layout,
     gridWidth,
@@ -137,7 +126,6 @@ const HOVER_HIT_HEIGHT = 28
 // Keep the "+" fully on the strip when the cursor is near either end.
 const BUTTON_EDGE_PADDING = 16
 
-/** Where the next insert will go: a grid column + row, and a width (full-width fallback sets it). */
 interface InsertTarget {
     targetX: number
     targetY: number

@@ -2,13 +2,11 @@
 // the line clipping and drop-zone rules here are exactly where the visual bugs lived, and they're
 // cheap to pin down with a table of cases.
 
-/** A visible run of the boundary line (px), between the tiles a row cuts across. */
 export interface LineSegment {
     left: number
     width: number
 }
 
-/** A rendered tile's box in overlay-local px. */
 export interface TileRect {
     top: number
     bottom: number
@@ -28,7 +26,6 @@ export interface InsertZone {
     targetY: number
 }
 
-/** A place to insert: the line's pixel Y, its grid row, the gaps it shows in, and the column drop zones. */
 export interface InsertBoundary {
     lineY: number
     gridRow: number

@@ -177,11 +177,10 @@ export enum RefreshDashboardItemsAction {
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
 
-/** Grid slot for the inline "+" insert: the row (`y`) and column (`x`), and an optional width override
- * (`w`) for the full-width fallback when the hovered column can't anchor the tile at the line. */
 export interface PendingInsertion {
     x: number
     y: number
+    // Width override for the full-width fallback when the hovered column can't anchor the tile; else null.
     w: number | null
 }
 
@@ -387,13 +386,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
-        /**
-         * Record the grid slot where the next added tile should be inserted (inline "+" affordance), or
-         * null to clear. `w` overrides the tile's width — used for the full-width fallback when the hovered
-         * column can't anchor the tile at the line.
-         */
         setPendingInsertion: (pendingInsertion: PendingInsertion | null) => ({ pendingInsertion }),
-        /** Reposition a freshly-added tile to the pending insertion row, pushing tiles below it down. */
         applyPendingInsertion: true,
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
