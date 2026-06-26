@@ -130,14 +130,17 @@ class BingAdsClient:
         self.authorization_data.account_id = account_id
         self.authorization_data.customer_id = customer_id
 
-        service_client = ServiceClient(
-            service="CampaignManagementService",
-            version=13,
-            authorization_data=self.authorization_data,
-            environment=ENVIRONMENT,
-        )
+        try:
+            service_client = ServiceClient(
+                service="CampaignManagementService",
+                version=13,
+                authorization_data=self.authorization_data,
+                environment=ENVIRONMENT,
+            )
 
-        campaigns = service_client.GetCampaignsByAccountId(AccountId=account_id)
+            campaigns = service_client.GetCampaignsByAccountId(AccountId=account_id)
+        except Exception as e:
+            raise _wrap_with_fault_detail(e, "Failed to fetch campaigns") from e
 
         result = []
         if campaigns and campaigns.Campaign:
