@@ -6181,7 +6181,7 @@ const api = {
         },
         async githubRepositories(
             id: IntegrationType['id'],
-            params?: { limit?: number; offset?: number }
+            params?: { limit?: number; offset?: number; search?: string }
         ): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).withQueryString(params).get()
         },

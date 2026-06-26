@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
+import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,20 +15,11 @@ export interface RepositorySelectorProps {
 }
 
 export function RepositorySelector({ value, onChange }: RepositorySelectorProps): JSX.Element {
-    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { integrationsLoading } = useValues(integrationsLogic)
 
-    // The picker uses plain repo names as keys, but the Task API expects owner/repo format
-    const pickerValue = value.repository?.split('/')?.pop() ?? ''
-
-    const handleRepositoryChange = (repoName: string): void => {
-        if (!repoName) {
-            onChange({ ...value, repository: undefined })
-            return
-        }
-        const integration = integrations?.find((i) => i.id === value.integrationId)
-        const owner = integration?.config?.account?.name || integration?.config?.account?.login
-        const repository = owner ? `${owner}/${repoName}` : repoName
-        onChange({ ...value, repository })
+    // The picker selects on `owner/repo`, which is exactly the format the Task API expects.
+    const handleRepositoryChange = (repository: string | null): void => {
+        onChange({ ...value, repository: repository ?? undefined })
     }
 
     if (integrationsLoading) {
@@ -56,9 +47,9 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
             {value.integrationId ? (
                 <div>
                     <label className="block text-sm font-medium mb-2">Repository</label>
-                    <GitHubRepositoryPicker
+                    <GitHubRepositoryCombobox
                         integrationId={value.integrationId}
-                        value={pickerValue}
+                        value={value.repository ?? ''}
                         onChange={handleRepositoryChange}
                     />
                 </div>
