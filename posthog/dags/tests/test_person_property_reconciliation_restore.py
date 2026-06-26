@@ -17,6 +17,7 @@ from posthog.dags.person_property_reconciliation_restore import (
     fetch_persons_by_ids,
     restore_person_with_version_check,
 )
+from posthog.dags.tests.conftest import refresh_person_from_persons_db, save_person_to_persons_db
 from posthog.models import Organization, Person, Team
 from posthog.persons_db import persons_db_connection
 from posthog.test.persons import create_person
@@ -880,7 +881,7 @@ class TestRestoreIntegration:
         assert success is True
         assert person_data is not None
 
-        person.refresh_from_db()
+        refresh_person_from_persons_db(person)
         assert person.properties == {"email": "original@example.com", "name": "Original"}
         assert person.version == 6
 
@@ -890,7 +891,7 @@ class TestRestoreIntegration:
 
         # Set current state to match backup's "after" state for one property
         person.properties = {"email": "reconciled@example.com", "name": "User Changed This"}
-        person.save()
+        save_person_to_persons_db(person)
 
         with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
@@ -920,7 +921,7 @@ class TestRestoreIntegration:
         assert success is True
         assert person_data is not None
 
-        person.refresh_from_db()
+        refresh_person_from_persons_db(person)
         # email: current == after, so restore to before
         assert person.properties["email"] == "original@example.com"
         # name: current != after (user changed it), so keep current
@@ -931,7 +932,7 @@ class TestRestoreIntegration:
         job_id = f"test-job-{uuid_module.uuid4()}"
 
         person.properties = {"email": "current@example.com", "brand_new": "added_later"}
-        person.save()
+        save_person_to_persons_db(person)
 
         with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
@@ -961,7 +962,7 @@ class TestRestoreIntegration:
         assert success is True
         assert person_data is not None
 
-        person.refresh_from_db()
+        refresh_person_from_persons_db(person)
         # email should be restored to original
         assert person.properties["email"] == "original@example.com"
         # brand_new property added after backup should be preserved
@@ -999,7 +1000,7 @@ class TestRestoreIntegration:
         assert success is True
         assert person_data is None  # No data for Kafka in dry run
 
-        person.refresh_from_db()
+        refresh_person_from_persons_db(person)
         assert person.properties == original_properties
         assert person.version == original_version
 
@@ -1009,7 +1010,7 @@ class TestRestoreIntegration:
 
         # Set current to match backup's before state
         person.properties = {"email": "original@example.com"}
-        person.save()
+        save_person_to_persons_db(person)
 
         with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
@@ -1166,8 +1167,8 @@ class TestRestoreJobEndToEnd:
         assert result.success
 
         # Verify persons were restored
-        person1.refresh_from_db()
-        person2.refresh_from_db()
+        refresh_person_from_persons_db(person1)
+        refresh_person_from_persons_db(person2)
 
         assert person1.properties == {"email": "original1@example.com", "name": "Original Name"}
         assert person1.version == 6
@@ -1258,8 +1259,8 @@ class TestRestoreJobEndToEnd:
         assert result.success
 
         # Verify only team 1 person was restored
-        person1.refresh_from_db()
-        person2.refresh_from_db()
+        refresh_person_from_persons_db(person1)
+        refresh_person_from_persons_db(person2)
 
         assert person1.properties == {"email": "original1@example.com"}
         assert person2.properties == {"email": "team2@example.com"}  # Unchanged
@@ -1322,7 +1323,7 @@ class TestRestoreJobEndToEnd:
         assert result.success
 
         # Verify person was NOT modified
-        person.refresh_from_db()
+        refresh_person_from_persons_db(person)
         assert person.properties == original_properties
         assert person.version == original_version
 
@@ -1418,7 +1419,7 @@ class TestRestoreJobEndToEnd:
         for team in teams:
             t = teams.index(team)
             for p, person in enumerate(persons[team.id]):
-                person.refresh_from_db()
+                refresh_person_from_persons_db(person)
                 assert person.properties == {
                     "email": f"original_t{t}_p{p}@example.com",
                     "team_marker": f"team_{t}",
@@ -1509,7 +1510,7 @@ class TestRestoreJobEndToEnd:
         for t_idx in [1, 3]:
             team = teams[t_idx]
             for p, person in enumerate(persons[team.id]):
-                person.refresh_from_db()
+                refresh_person_from_persons_db(person)
                 assert person.properties["status"] == "restored", f"Team {t_idx} person {p} should be restored"
                 assert person.properties["email"] == f"original_t{t_idx}_p{p}@example.com"
 
@@ -1517,7 +1518,7 @@ class TestRestoreJobEndToEnd:
         for t_idx in [0, 2, 4]:
             team = teams[t_idx]
             for p, person in enumerate(persons[team.id]):
-                person.refresh_from_db()
+                refresh_person_from_persons_db(person)
                 assert person.properties["status"] == "current", f"Team {t_idx} person {p} should NOT be restored"
                 assert person.properties["email"] == f"current_t{t_idx}_p{p}@example.com"
 
@@ -1608,7 +1609,7 @@ class TestRestoreJobEndToEnd:
 
         # Verify only the selected persons were restored
         for person in all_persons:
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
             if person.id in persons_to_restore:
                 assert person.properties["restored"] is True, f"Person {person.id} should be restored"
             else:
@@ -1727,7 +1728,7 @@ class TestRestoreJobEndToEnd:
         for team in teams:
             t = teams.index(team)
             for p, person in enumerate(persons[team.id]):
-                person.refresh_from_db()
+                refresh_person_from_persons_db(person)
                 should_restore = expected_restored.get((t, p), False)
 
                 if should_restore:
@@ -1827,7 +1828,7 @@ class TestRestoreJobEndToEnd:
         for team in teams:
             t = teams.index(team)
             for p, person in enumerate(persons[team.id]):
-                person.refresh_from_db()
+                refresh_person_from_persons_db(person)
                 assert person.properties == {
                     "email": f"original_t{t}_p{p}@example.com",
                     "name": f"Original Name {t}_{p}",
@@ -1915,7 +1916,7 @@ class TestRestoreJobEndToEnd:
         for team in teams:
             t = teams.index(team)
             for p, person in enumerate(persons[team.id]):
-                person.refresh_from_db()
+                refresh_person_from_persons_db(person)
                 assert person.properties == {
                     "email": f"original_t{t}_p{p}@example.com",
                     "restored": True,

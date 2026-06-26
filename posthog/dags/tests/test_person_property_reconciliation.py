@@ -38,9 +38,10 @@ from posthog.dags.person_property_reconciliation import (
     reconcile_with_concurrent_changes,
     update_person_with_version_check,
 )
+from posthog.dags.tests.conftest import refresh_person_from_persons_db
 
-# Exercises the persons DB directly (raw reads + ORM person creation), so it must run against the
-# real persons DB rather than the personhog fake.
+# Exercises the persons DB directly (raw reads and writes against the persons writer), so it must
+# run against the real persons DB rather than the personhog fake.
 pytestmark = pytest.mark.persons_db_direct
 
 
@@ -5914,7 +5915,7 @@ class TestBatchCommitsEndToEnd:
 
         # Verify Postgres was actually updated with correct properties and metadata
         for i, person in enumerate(persons):
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             # Property value should be updated
             assert person.properties["email"] == f"new_{i}@example.com", (
@@ -6088,7 +6089,7 @@ class TestBatchCommitsEndToEnd:
 
         # Verify existing persons were updated with correct properties and metadata
         for i, person in enumerate(persons):
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             # Property value should be updated
             assert person.properties["name"] == f"new_name_{i}", (
@@ -6464,7 +6465,7 @@ class TestKafkaClickHouseRoundTrip:
                 kafka_producer.close()
 
         # Verify Postgres was updated
-        person.refresh_from_db()
+        refresh_person_from_persons_db(person)
         assert person.properties["email"] == "new@example.com", (
             f"Postgres email not updated. Expected 'new@example.com', got '{person.properties.get('email')}'"
         )
@@ -6734,7 +6735,7 @@ class TestKafkaClickHouseRoundTrip:
         # Verify team 1 results in Postgres
         for suffix, _person_ts, _event_ts, should_be_reconciled, prop_name in test_cases_team1:
             person = persons_team1[suffix]
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             if should_be_reconciled:
                 assert person.properties[prop_name] == "new_value", (
@@ -6752,7 +6753,7 @@ class TestKafkaClickHouseRoundTrip:
         # Verify team 2 results in Postgres
         for suffix, _person_ts, _event_ts, should_be_reconciled, prop_name in test_cases_team2:
             person = persons_team2[suffix]
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             if should_be_reconciled:
                 assert person.properties[prop_name] == "new_value", (
