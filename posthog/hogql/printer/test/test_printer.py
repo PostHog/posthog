@@ -604,7 +604,7 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk),
                 "hogql",
             ),
-            "properties.`$browser with a \\` tick`",
+            "properties.`$browser with a `` tick`",
         )
         self.assertEqual(
             self._expr(
@@ -612,7 +612,7 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk),
                 "hogql",
             ),
-            "properties.`$browser \\\\with a \\n\\` tick`",
+            "properties.`$browser \\\\with a \\n`` tick`",
         )
         # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
         self.assertEqual(

@@ -1385,7 +1385,7 @@ export interface ScratchpadEntryApi {
  */
 export interface RememberRequestApi {
     /**
-     * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
+     * Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key and keep the timestamp in `content`.
      * @maxLength 300
      */
     key: string

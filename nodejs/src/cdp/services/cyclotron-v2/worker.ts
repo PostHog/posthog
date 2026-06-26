@@ -55,7 +55,11 @@ export class CyclotronV2Worker {
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
-        this.fairDequeue = config.fairDequeue ?? false
+        // Fair (per-team round-robin) dequeue is the email queue's ordering.
+        // `dequeue_seq` is only ever assigned for email jobs (see
+        // CyclotronV2Manager), so deriving this from the queue name keeps the
+        // worker's ORDER BY in lockstep with where the sort key actually exists.
+        this.fairDequeue = config.queueName === 'email'
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {

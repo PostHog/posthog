@@ -2061,6 +2061,11 @@ class NexiopaySourceConfig(config.Config):
 
 
 @config.config
+class NextdoorAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class NinjaOneRMMSourceConfig(config.Config):
     pass
 
@@ -3089,6 +3094,11 @@ class TaboolaSourceConfig(config.Config):
 
 
 @config.config
+class TalkwalkerSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class TavusSourceConfig(config.Config):
     pass
 
@@ -3928,6 +3938,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
         ExternalDataSourceType.NEWSDATA: NewsDataSourceConfig,
         ExternalDataSourceType.NEXIOPAY: NexiopaySourceConfig,
+        ExternalDataSourceType.NEXTDOORADS: NextdoorAdsSourceConfig,
         ExternalDataSourceType.NINJAONERMM: NinjaOneRMMSourceConfig,
         ExternalDataSourceType.NOCRM: NoCRMSourceConfig,
         ExternalDataSourceType.NORTHPASSLMS: NorthpassLMSSourceConfig,
@@ -4121,6 +4132,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.TMDB: TMDbSourceConfig,
         ExternalDataSourceType.TVMAZE: TVMazeSourceConfig,
         ExternalDataSourceType.TABOOLA: TaboolaSourceConfig,
+        ExternalDataSourceType.TALKWALKER: TalkwalkerSourceConfig,
         ExternalDataSourceType.TAVUS: TavusSourceConfig,
         ExternalDataSourceType.TAWKTO: TawkToSourceConfig,
         ExternalDataSourceType.TEAMTAILOR: TeamtailorSourceConfig,

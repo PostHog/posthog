@@ -5,8 +5,8 @@ export {
     ActivityStatusIcon,
     ActivitySubsteps,
     ActivityToggleSection,
+    RunActivity,
     ShimmeringContent,
-} from 'products/posthog_ai/frontend/sandbox/ActivityPrimitives'
-export type { ActivityStatus } from 'products/posthog_ai/frontend/sandbox/ActivityPrimitives'
+} from 'products/posthog_ai/frontend'
+export type { ActivityStatus } from 'products/posthog_ai/frontend'
 export { LangGraphActivity } from './LangGraphActivity'
-export { SandboxActivity } from 'products/posthog_ai/frontend/sandbox/SandboxActivity'

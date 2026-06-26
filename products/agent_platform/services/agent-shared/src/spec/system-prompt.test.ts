@@ -79,10 +79,10 @@ describe('buildSystemPrompt', () => {
         expect(prompt).not.toContain('Available skills')
     })
 
-    it('falls back when entrypoint missing', async () => {
-        const spec = AgentSpecSchema.parse({ model: 'test/x' })
+    it('falls back when agent.md missing', async () => {
+        const spec = AgentSpecSchema.parse({ model: 'x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
-        expect(prompt).toMatch(/missing entrypoint/)
+        expect(prompt).toMatch(/missing agent\.md/)
     })
 
     it('injects the framework preamble before agent.md', async () => {
