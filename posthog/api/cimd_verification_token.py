@@ -4,12 +4,12 @@ from django.core.cache import cache
 from django.views.decorators.debug import sensitive_variables
 
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.oauth import CIMDVerificationToken, OAuthApplication, create_cimd_verification_token
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
@@ -101,7 +101,7 @@ class CIMDVerificationTokenViewSet(
             organization_id=self.organization.id,
             team_id=None,
             user=request.user if request.user.is_authenticated else None,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=str(token.id),
             scope="CIMDVerificationToken",
             activity="created",
@@ -137,7 +137,7 @@ class CIMDVerificationTokenViewSet(
             organization_id=org_id,
             team_id=None,
             user=request.user if request.user.is_authenticated else None,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=token_id,
             scope="CIMDVerificationToken",
             activity="deleted",

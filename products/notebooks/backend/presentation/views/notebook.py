@@ -18,7 +18,6 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
-from loginas.utils import is_impersonated_session
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -31,6 +30,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -199,7 +199,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
         )
 
         return notebook
@@ -258,7 +258,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             changes=changes,
         )
 
@@ -905,7 +905,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 organization_id=cast(UUIDT, user.current_organization_id),
                 team_id=notebook.team_id,
                 user=user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 changes=changes,
             )
 
@@ -918,7 +918,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             organization_id=cast(UUIDT, user.current_organization_id),
             team_id=notebook.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             changes=[
                 Change(
                     type="Notebook",
@@ -1013,7 +1013,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 organization_id=cast(UUIDT, user.current_organization_id),
                 team_id=locked_notebook.team_id,
                 user=user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 changes=changes,
             )
             return Response(NotebookSerializer(locked_notebook, context=self.get_serializer_context()).data)
@@ -1025,7 +1025,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             organization_id=cast(UUIDT, user.current_organization_id),
             team_id=locked_notebook.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             changes=[
                 Change(
                     type="Notebook",

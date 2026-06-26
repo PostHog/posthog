@@ -10,7 +10,6 @@ import dataclasses
 from typing import cast
 
 import structlog
-from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
 
@@ -23,6 +22,7 @@ from posthog.hogql.printer.utils import print_prepared_ast
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
@@ -138,7 +138,7 @@ class EndpointMaterializationService:
                     organization_id=self.team.organization_id,
                     team_id=self.team.pk,
                     user=self.user,
-                    was_impersonated=is_impersonated_session(self.request),
+                    was_impersonated=is_impersonated(self.request),
                     item_id=str(version.saved_query.id),
                     scope="DataWarehouseSavedQuery",
                     activity="materialization_enabled",
@@ -288,7 +288,7 @@ class EndpointMaterializationService:
                 organization_id=self.team.organization_id,
                 team_id=self.team.pk,
                 user=self.user,
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=saved_query_id,
                 scope="DataWarehouseSavedQuery",
                 activity="materialization_disabled",

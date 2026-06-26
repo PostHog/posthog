@@ -9,9 +9,9 @@ from django.conf import settings
 from django.db.models import Prefetch
 
 import structlog
-from loginas.utils import is_impersonated_session
 from temporalio import common
 
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person, PersonDistinctId
@@ -127,7 +127,7 @@ def delete_persons_profile(
                 organization_id=organization_id,
                 team_id=team_id,
                 user=cast(User, actor),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=person.pk,
                 scope="Person",
                 activity="deleted",

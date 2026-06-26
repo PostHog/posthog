@@ -30,7 +30,6 @@ from drf_spectacular.utils import (
     extend_schema_view,
     inline_serializer,
 )
-from loginas.utils import is_impersonated_session
 from nanoid import generate
 from opentelemetry import trace
 from posthoganalytics import capture_exception
@@ -49,6 +48,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -1589,7 +1589,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             organization_id=team.organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             item_id=instance.id,
             scope="Survey",
             activity="created",
@@ -1708,7 +1708,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             organization_id=team.organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             item_id=instance.id,
             scope="Survey",
             activity="updated",
@@ -2129,7 +2129,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=cast(User, self.request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=instance.id,
             scope="Survey",
             activity="deleted",
@@ -2170,7 +2170,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=cast(User, self.request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=survey.id,
             scope="Survey",
             activity="launched",
@@ -2216,7 +2216,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=cast(User, self.request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=survey.id,
             scope="Survey",
             activity="stopped",
@@ -2781,7 +2781,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=survey.id,
                 scope="Survey",
                 activity="response_archived",
@@ -2814,7 +2814,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=survey.id,
                 scope="Survey",
                 activity="response_unarchived",
@@ -3500,7 +3500,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                         organization_id=user_organization.id,
                         team_id=created_survey.team_id,
                         user=user,
-                        was_impersonated=is_impersonated_session(request),
+                        was_impersonated=is_impersonated(request),
                         item_id=created_survey.id,
                         scope="Survey",
                         activity="created",

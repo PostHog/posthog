@@ -11,7 +11,6 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema_field
-from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -31,6 +30,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -410,7 +410,7 @@ class DataWarehouseSavedQuerySerializer(
                 organization_id=team.organization_id,
                 team_id=team.id,
                 user=view.created_by,
-                was_impersonated=is_impersonated_session(self.context["request"]),
+                was_impersonated=is_impersonated(self.context["request"]),
                 item_id=view.id,
                 scope="DataWarehouseSavedQuery",
                 activity="created",
@@ -550,7 +550,7 @@ class DataWarehouseSavedQuerySerializer(
                 organization_id=team.organization_id,
                 team_id=team.id,
                 user=self.context["request"].user,
-                was_impersonated=is_impersonated_session(self.context["request"]),
+                was_impersonated=is_impersonated(self.context["request"]),
                 item_id=view.id,
                 scope="DataWarehouseSavedQuery",
                 activity="updated",
@@ -881,7 +881,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             organization_id=self.team.organization_id,
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=instance.id,
             scope="DataWarehouseSavedQuery",
             activity="deleted",
@@ -906,7 +906,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             organization_id=self.team.organization_id,
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=saved_query.id,
             scope="DataWarehouseSavedQuery",
             activity="sync_triggered",
@@ -947,7 +947,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             organization_id=self.team.organization_id,
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=saved_query.id,
             scope="DataWarehouseSavedQuery",
             activity="materialization_disabled",
@@ -1006,7 +1006,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             organization_id=self.team.organization_id,
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=saved_query.id,
             scope="DataWarehouseSavedQuery",
             activity="materialization_enabled",
@@ -1179,7 +1179,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             organization_id=self.team.organization_id,
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=saved_query.id,
             scope="DataWarehouseSavedQuery",
             activity="sync_cancelled",

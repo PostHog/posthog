@@ -31,6 +31,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.impersonation import is_impersonated
 from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
 from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
 from posthog.models.activity_logging.activity_log import (
@@ -1446,7 +1447,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             organization_id=team.organization_id,
             team_id=team.pk,
             user=request.user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             scope="Team",
             item_id=team.pk,
             activity="created",
@@ -1498,7 +1499,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     organization_id=cast(UUIDT, instance.organization_id),
                     team_id=instance.pk,
                     user=cast(User, self.context["request"].user),
-                    was_impersonated=is_impersonated_session(request),
+                    was_impersonated=is_impersonated(request),
                     scope="Survey",
                     item_id="",
                     activity="updated",
@@ -1576,7 +1577,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             organization_id=cast(UUIDT, instance.organization_id),
             team_id=instance.pk,
             user=cast(User, self.context["request"].user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             scope="Team",
             item_id=instance.pk,
             activity="updated",
@@ -1746,7 +1747,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 organization_id=cast(UUIDT, instance.organization_id),
                 team_id=instance.pk,
                 user=cast(User, self.context["request"].user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 scope="Team",
                 item_id=instance.pk,
                 activity="updated",
@@ -1939,7 +1940,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             organization_id=cast(UUIDT, organization_id),
             team_id=team_id,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             scope="Team",
             item_id=team_id,
             activity="deleted",
