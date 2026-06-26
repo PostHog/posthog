@@ -379,6 +379,29 @@ class TestRESTClient:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
     )
+    def test_max_retry_attempts_one_does_not_retry_or_sleep(self, MockSession, mock_sleep) -> None:
+        # The inline preview sets max_retry_attempts=1: a 429 with a long Retry-After
+        # must raise immediately, never sleeping on the request thread.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
+        rate_limited.url = "https://api.example.com/items"
+        rate_limited.headers["Retry-After"] = "300"
+        mock_session.send.return_value = rate_limited
+
+        client = RESTClient(base_url="https://api.example.com", max_retry_attempts=1)
+        with pytest.raises(RESTClientRetryableError):
+            list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert mock_session.send.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
     def test_send_request_respects_retry_after_header(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}

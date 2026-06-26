@@ -2,14 +2,14 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { HogFlow } from '~/schema/hogflow'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
-import { UUIDT } from '../../utils/utils'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
 import {

@@ -1,7 +1,7 @@
 import { TopicPartitionOffset } from 'node-rdkafka'
 
+import { logger } from '~/common/utils/logger'
 import { PartitionOffset } from '~/ingestion/pipelines/sessionreplay/types'
-import { logger } from '~/utils/logger'
 
 type CommitOffsetsCallback = (offsets: TopicPartitionOffset[]) => Promise<void>
 

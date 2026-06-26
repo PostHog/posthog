@@ -268,6 +268,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
             const traceQuery: TraceQuery = {
                 kind: NodeKind.TraceQuery,
                 traceId,
+                includeSentiment: true,
                 dateRange: {
                     date_from: dateFrom,
                     date_to: dateTo,

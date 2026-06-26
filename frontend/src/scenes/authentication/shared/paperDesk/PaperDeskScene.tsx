@@ -10,9 +10,9 @@ import { Typewriter } from './Typewriter'
 /** Full-viewport paper-desk stage: dotted parchment + accent glow + mono corner notes. */
 export function PaperDeskScene({ notes, children }: { notes: string[]; children: ReactNode }): JSX.Element {
     return (
-        <div className="PaperDesk relative min-h-screen overflow-hidden font-sans text-primary bg-[#eef0e7]">
+        <div className="PaperDesk relative h-screen overflow-x-hidden overflow-y-auto font-sans text-primary bg-[#eef0e7]">
             <Typewriter lines={notes} />
-            <div className="relative z-[3] flex flex-col items-center justify-center min-h-screen py-18 px-10">
+            <div className="relative z-[3] flex flex-col items-center justify-center min-h-full py-18 px-10">
                 <div className="PaperDesk__column flex flex-col items-center w-[27rem] max-w-full">{children}</div>
             </div>
             <DevLoginPanel />
