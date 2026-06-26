@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("ee", "0050_migrate_replay_models"),
-        ("posthog", "1239_migrate_approvals_models"),
+        ("posthog", "1238_ducklakebackfill_earliest_event_date"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
