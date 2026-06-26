@@ -516,7 +516,7 @@ describe('AdmissionService', () => {
 })
 
 describe('AgentSpecSchema.authoritative_provider validation', () => {
-    const base = { model: 'anthropic/claude-haiku-4-5' }
+    const base = { models: { mode: 'auto', level: 'medium', optimize_for: 'cost' } }
     const dogs = (userinfo?: string): Record<string, unknown> => ({
         kind: 'oauth2',
         id: 'dogs',
