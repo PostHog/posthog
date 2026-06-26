@@ -586,21 +586,13 @@ describe('buildUsageLimitApproachingMessage', () => {
         )
     })
 
-    it('should use the product name even when usage_key is missing', () => {
-        const result = buildUsageLimitApproachingMessage([{ name: 'Session replay', percentage_usage: 0.9 }])
-        expect(result.message).toContain('Session replay allocation')
-    })
-
-    it('should fall back to usage_key when name is missing', () => {
-        const result = buildUsageLimitApproachingMessage([
-            { name: '', percentage_usage: 0.9, usage_key: 'signals_credits' },
-        ])
-        expect(result.message).toContain('signals_credits allocation')
-    })
-
-    it('should fall back to "usage" when both name and usage_key are missing', () => {
-        const result = buildUsageLimitApproachingMessage([{ name: '', percentage_usage: 0.9 }])
-        expect(result.message).toContain('usage allocation')
+    it.each([
+        { name: 'Session replay', usage_key: undefined, expected: 'Session replay allocation' },
+        { name: '', usage_key: 'signals_credits', expected: 'signals_credits allocation' },
+        { name: '', usage_key: undefined, expected: 'usage allocation' },
+    ])('should resolve label to "$expected" (name="$name", usage_key=$usage_key)', ({ name, usage_key, expected }) => {
+        const result = buildUsageLimitApproachingMessage([{ name, percentage_usage: 0.9, usage_key }])
+        expect(result.message).toContain(expected)
     })
 
     it('should format percentage with up to 2 decimal places', () => {
