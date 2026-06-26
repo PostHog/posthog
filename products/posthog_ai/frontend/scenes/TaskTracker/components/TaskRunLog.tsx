@@ -54,8 +54,10 @@ export function TaskRunLog({ taskId }: { taskId: string }): JSX.Element | null {
         )
     }
     if (selectedRun) {
+        // The viewer owns scroll edge-to-edge; this box just bounds the height. No `overflow-hidden`/negative
+        // margins — content is kept off the scrollbar via the viewer's `threadRowClassName`, not by clipping here.
         return (
-            <div className="flex-1 min-h-0 overflow-hidden -mr-4 -mt-4 pr-4">
+            <div className="flex-1 min-h-0">
                 <TaskRunChat taskId={taskId} runId={selectedRun.id} />
             </div>
         )

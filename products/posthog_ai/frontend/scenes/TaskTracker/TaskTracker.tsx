@@ -85,7 +85,7 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
                 <div className="w-72 shrink-0 pl-0 flex flex-col min-h-0 border-r border-primary">
                     <TasksListColumn selectedTaskId={selectedTaskId} />
                 </div>
-                <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">{rightPane}</div>
+                <div className="flex-1 min-w-0 flex flex-col min-h-0">{rightPane}</div>
             </div>
         </SceneContent>
     )

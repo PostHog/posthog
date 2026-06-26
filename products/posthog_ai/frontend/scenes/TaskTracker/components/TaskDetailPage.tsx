@@ -91,7 +91,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
         )
 
     return (
-        <SceneContent className="h-full min-h-0">
+        <SceneContent className="h-full min-h-0 gap-y-0">
             {sceneMenuBarEnabled && task && (
                 <SceneMenuBar>
                     <SceneMenuBarMenu label="File" dataAttr="task-menubar-file">
@@ -164,31 +164,33 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                         />
                     )}
 
-                    <SceneTitleSection
-                        name={task?.title || 'Task'}
-                        description={null}
-                        resourceType={{ type: 'task' }}
-                        isLoading={isHeaderLoading}
-                        canEdit={false}
-                        forceBackTo={
-                            isMobile
-                                ? {
-                                      key: 'tasks',
-                                      name: 'Tasks',
-                                      path: urls.taskTracker(),
-                                  }
-                                : undefined
-                        }
-                        actions={titleActions}
-                    />
+                    <header className="flex flex-col gap-y-2">
+                        <SceneTitleSection
+                            name={task?.title || 'Task'}
+                            description={null}
+                            resourceType={{ type: 'task' }}
+                            isLoading={isHeaderLoading}
+                            canEdit={false}
+                            forceBackTo={
+                                isMobile
+                                    ? {
+                                          key: 'tasks',
+                                          name: 'Tasks',
+                                          path: urls.taskTracker(),
+                                      }
+                                    : undefined
+                            }
+                            actions={titleActions}
+                        />
 
-                    {isHeaderLoading ? (
-                        <TaskRunMetadataSkeleton />
-                    ) : (
-                        selectedRun && <TaskRunMetadata selectedRun={selectedRun} />
-                    )}
+                        {isHeaderLoading ? (
+                            <TaskRunMetadataSkeleton />
+                        ) : (
+                            selectedRun && <TaskRunMetadata selectedRun={selectedRun} />
+                        )}
 
-                    <LemonDivider className="mb-0" />
+                        <LemonDivider className="mb-0" />
+                    </header>
 
                     <TaskRunLog taskId={taskId} />
                 </>
