@@ -92,6 +92,21 @@ export function ExportedInsight({
         </div>
     ) : null
 
+    // Only a left/right legend needs the flex-row + flex-1 wrapper. No legend and top/bottom legends
+    // render exactly as before (chart as a direct child, horizontal legend above/below), so those
+    // exports are visually unchanged.
+    const legendOnSide = showLegend && !legendIsHorizontal
+    const queryElement = (
+        <Query
+            query={insight.query}
+            cachedResults={insight}
+            readOnly
+            context={{ insightProps: insightLogicProps }}
+            embedded
+            inSharedMode
+        />
+    )
+
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
             <div className="ExportedInsight">
@@ -121,20 +136,19 @@ export function ExportedInsight({
                         'ExportedInsight__content--with-watermark': showWatermark,
                     })}
                 >
-                    <div className={clsx('flex', legendIsHorizontal ? 'flex-col' : 'flex-row items-start')}>
-                        {legendBeforeChart && legendElement}
-                        <div className="flex-1 min-w-0">
-                            <Query
-                                query={insight.query}
-                                cachedResults={insight}
-                                readOnly
-                                context={{ insightProps: insightLogicProps }}
-                                embedded
-                                inSharedMode
-                            />
+                    {legendOnSide ? (
+                        <div className="flex flex-row items-start">
+                            {legendBeforeChart && legendElement}
+                            <div className="flex-1 min-w-0">{queryElement}</div>
+                            {!legendBeforeChart && legendElement}
                         </div>
-                        {!legendBeforeChart && legendElement}
-                    </div>
+                    ) : (
+                        <>
+                            {legendBeforeChart && legendElement}
+                            {queryElement}
+                            {!legendBeforeChart && legendElement}
+                        </>
+                    )}
                     {showDetailedResultsTable && (
                         <div className="border-t mt-2">
                             <InsightsTable filterKey={short_id} isLegend embedded editMode={false} />
