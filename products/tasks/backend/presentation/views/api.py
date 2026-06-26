@@ -222,13 +222,25 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
         is_debug_or_staff = settings.DEBUG or request.user.is_staff
-        tasks = tasks_facade.list_tasks(
-            self.team_id, self._user_id(), filters=filters, is_debug_or_staff=is_debug_or_staff
+
+        # Resolve limit/offset before calling the facade so pagination is pushed into SQL.
+        # Paginating the returned list instead would materialize every task (and run) in the team.
+        paginator = self.paginator
+        limit = paginator.get_limit(request)
+        offset = paginator.get_offset(request)
+        count, tasks = tasks_facade.list_tasks(
+            self.team_id,
+            self._user_id(),
+            filters=filters,
+            is_debug_or_staff=is_debug_or_staff,
+            limit=limit,
+            offset=offset,
         )
-        page = self.paginate_queryset(tasks)
-        if page is not None:
-            return self.get_paginated_response(TaskSerializer(page, many=True).data)
-        return Response(TaskSerializer(tasks, many=True).data)
+        paginator.count = count
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.request = request
+        return paginator.get_paginated_response(TaskSerializer(tasks, many=True).data)
 
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},

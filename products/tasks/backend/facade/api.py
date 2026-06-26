@@ -2415,13 +2415,23 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
 
 
 def list_tasks(
-    team_id: int, user_id: int | None, *, filters: dict, is_debug_or_staff: bool
-) -> list[contracts.TaskDetailDTO]:
-    """All visible tasks for the team, mirroring ``TaskViewSet.safely_get_queryset`` for ``list``.
+    team_id: int,
+    user_id: int | None,
+    *,
+    filters: dict,
+    is_debug_or_staff: bool,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[int, list[contracts.TaskDetailDTO]]:
+    """A page of visible tasks for the team, plus the total match count.
 
     ``filters`` carries the request query params (origin_product, stage, organization, repository,
     created_by, search, status, internal, archived). ``is_debug_or_staff`` gates the ``internal``
     filter exactly as the original view did (``settings.DEBUG or request.user.is_staff``).
+
+    ``limit``/``offset`` are pushed into SQL so only the requested page (and its prefetched runs) is
+    materialized — without them a large team's entire task set would be loaded per request. Returns
+    ``(total_count, page_dtos)`` so the caller can build a paginated response.
     """
     qs = _visible_task_qs(team_id, user_id).order_by("-created_at")
 
@@ -2489,7 +2499,13 @@ def list_tasks(
     if stage:
         qs = qs.distinct()
 
-    return [_task_detail_to_dto(task) for task in qs]
+    total = qs.count()
+    if limit is not None:
+        qs = qs[offset : offset + limit]
+    elif offset:
+        qs = qs[offset:]
+
+    return total, [_task_detail_to_dto(task) for task in qs]
 
 
 def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:

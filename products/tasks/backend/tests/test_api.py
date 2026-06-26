@@ -820,6 +820,38 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)
 
+    @parameterized.expand(
+        [
+            ("first_page", 2, 0, "LIMIT 2", 2),
+            ("with_offset", 2, 3, "LIMIT 2 OFFSET 3", 2),
+        ]
+    )
+    def test_list_tasks_pushes_pagination_into_sql(self, _name, limit, offset, expected_clause, expected_len):
+        # Regression: limit/offset must be applied in SQL, not by materializing every task (and run)
+        # for the team and slicing in Python — the latter times out large teams on any page size.
+        for i in range(5):
+            task = self.create_task(f"Task {i}")
+            TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(f"/api/projects/@current/tasks/?limit={limit}&offset={offset}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data["count"], 5)
+        self.assertEqual(len(data["results"]), expected_len)
+
+        # The task SELECT (not the COUNT) must carry the page bounds rather than fetching every row.
+        task_selects = [
+            q["sql"]
+            for q in ctx.captured_queries
+            if 'FROM "posthog_task"' in q["sql"] and "COUNT(" not in q["sql"].upper()
+        ]
+        self.assertTrue(
+            any(expected_clause in sql for sql in task_selects),
+            f"pagination was not pushed into SQL; task queries: {task_selects}",
+        )
+
     def test_retrieve_task(self):
         task = self.create_task("Test Task")
 
