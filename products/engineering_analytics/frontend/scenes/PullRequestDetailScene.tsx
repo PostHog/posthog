@@ -724,6 +724,7 @@ export function PullRequestDetailScene(): JSX.Element {
                                             }
                                             loading={runJobsLoading}
                                             embedded
+                                            aligned
                                         />
                                     )
                                 }
@@ -740,6 +741,7 @@ export function PullRequestDetailScene(): JSX.Element {
                                         setExpanded={setRunExpanded}
                                         runCostByKey={runCostByKey}
                                         showCost={prCost?.jobs_available ?? false}
+                                        aligned
                                         // Oldest push first so rows read in the same order as the sparkline.
                                         defaultSorting={{ columnKey: 'started', order: 1 }}
                                         dataAttr="engineering-analytics-pr-runs-table"
