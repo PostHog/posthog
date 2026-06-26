@@ -35,7 +35,13 @@ class BillingAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     all_teams = models.Manager()  # noqa: DJ012
 
     organization_id = models.UUIDField(db_index=True)
-    team = models.ForeignKey("posthog.Team", db_column="execution_team_id", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey(
+        "posthog.Team",
+        db_column="execution_team_id",
+        db_constraint=False,
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
     created_by_id = models.BigIntegerField(null=True, blank=True)
     updated_by_id = models.BigIntegerField(null=True, blank=True)
 
@@ -126,7 +132,7 @@ class BillingAlertEvent(TeamScopedRootMixin, UUIDModel):
     all_teams = models.Manager()  # noqa: DJ012
 
     alert = models.ForeignKey(BillingAlertConfiguration, on_delete=models.CASCADE, related_name="events")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", db_constraint=False, on_delete=models.CASCADE, related_name="+")
     kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.CHECK)
 
     created_at = models.DateTimeField(auto_now_add=True)
