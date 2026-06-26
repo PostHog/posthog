@@ -1567,6 +1567,19 @@ class Database(BaseModel):
                                     table_conflict_mode=table_conflict_mode,
                                 )
 
+                                # Snowflake stores identifiers uppercase but resolves them
+                                # case-insensitively; register an all-lowercase alias so a natural
+                                # `from tpch_sf1.nation` resolves to the canonical `TPCH_SF1.NATION`.
+                                if table.external_data_source.is_direct_snowflake:
+                                    lowercase_chain = [segment.lower() for segment in table_chain]
+                                    if lowercase_chain != table_chain:
+                                        warehouse_tables.add_child(
+                                            TableNode.create_nested_for_chain(
+                                                lowercase_chain, s3_table.model_copy(deep=True)
+                                            ),
+                                            table_conflict_mode="ignore",
+                                        )
+
                                 joined_table_chain = ".".join(table_chain)
                                 table_for_key.name = joined_table_chain
                                 warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
