@@ -86,7 +86,17 @@ class HogFlow(UUIDTModel):
     # Contains only billable action types: 'function', 'function_email', 'function_sms', 'function_push'
     billable_action_types = models.JSONField(default=list, null=True, blank=True)
 
-    # Draft storage for active workflows: stores pending edits separately from live config
+    # Points to the currently live revision for this workflow. Null until backfilled. The HogFlow
+    # content columns above are kept mirrored to this revision so reads stay correct with revisions off.
+    active_revision = models.ForeignKey(
+        "workflows.HogFlowRevision",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    # DEPRECATED: superseded by HogFlowRevision rows. Removed in a later cleanup once revisions are at 100%.
     draft = models.JSONField(null=True, blank=True)
     draft_updated_at = models.DateTimeField(null=True, blank=True)
 

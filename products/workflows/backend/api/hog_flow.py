@@ -66,6 +66,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     PERSON_DEPENDENT_ACTION_TYPES,
     HogFlow,
 )
+from products.workflows.backend.models.hog_flow.hog_flow_revision import sync_mirror_revision
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
@@ -1237,6 +1238,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             )
 
         serializer.save()
+        # Double-write a mirror revision so the revisions table stays consistent before anything reads it.
+        sync_mirror_revision(serializer.instance)
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
 
         try:
@@ -1292,6 +1295,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             before_update = None
 
         serializer.save()
+        sync_mirror_revision(serializer.instance)
 
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
 
@@ -1355,6 +1359,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             before_update = HogFlow.objects.get(pk=instance.pk)
             # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
             serializer.save()
+            sync_mirror_revision(locked)
 
         log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
 
@@ -1525,7 +1530,10 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
 
         queryset = self.get_queryset().filter(id__in=validated_ids, status="archived")
-        deleted_count, _ = queryset.delete()
+        # delete() returns the total across cascaded models (incl. mirrored HogFlowRevision rows);
+        # report only the workflows deleted.
+        _, deleted_by_model = queryset.delete()
+        deleted_count = deleted_by_model.get(HogFlow._meta.label, 0)
 
         return Response({"deleted": deleted_count})
 

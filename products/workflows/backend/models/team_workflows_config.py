@@ -15,5 +15,9 @@ class TeamWorkflowsConfig(models.Model):
     # as standard PostHog events alongside the existing workflow metrics.
     capture_workflows_engagement_events = models.BooleanField(default=False)
 
+    # Team-scoped kill switch for workflow revisions. When on, live workflows can be edited via draft
+    # revisions and runs pin to their revision; off falls back to the legacy single-config model.
+    revisions_enabled = models.BooleanField(default=False)
+
 
 register_team_extension_signal(TeamWorkflowsConfig, logger=logger)

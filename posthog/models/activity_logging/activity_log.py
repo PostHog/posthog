@@ -408,6 +408,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "bytecode",
         "icon_url",
     ],
+    "HogFlow": [
+        # FK to the live revision snapshot - not JSON-serializable, and the content it mirrors is already logged.
+        "active_revision",
+    ],
     "Notebook": [
         "text_content",
     ],
