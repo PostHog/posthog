@@ -20318,6 +20318,7 @@ export namespace Schemas {
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
+     * * `minimax` - MiniMax
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -20330,6 +20331,7 @@ export namespace Schemas {
       Fireworks: 'fireworks',
       AzureOpenai: 'azure_openai',
       TogetherAi: 'together_ai',
+      Minimax: 'minimax',
     } as const;
 
     /**
@@ -33820,7 +33822,8 @@ export namespace Schemas {
        * * `openrouter` - Openrouter
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI */
+       * * `together_ai` - Together AI
+       * * `minimax` - MiniMax */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -41158,7 +41161,8 @@ export namespace Schemas {
        * * `openrouter` - Openrouter
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI */
+       * * `together_ai` - Together AI
+       * * `minimax` - MiniMax */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -56888,6 +56892,7 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       Fireworks: 'fireworks',
       Gemini: 'gemini',
+      Minimax: 'minimax',
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
@@ -63382,6 +63387,7 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       Fireworks: 'fireworks',
       Gemini: 'gemini',
+      Minimax: 'minimax',
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',

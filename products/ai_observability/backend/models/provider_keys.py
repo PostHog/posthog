@@ -19,6 +19,7 @@ class LLMProvider(models.TextChoices):
     FIREWORKS = "fireworks"
     AZURE_OPENAI = "azure_openai", "Azure OpenAI"
     TOGETHER_AI = "together_ai", "Together AI"
+    MINIMAX = "minimax", "MiniMax"
 
 
 class LLMProviderKey(UUIDTModel):
