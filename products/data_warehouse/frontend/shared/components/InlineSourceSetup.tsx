@@ -38,7 +38,8 @@ function InternalInlineSourceSetup({
 }: InlineSourceSetupProps): JSX.Element {
     const { connectors } = useValues(sourceWizardLogic)
     const { onClear } = useActions(sourceWizardLogic)
-    const { searchParams } = useValues(router)
+    const { searchParams, location } = useValues(router)
+    const { replace } = useActions(router)
 
     const [currentView, setCurrentView] = useState<InlineSourceSetupView>('selection')
     const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
@@ -61,6 +62,10 @@ function InternalInlineSourceSetup({
             setSelectedSource(match.name)
             setCurrentView('connecting')
         }
+        // Consume the param so a later remount (refresh, back-navigation, cancel) doesn't force the
+        // wizard back open after the connection has already been handled.
+        const { kind: _kind, ...restParams } = searchParams
+        replace(location.pathname, restParams)
         // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [])
     const featuredSources = availableConnectors.filter((c: SourceConfig) => c.featured)

@@ -21,7 +21,7 @@ import { InlineSourceSetup } from 'products/data_warehouse/frontend/shared/compo
 
 import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
-import { ConnectorIconGrid, DataWarehouseOnboardingLoadingPlaceholder } from './components'
+import { ConnectorIconGrid, DataWarehouseOnboardingLoadingPlaceholder, initialOnboardingPhase } from './components'
 
 const EXAMPLE_QUERIES = [
     {
@@ -71,11 +71,7 @@ function DataWarehouseValuePropInner(): JSX.Element {
     const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
     const { availableSourcesLoading } = useValues(availableSourcesLogic)
     const { connectors } = useValues(sourceWizardLogic)
-    // An OAuth round-trip returns to this step with ?kind=<source>; start on the setup phase so
-    // InlineSourceSetup is mounted to resume the wizard rather than showing the value-prop screen.
-    const [phase, setPhase] = useState<'value-prop' | 'setup'>(() =>
-        new URLSearchParams(window.location.search).get('kind') ? 'setup' : 'value-prop'
-    )
+    const [phase, setPhase] = useState<'value-prop' | 'setup'>(initialOnboardingPhase)
 
     const visibleConnectors = connectors.filter((c: SourceConfig) => !c.unreleasedSource)
 
