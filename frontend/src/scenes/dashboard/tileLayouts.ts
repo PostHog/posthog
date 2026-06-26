@@ -75,7 +75,7 @@ export function calculateDuplicateLayout(
 ): DuplicateLayoutResult {
     const result: DuplicateLayoutResult = { duplicateLayouts: {}, tilesToUpdate: [] }
 
-    const originalSmLayout = currentLayouts?.sm?.find((l) => String(l.i) === String(tileId))
+    const originalSmLayout = currentLayouts?.sm?.find((l) => l.i === `${tileId}`)
 
     if (!originalSmLayout) {
         return result
@@ -101,7 +101,7 @@ export function calculateDuplicateLayout(
     // shift down any tiles that would overlap with the new placement
     for (const smLayout of currentLayouts?.sm || []) {
         // ignore the duplicated tile and tiles above the insertion point
-        if (String(smLayout.i) === String(tileId) || smLayout.y < insertY) {
+        if (smLayout.i === `${tileId}` || smLayout.y < insertY) {
             continue
         }
 
@@ -143,7 +143,7 @@ export function calculateInsertionLayout(
 
     for (const smLayout of currentSmLayout || []) {
         // leave the new tile and anything above the insertion point untouched
-        if (String(smLayout.i) === String(newTileId) || smLayout.y < targetY) {
+        if (smLayout.i === `${newTileId}` || smLayout.y < targetY) {
             continue
         }
         // only push tiles that share horizontal space with the inserted tile's column span
@@ -178,7 +178,7 @@ function canPlaceToRight(
     }
 
     return !layouts.some((l) => {
-        if (String(l.i) === String(excludeTileId)) {
+        if (l.i === `${excludeTileId}`) {
             return false
         }
         const overlapsX = l.x < rightX + w && l.x + l.w > rightX
