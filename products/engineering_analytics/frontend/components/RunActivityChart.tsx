@@ -46,8 +46,6 @@ const SCATTER_HEIGHT = 156
 const BAND_HEIGHT = 56
 const Y_TICK_COUNT = 4
 const X_TICK_COUNT = 5
-// Samples across the time axis for the in-flight band — enough to look continuous, cheap to compute.
-const BAND_SAMPLES = 120
 // A scatter of one point says nothing; only draw once there's a spread to read.
 const MIN_POINTS = 2
 
@@ -177,34 +175,52 @@ export function RunActivityChart({
         label: dayjs(tMin + (tSpan * i) / (X_TICK_COUNT - 1)).format(xFormat),
     }))
 
-    // In-flight band: at each sample count the intervals covering that instant, and how many are failing.
-    const samples = Array.from({ length: BAND_SAMPLES + 1 }, (_, i) => {
-        const t = tMin + (tSpan * i) / BAND_SAMPLES
-        let total = 0
-        let failing = 0
-        for (const iv of intervals) {
-            if (iv.start <= t && t <= iv.end) {
-                total += 1
-                if (isDecisiveFailure(iv.conclusion)) {
-                    failing += 1
-                }
-            }
+    // In-flight band: exact concurrency via a sweep line over each run's start/end. Sampling fixed instants
+    // misses any run that begins and ends between two samples (minute-long runs on a 30-day window) — those
+    // would never be counted, so the band could read empty with the wrong peak even with runs on the scatter.
+    const bandEvents = intervals.flatMap((iv) => {
+        const failDelta = isDecisiveFailure(iv.conclusion) ? 1 : 0
+        return [
+            { t: iv.start, dTotal: 1, dFailing: failDelta },
+            { t: iv.end, dTotal: -1, dFailing: -failDelta },
+        ]
+    })
+    bandEvents.sort((a, b) => a.t - b.t)
+    // Walk the events, holding each concurrency level until the next; coalesce events at the same instant.
+    const steps: { t: number; total: number; failing: number }[] = []
+    let runningTotal = 0
+    let runningFailing = 0
+    bandEvents.forEach((event, i) => {
+        runningTotal += event.dTotal
+        runningFailing += event.dFailing
+        if (i + 1 === bandEvents.length || bandEvents[i + 1].t !== event.t) {
+            steps.push({ t: event.t, total: runningTotal, failing: runningFailing })
         }
-        return { total, failing }
     })
-    const peak = Math.max(1, ...samples.map((s) => s.total))
-    const bandX = (i: number): string => ((i / BAND_SAMPLES) * 1000).toFixed(1)
+    const peak = Math.max(1, ...steps.map((s) => s.total))
+    const bandX = (t: number): string => (((t - tMin) / tSpan) * 1000).toFixed(1)
     const bandY = (v: number): string => (BAND_HEIGHT - (v / peak) * (BAND_HEIGHT - 2)).toFixed(1)
-    let areaTotal = `M0,${BAND_HEIGHT}`
-    let areaFailing = `M0,${BAND_HEIGHT}`
-    let line = ''
-    samples.forEach((s, i) => {
-        areaTotal += ` L${bandX(i)},${bandY(s.total)}`
-        areaFailing += ` L${bandX(i)},${bandY(s.failing)}`
-        line += `${i ? ' L' : 'M'}${bandX(i)},${bandY(s.total)}`
-    })
-    areaTotal += ` L1000,${BAND_HEIGHT} Z`
-    areaFailing += ` L1000,${BAND_HEIGHT} Z`
+    // Concurrency is piecewise-constant, so draw step areas: hold the prior level to the event's x, then jump.
+    const stepArea = (key: 'total' | 'failing'): string => {
+        let d = `M0,${bandY(0)}`
+        let level = 0
+        for (const s of steps) {
+            const x = bandX(s.t)
+            d += ` L${x},${bandY(level)} L${x},${bandY(s[key])}`
+            level = s[key]
+        }
+        return `${d} L1000,${bandY(level)} L1000,${BAND_HEIGHT} L0,${BAND_HEIGHT} Z`
+    }
+    const areaTotal = stepArea('total')
+    const areaFailing = stepArea('failing')
+    let line = `M0,${bandY(0)}`
+    let lineLevel = 0
+    for (const s of steps) {
+        const x = bandX(s.t)
+        line += ` L${x},${bandY(lineLevel)} L${x},${bandY(s.total)}`
+        lineLevel = s.total
+    }
+    line += ` L1000,${bandY(lineLevel)}`
 
     const presentTypes = LEGEND_ORDER.filter((type) => presentTypeSet.has(type))
 
