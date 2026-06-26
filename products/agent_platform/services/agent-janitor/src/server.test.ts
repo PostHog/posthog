@@ -265,31 +265,47 @@ describe('janitor HTTP', () => {
         )
     })
 
-    it('GET /sessions?search matches external_key case-insensitively, not the transcript', async () => {
+    it('GET /sessions?search matches transcript text, external_key and id', async () => {
         const { queue, app } = mk()
         await queue.enqueue({
             ...session('s-deploy'),
             application_id: uuidFor('app-1'),
-            external_key: 'slack:CWIDGET',
-            conversation: [{ role: 'user', content: 'can you deploy the gadget service?', timestamp: 1 }],
+            external_key: 'slack:C123',
+            conversation: [
+                { role: 'user', content: 'can you deploy the WIDGET service?', timestamp: 1 },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'Deploying now.' }],
+                    api: 'a',
+                    provider: 'a',
+                    model: 'm',
+                    usage: { input: 1, output: 1, cost: { input: 0, output: 0, total: 0 } },
+                    timestamp: 2,
+                },
+            ],
         })
         await queue.enqueue({
             ...session('s-unrelated'),
             application_id: uuidFor('app-1'),
             external_key: 'slack:C999',
-            conversation: [{ role: 'user', content: 'mentions WIDGET in the transcript only', timestamp: 1 }],
+            conversation: [{ role: 'user', content: 'what is the weather', timestamp: 1 }],
         })
-        // external_key match, case-insensitive.
-        const byKey = await request(app)
+        // Transcript-text match via the persisted search_text digest, case-insensitive.
+        const byText = await request(app)
             .get('/sessions')
             .query({ application_id: uuidFor('app-1'), search: 'widget' })
-        expect((byKey.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-deploy')])
-        expect(byKey.body.count).toBe(1)
+        expect((byText.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-deploy')])
+        expect(byText.body.count).toBe(1)
+        // external_key match.
+        const byKey = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), search: 'C999' })
+        expect((byKey.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-unrelated')])
         // id match.
         const byId = await request(app)
             .get('/sessions')
-            .query({ application_id: uuidFor('app-1'), search: uuidFor('s-unrelated') })
-        expect((byId.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-unrelated')])
+            .query({ application_id: uuidFor('app-1'), search: uuidFor('s-deploy') })
+        expect((byId.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-deploy')])
         // No match → empty, not an error.
         const none = await request(app)
             .get('/sessions')
@@ -308,7 +324,7 @@ describe('janitor HTTP', () => {
         expect((res.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-pct')])
     })
 
-    it('GET /sessions summaries include preview + usage_total off the persisted column', async () => {
+    it('GET /sessions summaries derive preview from search_text + usage_total off the persisted columns', async () => {
         const { queue, app } = mk()
         await queue.enqueue({
             ...session('s-rich'),
@@ -339,7 +355,9 @@ describe('janitor HTTP', () => {
         const res = await request(app)
             .get('/sessions')
             .query({ application_id: uuidFor('app-1') })
-        expect(res.body.results[0].preview).toBe('hello back!')
+        // Preview is the conversation digest (user + assistant text), not just
+        // the last assistant line — it comes off the persisted search_text.
+        expect(res.body.results[0].preview).toBe('hi hello back!')
         expect(res.body.results[0].usage_total).toMatchObject({
             tokens_in: 50,
             tokens_out: 10,

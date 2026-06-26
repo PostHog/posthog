@@ -73,6 +73,7 @@ import {
     MemoryStore,
     MODEL_POLICY_LEVELS,
     PgIdentityAdminStore,
+    previewText,
     readTypedBundle,
     RevisionStore,
     SessionQueue,
@@ -472,12 +473,15 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 search: q.search,
             }
             const [sessions, count] = await Promise.all([
-                opts.queue.listByApplication(q.application_id, { ...filter, limit: q.limit, offset: q.offset }),
+                opts.queue.listSummariesByApplication(q.application_id, {
+                    ...filter,
+                    limit: q.limit,
+                    offset: q.offset,
+                }),
                 opts.queue.countByApplication(q.application_id, filter),
             ])
-            // Conversation can be large; strip it from the list view but derive a
-            // preview so a single tool call still tells you what the agent said.
-            // usage_total reads off the persisted column — no JSONB walk.
+            // `turns` + `preview` come off the persisted `turn_count` /
+            // `search_text` columns, so listing never detoasts a transcript.
             const summaries = sessions.map((s) => ({
                 id: s.id,
                 application_id: s.application_id,
@@ -487,8 +491,8 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 idempotency_key: s.idempotency_key,
                 trigger_metadata: s.trigger_metadata,
                 principal: s.principal,
-                turns: s.conversation.length,
-                preview: lastAssistantTextPreview(s.conversation),
+                turns: s.turns,
+                preview: previewText(s.search_text),
                 usage_total: s.usage_total,
                 retry_count: s.retry_count,
                 created_at: s.created_at,
