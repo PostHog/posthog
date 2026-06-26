@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
+import { type SparklineTimeSeries } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
@@ -9,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
 import type { _MetricAnomalyReportApi, _MetricSeriesApi } from 'products/metrics/frontend/generated/api.schemas'
 
+import { formatSeriesName, seriesColor } from './metricsSeries'
 import type { metricsViewerLogicType } from './metricsViewerLogicType'
 
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95'
@@ -167,6 +169,17 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // multi-series rendering in a later PR.
         // Metrics has no compare/previous-series concept, so "current" is simply the first series.
         currentSeries: [(s) => [s.queryResults], (results): MetricsViewerSeries | undefined => results[0]],
+        // All series rendered as chart lines (a group-by query returns one series per label combination).
+        // The x-axis labels come from `sparklineLabels` (the backend grids every series onto one time axis).
+        chartSeries: [
+            (s) => [s.queryResults, s.metricName],
+            (results: MetricsViewerSeries[], metricName: string): SparklineTimeSeries[] =>
+                results.map((series, index) => ({
+                    name: formatSeriesName(series, metricName),
+                    values: series.points.map((p) => p.value),
+                    color: seriesColor(index),
+                })),
+        ],
         sparklineValues: [
             (s) => [s.currentSeries],
             (series: MetricsViewerSeries | undefined) => (series?.points ?? []).map((p) => p.value),

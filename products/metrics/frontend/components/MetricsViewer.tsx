@@ -101,6 +101,7 @@ export const MetricsViewer = (): JSX.Element => {
         dateTo,
         viewMode,
         statSummary,
+        chartSeries,
         sparklineValues,
         sparklineLabels,
         statTotal,
@@ -292,7 +293,7 @@ export const MetricsViewer = (): JSX.Element => {
                 ) : hasResults ? (
                     <Sparkline
                         type="line"
-                        data={[{ name: aggregation, values: sparklineValues, color: 'data-color-1' }]}
+                        data={chartSeries}
                         labels={sparklineLabels}
                         className="w-full h-full"
                         withXScale={withXScale}
