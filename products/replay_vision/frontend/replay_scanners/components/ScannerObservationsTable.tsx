@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -17,7 +17,6 @@ import {
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
-import { ScanSessionButton } from './ScanSessionButton'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -92,6 +91,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         hasActiveObservationFilters,
         availableTags,
         observationStats,
+        observationStatsApiLoading,
         scanner,
         triggeringOnDemandObservation,
         refreshing,
@@ -195,12 +195,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
     return (
         <div className="space-y-2">
             <div className="flex items-center gap-3">
-                <p className="text-muted text-sm m-0">
-                    Past observations made by this scanner. Each row is one observation.
-                </p>
+                <h3 className="font-semibold text-base m-0">Observation history</h3>
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
-                        <ScanSessionButton scannerId={scannerId} />
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>
                                 <FilterPill<ObservationStatusValue>
@@ -257,7 +254,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             </LemonButton>
                         </Tooltip>
                     </div>
-                    {observationStats.total > 0 && (
+                    {observationStats.total > 0 ? (
                         <div className="flex gap-4 text-sm">
                             <Metric label="Total" value={observationStats.total} />
                             {observationStats.successRate !== null && (
@@ -277,7 +274,11 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 <Metric label="In flight" value={observationStats.inFlight} />
                             )}
                         </div>
-                    )}
+                    ) : observationStatsApiLoading ? (
+                        <div className="flex items-center text-muted text-sm">
+                            <Spinner />
+                        </div>
+                    ) : null}
                 </div>
             </div>
             <LemonTable

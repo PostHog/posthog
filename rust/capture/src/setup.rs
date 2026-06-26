@@ -326,6 +326,8 @@ pub async fn build_components(
         overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router.clone(),
+        config.capture_v1_scatter_gather_min_batch,
+        config.ai_gateway_signing_secret.clone(),
     );
 
     info!(

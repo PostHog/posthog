@@ -7,14 +7,19 @@ RUNTIME="${MCP_RUNTIME:-hono}"
 
 pnpm install --frozen-lockfile
 
+# `.dev.vars` is the canonical local-dev env (Wrangler convention). The hono
+# entry also reads it (see scripts/dev-hono.ts) — make sure it exists either
+# way, otherwise OAuth metadata advertises cloud (`oauth.posthog.com`) and
+# MCP clients try to auth against production instead of local Django.
+if [ ! -f .dev.vars ]; then
+    cp .dev.vars.example .dev.vars
+fi
+
 if [ "$RUNTIME" = "hono" ]; then
     export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
     export PORT="${PORT:-8787}"
     exec pnpm run dev:hono
 else
-    if [ ! -f .dev.vars ]; then
-        cp .dev.vars.example .dev.vars
-    fi
 
     # SITE_URL on devboxes points at the public per-workspace subdomain; rewrite
     # the three PostHog-pointing keys so MCP's OAuth metadata advertises a host

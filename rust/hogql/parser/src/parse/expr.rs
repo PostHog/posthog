@@ -414,6 +414,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         | TokenKind::LtEq
                         | TokenKind::Gt
                         | TokenKind::GtEq
+                        | TokenKind::NullSafeEq
                         | TokenKind::RegexSingle
                         | TokenKind::RegexDouble
                         | TokenKind::IRegexSingle
@@ -805,23 +806,63 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // back; operator continuations like `interval + 1` reach try_alt too.
             //
             // A nested INTERVAL in the value position of an enclosing INTERVAL
-            // (`interval interval '5 day' month`) is special: cpp's ALL(*)
-            // reserves the trailing unit (`month`) for the OUTER interval, so
-            // the inner one never takes the unit-consuming form. Parse it
-            // string-only when a string follows (`interval '5 day'` →
-            // `toIntervalDay(5)`, with a bad string a hard error like cpp's
-            // `ColumnExprIntervalString`), else as a Field / call via the ident
-            // path (`interval - x` → `interval` Field minus `x`; `interval(1)`
-            // → call). The trailing unit then binds to the outer interval.
+            // is two-faced. The STRING form (`interval interval '5 day' month`)
+            // is self-contained — count and unit live inside the string — so
+            // cpp's ALL(*) parses the inner string-only and reserves the
+            // trailing `month` for the OUTER interval (a bad string is a hard
+            // error like cpp's `ColumnExprIntervalString`). The EXPR form is
+            // resolved by which reading lets the WHOLE thing parse: the inner is
+            // a nested `INTERVAL <value> <unit>` only when it leaves a unit for
+            // the outer (`interval interval 0 week week` → inner `INTERVAL 0
+            // WEEK`, outer `WEEK`). Otherwise the inner `interval` is an
+            // identifier and its trailing unit binds to the outer
+            // (`interval interval - x week` → `INTERVAL (interval - x) WEEK`;
+            // `interval interval(1) week` → the call as the value). So probe the
+            // nested form and keep it only when a unit keyword still follows.
             TokenKind::Keyword(Kw::Interval) if interval_value => {
                 if self.peek_next() == TokenKind::String {
-                    self.parse_interval_string_only()
-                        .map_err(ParseError::into_fatal)
+                    // Nested string-valued INTERVAL. cpp keeps the inner string a
+                    // self-contained `ColumnExprIntervalString` (count+unit inside
+                    // the quotes, `'5 day'`) when a SINGLE unit trails — that unit
+                    // is the OUTER interval's. When TWO units trail, the inner is
+                    // instead an expr+unit INTERVAL whose VALUE is the (plain
+                    // constant) string and whose unit is the first keyword, leaving
+                    // the second for the outer (`interval interval '' day month` →
+                    // `INTERVAL (INTERVAL '' DAY) MONTH`). The value-expr reading
+                    // sidesteps the string's count/unit validation, which is why
+                    // `''` parses there but not as a bare string interval.
+                    if self.interval_string_trailing_unit_count() >= 2 {
+                        self.parse_interval_expr().map_err(ParseError::into_fatal)
+                    } else {
+                        self.parse_interval_string_only()
+                            .map_err(ParseError::into_fatal)
+                    }
                 } else {
-                    self.parse_ident_lead()
+                    let cp = self.checkpoint();
+                    match self.parse_interval_expr() {
+                        // Keep the nested reading only when a unit is still left
+                        // for the OUTER interval — directly, or after a run of
+                        // postfix operators on the inner (`interval interval 0
+                        // hour () hour` → `INTERVAL ((INTERVAL 0 HOUR)()) HOUR`).
+                        Ok(inner) if self.interval_unit_follows_postfix_run() => Ok(inner),
+                        Err(e) if e.fatal => Err(e),
+                        _ => {
+                            self.restore(cp)?;
+                            self.parse_ident_lead()
+                        }
+                    }
                 }
             }
-            TokenKind::Keyword(Kw::Interval) if can_start_interval_value(self.peek_next()) => {
+            // A HogQLX tag is a valid interval value (`interval <t/> second` →
+            // `INTERVAL (<t/>) SECOND`), but `<` is a pure-infix operator so
+            // `can_start_interval_value` rejects it — admit it explicitly when
+            // the `<` actually begins a tag (not a `<` comparison). The try_alt
+            // below still falls back to the `interval < x` comparison reading
+            // when the tag parse doesn't pan out.
+            TokenKind::Keyword(Kw::Interval)
+                if can_start_interval_value(self.peek_next())
+                    || self.peek_next_starts_hogqlx_tag() =>
+            {
                 if self.peek_next() == TokenKind::String {
                     self.parse_interval_expr().map_err(ParseError::into_fatal)
                 } else {
@@ -1226,6 +1267,19 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if matches!(self.peek(), TokenKind::String) && !self.peek_next_is_interval_unit() {
             let str_tok = self.peek0;
             let raw = unquote_single_string(self.text(str_tok));
+            // Unvisited clause (window FILTER body / discarded ORDER BY): cpp
+            // grammar-parses the string-form INTERVAL but never visits it, so
+            // none of its count / unit "not supported" rejections (`interval
+            // 'bm '`) fire here. Consume the string into a throwaway and return;
+            // the value is moot. (The no-space `interval 'p'` case is covered
+            // too, so its own suppress branch below is unreachable now.)
+            if self.suppress_unvisited_clause_checks {
+                self.bump()?;
+                return Ok(self.emit.call(
+                    "toIntervalSecond",
+                    vec![self.emit.constant(self.emit.string(&raw))],
+                ));
+            }
             if let Some((count_str, unit)) = raw.split_once(' ') {
                 // cpp's `visitColumnExprIntervalString` requires the
                 // count to be a non-negative decimal integer (`isdigit`
@@ -1279,19 +1333,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // Reaching here means the string has no internal space (the split
             // failed) and — per the branch guard — no trailing unit keyword:
             // cpp's `ColumnExprIntervalString`, which `visitColumnExprIntervalString`
-            // rejects (it isn't `<count> <unit>`). In a clause cpp grammar-parses
-            // but never visits (`suppress_unvisited_clause_checks`), tolerate it
-            // with a throwaway so the discarded parse completes — matching cpp's
-            // accept (`{x} order by interval 'p'`). The node value is moot.
-            if self.suppress_unvisited_clause_checks {
-                let s = unquote_single_string(self.text(str_tok));
-                self.bump()?;
-                return Ok(self.emit.call(
-                    "toIntervalSecond",
-                    vec![self.emit.constant(self.emit.string(&s))],
-                ));
-            }
-            // Fall through to the expr+unit form: parse the string as
+            // rejects (it isn't `<count> <unit>`). The unvisited-clause case
+            // (`{x} order by interval 'p'`) was already handled by the
+            // suppress short-circuit above, so a strict reject is all that's
+            // left — fall through to the expr+unit form: parse the string as
             // the value expression and let the trailing unit keyword
             // close the INTERVAL.
         }
@@ -1365,6 +1410,18 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.expect_kw(Kw::Interval, "INTERVAL")?;
         let str_tok = self.peek0;
         let raw = unquote_single_string(self.text(str_tok));
+        // Unvisited clause (window FILTER body / discarded ORDER BY): cpp
+        // grammar-parses the inner `ColumnExprIntervalString` but never visits it,
+        // so its count/unit "not supported" rejections never fire — tolerate any
+        // string with a throwaway, matching the suppress short-circuit in
+        // `parse_interval_expr` (`a() filter(where interval interval 'bm ' day) over a`).
+        if self.suppress_unvisited_clause_checks {
+            self.bump()?;
+            return Ok(self.emit.call(
+                "toIntervalSecond",
+                vec![self.emit.constant(self.emit.string(&raw))],
+            ));
+        }
         let Some((count_str, unit)) = raw.split_once(' ') else {
             self.bump()?;
             return Err(ParseError::not_implemented_fatal(
@@ -1407,6 +1464,40 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             .call(unit_name, vec![self.emit.constant(self.emit.int(count))]))
     }
 
+    /// For a nested string-valued INTERVAL (`peek0 == interval`, `peek1 ==
+    /// String`), count the INTERVAL unit keywords (`SECOND … YEAR`) that
+    /// immediately trail the string, capped at 2. Drives the string-only vs
+    /// expr+unit choice for the inner interval: one trailing unit is the OUTER
+    /// interval's (inner stays self-contained), two means the inner takes the
+    /// first as its own unit and reserves the second for the outer.
+    fn interval_string_trailing_unit_count(&self) -> usize {
+        let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+        let mut count = 0usize;
+        while count < 2 {
+            match probe.next_token() {
+                Ok(t)
+                    if matches!(
+                        t.kind,
+                        TokenKind::Keyword(
+                            Kw::Second
+                                | Kw::Minute
+                                | Kw::Hour
+                                | Kw::Day
+                                | Kw::Week
+                                | Kw::Month
+                                | Kw::Quarter
+                                | Kw::Year
+                        )
+                    ) =>
+                {
+                    count += 1
+                }
+                _ => break,
+            }
+        }
+        count
+    }
+
     /// Is `peek_next` a recognised INTERVAL unit keyword? Used by
     /// parse_interval_expr to decide between the combined-string form
     /// (`INTERVAL '5 day'`) and the expr-plus-unit form (`INTERVAL '1'
@@ -1418,6 +1509,66 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 interval_call_name(self.text(self.peek1)).is_some()
             }
             _ => false,
+        }
+    }
+
+    /// After a nested-interval value at `peek0`, would one of the eight singular
+    /// INTERVAL unit keywords (`SECOND … YEAR`, what `parse_interval_expr`'s unit
+    /// slot accepts) follow once a run of postfix operators on that value — a
+    /// `(…)` call, `[…]` subscript, or `.id` / `?.id` member — is skipped? The
+    /// enclosing INTERVAL takes that unit, so the inner `interval` is a nested
+    /// value-plus-postfixes (`interval interval 0 hour () hour`) rather than a
+    /// bare identifier. Postfix runs only — an arithmetic / infix continuation
+    /// is left to the bare-identifier reading.
+    fn interval_unit_follows_postfix_run(&self) -> bool {
+        let is_unit = |k: TokenKind| {
+            matches!(
+                k,
+                TokenKind::Keyword(
+                    Kw::Second
+                        | Kw::Minute
+                        | Kw::Hour
+                        | Kw::Day
+                        | Kw::Week
+                        | Kw::Month
+                        | Kw::Quarter
+                        | Kw::Year
+                )
+            )
+        };
+        let mut probe = Lexer::with_pos(self.src, self.peek0.start);
+        loop {
+            let Ok(t) = probe.next_token() else {
+                return false;
+            };
+            match t.kind {
+                k if is_unit(k) => return true,
+                TokenKind::LParen | TokenKind::LBracket => {
+                    let mut depth: i32 = 1;
+                    while depth > 0 {
+                        let Ok(inner) = probe.next_token() else {
+                            return false;
+                        };
+                        match inner.kind {
+                            TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                                depth += 1
+                            }
+                            TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                                depth -= 1
+                            }
+                            TokenKind::Eof => return false,
+                            _ => {}
+                        }
+                    }
+                }
+                // `.id` / `?.id` member — skip the member token too.
+                TokenKind::Dot | TokenKind::NullProperty => {
+                    if probe.next_token().is_err() {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
         }
     }
 
@@ -2257,7 +2408,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     }
 
     pub(crate) fn set_lexer_pos(&mut self, pos: usize) -> Result<(), ParseError> {
+        // Carry the HogQLX tag-mode flag across the re-seek — restores /
+        // text-boundary re-seeks happen mid-tag and must keep lexing
+        // `#` the tag-mode way.
+        let in_tag = self.lexer.in_hogqlx_tag();
         self.lexer = Lexer::with_pos(self.src, pos);
+        self.lexer.set_in_hogqlx_tag(in_tag);
         self.peek0 = self.lexer.next_token()?;
         self.peek1 = self.lexer.next_token()?;
         Ok(())
@@ -2414,6 +2570,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             | TokenKind::LtEq
             | TokenKind::Gt
             | TokenKind::GtEq
+            | TokenKind::NullSafeEq
             | TokenKind::RegexSingle
             | TokenKind::RegexDouble
             | TokenKind::IRegexSingle
@@ -3246,9 +3403,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // all keep DISTINCT as a Field. The follow-set heuristic here
         // mirrors that: bail out when peek_next is Comma or any pure
         // infix/postfix op that can't start a fresh expression.
+        // `distinct()` with EMPTY parens is the zero-arg call `Call(distinct,
+        // [])`, not the args DISTINCT-marker: cpp reads `count(distinct())` as
+        // `count` over a nested `distinct()` call (cf. `SELECT distinct()`).
+        // `distinct(x)` keeps the marker, so only empty `()` triggers this.
+        let distinct_heads_empty_call =
+            self.peek_next() == TokenKind::LParen && self.peek_lparen_is_empty();
         let distinct = if self.peek() == TokenKind::Keyword(Kw::Distinct)
             && !matches!(self.peek_next(), TokenKind::Comma)
             && !is_pure_infix_op(self.peek_next())
+            && !distinct_heads_empty_call
         {
             self.bump()?;
             true
@@ -3281,22 +3445,36 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if !matches!(self.peek(), TokenKind::Keyword(Kw::Filter)) {
             return Ok(None);
         }
+        // cpp's window FILTER (`VISIT(ColumnExprWinFunction)`) grammar-parses
+        // the WHERE body but never visits it; aggregate FILTER does visit.
+        // We can't peek `OVER` until the body is consumed, so optimistically
+        // parse with both suppressions (window form) and re-parse strictly
+        // below if no OVER follows.
+        let cp_before_filter = self.checkpoint();
         self.bump()?;
         self.expect(TokenKind::LParen, "(")?;
         self.expect_kw(Kw::Where, "WHERE")?;
-        // cpp's `VISIT(ColumnExprWinFunction)` parses the FILTER
-        // where-expression at the grammar level but never visits it
-        // into the AST — so the SelectStmt-visitor semantic checks
-        // (ARRAY JOIN without FROM / unaliased ARRAY JOIN arrays)
-        // never fire for a subquery nested in here. Suppress them
-        // during this parse so `f() FILTER (WHERE (SELECT 1 ARRAY
-        // JOIN 2)) OVER w` is accepted the same way.
-        let prev = self.suppress_array_join_checks;
+        let prev_array_join = self.suppress_array_join_checks;
+        let prev_unvisited = self.suppress_unvisited_clause_checks;
         self.suppress_array_join_checks = true;
+        self.suppress_unvisited_clause_checks = true;
         let result = self.parse_expr_bp(0);
-        self.suppress_array_join_checks = prev;
+        self.suppress_array_join_checks = prev_array_join;
+        self.suppress_unvisited_clause_checks = prev_unvisited;
         let expr = result?;
         self.expect(TokenKind::RParen, ")")?;
+        // No OVER → aggregate FILTER. Re-parse strictly so cpp's visit-time
+        // rejections (ARRAY JOIN, DATE/TIMESTAMP/INTERVAL, ColumnTypeExprEnum)
+        // fire.
+        if !matches!(self.peek(), TokenKind::Keyword(Kw::Over)) {
+            self.restore(cp_before_filter)?;
+            self.bump()?;
+            self.expect(TokenKind::LParen, "(")?;
+            self.expect_kw(Kw::Where, "WHERE")?;
+            let strict_expr = self.parse_expr_bp(0)?;
+            self.expect(TokenKind::RParen, ")")?;
+            return Ok(Some(strict_expr));
+        }
         Ok(Some(expr))
     }
 
@@ -3399,8 +3577,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let mut pos = self.peek0.start;
         loop {
             let mut probe = Lexer::with_pos(self.src, pos);
-            // enumValue: STRING `=` numberLiteral
-            if !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::String)) {
+            // enumValue: string `=` numberLiteral, where `string` is
+            // STRING_LITERAL | templateString — so an `f'…'` key (`a(f''=0)`) is
+            // an enum value too, which cpp rejects as `ColumnTypeExprEnum`.
+            if !matches!(
+                probe.next_token().map(|t| t.kind),
+                Ok(TokenKind::String | TokenKind::TemplateString)
+            ) {
                 return false;
             }
             if !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::EqDouble)) {
@@ -3498,6 +3681,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // cpp ACCEPTS. So gate the reject on the full enum-list shape and let
             // the Param path below handle the rest.
             if self.paren_body_is_enum_value_list() {
+                if self.suppress_unvisited_clause_checks {
+                    // Unvisited clause: consume the enum body, return a placeholder.
+                    while self.peek() != TokenKind::RParen {
+                        self.bump()?;
+                    }
+                    self.expect(TokenKind::RParen, ")")?;
+                    return Ok(format!("{head_name}(<discarded-enum>)"));
+                }
                 let start = self.peek0.start;
                 let end = self.peek0.end;
                 // Fatal so the outer `try_alt`'s parse_ident_lead
@@ -4196,6 +4387,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 | TokenKind::LtEq
                 | TokenKind::Gt
                 | TokenKind::GtEq
+                | TokenKind::NullSafeEq
                 | TokenKind::Arrow
                 | TokenKind::ColonEquals
                 | TokenKind::Concat
@@ -4245,8 +4437,19 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // `a() b` (juxtaposition), `Int NULL` — is swallowed as raw text and
         // accepted, where cpp rejects. Both callers (param-mode loop and the
         // `parse_type_param_item` fall-back) route through here.
+        //
+        // `getText()` matches the item but never VISITS it, so the visitor-level
+        // "not supported" rejections (a `date '' ` / `timestamp ''` literal —
+        // `a(date '')` — and friends) must not fire during this grammar-only
+        // validation: cpp accepts them as raw param text. Suppress those checks
+        // for the validation parse only. (A genuine `ColumnTypeExprEnum` is
+        // already caught by `paren_body_is_enum_value_list` before we get here.)
         let validate_cp = self.checkpoint();
-        self.parse_expr_bp(0)?;
+        let prev_suppress = self.suppress_unvisited_clause_checks;
+        self.suppress_unvisited_clause_checks = true;
+        let validated = self.parse_expr_bp(0);
+        self.suppress_unvisited_clause_checks = prev_suppress;
+        validated?;
         if !matches!(self.peek(), TokenKind::Comma | TokenKind::RParen) {
             return Err(self.err("type parameter is not a valid expression"));
         }
@@ -4319,6 +4522,50 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             }
         }
         Ok(args)
+    }
+
+    /// Table-function argument list (cpp's `tableArgList`): each arg is a plain
+    /// `columnExpr` or a named `ident := expr`. Unlike a general function call
+    /// (cpp's `ColumnExprCallSelect`), a *bare* `SELECT …` is not a valid table
+    /// arg — cpp rejects `FROM a(SELECT 1)` but accepts `FROM a((SELECT 1))` —
+    /// so this skips the bare-`selectSetStmt` alt that `parse_arg_list` allows.
+    pub(crate) fn parse_table_arg_list(
+        &mut self,
+        terminator: TokenKind,
+    ) -> Result<Vec<E::Value>, ParseError> {
+        let mut args = Vec::new();
+        if self.peek() == terminator {
+            return Ok(args);
+        }
+        loop {
+            args.push(self.parse_table_argument()?);
+            if !self.eat(TokenKind::Comma)? {
+                break;
+            }
+            if self.peek() == terminator {
+                break;
+            }
+        }
+        Ok(args)
+    }
+
+    /// One table-function argument: a named `ident := expr`, else a plain
+    /// `columnExpr` (no bare-`SELECT` alt — see `parse_table_arg_list`). The
+    /// named-arg gate mirrors `parse_call_argument_with` (cpp's
+    /// `ColumnExprNamedArg` admits the full `identifier` rule).
+    fn parse_table_argument(&mut self) -> Result<E::Value, ParseError> {
+        let name_kw_ok =
+            matches!(self.peek(), TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
+        if (matches!(self.peek(), TokenKind::Ident | TokenKind::QuotedIdent) || name_kw_ok)
+            && self.peek_next() == TokenKind::ColonEquals
+        {
+            let name_tok = self.bump()?;
+            let name = identifier_text(self.text(name_tok), name_tok.kind);
+            self.bump()?; // consume `:=`
+            let value = self.parse_expr_bp(0)?;
+            return Ok(self.emit.named_argument(&name, value));
+        }
+        self.parse_expr_bp(0)
     }
 
     /// One argument in a function call's argument list. Supports the named
@@ -4847,9 +5094,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     // is now buried inside (e.g. as `Call(if, [BetweenExpr, …])` for the ternary hoist)
                     // and would not otherwise receive a span. cpp emits position info on BetweenExpr
                     // unconditionally — match that. Simple BETWEEN spans through the high operand's
-                    // last consumed token (incl. a parenthesized high's trailing `)`); only the
-                    // WIDE/hoist case needs `high.end` (last_consumed_end overshoots there).
-                    let high_end = self.emit.get_field(&high, "end");
+                    // last consumed token (incl. a parenthesized high's trailing `)`) via wrap_pos;
+                    // the WIDE/hoist case can't (last_consumed_end overshoots past the hoist), so it
+                    // stamps the high operand's end directly. The high node `end` is paren-stripped,
+                    // so recover a parenthesized high's trailing `)` via `high_operand_paren_end`.
+                    let high_end = high_operand_paren_end(self, &high)
+                        .or_else(|| self.emit.get_field(&high, "end"));
                     let between_inner = self.emit.between(prev, low, high, true);
                     let mut between = if hoisted.is_empty() {
                         self.wrap_pos(between_inner, lhs_start)
@@ -4915,11 +5165,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 let prev = std::mem::replace(lhs, self.emit.null());
                 // The simple BETWEEN spans through the high operand's *last consumed*
                 // token — including a trailing `)` that a parenthesized high
-                // (`… and (3)`) strips from `high.end`. Only the WIDE/hoist case
-                // (`parse_between_body` absorbed a nested BETWEEN that is now hoisted
-                // back out) needs `high.end`, because there `last_consumed_end` is
-                // past the high we actually keep.
-                let high_end = self.emit.get_field(&high, "end");
+                // (`… and (3)`) strips from `high.end`. The WIDE/hoist case can't
+                // use `last_consumed_end` (it's past the hoist), so it stamps the
+                // high operand's end directly, recovering a parenthesized high's
+                // trailing `)` via `high_operand_paren_end` (the node `end` is
+                // paren-stripped).
+                let high_end = high_operand_paren_end(self, &high)
+                    .or_else(|| self.emit.get_field(&high, "end"));
                 let between_inner = self.emit.between(prev, low, high, false);
                 let mut between = if hoisted.is_empty() {
                     self.wrap_pos(between_inner, lhs_start)
@@ -5299,6 +5551,7 @@ pub(crate) fn is_pure_infix_op(tok: TokenKind) -> bool {
             | TokenKind::LtEq
             | TokenKind::Gt
             | TokenKind::GtEq
+            | TokenKind::NullSafeEq
             | TokenKind::Slash
             | TokenKind::Percent
             | TokenKind::RegexSingle
@@ -5855,23 +6108,33 @@ fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
     parser: &Parser<'a, E>,
     node: &E::Value,
 ) -> bool {
-    let start = match pos_offset(&parser.emit, parser.emit.get_field(node, "start").as_ref()) {
-        Some(s) => s,
-        None => return false,
-    };
-    let end = match pos_offset(&parser.emit, parser.emit.get_field(node, "end").as_ref()) {
-        Some(e) => e,
-        None => return false,
-    };
+    let start = pos_offset(&parser.emit, parser.emit.get_field(node, "start").as_ref());
+    let end = pos_offset(&parser.emit, parser.emit.get_field(node, "end").as_ref());
+    match (start, end) {
+        (Some(s), Some(e)) => wholly_parenthesized_close(parser, s, e).is_some(),
+        _ => false,
+    }
+}
+
+/// If the byte range `[start, end)` is wholly wrapped in one balanced `( … )`
+/// (ignoring surrounding whitespace, and skipping string / quoted-identifier
+/// bodies and block comments so parens inside literals don't miscount),
+/// return that pair's `(` / `)` byte offsets `(lp, rp)`. ASCII byte-scan;
+/// callers gate on `parser.is_ascii_src`.
+fn wholly_parenthesized_close<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    start: usize,
+    end: usize,
+) -> Option<(usize, usize)> {
     let bytes = parser.src.as_bytes();
     if start >= end || end > bytes.len() {
-        return false;
+        return None;
     }
     // Nearest non-whitespace byte before `start` must be an opening paren.
     let mut lp = start;
     loop {
         if lp == 0 {
-            return false;
+            return None;
         }
         lp -= 1;
         if !bytes[lp].is_ascii_whitespace() {
@@ -5879,7 +6142,7 @@ fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
         }
     }
     if bytes[lp] != b'(' {
-        return false;
+        return None;
     }
     // Nearest non-whitespace byte at/after `end` must be a closing paren.
     let mut rp = end;
@@ -5887,7 +6150,7 @@ fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
         rp += 1;
     }
     if rp >= bytes.len() || bytes[rp] != b')' {
-        return false;
+        return None;
     }
     // The `(` at `lp` must balance-match the `)` at `rp` exactly.
     let mut depth = 0i32;
@@ -5923,14 +6186,39 @@ fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
             b')' => {
                 depth -= 1;
                 if depth == 0 {
-                    return i == rp;
+                    return (i == rp).then_some((lp, rp));
                 }
             }
             _ => {}
         }
         i += 1;
     }
-    false
+    None
+}
+
+/// The source offset just past a BETWEEN high operand, following any balanced
+/// wrapping parens. cpp's BetweenExpr span runs through a parenthesized high's
+/// trailing `)`, but the high AST node's `end` is the paren-stripped inner
+/// expr — so in the hoist case (where `last_consumed_end` has already moved
+/// past the hoist and can't be used) the node `end` undershoots by the closing
+/// paren(s). Returns a position object for the walked end, or `None` when the
+/// operand isn't parenthesized (caller keeps the node `end`) or src isn't ASCII.
+fn high_operand_paren_end<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    high: &E::Value,
+) -> Option<E::Value> {
+    if !parser.is_ascii_src {
+        return None;
+    }
+    let mut s = pos_offset(&parser.emit, parser.emit.get_field(high, "start").as_ref())?;
+    let mut e = pos_offset(&parser.emit, parser.emit.get_field(high, "end").as_ref())?;
+    let mut extended = false;
+    while let Some((lp, rp)) = wholly_parenthesized_close(parser, s, e) {
+        s = lp;
+        e = rp + 1;
+        extended = true;
+    }
+    extended.then(|| parser.pos_obj(e))
 }
 
 /// `a and (b and c)` flattens to `And([a,b,c])` (cpp does the same for a

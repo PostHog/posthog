@@ -11,7 +11,7 @@ export interface SlopeValueLabelsProps {
     showStartLabels?: boolean
     /** Chart-level default for the end (right) value labels. Per-series `meta.showEndLabel` wins. */
     showEndLabels?: boolean
-    /** Px gap between the endpoint dot and its value label. */
+    /** Px gap between the point and its value label. */
     gap?: number
     /** Min vertical px between two labels in the same column before the lower one is dropped. */
     minGap?: number
@@ -44,7 +44,7 @@ function columnSweep(candidates: ValueCandidate[], minGap: number): ValueCandida
 }
 
 /** Start (left) and end (right) value labels for a slope chart, one per series per side. Each side
- *  is a vertical column anchored on the endpoint dots; within a column, lower-priority labels are
+ *  is a vertical column anchored on the points; within a column, lower-priority labels are
  *  dropped on collision. Per-series visibility comes from `meta.showStartLabel`/`showEndLabel`. */
 export function SlopeValueLabels({
     valueFormatter = defaultValueFormatter,

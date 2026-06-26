@@ -27,12 +27,10 @@ from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 # project.py must NOT depend on team.py at that point. The parity *logic* (config writes, retention check,
 # and the team-config actions) is defined locally below rather than imported, so it survives that removal.
 from posthog.api.team import (
-    PROMOTED_PRODUCT_INTENT_DESCRIPTION,
     TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
-    PromotedProductIntentSerializer,
     TeamCustomerAnalyticsConfigSerializer,
     TeamMarketingAnalyticsConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
@@ -42,8 +40,6 @@ from posthog.api.team import (
     _format_serializer_errors,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
-    handle_default_evaluation_contexts,
-    handle_evaluation_context_suggestions,
     handle_logs_config,
     validate_team_attrs,
 )
@@ -66,13 +62,13 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.group_type_mapping import cached_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     ProductIntentSerializer,
     calculate_product_activation,
 )
 from posthog.models.project import Project
+from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
@@ -104,6 +100,11 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
+from products.feature_flags.backend.models.evaluation_context import (
+    EvaluationContext,
+    TeamDefaultEvaluationContext,
+    normalize_context_name,
+)
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -169,7 +170,7 @@ def update_team_revenue_analytics_config(team: Team, validated_data: dict[str, A
 
     if "events" in validated_data:
         from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+        from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
             team=team,
@@ -413,6 +414,143 @@ def team_event_ingestion_restrictions_view(team: Team, request: request.Request)
     return response.Response(data)
 
 
+def team_default_evaluation_contexts_view(
+    team: Team, request: request.Request, user_permissions: UserPermissions
+) -> response.Response:
+    """Manage default evaluation contexts for a project."""
+    # Feature flags persist contexts under the project root team (RootTeamMixin), so scope
+    # context lookups to the root team — otherwise flag-used contexts are invisible from
+    # child environments.
+    root_team = team.parent_team or team
+
+    if request.method == "GET":
+        defaults = TeamDefaultEvaluationContext.objects.filter(team=root_team).select_related("evaluation_context")
+        defaults_data = [{"id": d.id, "name": d.evaluation_context.name} for d in defaults]
+        all_contexts_qs = list(
+            EvaluationContext.objects.filter(team=root_team)
+            .values_list("name", "hidden_from_suggestions")
+            .order_by("name")
+        )
+        all_contexts = [name for name, hidden in all_contexts_qs if not hidden]
+        hidden_contexts = [name for name, hidden in all_contexts_qs if hidden]
+        return response.Response(
+            {
+                "default_evaluation_contexts": defaults_data,
+                "available_contexts": all_contexts,
+                "hidden_contexts": hidden_contexts,
+                "enabled": team.default_evaluation_contexts_enabled,
+            }
+        )
+
+    elif request.method == "POST":
+        context_name = request.data.get("context_name", "")
+        if not isinstance(context_name, str):
+            return response.Response({"error": "context_name must be a string"}, status=400)
+        context_name = normalize_context_name(context_name)
+        if not context_name:
+            return response.Response({"error": "context_name is required"}, status=400)
+        if len(context_name) > 255:
+            return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
+
+        with transaction.atomic():
+            existing = list(TeamDefaultEvaluationContext.objects.filter(team=root_team).select_for_update())
+            if len(existing) >= 10:
+                return response.Response({"error": "Maximum of 10 default evaluation contexts allowed"}, status=400)
+
+            ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=root_team)
+            if ctx.hidden_from_suggestions:
+                level = user_permissions.team(team).effective_membership_level
+                if level is not None and level >= OrganizationMembership.Level.ADMIN:
+                    ctx.hidden_from_suggestions = False
+                    ctx.save(update_fields=["hidden_from_suggestions"])
+            default_ctx, created = TeamDefaultEvaluationContext.objects.get_or_create(
+                team=root_team, evaluation_context=ctx
+            )
+
+            if created:
+                report_user_action(
+                    cast(User, request.user),
+                    "default evaluation context added",
+                    {"team_id": team.id, "context_name": context_name},
+                    team=team,
+                    request=request,
+                )
+
+        return response.Response(
+            {
+                "id": default_ctx.id,
+                "name": ctx.name,
+                "created": created,
+                "hidden_from_suggestions": ctx.hidden_from_suggestions,
+            }
+        )
+
+    else:  # DELETE
+        context_name = request.data.get("context_name", "") or request.GET.get("context_name", "")
+        if not isinstance(context_name, str):
+            return response.Response({"error": "context_name must be a string"}, status=400)
+        context_name = normalize_context_name(context_name)
+        if not context_name:
+            return response.Response({"error": "context_name is required"}, status=400)
+
+        with transaction.atomic():
+            try:
+                ctx = EvaluationContext.objects.get(name=context_name, team=root_team)
+                deleted_count, _ = TeamDefaultEvaluationContext.objects.filter(
+                    team=root_team, evaluation_context=ctx
+                ).delete()
+
+                if deleted_count > 0:
+                    report_user_action(
+                        cast(User, request.user),
+                        "default evaluation context removed",
+                        {"team_id": team.id, "context_name": context_name},
+                        team=team,
+                        request=request,
+                    )
+
+                return response.Response({"success": True})
+            except EvaluationContext.DoesNotExist:
+                return response.Response({"error": "Evaluation context not found"}, status=404)
+
+
+def team_evaluation_context_suggestions_view(team: Team, request: request.Request) -> response.Response:
+    """Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+
+    POST hides the name; DELETE restores it. The underlying context row and any flags already
+    using it are never modified — this only controls what gets suggested."""
+    # Contexts are persisted under the project root team (see team_default_evaluation_contexts_view).
+    root_team = team.parent_team or team
+
+    context_name = request.data.get("context_name", "") or request.GET.get("context_name", "")
+    if not isinstance(context_name, str):
+        return response.Response({"error": "context_name must be a string"}, status=400)
+    context_name = normalize_context_name(context_name)
+    if not context_name:
+        return response.Response({"error": "context_name is required"}, status=400)
+
+    hidden = request.method == "POST"
+
+    with transaction.atomic():
+        try:
+            ctx = EvaluationContext.objects.select_for_update().get(name=context_name, team=root_team)
+        except EvaluationContext.DoesNotExist:
+            return response.Response({"error": "Evaluation context not found"}, status=404)
+
+        if ctx.hidden_from_suggestions != hidden:
+            ctx.hidden_from_suggestions = hidden
+            ctx.save(update_fields=["hidden_from_suggestions"])
+            report_user_action(
+                cast(User, request.user),
+                "evaluation context suggestion hidden" if hidden else "evaluation context suggestion restored",
+                {"team_id": team.id, "context_name": context_name},
+                team=team,
+                request=request,
+            )
+
+    return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
+
+
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
@@ -433,6 +571,9 @@ class ProjectBackwardCompatSerializer(
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    events_retention_enforced = serializers.SerializerMethodField(
+        help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
+    )  # Compat with TeamSerializer
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
@@ -558,6 +699,8 @@ class ProjectBackwardCompatSerializer(
             "default_data_theme",  # Compat with TeamSerializer
             "onboarding_tasks",  # Compat with TeamSerializer
             "web_analytics_pre_aggregated_tables_enabled",  # Compat with TeamSerializer
+            "event_retention_months",  # Compat with TeamSerializer
+            "events_retention_enforced",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -581,6 +724,7 @@ class ProjectBackwardCompatSerializer(
             "project_id",
             "user_access_level",
             "managed_viewsets",
+            "event_retention_months",
         )
 
         team_passthrough_fields = {
@@ -657,6 +801,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",
             "customer_analytics_config",
             "workflows_config",
+            "event_retention_months",
         }
 
         # help_text entries flow into the generated OpenAPI spec, frontend types, and MCP tool schemas.
@@ -702,6 +847,12 @@ class ProjectBackwardCompatSerializer(
             "session_recording_retention_period": {
                 "help_text": (
                     "How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan)."
+                )
+            },
+            "event_retention_months": {
+                "help_text": (
+                    "The team's events data retention window in months (plan-derived, synced from billing). When "
+                    "retention enforcement is active for the team, queries do not return events older than this many months."
                 )
             },
             "data_attributes": {
@@ -751,12 +902,16 @@ class ProjectBackwardCompatSerializer(
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     def get_managed_viewsets(self, obj: Project) -> dict[str, bool]:
         from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+        from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         enabled_set = set(
             DataWarehouseManagedViewSet.objects.filter(team=obj.passthrough_team).values_list("kind", flat=True)
         )
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_events_retention_enforced(self, obj: Project) -> bool:
+        return should_enforce_events_retention(obj.passthrough_team.id)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1454,18 +1609,6 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         )
         return activity_page_response(activity_page, limit, page, request)
 
-    @extend_schema(
-        tags=["platform_features"],
-        responses={200: PromotedProductIntentSerializer},
-        description=PROMOTED_PRODUCT_INTENT_DESCRIPTION,
-    )
-    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
-    def promoted_product_intent(self, request: request.Request, **kwargs) -> response.Response:
-        project = self.get_object()
-        team = project.passthrough_team
-        product_key = promoted_product_lookup.get_promoted_product_intent(team.pk)
-        return response.Response({"product_key": product_key})
-
     # The following actions mirror TeamViewSet, operating on the project's passthrough Team. They delegate to
     # the shared team_*_view helpers so /api/projects/ and /api/environments/ cannot drift apart.
     @action(
@@ -1495,7 +1638,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def default_evaluation_contexts(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage default evaluation contexts for a project."""
-        return handle_default_evaluation_contexts(request, self.get_object().passthrough_team, self.user_permissions)
+        return team_default_evaluation_contexts_view(self.get_object().passthrough_team, request, self.user_permissions)
 
     @extend_schema(
         methods=["POST"],
@@ -1528,7 +1671,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         POST hides the name; DELETE restores it. The underlying context row and any flags already
         using it are never modified — this only controls what gets suggested.
         """
-        return handle_evaluation_context_suggestions(request, self.get_object().passthrough_team)
+        return team_evaluation_context_suggestions_view(self.get_object().passthrough_team, request)
 
     @action(methods=["GET"], detail=True)
     def settings_as_of(self, request: request.Request, **kwargs) -> response.Response:

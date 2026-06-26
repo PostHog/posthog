@@ -7,13 +7,14 @@ use batch_import_worker::{
     context::AppContext,
     error::get_user_message,
     job::{model::JobModel, Job},
+    metrics, staging,
 };
 use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 
 use tracing::level_filters::LevelFilter;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -50,6 +51,39 @@ pub async fn main() -> Result<(), Error> {
             None
         }
     };
+
+    let staging_dir = config.staging_dir();
+    match staging::sweep_staging_dir(&staging_dir).await {
+        Ok(removed) => {
+            if removed > 0 {
+                metrics::staging_sweep_removed(removed);
+            }
+        }
+        Err(e) => {
+            warn!("Failed to sweep staging dir on startup: {e:#}");
+        }
+    }
+    if let Err(e) = staging::ensure_staging_dir(&staging_dir).await {
+        error!(
+            "Failed to create staging dir {}: {e:#}",
+            staging_dir.display()
+        );
+        return Err(e);
+    }
+
+    // Periodically report staging directory disk usage
+    {
+        let staging_dir = staging_dir.clone();
+        tokio::spawn(async move {
+            let start = tokio::time::Instant::now() + Duration::from_secs(60);
+            let mut interval = tokio::time::interval_at(start, Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let bytes = staging::staging_dir_bytes(&staging_dir).await;
+                metrics::staging_dir_bytes(bytes as f64);
+            }
+        });
+    }
 
     let context = Arc::new(AppContext::new(&config).await.unwrap());
 
@@ -166,8 +200,10 @@ pub async fn main() -> Result<(), Error> {
 
             while let Some(job) = next_step {
                 if job_handle.is_shutting_down() {
-                    info!("Shutting down, dropping job");
-                    // The job remains leased for a few minutes, then another worker picks it up
+                    info!("Shutting down, cleaning up in-flight job before dropping");
+                    if let Err(e) = job.source.cleanup_after_job().await {
+                        warn!("Failed to cleanup job source on shutdown: {e:?}");
+                    }
                     break;
                 }
                 next_step = match job.process().await {

@@ -5,8 +5,8 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.services.sandbox import get_sandbox_class
 
 logger = structlog.get_logger(__name__)
 

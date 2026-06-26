@@ -40,6 +40,22 @@ describe('WidgetCardHeader', () => {
         expect(screen.getByText('Last 7 days')).toBeInTheDocument()
     })
 
+    it('renders an injected per-widget top heading in place of the default date range', () => {
+        render(
+            <WidgetCardHeader
+                layout="dashboard_tile"
+                title="Recent recordings"
+                widgetTypeLabel="Session replay"
+                config={{ dateRange: { date_from: '-14d' }, savedFilterId: 'abc123' }}
+                headerMeta={{ showWidgetType: true, showDateRange: true }}
+                TopHeading={({ widgetTypeLabel }) => <span>{widgetTypeLabel} • My saved filter</span>}
+            />
+        )
+
+        expect(screen.getByText('Session replay • My saved filter')).toBeInTheDocument()
+        expect(screen.queryByText('Last 14 days')).not.toBeInTheDocument()
+    })
+
     it('derives date-only top heading when widget type is hidden', () => {
         render(
             <WidgetCardHeader
@@ -109,6 +125,21 @@ describe('WidgetCardHeader', () => {
         )
 
         expect(screen.getByRole('link', { name: /Top issues/i })).toHaveAttribute('href', '/error_tracking')
+    })
+
+    it('forwards the hover refresh control into the dashboard_tile header', () => {
+        const { container } = render(
+            <WidgetCardHeader
+                layout="dashboard_tile"
+                title="Top issues"
+                topHeading={<span>Error tracking • Last 7 days</span>}
+                moreButtonOverlay={<div>Menu</div>}
+                refreshControl={<button className="CardMeta__refresh" data-attr="dashboard-widget-refresh" />}
+            />
+        )
+
+        expect(container.querySelector('[data-attr="dashboard-widget-refresh"]')).toBeTruthy()
+        expect(container.querySelector('.CardMeta__controls .CardMeta__refresh')).toBeTruthy()
     })
 
     it('renders simple layout without inline refresh', () => {

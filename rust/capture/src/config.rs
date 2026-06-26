@@ -227,6 +227,12 @@ pub struct Config {
     pub ai_s3_access_key_id: Option<String>,
     pub ai_s3_secret_access_key: Option<String>,
 
+    // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
+    // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and
+    // exempted from the llm_events quota limiter. Unset disables verification
+    // (all $ai_gateway* props are stripped as untrusted).
+    pub ai_gateway_signing_secret: Option<String>,
+
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
     // Set env var to enable; unset to disable.
@@ -259,6 +265,10 @@ pub struct Config {
     /// Maximum decompressed body size the v1 endpoint will accept (bytes).
     #[envconfig(default = "52428800")]
     pub capture_v1_max_decompressed_body_bytes: usize,
+
+    /// Batch size threshold for parallel scatter-gather serialization; 0 disables fanout.
+    #[envconfig(default = "8")]
+    pub capture_v1_scatter_gather_min_batch: usize,
 }
 
 #[derive(Envconfig, Clone)]

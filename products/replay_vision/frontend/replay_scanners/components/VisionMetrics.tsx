@@ -1,19 +1,21 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
-import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { BaseMathType, ChartDisplayType, InsightLogicProps } from '~/types'
 
+import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { QUOTA_STATUS_STYLES, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
-import { SCANNER_TYPE_OPTIONS, SCANNER_TYPE_TAG_TYPE, scannerTypeLabel } from '../types'
+import { SCANNER_TYPE_OPTIONS } from '../types'
 import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
+import { VisionInsightChart } from './VisionInsightChart'
 
 const RECORDING_OBSERVED_EVENT = '$recording_observed'
 const COLLECTION_ID = 'replay-vision-list-observations'
@@ -21,29 +23,40 @@ const COLLECTION_ID = 'replay-vision-list-observations'
 export function VisionMetrics(): JSX.Element {
     const { scannerStats, chartDateFrom, chartDateTo } = useValues(replayScannersLogic)
     const { setChartDateRange } = useActions(replayScannersLogic)
-    const { quota } = useValues(visionQuotaLogic)
+    const { quota, quotaLoading } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
     const { resetsOn, status, percentLabel, usedPct, projectedPct } = projection
     const hasCap = (quota?.monthly_quota ?? 0) > 0
     const styles = QUOTA_STATUS_STYLES[status]
 
+    // Memoized so a re-render (e.g. stats/quota arriving) can't churn the query and abort an in-flight load.
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
-    const chartSource: TrendsQuery = {
-        kind: NodeKind.TrendsQuery,
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                event: RECORDING_OBSERVED_EVENT,
-                math: BaseMathType.TotalCount,
-                name: 'Observations',
+    const chartQuery = useMemo<InsightVizNode>(
+        () => ({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: RECORDING_OBSERVED_EVENT,
+                        math: BaseMathType.TotalCount,
+                        name: 'Observations',
+                    },
+                ],
+                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                dateRange: { date_from: chartDateFrom, date_to: chartDateTo },
+                interval: 'day',
+                tags: { productKey: ProductKey.REPLAY_VISION },
             },
-        ],
-        trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-        dateRange: { date_from: chartDateFrom, date_to: chartDateTo },
-        interval: 'day',
-        tags: { productKey: ProductKey.REPLAY_VISION },
-    }
+        }),
+        [chartDateFrom, chartDateTo]
+    )
+    const chartInsightProps = useMemo<InsightLogicProps>(
+        () => ({ dashboardItemId: 'new-replay-vision-list-observations-chart', dataNodeCollectionId: COLLECTION_ID }),
+        []
+    )
 
     return (
         <div className="flex flex-col lg:flex-row gap-4 h-72">
@@ -57,20 +70,11 @@ export function VisionMetrics(): JSX.Element {
                     />
                 </div>
                 <p className="text-muted text-xs mb-3">Across all scanners</p>
-                <div className="flex-1 flex flex-col min-h-0">
-                    <Query
-                        query={{ kind: NodeKind.InsightVizNode, source: chartSource } as InsightVizNode}
-                        readOnly
-                        embedded
-                        inSharedMode
-                        context={{
-                            insightProps: {
-                                dashboardItemId: 'new-replay-vision-list-observations-chart',
-                                dataNodeCollectionId: COLLECTION_ID,
-                            },
-                        }}
-                    />
-                </div>
+                <VisionInsightChart
+                    query={chartQuery}
+                    insightProps={chartInsightProps}
+                    className="flex-1 flex flex-col min-h-0"
+                />
             </div>
 
             <div className="flex flex-1 flex-col gap-4">
@@ -87,9 +91,12 @@ export function VisionMetrics(): JSX.Element {
                         {SCANNER_TYPE_OPTIONS.map(({ value }) => {
                             const { enabled = 0, total = 0 } = scannerStats?.by_type?.[value] ?? {}
                             return (
-                                <LemonTag key={value} type={total > 0 ? SCANNER_TYPE_TAG_TYPE[value] : 'muted'}>
-                                    {scannerTypeLabel(value)} {enabled}/{total}
-                                </LemonTag>
+                                <ScannerTypeBadge
+                                    key={value}
+                                    scannerType={value}
+                                    variant={total > 0 ? 'default' : 'muted'}
+                                    suffix={`${enabled}/${total}`}
+                                />
                             )
                         })}
                     </div>
@@ -150,6 +157,10 @@ export function VisionMetrics(): JSX.Element {
                                 </span>
                             </div>
                         </>
+                    ) : quotaLoading ? (
+                        <div className="flex items-center py-2">
+                            <Spinner />
+                        </div>
                     ) : (
                         <div className="text-3xl font-semibold">—</div>
                     )}

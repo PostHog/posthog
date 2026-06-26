@@ -258,7 +258,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             </ButtonPrimitive>
                         )}
 
-                        {!cohort.is_static && featureFlags[FEATURE_FLAGS.COHORT_CALCULATION_HISTORY] && (
+                        {!cohort.is_static && (
                             <ButtonPrimitive
                                 onClick={() => router.actions.push(urls.cohortCalculationHistory(cohort.id))}
                                 disabledReasons={{

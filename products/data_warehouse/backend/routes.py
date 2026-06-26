@@ -1,7 +1,9 @@
 from posthog.api.routing import RouterRegistry
 
-import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.data_warehouse.backend.api import (
+import products.data_warehouse.backend.presentation.views.fix_hogql as fix_hogql
+from products.data_warehouse.backend.presentation.views import (
+    column_annotation,
+    column_statistics,
     data_modeling_job,
     data_warehouse,
     external_data_schema,
@@ -14,7 +16,7 @@ from products.data_warehouse.backend.api import (
     table,
     view_link,
 )
-from products.data_warehouse.backend.api.lineage import LineageViewSet
+from products.data_warehouse.backend.presentation.views.lineage import LineageViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -80,3 +82,15 @@ def register_routes(routers: RouterRegistry) -> None:
         r"data_modeling_jobs", data_modeling_job.DataModelingJobViewSet, "environment_data_modeling_jobs", ["team_id"]
     )
     routers.register_legacy_dual_route(r"lineage", LineageViewSet, "project_lineage", ["team_id"])
+    routers.projects.register(
+        r"warehouse_column_annotations",
+        column_annotation.WarehouseColumnAnnotationViewSet,
+        "project_warehouse_column_annotations",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"warehouse_column_statistics",
+        column_statistics.WarehouseColumnStatisticsViewSet,
+        "project_warehouse_column_statistics",
+        ["team_id"],
+    )

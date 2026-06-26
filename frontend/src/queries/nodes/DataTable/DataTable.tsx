@@ -73,6 +73,7 @@ import {
     SessionAttributionExplorerQuery,
     SessionsQuery,
     TracesQuery,
+    WebAnalyticsPreComputeStrategy,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
@@ -181,20 +182,20 @@ export function DataTable({
         highlightedRows,
         backToSourceQuery,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
+    const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
+    const preComputeStrategy = response && 'preComputeStrategy' in response ? response.preComputeStrategy : undefined
     const usedWebAnalyticsPreAggregatedTables =
         canUseWebAnalyticsPreAggregatedTables &&
+        preComputeStrategy === WebAnalyticsPreComputeStrategy.PreAggregated &&
         response &&
-        'usedPreAggregatedTables' in response &&
-        response.usedPreAggregatedTables &&
-        response?.hogql
-    // Lazy precompute can be on without the v2 pre-agg flag, so check it
-    // independently of `canUseWebAnalyticsPreAggregatedTables`.
-    const usedWebAnalyticsLazyPrecompute = Boolean(
-        response && 'usedLazyPrecompute' in response && response.usedLazyPrecompute
-    )
+        'hogql' in response &&
+        response.hogql
+    // Lazy precompute can be on without the v2 pre-agg flag, so it surfaces a
+    // badge regardless of `canUseWebAnalyticsPreAggregatedTables`.
+    const usedWebAnalyticsLazyPrecompute = preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -923,6 +924,7 @@ export function DataTable({
                                             <InsightErrorState
                                                 query={query}
                                                 excludeDetail
+                                                onRetry={() => loadData('force_blocking')}
                                                 title={
                                                     queryCancelled
                                                         ? 'The query was cancelled'
@@ -932,7 +934,10 @@ export function DataTable({
                                                 }
                                             />
                                         ) : (
-                                            <InsightErrorState query={query} />
+                                            <InsightErrorState
+                                                query={query}
+                                                onRetry={() => loadData('force_blocking')}
+                                            />
                                         )
                                     ) : (
                                         <InsightEmptyState

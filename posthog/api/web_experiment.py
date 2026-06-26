@@ -106,8 +106,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         if not obj.feature_flag:
             return obj.variants or {}
 
-        multivariate = obj.feature_flag.filters.get("multivariate", {})
-        variants_list = multivariate.get("variants", [])
+        variants_list = obj.feature_flag.variants
 
         # If no feature flag variants, fall back to experiment variants
         if not variants_list:

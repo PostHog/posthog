@@ -5,12 +5,19 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import (
+    CLOUDFLARE_OPENAI_CONFIG,
     OPENAI_CONFIG,
     OPENAI_RESPONSES_CONFIG,
     OPENAI_TRANSCRIPTION_CONFIG,
     handle_llm_request,
     normalize_litellm_model_name,
 )
+from llm_gateway.cloudflare import (
+    ensure_cloudflare_configured,
+    ensure_cloudflare_model_allowed,
+    make_cloudflare_completion_call,
+)
+from llm_gateway.config import get_settings
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
 from llm_gateway.products.config import validate_product
@@ -19,12 +26,30 @@ from llm_gateway.request_context import apply_posthog_context_from_headers
 openai_router = APIRouter()
 
 
+def _is_cloudflare_model(model: str) -> bool:
+    return model.startswith("@cf/")
+
+
 async def _handle_chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True)
+
+    if _is_cloudflare_model(body.model):
+        ensure_cloudflare_model_allowed(body.model)
+        settings = get_settings()
+        api_base, api_key = ensure_cloudflare_configured(settings)
+        return await handle_llm_request(
+            request_data=data,
+            user=user,
+            model=body.model,
+            is_streaming=body.stream or False,
+            provider_config=CLOUDFLARE_OPENAI_CONFIG,
+            llm_call=make_cloudflare_completion_call(api_base, api_key),
+            product=product,
+        )
 
     return await handle_llm_request(
         request_data=data,
@@ -161,7 +186,7 @@ async def _handle_transcription(
 
     request = TranscriptionRequest(model=normalized_model, file=file_tuple, language=language)
 
-    # is_streaming=False, so handle_llm_request always returns a dict here, never a StreamingResponse.
+    # is_streaming=False always yields a dict, never a StreamingResponse.
     return cast(
         dict[str, Any],
         await handle_llm_request(

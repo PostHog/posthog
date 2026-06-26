@@ -154,9 +154,14 @@ else
 
     POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
     ENCRYPTION_SALT_KEYS=$(openssl rand -hex 16)
+    # Dedicated browserless token so a compromise of the rendering container can't yield
+    # Django's SECRET_KEY (the compose file falls back to POSTHOG_SECRET when unset, for
+    # installs whose .env predates this variable).
+    BROWSERLESS_SECRET=$(openssl rand -hex 32)
     cat > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
+BROWSERLESS_SECRET=$BROWSERLESS_SECRET
 DOMAIN=$DOMAIN
 TLS_BLOCK=$TLS_BLOCK
 REGISTRY_URL=$REGISTRY_URL

@@ -7,7 +7,7 @@ import React from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { MenuState, toolbarLogic } from './toolbarLogic'
 
