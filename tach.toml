@@ -248,6 +248,7 @@ depends_on = [
     "products.data_modeling",
     "products.data_tools",
     "products.data_warehouse",
+    "products.notifications",
     "products.posthog_ai",
     "products.warehouse_sources_queue",
     "products.workflows",

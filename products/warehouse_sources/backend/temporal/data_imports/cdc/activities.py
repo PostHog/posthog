@@ -47,8 +47,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     deduplicate_table,
     enrich_delete_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     MAX_FRIENDLY_MESSAGE_LENGTH,
+    CDCErrorCategory,
     CDCErrorInfo,
     CDCSchemaMergeError,
     classify_cdc_error,
@@ -1221,10 +1223,19 @@ class CDCExtractActivity:
         info = classify_cdc_error(exc, self.adapter)
         friendly = info.friendly_message[:MAX_FRIENDLY_MESSAGE_LENGTH]
         self._fail_created_jobs(friendly)
+        # A missing slot/publication won't recover on retry: mark the source broken — that persists
+        # the per-schema FAILED state + the cdc_broken marker the UI/health check read and pauses the
+        # schedule, so it stops firing hourly against a resource that is gone (the same zombie the lag
+        # safety net produces). Any other failure just fails this run's schemas.
+        marked_broken = info.category in (CDCErrorCategory.SLOT_MISSING, CDCErrorCategory.PUBLICATION_MISSING)
+        if marked_broken:
+            assert self.source is not None
+            mark_cdc_broken(self.source, info.category.value, friendly)
         for schema in self.cdc_schemas:
-            schema.status = ExternalDataSchema.Status.FAILED
-            schema.latest_error = friendly
-            schema.save(update_fields=["status", "latest_error", "updated_at"])
+            if not marked_broken:
+                schema.status = ExternalDataSchema.Status.FAILED
+                schema.latest_error = friendly
+                schema.save(update_fields=["status", "latest_error", "updated_at"])
             # User-facing column gets the friendly copy; the raw error still routes to structured
             # logs / the Syncs log viewer for debugging.
             self._schema_log(schema).error(
@@ -1455,19 +1466,38 @@ def cleanup_orphan_slots_activity() -> None:
                             adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
 
                         slots_dropped += 1
-                        source.status = ExternalDataSource.Status.ERROR
-                        source.save(update_fields=["status", "updated_at"])
                         metrics.get_auto_drop_metric(source.team_id, str(source.id)).add(1)
+                        # The slot is gone — move the source to an explicit broken state and pause the
+                        # schedule so it stops retrying against a slot that no longer exists.
+                        mark_cdc_broken(
+                            source,
+                            "auto_dropped_critical_lag",
+                            f"Change data capture was automatically stopped because replication lag "
+                            f"exceeded {critical_threshold_mb} MB and the safety net dropped the "
+                            f"replication slot. Use Repair CDC to recreate it and re-sync.",
+                            lag_mb=round(lag_mb, 1),
+                        )
                     except Exception:
                         source_log.exception("failed_to_auto_drop_slot")
                         metrics.get_sweeper_source_errors_metric().add(1)
                         sources_errored += 1
                 elif cdc_config.management_mode == "self_managed":
+                    # Customer owns the slot: surface the broken state but keep the schedule running
+                    # and never drop — the lag may recover once they reduce load on the source.
                     try:
-                        source.status = ExternalDataSource.Status.ERROR
-                        source.save(update_fields=["status", "updated_at"])
+                        mark_cdc_broken(
+                            source,
+                            "critical_lag_self_managed",
+                            f"Change data capture replication lag exceeded {critical_threshold_mb} MB. "
+                            f"This slot is self-managed, so PostHog did not drop it — reduce load or WAL "
+                            f"retention on the source database, or it may invalidate the slot and "
+                            f"require a full re-sync.",
+                            pause=False,
+                            lag_mb=round(lag_mb, 1),
+                        )
                     except Exception:
-                        source_log.exception("failed_to_update_source_status")
+                        source_log.exception("failed_to_mark_self_managed_broken")
+                        metrics.get_sweeper_source_errors_metric().add(1)
                         sources_errored += 1
 
             elif lag_mb >= cdc_config.lag_warning_threshold_mb:
