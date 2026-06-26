@@ -58,11 +58,19 @@ only `require()` calls left are in jest `*.test.ts(x)` files, which Storybook
 never bundles. The lone `webpackChunkName` magic comment is on a native
 `import()` and is a harmless no-op under Vite.
 
+## Versions, not overrides
+
+Storybook needs vite 7 + `@vitest/mocker` 4. An early debugging step pinned
+those via global `pnpm.overrides`, but a global override forces every workspace
+onto vite 7 — which broke the agent services, whose `vitest` 2.x expects vite 5
+(`ReferenceError: __vite_ssr_exportName__ is not defined`). The overrides were
+unnecessary: `@posthog/storybook` declares `vite: ^7.3.3` directly, so its tree
+resolves vite 7.3.5 and `@vitest/mocker` 4.1.8 on its own, while the agent
+services keep vite 5 / `@vitest/mocker` 2.1.9. No overrides are needed — don't
+reintroduce a global `vite` pin.
+
 ## Before merging
 
 - Expect a full VR re-baseline (bundler change shifts CSS/asset output); do it
   as one approved baseline, not interleaved with feature changes. This is a
   CI + human-approval step — pushing the branch triggers the VR run.
-- `pnpm --filter=@posthog/frontend build` passes under the `vite: 7.3.5`
-  override (the app build is esbuild, so the override only touches the
-  Storybook/Vitest side, which the production Storybook build exercises).
