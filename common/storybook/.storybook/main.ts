@@ -42,7 +42,7 @@ const config: StorybookConfig = {
 
     viteFinal: (viteConfig) =>
         mergeConfig(viteConfig, {
-            plugins: [frontendResolvePlugin(FRONTEND), tailwindcss(), sqlRawPlugin(), moduleGraphPlugin(REPO_ROOT)],
+            plugins: [frontendResolvePlugin(REPO_ROOT), tailwindcss(), sqlRawPlugin(), moduleGraphPlugin(REPO_ROOT)],
             resolve: {
                 // Keep a single copy of these in the monorepo — duplicate React/kea
                 // instances break hooks and kea's context.
