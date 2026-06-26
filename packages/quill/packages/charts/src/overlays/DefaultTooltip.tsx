@@ -65,10 +65,15 @@ export function DefaultTooltip<Meta = unknown>({
         setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 1)
     }, [])
 
+    // Reset to top when moving to a new data point so the list always starts fresh.
     useEffect(() => {
+        if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = 0
+        }
         updateScrollFades()
-    }, [rows, updateScrollFades])
+    }, [label, updateScrollFades])
 
+    // If the closest row is outside the visible area, scroll to bring it in.
     useEffect(() => {
         if (!closestKey || !scrollContainerRef.current) {
             return
@@ -78,17 +83,19 @@ export function DefaultTooltip<Meta = unknown>({
         if (!el) {
             return
         }
-        // Scroll only the tooltip container — scrollIntoView would walk all scroll ancestors.
         const elTop = el.offsetTop
         const elBottom = elTop + el.offsetHeight
         const containerTop = container.scrollTop
         const containerBottom = containerTop + container.clientHeight
-        if (elBottom > containerBottom) {
-            container.scrollTop = elBottom - container.clientHeight
-        } else if (elTop < containerTop) {
-            container.scrollTop = elTop
+        // Account for the 20% fade gradient at each end so rows aren't scrolled into the fade zone.
+        const fadeBuffer = Math.round(container.clientHeight * 0.2)
+        if (elBottom > containerBottom - fadeBuffer) {
+            container.scrollTop = elBottom - container.clientHeight + fadeBuffer
+        } else if (elTop < containerTop + fadeBuffer) {
+            container.scrollTop = Math.max(0, elTop - fadeBuffer)
         }
-    }, [closestKey])
+        updateScrollFades()
+    }, [closestKey, updateScrollFades])
 
     const maskImage = (() => {
         if (canScrollUp && canScrollDown) {
@@ -126,7 +133,7 @@ export function DefaultTooltip<Meta = unknown>({
                             key={s.series.key}
                             data-attr="hog-chart-tooltip-row"
                             data-closest={isClosest ? 'true' : undefined}
-                            className={`flex items-center gap-2 min-w-0${isClosest ? ' font-semibold' : ''}`}
+                            className={`flex items-center gap-2 min-w-0 py-0.5 px-1.5${isClosest ? ' font-semibold' : ''}`}
                             style={
                                 isClosest
                                     ? { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '4px' }
