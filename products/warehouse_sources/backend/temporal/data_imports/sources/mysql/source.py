@@ -250,6 +250,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # locale-independent error code (the user, host, and table are volatile and the message text
             # is translated on non-English servers), consistent with the other code-prefixed entries.
             "(1142,": "PostHog's database user doesn't have SELECT permission on a table this sync reads (MySQL error 1142). Ask your database admin to grant SELECT on it, or remove that table from the sync, then resync.",
+            # MySQL/MariaDB error 1038 (ER_OUT_OF_SORTMEMORY): the server's `sort_buffer_size` is too
+            # small to filesort the `ORDER BY <incremental_field>` the incremental query requires. We
+            # already try to dodge the sort with the in-activity FORCE INDEX fallback (see
+            # `_is_bad_plan_error`); this only escapes once that fallback can't apply — no usable index
+            # on the incremental field. Both `sort_buffer_size` and the missing index are static
+            # server-side state, so every retry filesorts the same rows and fails identically. Match the
+            # locale-independent error code (the trailing message text is translated on non-English
+            # servers) so it catches both the raw pymysql string and the wrapped `(1038, ...)` form.
+            "(1038,": "Your MySQL/MariaDB server ran out of sort buffer memory while ordering this table by its incremental field (error 1038). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'sort_buffer_size', or switch this table to a full re-sync, then resync.",
         }
 
     def reconcile_schema_metadata(

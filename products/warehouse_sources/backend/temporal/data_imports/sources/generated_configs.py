@@ -1510,6 +1510,11 @@ class IP2WhoisSourceConfig(config.Config):
 
 
 @config.config
+class IkasSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class IlluminaBasespaceSourceConfig(config.Config):
     pass
 
@@ -3820,6 +3825,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.HUMANITIX: HumanitixSourceConfig,
         ExternalDataSourceType.HUNTR: HuntrSourceConfig,
         ExternalDataSourceType.IP2WHOIS: IP2WhoisSourceConfig,
+        ExternalDataSourceType.IKAS: IkasSourceConfig,
         ExternalDataSourceType.ILLUMINABASESPACE: IlluminaBasespaceSourceConfig,
         ExternalDataSourceType.IMAGGA: ImaggaSourceConfig,
         ExternalDataSourceType.INCIDENTIO: IncidentIoSourceConfig,
