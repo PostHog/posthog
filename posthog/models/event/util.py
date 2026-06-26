@@ -215,7 +215,10 @@ def bulk_create_events(
         for property_key, value in (event.get("properties") or {}).items():
             if property_key.startswith("$group_"):
                 group_type_index = property_key[-1]
-                group = get_group_by_key(team_id, int(group_type_index), value)
+                try:
+                    group = get_group_by_key(team_id, int(group_type_index), value)
+                except Exception:
+                    group = None
                 if group is None:
                     continue
                 group_property_key = f"group{group_type_index}_properties"
