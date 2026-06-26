@@ -429,6 +429,8 @@ class BillingManager:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
+        should_update_org_billing_quotas = False
+
         usage_summary = cast(dict, data.get("usage_summary"))
         if usage_summary:
             usage_info = OrganizationUsageInfo(
@@ -459,8 +461,7 @@ class BillingManager:
             if usage_changed:
                 org_modified = True
 
-            if usage_changed or had_quota_limiting_markers:
-                update_org_billing_quotas(organization)
+            should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:
@@ -491,6 +492,9 @@ class BillingManager:
                 **org_customer_trust_scores,
             }
             org_modified = True
+
+        if should_update_org_billing_quotas:
+            update_org_billing_quotas(organization)
 
         if org_modified:
             organization.save()

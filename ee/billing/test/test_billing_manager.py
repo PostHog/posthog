@@ -258,6 +258,49 @@ class TestBillingManager(BaseTest):
             },
         }
 
+    @patch("posthoganalytics.capture")
+    def test_update_org_details_applies_never_drop_data_before_recomputing_existing_quota_limits(self, patch_capture):
+        organization = self.organization
+        organization.usage = {
+            "events": {
+                "usage": 1_000,
+                "limit": 100,
+                "todays_usage": 0,
+                "quota_limited_until": 1612137599,
+            },
+            "recordings": {"usage": 0, "limit": 100, "todays_usage": 0},
+            "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
+        }
+        organization.never_drop_data = False
+        organization.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        billing_status = {
+            "customer": {
+                "usage_summary": {
+                    "events": {"usage": 1_000, "limit": 100},
+                    "recordings": {"usage": 0, "limit": 100},
+                },
+                "billing_period": {
+                    "current_period_start": "2024-01-01T00:00:00Z",
+                    "current_period_end": "2024-01-31T23:59:59Z",
+                },
+                "never_drop_data": True,
+            }
+        }
+
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+        organization.refresh_from_db()
+
+        assert organization.never_drop_data is True
+        assert organization.usage["events"].get("quota_limited_until") is None
+        assert organization.usage["events"].get("quota_limiting_suspended_until") is None
+
     @patch(
         "ee.billing.billing_manager.requests.post",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"success": True})),
