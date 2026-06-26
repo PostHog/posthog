@@ -5692,7 +5692,7 @@ const api = {
                 savedQueryId: DataWarehouseSavedQuery['id'],
                 pageSize: number,
                 offset: number
-            ): Promise<PaginatedResponse<DataModelingJob>> {
+            ): Promise<CountedPaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
         },

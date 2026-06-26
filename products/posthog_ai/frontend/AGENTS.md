@@ -18,12 +18,12 @@ them. There are four tiers, split along dependency/side-effect boundaries (not c
 preserves code-splitting). Consumers pick the **lowest tier** that does the job. The full decision table,
 import rule, and copy-paste recipes live in the consumer-facing [`README.md`](./README.md); the summary:
 
-| Tier                           | Module                     | What's in it                                                                                                                                                           |
-| ------------------------------ | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1 — Prepackaged surfaces**   | `api/run`                  | `RunViewer` (call directly → default layout), `RunComposer`                                                                                                            |
-| **2 — Compound primitives**    | `api/primitives`           | `RunViewer.Root` + slots, `Thread` + atoms, `ThreadView`, `Composer.*`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces |
-| **3 — Headless logic + types** | `api/logics` + `api/types` | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                         |
-| **4 — Extension seam**         | `api/tools`                | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                       |
+| Tier                           | Module                     | What's in it                                                                                                                                                   |
+| ------------------------------ | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**   | `api/run`                  | `RunViewer` (lazy, code-split embeddable → default layout), `RunComposer`                                                                                      |
+| **2 — Compound primitives**    | `api/primitives`           | `Thread` + atoms, `ThreadView`, `Composer.*`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces |
+| **3 — Headless logic + types** | `api/logics` + `api/types` | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                 |
+| **4 — Extension seam**         | `api/tools`                | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers               |
 
 **Why the split, not one flat barrel:** the tool registry registers built-ins at module load — a top-level
 side effect that is _not_ tree-shaken. A single barrel statically re-exports it alongside the
@@ -39,14 +39,19 @@ reached through an `api/<module>` entry; add new exports to the relevant tier mo
 
 The headline exports per module:
 
-- **`api/run`** — **`RunViewer`** (Radix-style compound; call directly for the default-layout embed, or use
-  `.Root` + slots `.Thread/.Prompt/.Composer/.Resources/.ContextUsage` for a custom layout) and
-  **`RunComposer`**.
+- **`api/run`** — **`RunViewer`**, the lazy, code-split embeddable: calling `<RunViewer .../>` binds the
+  stream logic and renders the default layout behind a `RunLogSkeleton` Suspense fallback (the heavy chunk —
+  stream logic, virtualized thread, tool/diff renderers — loads on demand). It is the only form any consumer
+  uses; the compound (`Root` + `.Thread/.Prompt/.Composer/.Resources/.ContextUsage` slots) stays internal to
+  `components/RunViewerImpl` backing the default layout, not surfaced (no consumer composes the slots, and
+  lazy-wrapping each would only add Suspense boundaries that never fire). For a custom layout, bind
+  `runStreamLogic` and compose the Tier 2 primitives. Also **`RunComposer`**.
 - **`api/primitives`** — **`Thread`** (Radix-style compound: `Thread.Root` is the virtualized presenter, the
   atoms `Thread.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall` are the building blocks for
   bespoke threads), **`Composer`** (logic-free compound input — the caller owns
-  `value`/`onChange`/`onSubmit`), activity primitives, message presenters, and the
-  permission/question/resource surfaces.
+  `value`/`onChange`/`onSubmit`), **`RunLogSkeleton`** (the shared "run log is loading" loader — the
+  `RunViewer` Suspense/bootstrap fallback, also used by the runner scene), activity primitives, message
+  presenters, and the permission/question/resource surfaces.
 - **`api/logics`** — **`runStreamLogic`** (SSE stream + thread projection, see §3),
   **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), status helpers
   (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), and thinking-message helpers. Imports only
@@ -125,7 +130,8 @@ api/                # public API facade — the contract (import api/<module>, n
   logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, status + thinking helpers (headless)
   types.ts          #   Tier 3: folded-thread + tool domain types (pure types)
   tools.ts          #   Tier 4: toolRegistry + registerToolRenderers seam (side-effectful — isolated)
-components/         # RunViewer, Thread, Composer, permission/question/resource surfaces, activity, tool/
+components/         # RunViewer (lazy wrapper) + RunViewerImpl (heavy chunk), RunLogSkeleton (shared loader),
+                    #   Thread, Composer, permission/question/resource surfaces, activity, tool/
   composer/         #   the Composer compound
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
 logics/             # runStreamLogic, runInteractionLogic; tasksLogic/taskLogic data logics (+ *LogicType.ts)
