@@ -93,15 +93,16 @@ export function DefaultTooltip<Meta = unknown>({
         if (!el) {
             return
         }
-        // Scroll only the tooltip container — scrollIntoView would walk all scroll ancestors.
-        const elTop = el.offsetTop
-        const elBottom = elTop + el.offsetHeight
-        const containerTop = container.scrollTop
-        const containerBottom = containerTop + container.clientHeight
-        if (elBottom > containerBottom) {
-            container.scrollTop = elBottom - container.clientHeight
-        } else if (elTop < containerTop) {
-            container.scrollTop = elTop
+        // Use getBoundingClientRect so the position is relative to the container's visible area,
+        // not to the nearest positioned ancestor (which may not be the scroll container).
+        const containerRect = container.getBoundingClientRect()
+        const elRect = el.getBoundingClientRect()
+        const elTopInView = elRect.top - containerRect.top
+        const elBottomInView = elRect.bottom - containerRect.top
+        if (elBottomInView > container.clientHeight) {
+            container.scrollTop += elBottomInView - container.clientHeight
+        } else if (elTopInView < 0) {
+            container.scrollTop += elTopInView
         }
     }, [closestKey])
 
