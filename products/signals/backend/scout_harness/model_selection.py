@@ -93,6 +93,12 @@ RUNTIME_ADAPTER_KEY = "runtime_adapter"
 RUNTIME_ADAPTER_CLAUDE = "claude"
 RUNTIME_ADAPTER_CODEX = "codex"
 
+# The runtimes a payload may pin explicitly. An unknown value (typo, unsupported runtime) is dropped
+# back to id inference rather than threaded onward: it would otherwise be written into the run state
+# and blow up downstream when cast to the `RuntimeAdapter` enum — failing the run the gate must never
+# be able to break.
+_KNOWN_RUNTIME_ADAPTERS = frozenset({RUNTIME_ADAPTER_CLAUDE, RUNTIME_ADAPTER_CODEX})
+
 
 @dataclass(frozen=True)
 class ScoutModel:
@@ -172,13 +178,14 @@ def _parse_model_spec(spec: object) -> tuple[float | None, str | None]:
     A model entry's value is either a bare number (its fraction; runtime inferred from the id) or an
     object `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex"}` that pins the runtime
     explicitly. Returns `(None, ...)` for a malformed fraction (not a positive number, or a bool) so
-    the caller drops the entry rather than failing the run. A non-string `runtime_adapter` is ignored
-    (treated as unset → inferred), so a typo there can't route the run nowhere.
+    the caller drops the entry rather than failing the run. A `runtime_adapter` that isn't one of the
+    known runtimes (non-string, typo, unsupported) is ignored (treated as unset → inferred from the
+    id), so a payload typo can't route the run onto a runtime the agent server can't honor.
     """
     if isinstance(spec, dict):
         weight = spec.get(FRACTION_KEY)
         adapter_value = spec.get(RUNTIME_ADAPTER_KEY)
-        adapter = adapter_value if isinstance(adapter_value, str) and adapter_value else None
+        adapter = adapter_value if adapter_value in _KNOWN_RUNTIME_ADAPTERS else None
     else:
         weight = spec
         adapter = None

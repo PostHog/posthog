@@ -70,20 +70,30 @@ class TestResolveScoutModel:
             resolve_scout_model(_fake_team(), _SKILL, _RUN_ID)
         assert mock_payload.call_args.args[0] == "scouts-model-selection"
 
-    def test_infers_codex_runtime_for_glm(self) -> None:
-        # A routed non-Claude model must carry a runtime, else the agent server can't route it. GLM
-        # is OpenAI-compatible, so it infers the `codex` runtime.
-        resolved = _resolve_full(payload=_scouts({_SKILL: {GLM_MODEL: 1}}))
-        assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex")
-
-    def test_infers_claude_runtime_for_claude_model(self) -> None:
-        resolved = _resolve_full(payload=_scouts({_SKILL: {"claude-opus-4-8": 1}}))
-        assert resolved == ScoutModel(model="claude-opus-4-8", runtime_adapter="claude")
+    @parameterized.expand(
+        [
+            # A routed model must carry a runtime, else the agent server can't route it. Claude ids
+            # infer `claude`; everything else (GLM, GPT — all OpenAI-compatible) infers `codex`.
+            ("glm_infers_codex", GLM_MODEL, "codex"),
+            ("gpt_infers_codex", _GPT, "codex"),
+            ("claude_infers_claude", "claude-opus-4-8", "claude"),
+        ]
+    )
+    def test_infers_runtime_from_model_id(self, _name: str, model: str, expected_adapter: str) -> None:
+        assert _resolve_full(payload=_scouts({_SKILL: {model: 1}})) == ScoutModel(
+            model=model, runtime_adapter=expected_adapter
+        )
 
     def test_explicit_runtime_adapter_overrides_inference(self) -> None:
         # Object form pins the runtime explicitly, beating the id-based inference (which would say codex).
         resolved = _resolve_full(payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, "runtime_adapter": "claude"}}}))
         assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="claude")
+
+    def test_unknown_explicit_runtime_adapter_falls_back_to_inference(self) -> None:
+        # A typo'd runtime ("cluade") must not reach the run state — it'd blow up when cast to the
+        # RuntimeAdapter enum downstream. Drop it and infer from the id instead.
+        resolved = _resolve_full(payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, "runtime_adapter": "cluade"}}}))
+        assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex")
 
     def test_object_form_drops_malformed_fraction(self) -> None:
         # A pinned runtime can't rescue a malformed fraction — the entry is dropped, agent default kept.
@@ -161,4 +171,4 @@ class TestResolveScoutModel:
     def test_payload_read_failure_keeps_agent_default(self) -> None:
         # A scout must never fail to run because the gate was unreachable — fall back to the default.
         with patch(_PAYLOAD_PATH, side_effect=RuntimeError("flag service down")):
-            assert resolve_scout_model(_fake_team(), _SKILL, _RUN_ID) is None
+            assert resolve_scout_model(_fake_team(), _SKILL, _RUN_ID) == ScoutModel(model=None, runtime_adapter=None)
