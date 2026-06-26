@@ -2746,6 +2746,39 @@ class TestExternalDataSource(APIBaseTest):
         )
         self.assertCountEqual(names, ["table_a", "table_b"])
 
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_system_managed_source_rejects_schema_refresh(self, mock_get_source):
+        source = self._create_external_data_source()
+        source.connection_metadata = {"system_managed": True}
+        source.save(update_fields=["connection_metadata"])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_get_source.assert_not_called()
+
+    def test_system_managed_source_schema_rejects_update(self):
+        source = self._create_external_data_source()
+        source.connection_metadata = {"system_managed": True}
+        source.save(update_fields=["connection_metadata"])
+        schema = ExternalDataSchema.objects.create(
+            name="sibling_team_events",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.pk}/",
+            data={"should_sync": True},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
     @patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_auto_enables_matching_new_schemas(self, mock_get_source, mock_schedule):
@@ -3513,6 +3546,22 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), {"message": "Name is required for direct query sources"})
+
+    def test_create_direct_postgres_rejects_the_managed_warehouse_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "access_method": "direct",
+                "prefix": "managed_warehouse",
+                "payload": {},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": "This source name is reserved by PostHog."}
+        assert not ExternalDataSource.objects.filter(team=self.team, prefix="managed_warehouse").exists()
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_does_not_require_prefix_namespace(self, mock_get_source):

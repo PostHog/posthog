@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import structlog
 from celery import shared_task
 from prometheus_client import Counter
@@ -9,6 +11,7 @@ from products.data_warehouse.backend.logic.external_data_source.notifications im
     get_team_ids_with_recent_sync_failures,
     notify_external_data_sync_failures,
 )
+from products.data_warehouse.backend.managed_warehouse_connection import reconcile_managed_warehouse_tables
 
 logger = structlog.get_logger(__name__)
 
@@ -40,6 +43,25 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # Generous bound on one digest build + synchronous send; the lock auto-expires
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
+MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 120
+
+
+@shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_managed_warehouse_tables")
+@skip_team_scope_audit
+def reconcile_managed_warehouse_tables_task(team_id: int, organization_id: str) -> None:
+    try:
+        with get_client().lock(
+            f"managed_warehouse_reconcile:{team_id}",
+            timeout=MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS,
+            blocking=False,
+        ):
+            reconcile_managed_warehouse_tables(team_id=team_id, organization_id=organization_id)
+    except redis.exceptions.LockError:
+        logger.info("Managed warehouse table reconciliation already in flight", team_id=team_id)
+
+
+def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id: str | UUID) -> None:
+    reconcile_managed_warehouse_tables_task.delay(team_id=team_id, organization_id=str(organization_id))
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_task")

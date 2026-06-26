@@ -31,6 +31,34 @@ def test_is_enabled_uses_data_warehouse_scene_flag(mock_feature_enabled: MagicMo
     )
 
 
+@patch("products.data_warehouse.backend.facade.api.update_managed_warehouse_password")
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_reset_password_reports_local_persistence_failure(
+    mock_request: MagicMock, mock_update_password: MagicMock
+) -> None:
+    mock_request.return_value = Response({"password": "rotated"}, status=200)
+    mock_update_password.side_effect = RuntimeError("database unavailable")
+
+    response = managed_warehouse.reset_password(uuid4())
+
+    assert response.status_code == 500
+    assert response.data == {"error": "The password was rotated but could not be saved. Retry the password reset."}
+
+
+@patch("products.data_warehouse.backend.facade.api.soft_delete_managed_warehouse_sources")
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_deprovision_reports_local_cleanup_failure(mock_request: MagicMock, mock_soft_delete: MagicMock) -> None:
+    mock_request.return_value = Response({"status": "deprovisioning started"}, status=202)
+    mock_soft_delete.side_effect = RuntimeError("database unavailable")
+
+    response = managed_warehouse.deprovision(uuid4())
+
+    assert response.status_code == 500
+    assert response.data == {
+        "error": "The warehouse was deprovisioned but its SQL connection could not be removed. Retry deprovisioning."
+    }
+
+
 @pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")

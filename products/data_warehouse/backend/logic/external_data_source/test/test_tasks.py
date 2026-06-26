@@ -3,6 +3,7 @@ from unittest.mock import patch
 from posthog.redis import get_client
 
 from products.data_warehouse.backend.tasks import (
+    reconcile_managed_warehouse_tables_task,
     send_external_data_failure_digest_catchup,
     send_external_data_failure_digest_task,
 )
@@ -37,3 +38,24 @@ class TestExternalDataFailureDigestTasks:
             send_external_data_failure_digest_catchup()
 
         assert [c.args for c in mock_task.delay.call_args_list] == [(1,), (2,)]
+
+
+class TestManagedWarehouseTasks:
+    def test_reconcile_task_discovers_tables(self) -> None:
+        with patch("products.data_warehouse.backend.tasks.tasks.reconcile_managed_warehouse_tables") as mock_reconcile:
+            reconcile_managed_warehouse_tables_task(123, "organization-id")
+
+        mock_reconcile.assert_called_once_with(team_id=123, organization_id="organization-id")
+
+    def test_reconcile_task_skips_when_another_reconcile_is_in_flight(self) -> None:
+        lock = get_client().lock("managed_warehouse_reconcile:123", timeout=10)
+        assert lock.acquire(blocking=False)
+        try:
+            with patch(
+                "products.data_warehouse.backend.tasks.tasks.reconcile_managed_warehouse_tables"
+            ) as mock_reconcile:
+                reconcile_managed_warehouse_tables_task(123, "organization-id")
+        finally:
+            lock.release()
+
+        mock_reconcile.assert_not_called()

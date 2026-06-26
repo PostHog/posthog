@@ -351,7 +351,46 @@ def enable_backfill(
 
 
 def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Response:
-    return _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
+    resp = _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
+    if status.is_success(resp.status_code):
+        try:
+            _remove_direct_connection_sources(organization_id)
+        except Exception:
+            logger.exception("Failed to remove managed warehouse query sources", organization_id=str(organization_id))
+            return Response(
+                {
+                    "error": "The warehouse was deprovisioned but its SQL connection could not be removed. Retry deprovisioning."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+    return resp
+
+
+def _remove_direct_connection_sources(organization_id: UUID | str) -> None:
+    """Soft-delete the org's auto-created Postgres query connections after deprovisioning."""
+    # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
+    from products.data_warehouse.backend.facade.api import soft_delete_managed_warehouse_sources  # noqa: PLC0415
+
+    soft_delete_managed_warehouse_sources(organization_id=organization_id)
+
+
+def ensure_direct_connection_tables(team_id: int, organization_id: UUID | str) -> None:
+    """Queue discovery of the team's managed-warehouse tables for the SQL editor.
+
+    Called from the warehouse-status read once the warehouse is `ready`. The task is guarded
+    by a per-team lock and self-skips after discovery, so repeated status polls stay cheap.
+    """
+    # Keep the Celery and data-warehouse task stack off this adapter's import path.
+    from products.data_warehouse.backend.facade.api import schedule_managed_warehouse_tables_reconcile  # noqa: PLC0415
+
+    try:
+        schedule_managed_warehouse_tables_reconcile(team_id=team_id, organization_id=organization_id)
+    except Exception:
+        logger.exception(
+            "Failed to schedule managed warehouse direct connection table reconciliation",
+            organization_id=str(organization_id),
+            team_id=team_id,
+        )
 
 
 def delete_org(organization_id: UUID | str, require_enabled: bool = True) -> Response:
@@ -467,7 +506,25 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
 
 
 def reset_password(organization_id: UUID | str) -> Response:
-    return _request("POST", organization_id, "/reset-password")
+    resp = _request("POST", organization_id, "/reset-password")
+    if status.is_success(resp.status_code) and isinstance(resp.data, dict) and resp.data.get("password"):
+        try:
+            _update_direct_connection_password(organization_id, resp.data["password"])
+        except Exception:
+            logger.exception("Failed to update managed warehouse stored password", organization_id=str(organization_id))
+            return Response(
+                {"error": "The password was rotated but could not be saved. Retry the password reset."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+    return resp
+
+
+def _update_direct_connection_password(organization_id: UUID | str, password: str) -> None:
+    """Sync the rotated root password into the server row and query connections."""
+    # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
+    from products.data_warehouse.backend.facade.api import update_managed_warehouse_password  # noqa: PLC0415
+
+    update_managed_warehouse_password(organization_id=organization_id, password=password)
 
 
 def check_name(organization_id: UUID | str, name: str | None) -> Response:
