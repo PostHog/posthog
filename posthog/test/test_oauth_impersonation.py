@@ -314,7 +314,7 @@ def _oauth_request(*, impersonated_by_id: int | None) -> HttpRequest:
 def _non_oauth_request() -> HttpRequest:
     request = RequestFactory().get("/")
     request.session = SessionStore()
-    request.successful_authenticator = object()  # e.g. session or personal-API-key auth  # type: ignore[attr-defined]
+    request.successful_authenticator = object()  # type: ignore[attr-defined]  # e.g. session/personal-key auth
     return request
 
 
