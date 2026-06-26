@@ -176,7 +176,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             title: (
                 <LemonRow
                     icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
-                    style={{ font: 'inherit', padding: 0 }}
+                    style={{ font: 'inherit', padding: 0, minHeight: 0 }}
                     size="small"
                 >
                     <EntityFilterInfo
