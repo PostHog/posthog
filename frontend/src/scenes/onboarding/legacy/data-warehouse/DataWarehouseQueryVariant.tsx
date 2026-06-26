@@ -157,7 +157,11 @@ function DataWarehouseQueryInner(): JSX.Element {
     const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
     const { availableSourcesLoading } = useValues(availableSourcesLogic)
     const { connectors } = useValues(sourceWizardLogic)
-    const [phase, setPhase] = useState<'value-prop' | 'setup'>('value-prop')
+    // An OAuth round-trip returns to this step with ?kind=<source>; start on the setup phase so
+    // InlineSourceSetup is mounted to resume the wizard rather than showing the value-prop screen.
+    const [phase, setPhase] = useState<'value-prop' | 'setup'>(() =>
+        new URLSearchParams(window.location.search).get('kind') ? 'setup' : 'value-prop'
+    )
     const [sceneIndex, setSceneIndex] = useState(0)
 
     const visibleConnectors = connectors.filter((c: SourceConfig) => !c.unreleasedSource)
