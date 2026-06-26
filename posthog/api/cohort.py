@@ -4,6 +4,7 @@ import time
 import uuid
 import hashlib
 from collections.abc import Iterator
+from copy import deepcopy
 from typing import Annotated, Any, Literal, Optional, Union, cast
 
 from django.db.models import OuterRef, QuerySet, Subquery
@@ -921,14 +922,34 @@ class CohortSerializer(serializers.ModelSerializer):
             raise ValidationError(f"Query must be an ActorsQuery or HogQLQuery. Got: {query.get('kind')}")
         return query
 
+    def _cohort_will_be_static(self) -> bool:
+        if "is_static" in self.initial_data:
+            return str_to_bool(self.initial_data["is_static"])
+        return bool(getattr(self.instance, "is_static", False))
+
+    def _effective_filters_after_update(self, attrs: dict) -> dict | None:
+        # PATCH may send legacy groups without filters, derive the post-update properties for validation
+        instance = cast(Cohort, self.instance)
+        filters = attrs.get("filters", instance.filters)
+        if filters:
+            return filters
+
+        groups = attrs.get("groups", instance.groups)
+        if not groups:
+            return None
+
+        cohort = Cohort(team=instance.team, filters=None, groups=deepcopy(groups))
+        return {"properties": cohort.properties.to_dict()}
+
     def validate_filters(self, raw: dict):
         """
         1. structural/schema check → pydantic
         2. domain rules (feature-flag gotchas) → bespoke fn
         3. bytecode generation → add bytecode fields to filters
         """
-        is_static = self.initial_data.get("is_static") or getattr(self.instance, "is_static", False)
-        if is_static and not cohort_filters_have_values(raw):
+        cohort_will_be_static = self._cohort_will_be_static()
+
+        if cohort_will_be_static and not cohort_filters_have_values(raw):
             return raw
         if not isinstance(raw, dict) or "properties" not in raw:
             raise ValidationError(
@@ -947,8 +968,25 @@ class CohortSerializer(serializers.ModelSerializer):
             # pydantic → drf error shape
             raise ValidationError(detail=self._cohort_error_message(exc))
 
-        self._validate_feature_flag_constraints(raw)  # keep your side-rules
+        self._validate_feature_flag_constraints(raw, cohort_will_be_static)  # keep your side-rules
         return raw
+
+    def validate(self, attrs: dict) -> dict:
+        # Field-level validate_filters only runs when the PATCH body includes `filters`. This
+        # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
+        # instance's preserved behavioral filters against the feature-flag rule.
+        attrs = super().validate(attrs)
+
+        if self.context["request"].method != "PATCH" or self.instance is None:
+            return attrs
+
+        instance = cast(Cohort, self.instance)
+        if instance.is_static and attrs.get("is_static") is False:
+            effective_filters = self._effective_filters_after_update(attrs)
+            if effective_filters is not None and cohort_filters_have_values(effective_filters):
+                self._validate_feature_flag_constraints(effective_filters, cohort_will_be_static=False)
+
+        return attrs
 
     @staticmethod
     def _cohort_error_message(exc: PydanticValidationError) -> str:
@@ -974,16 +1012,19 @@ class CohortSerializer(serializers.ModelSerializer):
                         return f"Missing required keys for {kind} filter: {missing_field}"
         return str(exc.errors())
 
-    def _validate_feature_flag_constraints(self, request_filters: dict):
+    def _validate_feature_flag_constraints(self, request_filters: dict, cohort_will_be_static: bool):
         if self.context["request"].method != "PATCH":
             return
 
         parsed_filter = Filter(data=request_filters)
         instance = cast(Cohort, self.instance)
+        if instance.is_static and cohort_will_be_static:
+            return
+
         cohort_id = instance.pk
 
         flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"], active=True)
-        cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
+        cohort_used_in_flags = any(cohort_id in flag.get_cohort_ids(stop_traversal_at_static=True) for flag in flags)
 
         if not cohort_used_in_flags:
             return
@@ -1000,9 +1041,13 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _validate_nested_cohort_behavioral_filters(self, prop: Any, cohort_used_in_flags: bool):
         nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
-        dependency_cohorts = get_all_cohort_dependencies(nested_cohort)
+        dependency_cohorts = get_all_cohort_dependencies(nested_cohort, stop_traversal_at_static=True)
 
         for dependency_cohort in [nested_cohort, *dependency_cohorts]:
+            # Static cohorts have materialized membership, any preserved behavioral
+            # filters are display-only and never evaluated, so skip them.
+            if dependency_cohort.is_static:
+                continue
             if cohort_used_in_flags and any(p.type == "behavioral" for p in dependency_cohort.properties.flat):
                 raise serializers.ValidationError(
                     detail=f"A cohort dependency ({dependency_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
@@ -1229,7 +1274,9 @@ def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:
     }
 
 
-def _filter_flags_referencing_cohort(flags: QuerySet[FeatureFlag], cohort: Cohort) -> list[FeatureFlag]:
+def _filter_flags_referencing_cohort(
+    flags: QuerySet[FeatureFlag], cohort: Cohort, *, stop_traversal_at_static: bool = False
+) -> list[FeatureFlag]:
     """Expand each flag's cohort references in Python and keep flags that reach this cohort.
 
     The cache is seeded with the target cohort and bulk-loaded with every cohort the
@@ -1248,7 +1295,15 @@ def _filter_flags_referencing_cohort(flags: QuerySet[FeatureFlag], cohort: Cohor
             seen_cohorts_cache[direct_cohort.pk] = direct_cohort
         for missing_id in direct_ids - seen_cohorts_cache.keys():
             seen_cohorts_cache[missing_id] = ""
-    return [flag for flag in flag_list if cohort.id in flag.get_cohort_ids(seen_cohorts_cache=seen_cohorts_cache)]
+    return [
+        flag
+        for flag in flag_list
+        if cohort.id
+        in flag.get_cohort_ids(
+            seen_cohorts_cache=seen_cohorts_cache,
+            stop_traversal_at_static=stop_traversal_at_static,
+        )
+    ]
 
 
 def get_active_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
@@ -1256,7 +1311,11 @@ def get_active_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
 
     Used by deletion protection: only live flags should block cohort deletion.
     """
-    return _filter_flags_referencing_cohort(_flags_with_cohort_filters(cohort).filter(active=True), cohort)
+    return _filter_flags_referencing_cohort(
+        _flags_with_cohort_filters(cohort).filter(active=True),
+        cohort,
+        stop_traversal_at_static=True,
+    )
 
 
 def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
@@ -1653,7 +1712,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         flags_qs = uac.filter_queryset_by_access_level(
             _flags_with_cohort_filters(cohort), include_all_if_admin=True
         ).order_by("id")
-        flags = _filter_flags_referencing_cohort(flags_qs, cohort)
+        flags = _filter_flags_referencing_cohort(flags_qs, cohort, stop_traversal_at_static=True)
         flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name} for flag in flags]
 
         insights_qs = uac.filter_queryset_by_access_level(get_insights_using_cohort(cohort))
