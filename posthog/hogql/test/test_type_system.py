@@ -602,6 +602,25 @@ class TestHogQLTypeSystem:
             ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
         )
 
+    def test_resolver_infers_string_search_function_types(self) -> None:
+        # Predicates return a 0/1 flag, modeled as Boolean (consistent with like/ilike).
+        self._assert_first_column_type("SELECT match('abc', 'a')", ast.BooleanType(nullable=False))
+        self._assert_first_column_type("SELECT startsWith('abc', 'a')", ast.BooleanType(nullable=False))
+        self._assert_first_column_type("SELECT endsWith('abc', 'c')", ast.BooleanType(nullable=False))
+        self._assert_first_column_type("SELECT hasToken('a b c', 'b')", ast.BooleanType(nullable=False))
+        self._assert_first_column_type("SELECT hasSubsequence('abc', 'ac')", ast.BooleanType(nullable=False))
+        # Counts, positions and lengths return the integer family (UInt64/Int32).
+        self._assert_first_column_type("SELECT position('abc', 'b')", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT position('abc', 'b', 1)", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT countSubstrings('aaa', 'a')", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT lengthUTF8('abc')", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT ascii('a')", ast.IntegerType(nullable=False))
+        # Extractors return a String.
+        self._assert_first_column_type("SELECT extract('abc', '(b)')", ast.StringType(nullable=False))
+        self._assert_first_column_type("SELECT regexpExtract('abc', '(b)')", ast.StringType(nullable=False))
+        # Nullability propagates from the arguments: a nullable haystack yields a nullable result.
+        self._assert_first_column_type("SELECT match(properties.foo, 'a') FROM events", ast.BooleanType(nullable=True))
+
     def test_resolver_infers_common_url_function_types(self) -> None:
         self._assert_first_column_type("SELECT protocol('https://posthog.com')", ast.StringType(nullable=False))
         self._assert_first_column_type(
