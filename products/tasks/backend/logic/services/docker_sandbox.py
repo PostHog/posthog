@@ -946,6 +946,9 @@ class DockerSandbox(SandboxBase):
 
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
 
+    def read_agent_server_boot_ms(self) -> int | None:
+        return self._read_health_boot_ms(AGENT_SERVER_PORT)
+
     def create_snapshot(self) -> str:
         if not self.is_running():
             raise SandboxExecutionError(

@@ -1,16 +1,9 @@
-const { setupPage } = require('@storybook/test-runner')
-const PlaywrightEnvironment = require('jest-playwright-preset/lib/PlaywrightEnvironment').default
+// Storybook 10's test-runner ships its own Playwright environment (which already
+// calls setupPage) and no longer depends on jest-playwright-preset. Extend that
+// environment and add only our failure-screenshot capture on top.
+import BaseEnvironment from '@storybook/test-runner/playwright/custom-environment.js'
 
-class CustomEnvironment extends PlaywrightEnvironment {
-    async setup() {
-        await super.setup()
-        await setupPage(this.global.page, this.global.context)
-    }
-
-    async teardown() {
-        await super.teardown()
-    }
-
+class CustomEnvironment extends BaseEnvironment {
     async handleTestEvent(event) {
         if (event.name === 'test_done' && event.test.errors.length > 0) {
             // Take screenshots on test failures - these become Actions artifacts
@@ -29,4 +22,4 @@ class CustomEnvironment extends PlaywrightEnvironment {
     }
 }
 
-module.exports = CustomEnvironment
+export default CustomEnvironment
