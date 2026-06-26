@@ -288,7 +288,6 @@ export function buildSqlTooltipConfig(
         pinnable: true,
         placement: 'cursor',
         sortedByValue: true,
-        maxRows: 10,
         valueFormatter: (value: number, entry: TooltipContext['seriesData'][number]) =>
             formatSqlSeriesValue(value, (entry.series.meta as SqlLineSeriesMeta | undefined)?.settings),
         showTotal: chartSettings.showTotalRow !== false,
