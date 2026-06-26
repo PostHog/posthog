@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import asdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -69,8 +70,17 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
     )
 
 
-def get_saved_query_search_attributes(saved_query: "DataWarehouseSavedQuery") -> TypedSearchAttributes:
-    dag_id = Node.objects.filter(saved_query=saved_query).values_list("dag_id", flat=True).first()
+def get_saved_query_search_attributes(
+    saved_query: "DataWarehouseSavedQuery",
+    *,
+    dag_id: "str | uuid.UUID | None" = None,
+    dag_id_resolved: bool = False,
+) -> TypedSearchAttributes:
+    # When the caller has already resolved this saved query's DAG (e.g. sync_views batches the
+    # Node lookup across every view), reuse it instead of firing a per-query Node query — that
+    # per-query fan-out is part of what saturates the connection pool on the materialization path.
+    if not dag_id_resolved:
+        dag_id = Node.objects.filter(saved_query=saved_query).values_list("dag_id", flat=True).first()
     search_attributes: list[SearchAttributePair] = [
         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=saved_query.team_id),
         SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=str(saved_query.team.organization_id)),
@@ -81,11 +91,15 @@ def get_saved_query_search_attributes(saved_query: "DataWarehouseSavedQuery") ->
 
 
 def sync_saved_query_workflow(
-    saved_query: "DataWarehouseSavedQuery", create: bool = False
+    saved_query: "DataWarehouseSavedQuery",
+    create: bool = False,
+    *,
+    dag_id: "str | uuid.UUID | None" = None,
+    dag_id_resolved: bool = False,
 ) -> "DataWarehouseSavedQuery":
     temporal = sync_connect()
     schedule = get_saved_query_schedule(saved_query)
-    search_attributes = get_saved_query_search_attributes(saved_query)
+    search_attributes = get_saved_query_search_attributes(saved_query, dag_id=dag_id, dag_id_resolved=dag_id_resolved)
 
     if create:
         create_schedule(

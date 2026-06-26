@@ -384,3 +384,22 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
 
         saved_queries = self._get_saved_queries()
         self.assertEqual(len(saved_queries), 6)
+
+    def test_sync_views_batches_v2_schedule_lookup(self):
+        """The v2-schedule lookup must run once for the whole batch, not once per view. The
+        per-query DB/Temporal fan-out is what saturated the connection pool on the materialization
+        path; this guards against reintroducing it.
+        """
+        schemas = self._create_schemas_without_tables()
+        for schema in schemas:
+            self._create_table_for_schema(schema)
+
+        service = "products.data_warehouse.backend.logic.data_load.saved_query_service"
+        with (
+            patch("products.data_modeling.backend.schedule.get_v2_saved_query_ids", return_value=set()) as mock_v2,
+            patch(f"{service}.saved_query_workflow_exists", return_value=False),
+            patch(f"{service}.sync_saved_query_workflow"),
+        ):
+            self.managed_viewset.sync_views()
+
+        self.assertEqual(mock_v2.call_count, 1)

@@ -161,9 +161,45 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
             )
 
+        # Resolve the v2-schedule and Node lookups once for the whole batch. Done per-query inside
+        # schedule_materialization, these fire one Node query plus one Temporal listing per saved
+        # query — the fan-out that tips this path into PgBouncer query_wait_timeout under a saturated
+        # pool. Resolve them up front and pass the results in; on any failure fall back to the
+        # per-query path so behavior is unchanged.
+        from products.data_modeling.backend.models.node import Node
+        from products.data_modeling.backend.schedule import get_v2_saved_query_ids
+
+        saved_query_ids = [sq.id for sq in saved_queries_to_schedule]
+        batched_lookups_available = False
+        v2_saved_query_ids: set = set()
+        dag_id_by_saved_query: dict = {}
+        try:
+            v2_saved_query_ids = get_v2_saved_query_ids(saved_query_ids)
+            dag_id_by_saved_query = {
+                sq_id: str(dag_id)
+                for sq_id, dag_id in Node.objects.filter(saved_query_id__in=saved_query_ids).values_list(
+                    "saved_query_id", "dag_id"
+                )
+            }
+            batched_lookups_available = True
+        except Exception as e:
+            capture_exception(e, {"managed_viewset_id": self.id})
+            logger.warning(
+                "failed_to_batch_schedule_lookups",
+                team_id=self.team_id,
+                error=str(e),
+            )
+
         for saved_query in saved_queries_to_schedule:
             try:
-                saved_query.schedule_materialization()
+                if batched_lookups_available:
+                    saved_query.schedule_materialization(
+                        v2_saved_query_ids=v2_saved_query_ids,
+                        dag_id=dag_id_by_saved_query.get(saved_query.id),
+                        dag_id_resolved=True,
+                    )
+                else:
+                    saved_query.schedule_materialization()
             except Exception as e:
                 capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                 logger.warning(
