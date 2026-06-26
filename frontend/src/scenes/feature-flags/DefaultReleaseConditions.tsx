@@ -43,9 +43,6 @@ export function DefaultReleaseConditions(): JSX.Element {
                         id="default-release-conditions"
                         filters={filtersForEditor}
                         onChange={(updatedFilters: FeatureFlagFilters) => {
-                            // Preserve group aggregation: the legacy "Match by" UI stores it at the
-                            // top level, so push it down onto each condition (the V2 per-condition
-                            // value already lives on the group and is kept as-is).
                             const topLevelIndex = updatedFilters.aggregation_group_type_index
                             const groups =
                                 topLevelIndex != null

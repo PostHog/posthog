@@ -119,8 +119,6 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
         filtersForEditor: [
             (s) => [s.groups],
             (groups): FeatureFlagFilters => {
-                // Surface a top-level aggregation when every condition shares one, so the editor's
-                // "Match by" control re-renders the saved group targeting on reload.
                 const indices = groups.map((group) => group.aggregation_group_type_index ?? null)
                 const uniformIndex =
                     indices.length > 0 && indices.every((index) => index === indices[0]) ? indices[0] : null
