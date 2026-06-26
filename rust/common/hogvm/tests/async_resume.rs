@@ -196,6 +196,30 @@ fn telemetry_traces_opcodes() {
 }
 
 #[test]
+fn resumes_a_node_produced_state() {
+    // A real VMState captured from the Node reference VM (@posthog/hogvm) for the open-upvalue
+    // program (let x := 5; let f := () -> x; let y := asyncFetch(0); return f() + y), suspended on
+    // asyncFetch. Rust must resume it from Node's exact wire format — reconstructing the program from
+    // the state's own `bytecodes` — and reach f() + y = 5 + 37 = 42. Frozen oracle (no Node at test
+    // time): guards the callable-ip header offset, 1-based upvalue ids, and the frame mapping so a
+    // serialize/deserialize drift can't silently break cross-VM resume.
+    let node_state = r#"{"bytecodes":{"root":{"bytecode":["_H",1,33,5,52,"lambda",0,1,3,55,0,38,53,1,true,0,33,0,2,"asyncFetch",1,36,1,54,0,6,38]}},"stack":[5,{"__hogClosure__":true,"callable":{"__hogCallable__":"local","name":"lambda","chunk":"root","argCount":0,"upvalueCount":1,"ip":9},"upvalues":[1]}],"upvalues":[{"__hogUpValue__":true,"id":1,"location":0,"closed":false,"value":null}],"callStack":[{"ip":21,"chunk":"root","stackStart":0,"argCount":0,"closure":{"__hogClosure__":true,"callable":{"__hogCallable__":"local","name":"","chunk":"root","argCount":0,"upvalueCount":0,"ip":1},"upvalues":[]}}],"throwStack":[],"declaredFunctions":{},"ops":5,"asyncSteps":1,"syncDuration":0,"maxMemUsed":267}"#;
+    let snapshot: VmSnapshot = serde_json::from_str(node_state).expect("parse node state");
+    let tokens: Vec<Value> = snapshot.bytecodes["root"]["bytecode"]
+        .as_array()
+        .expect("bytecode array")
+        .clone();
+    let program = Program::new(tokens).expect("valid program");
+    let context = ExecutionContext::with_defaults(program)
+        .with_async_functions(HashSet::from(["asyncFetch".to_string()]))
+        .with_max_async_steps(4);
+    match resume(&context, &snapshot, json!(37)).expect("resume") {
+        Resumable::Finished(v) => assert_eq!(v, json!(42)),
+        Resumable::Suspended { .. } => panic!("unexpected re-suspension"),
+    }
+}
+
+#[test]
 fn sync_execution_rejects_async() {
     // A registered async function under the sync driver can't suspend; with the default budget the
     // resumable driver also refuses. This guards that async never silently no-ops in a sync consumer.

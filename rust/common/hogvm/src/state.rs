@@ -32,8 +32,9 @@ use crate::values::{Callable, Closure, HogLiteral, HogValue, LocalCallable, Upva
 /// the reference (camelCase) so a state produced here can be resumed by Node and vice versa.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VmSnapshot {
-    /// The chunk map — `{ "root": { "bytecode": [...], "globals": {...} } }`. Carried for wire
-    /// compatibility; Rust resume ignores it and uses the supplied `ExecutionContext` instead.
+    /// The chunk map — `{ "root": { "bytecode": [...] } }` (globals are re-supplied via options on
+    /// resume, matching the reference). Carried for wire compatibility; Rust resume ignores it and
+    /// uses the supplied `ExecutionContext` instead.
     pub bytecodes: JsonValue,
     /// The value stack, heap flattened, in reference value shapes.
     pub stack: Vec<JsonValue>,
@@ -206,6 +207,7 @@ pub fn value_to_json(
     value: &HogValue,
     heap: &VmHeap,
     registry: &mut CellRegistry,
+    header_len: usize,
 ) -> Result<JsonValue, VmError> {
     let lit = value.deref(heap)?;
     Ok(match lit {
@@ -216,14 +218,14 @@ pub fn value_to_json(
         HogLiteral::Array(items) => {
             let mut out = Vec::with_capacity(items.len());
             for item in items {
-                out.push(value_to_json(item, heap, registry)?);
+                out.push(value_to_json(item, heap, registry, header_len)?);
             }
             json!(out)
         }
         HogLiteral::Tuple(items) => {
             let mut out = Vec::with_capacity(items.len());
             for item in items {
-                out.push(value_to_json(item, heap, registry)?);
+                out.push(value_to_json(item, heap, registry, header_len)?);
             }
             // The reference duck-types tuples as arrays with a marker; keep one so restore can tell
             // them apart (tuple `typeof` and `(a, b)` printing depend on it).
@@ -232,38 +234,48 @@ pub fn value_to_json(
         HogLiteral::Object(map) => {
             let mut out = serde_json::Map::with_capacity(map.len());
             for (k, v) in map {
-                out.insert(k.clone(), value_to_json(v, heap, registry)?);
+                out.insert(k.clone(), value_to_json(v, heap, registry, header_len)?);
             }
             JsonValue::Object(out)
         }
-        HogLiteral::Callable(callable) => callable_to_json(callable),
-        HogLiteral::Closure(closure) => closure_to_json(closure, registry),
+        HogLiteral::Callable(callable) => callable_to_json(callable, header_len),
+        HogLiteral::Closure(closure) => closure_to_json(closure, registry, header_len),
     })
 }
 
-pub fn closure_to_json(closure: &Closure, registry: &mut CellRegistry) -> JsonValue {
+pub fn closure_to_json(
+    closure: &Closure,
+    registry: &mut CellRegistry,
+    header_len: usize,
+) -> JsonValue {
+    // Upvalue ids are 1-based to match the reference (`id: sortedUpValues.length + 1`).
     let ids: Vec<usize> = closure
         .captures
         .iter()
-        .map(|cell| registry.intern(cell))
+        .map(|cell| registry.intern(cell) + 1)
         .collect();
     json!({
         "__hogClosure__": true,
-        "callable": callable_to_json(&closure.callable),
+        "callable": callable_to_json(&closure.callable, header_len),
         "upvalues": ids,
     })
 }
 
-fn callable_to_json(callable: &Callable) -> JsonValue {
+fn callable_to_json(callable: &Callable, header_len: usize) -> JsonValue {
     match callable {
-        Callable::Local(lc) => json!({
-            "__hogCallable__": "local",
-            "name": lc.name,
-            "argCount": lc.stack_arg_count,
-            "upvalueCount": lc.capture_count,
-            "ip": lc.ip,
-            "chunk": chunk_str(&lc.symbol),
-        }),
+        Callable::Local(lc) => {
+            // The reference's callable ip is header-inclusive for the root chunk; module callables
+            // carry no header. Our `ip` is body-relative, so add the header for root-chunk callables.
+            let ip = lc.ip + if lc.symbol.is_none() { header_len } else { 0 };
+            json!({
+                "__hogCallable__": "local",
+                "name": lc.name,
+                "argCount": lc.stack_arg_count,
+                "upvalueCount": lc.capture_count,
+                "ip": ip,
+                "chunk": chunk_str(&lc.symbol),
+            })
+        }
         Callable::Stl(name) => json!({
             "__hogCallable__": "stl",
             "name": name,
@@ -299,6 +311,7 @@ pub fn value_from_json(
     json: &JsonValue,
     heap: &mut VmHeap,
     cells: &HashMap<usize, UpvalueCell>,
+    header_len: usize,
 ) -> Result<HogValue, VmError> {
     match json {
         JsonValue::Null => Ok(HogLiteral::Null.into()),
@@ -308,11 +321,11 @@ pub fn value_from_json(
         JsonValue::Array(items) => {
             let mut out = Vec::with_capacity(items.len());
             for item in items {
-                out.push(value_from_json(item, heap, cells)?);
+                out.push(value_from_json(item, heap, cells, header_len)?);
             }
             Ok(heap.emplace(HogLiteral::Array(out))?.into())
         }
-        JsonValue::Object(map) => object_from_json(map, heap, cells),
+        JsonValue::Object(map) => object_from_json(map, heap, cells, header_len),
     }
 }
 
@@ -320,16 +333,22 @@ fn object_from_json(
     map: &serde_json::Map<String, JsonValue>,
     heap: &mut VmHeap,
     cells: &HashMap<usize, UpvalueCell>,
+    header_len: usize,
 ) -> Result<HogValue, VmError> {
     if map.contains_key("__hogClosure__") {
-        return Ok(
-            HogLiteral::Closure(closure_from_json(&JsonValue::Object(map.clone()), cells)?).into(),
-        );
+        return Ok(HogLiteral::Closure(closure_from_json(
+            &JsonValue::Object(map.clone()),
+            cells,
+            header_len,
+        )?)
+        .into());
     }
     if map.contains_key("__hogCallable__") {
-        return Ok(
-            HogLiteral::Callable(callable_from_json(&JsonValue::Object(map.clone()))?).into(),
-        );
+        return Ok(HogLiteral::Callable(callable_from_json(
+            &JsonValue::Object(map.clone()),
+            header_len,
+        )?)
+        .into());
     }
     if map.get("__hogTuple__").and_then(|v| v.as_bool()) == Some(true) {
         let items = map
@@ -338,7 +357,7 @@ fn object_from_json(
             .ok_or_else(|| VmError::Other("tuple missing items".to_string()))?;
         let mut out = Vec::with_capacity(items.len());
         for item in items {
-            out.push(value_from_json(item, heap, cells)?);
+            out.push(value_from_json(item, heap, cells, header_len)?);
         }
         return Ok(heap.emplace(HogLiteral::Tuple(out))?.into());
     }
@@ -346,7 +365,7 @@ fn object_from_json(
     // marked objects) — preserve key order.
     let mut out = IndexMap::with_capacity(map.len());
     for (k, v) in map {
-        out.insert(k.clone(), value_from_json(v, heap, cells)?);
+        out.insert(k.clone(), value_from_json(v, heap, cells, header_len)?);
     }
     Ok(heap.emplace(HogLiteral::Object(out))?.into())
 }
@@ -354,10 +373,12 @@ fn object_from_json(
 pub fn closure_from_json(
     json: &JsonValue,
     cells: &HashMap<usize, UpvalueCell>,
+    header_len: usize,
 ) -> Result<Closure, VmError> {
     let callable = callable_from_json(
         json.get("callable")
             .ok_or_else(|| VmError::Other("closure missing callable".to_string()))?,
+        header_len,
     )?;
     let ids = json
         .get("upvalues")
@@ -376,7 +397,7 @@ pub fn closure_from_json(
     Ok(Closure { captures, callable })
 }
 
-fn callable_from_json(json: &JsonValue) -> Result<Callable, VmError> {
+fn callable_from_json(json: &JsonValue, header_len: usize) -> Result<Callable, VmError> {
     let kind = json
         .get("__hogCallable__")
         .and_then(|v| v.as_str())
@@ -385,11 +406,13 @@ fn callable_from_json(json: &JsonValue) -> Result<Callable, VmError> {
         "stl" => Ok(Callable::Stl(str_field(json, "name")?)),
         _ => {
             let chunk = json.get("chunk").and_then(|v| v.as_str()).unwrap_or("root");
+            // Inverse of the serialize-side header offset: root-chunk ips are header-inclusive.
+            let offset = if chunk == "root" { header_len } else { 0 };
             Ok(Callable::Local(LocalCallable {
                 name: str_field(json, "name")?,
                 stack_arg_count: usize_field(json, "argCount")?,
                 capture_count: usize_field(json, "upvalueCount")?,
-                ip: usize_field(json, "ip")?,
+                ip: usize_field(json, "ip")?.saturating_sub(offset),
                 symbol: chunk_to_symbol(chunk),
             }))
         }
@@ -401,6 +424,7 @@ fn callable_from_json(json: &JsonValue) -> Result<Callable, VmError> {
 pub fn rebuild_cells(
     upvalues: &[UpvalueJson],
     heap: &mut VmHeap,
+    header_len: usize,
 ) -> Result<HashMap<usize, UpvalueCell>, VmError> {
     let mut cells: HashMap<usize, UpvalueCell> = HashMap::with_capacity(upvalues.len());
     for uv in upvalues {
@@ -415,7 +439,7 @@ pub fn rebuild_cells(
     }
     for uv in upvalues {
         if uv.closed {
-            let value = value_from_json(&uv.value, heap, &cells)?;
+            let value = value_from_json(&uv.value, heap, &cells, header_len)?;
             cells[&uv.id].borrow_mut().value = Some(value);
         }
     }

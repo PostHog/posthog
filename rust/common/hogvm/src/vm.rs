@@ -66,6 +66,8 @@ pub struct HogVM<'a> {
     // How many times this run has suspended on an async function call. Carried into snapshots and
     // restored on resume, so the per-run async budget survives the suspend/resume round-trip.
     async_steps: usize,
+    // Count of opcodes dispatched this run (the reference's `ops`). Carried across suspend/resume.
+    ops: usize,
     // Per-opcode execution trace, collected only when the context opts into telemetry. Each entry is
     // the reference's `[time, chunk, ip, "op/NAME", debug]` tuple. Carried across suspend/resume.
     telemetry: Vec<JsonValue>,
@@ -103,6 +105,7 @@ impl<'a> HogVM<'a> {
             open_upvalues: Vec::new(),
             ip: 0,
             async_steps: 0,
+            ops: 0,
             telemetry: Vec::new(),
             current_symbol: None,
             context,
@@ -150,6 +153,8 @@ impl<'a> HogVM<'a> {
             }
             Err(e) => return Err(e),
         };
+
+        self.ops += 1;
 
         if self.context.collect_telemetry {
             // The reference's `[time, chunk, ip, "op/NAME", debug]`. Time is a placeholder (we don't
@@ -1142,20 +1147,22 @@ impl<'a> HogVM<'a> {
             })
             .collect();
 
+        let header_len = self.context.program_header_len();
         let mut stack = Vec::with_capacity(self.stack.len());
         for value in &self.stack {
-            stack.push(value_to_json(value, &self.heap, &mut registry)?);
+            stack.push(value_to_json(value, &self.heap, &mut registry, header_len)?);
         }
 
         let mut upvalues = Vec::with_capacity(cell_data.len());
         for (id, (location, closed, value)) in cell_data.into_iter().enumerate() {
             let value_json = match (closed, &value) {
-                (true, Some(v)) => value_to_json(v, &self.heap, &mut registry)?,
+                (true, Some(v)) => value_to_json(v, &self.heap, &mut registry, header_len)?,
                 _ => JsonValue::Null,
             };
             upvalues.push(UpvalueJson {
                 marker: true,
-                id,
+                // 1-based, matching the reference (`id: sortedUpValues.length + 1`).
+                id: id + 1,
                 location,
                 closed,
                 value: value_json,
@@ -1166,7 +1173,7 @@ impl<'a> HogVM<'a> {
         // resume; each entry keeps its id so closure references still resolve.
         upvalues.sort_by_key(|u| u.location);
 
-        let call_stack = self.build_call_stack(&mut registry)?;
+        let call_stack = self.build_call_stack(&mut registry, header_len)?;
 
         let throw_stack = self
             .throw_frames
@@ -1179,16 +1186,16 @@ impl<'a> HogVM<'a> {
             })
             .collect();
 
+        // The reference stores `bytecodes.root` as just `{ bytecode }` (globals are re-supplied via
+        // options on resume), so omit globals to match its wire shape.
         Ok(VmSnapshot {
-            bytecodes: json!({
-                "root": { "bytecode": self.context.program_tokens(), "globals": self.context.globals }
-            }),
+            bytecodes: json!({ "root": { "bytecode": self.context.program_tokens() } }),
             stack,
             upvalues,
             call_stack,
             throw_stack,
             declared_functions: json!({}),
-            ops: 0,
+            ops: self.ops,
             async_steps: self.async_steps,
             sync_duration: 0,
             max_mem_used: self.heap.current_bytes,
@@ -1202,7 +1209,11 @@ impl<'a> HogVM<'a> {
     /// Build the reference's `callStack` (root frame first, active frame last). Frame `d` < N draws
     /// its ip/chunk from the frame pushed when depth `d` called `d+1` (which stored `d`'s resume
     /// point) and its closure/stackStart from that same callee frame; depth N is the live position.
-    fn build_call_stack(&self, registry: &mut CellRegistry) -> Result<Vec<CallFrameJson>, VmError> {
+    fn build_call_stack(
+        &self,
+        registry: &mut CellRegistry,
+        header_len: usize,
+    ) -> Result<Vec<CallFrameJson>, VmError> {
         let n = self.stack_frames.len();
         let mut frames = Vec::with_capacity(n + 1);
         for d in 0..=n {
@@ -1223,7 +1234,7 @@ impl<'a> HogVM<'a> {
                     Callable::Stl(_) => 0,
                 };
                 (
-                    closure_to_json(&frame.closure, registry),
+                    closure_to_json(&frame.closure, registry, header_len),
                     frame.stack_start,
                     arg_count,
                 )
@@ -1266,12 +1277,13 @@ impl<'a> HogVM<'a> {
         snapshot: &VmSnapshot,
     ) -> Result<HogVM<'a>, VmError> {
         let mut vm = HogVM::new(context)?;
+        let header_len = context.program_header_len();
 
-        let cells = rebuild_cells(&snapshot.upvalues, &mut vm.heap)?;
+        let cells = rebuild_cells(&snapshot.upvalues, &mut vm.heap, header_len)?;
 
         let mut stack = Vec::with_capacity(snapshot.stack.len());
         for value in &snapshot.stack {
-            stack.push(value_from_json(value, &mut vm.heap, &cells)?);
+            stack.push(value_from_json(value, &mut vm.heap, &cells, header_len)?);
         }
 
         // Inverse of `build_call_stack`: the reference callStack has N+1 frames (root + N); we keep N
@@ -1291,7 +1303,7 @@ impl<'a> HogVM<'a> {
                 ret_ptr: Self::rust_ip(call_stack[i].ip, &call_stack[i].chunk, context),
                 ret_symbol: chunk_to_symbol(&call_stack[i].chunk),
                 stack_start: call_stack[i + 1].stack_start,
-                closure: closure_from_json(&call_stack[i + 1].closure, &cells)?,
+                closure: closure_from_json(&call_stack[i + 1].closure, &cells, header_len)?,
             });
         }
 
@@ -1323,6 +1335,7 @@ impl<'a> HogVM<'a> {
         vm.throw_frames = throw_frames;
         vm.open_upvalues = open_upvalues;
         vm.async_steps = snapshot.async_steps;
+        vm.ops = snapshot.ops;
         // Carry the trace across resume so a multi-suspension run accumulates one continuous trace.
         vm.telemetry = snapshot.telemetry.clone().unwrap_or_default();
         Ok(vm)
