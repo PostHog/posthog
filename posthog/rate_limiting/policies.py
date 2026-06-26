@@ -31,6 +31,12 @@ class RatePolicy:
     limits: tuple[RateLimit, ...]
     in_memory_divider: int = 1
 
+    def __post_init__(self) -> None:
+        # A policy with no limits would let every call through, defeating the point. Reject it at
+        # definition time rather than surfacing an opaque "min() arg is empty" deep in the facade.
+        if not self.limits:
+            raise ValueError("RatePolicy.limits must declare at least one (count, period_seconds) limit")
+
 
 PolicyProvider = Callable[[], RatePolicy]
 

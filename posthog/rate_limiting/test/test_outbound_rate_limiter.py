@@ -65,6 +65,13 @@ async def test_unique_keys_do_not_share_budget():
     assert await limiter.acquire("test-isolation:scope:B", 1) is True
 
 
+def test_policy_rejects_empty_limits():
+    # A limit-less policy would let every call through; it must fail at definition time rather than
+    # surfacing an opaque min() error on first acquire.
+    with pytest.raises(ValueError):
+        RatePolicy(limits=())
+
+
 @pytest.mark.parametrize("bad_key", ["totally-unregistered:scope:1", "nocolon"])
 def test_resolve_policy_rejects_bad_keys(bad_key):
     # Fail-closed: an unregistered domain or a malformed (colon-less) key must raise rather than
