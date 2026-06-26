@@ -328,17 +328,21 @@ class TestBuildQuery(SimpleTestCase):
     """`_id` is offered as an ObjectID incremental cursor, but MongoDB `_id` values aren't
     always ObjectIds — a non-ObjectId cursor must not crash query construction."""
 
-    def test_object_id_cursor_is_wrapped(self):
-        oid = ObjectId()
-        query = _build_query(True, "_id", IncrementalFieldType.ObjectID, str(oid))
-        assert query == {"_id": {"$gt": oid, "$exists": True}}
+    _OID_HEX = "507f1f77bcf86cd799439011"
+    _UUID = "fffdb62e-4704-4671-984c-ffcff3a8dd52"
 
-    def test_uuid_id_cursor_compares_as_string(self):
-        # Regression: a UUID-string `_id` previously raised bson.errors.InvalidId here,
-        # permanently breaking every incremental sync for collections that key on UUIDs.
-        uuid_id = "fffdb62e-4704-4671-984c-ffcff3a8dd52"
-        query = _build_query(True, "_id", IncrementalFieldType.ObjectID, uuid_id)
-        assert query == {"_id": {"$gt": uuid_id, "$exists": True}}
+    @parameterized.expand(
+        [
+            # A valid 24-char hex cursor stays an ObjectId so native ordered comparison is preserved.
+            ("objectid_cursor_is_wrapped", _OID_HEX, ObjectId(_OID_HEX)),
+            # Regression: a UUID-string `_id` previously raised bson.errors.InvalidId here,
+            # permanently breaking every incremental sync for collections that key on UUIDs.
+            ("uuid_cursor_compares_as_string", _UUID, _UUID),
+        ]
+    )
+    def test_cursor_coercion(self, _name: str, cursor: str, expected_gt):
+        query = _build_query(True, "_id", IncrementalFieldType.ObjectID, cursor)
+        assert query == {"_id": {"$gt": expected_gt, "$exists": True}}
 
 
 class TestMongoDBNonRetryableErrors(SimpleTestCase):
