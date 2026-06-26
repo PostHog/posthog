@@ -165,11 +165,12 @@ class SessionRecording(UUIDTModel):
         if self._person:
             return
 
-        if not self.distinct_id:
+        distinct_id = self.distinct_id
+        if not distinct_id:
             return
 
         def _fn() -> None:
-            person = _fetch_person_by_distinct_id_via_personhog(self.team.pk, self.distinct_id)
+            person = _fetch_person_by_distinct_id_via_personhog(self.team.pk, distinct_id)
             if person is not None:
                 self.person = person
 
