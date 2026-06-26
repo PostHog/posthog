@@ -10,6 +10,8 @@
 
 import type { Pool, PoolClient } from 'pg'
 
+import { createLogger } from '../runtime/logger'
+import { parseTriggerMetadata } from '../runtime/trigger-metadata'
 import {
     AgentSession,
     ConversationMessage,
@@ -42,6 +44,8 @@ const SUMMARY_COLS = `id, application_id, revision_id, team_id, external_key,
                       idempotency_key, trigger_metadata, state, principal,
                       usage_total, retry_count, turn_count, search_text,
                       created_at, updated_at`
+
+const log = createLogger('pg-queue')
 
 export class PgSessionQueue implements SessionQueue {
     constructor(private readonly pool: Pool) {}
@@ -675,6 +679,21 @@ function buildSessionFilter(
 }
 
 function rowToSession(row: DbRow): AgentSession {
+    const triggerMetadata = parseTriggerMetadata(row.trigger_metadata)
+    // Surface schema drift: a non-null JSONB blob that the discriminated union
+    // can't validate becomes `null` here, which silently disables every kind-
+    // gated reader (slack reply relay, failure notifier, etc.). Log so an
+    // operator can see drift instead of hunting it through user reports.
+    if (row.trigger_metadata !== null && triggerMetadata === null) {
+        log.warn(
+            {
+                session_id: row.id,
+                raw_kind:
+                    typeof row.trigger_metadata === 'object' ? (row.trigger_metadata as { kind?: unknown }).kind : null,
+            },
+            'trigger_metadata_parse_failed'
+        )
+    }
     return {
         id: row.id,
         application_id: row.application_id,
@@ -683,10 +702,7 @@ function rowToSession(row: DbRow): AgentSession {
         principal: (row.principal as AgentSession['principal']) ?? null,
         external_key: row.external_key,
         idempotency_key: row.idempotency_key,
-        trigger_metadata:
-            row.trigger_metadata && typeof row.trigger_metadata === 'object'
-                ? (row.trigger_metadata as Record<string, unknown>)
-                : null,
+        trigger_metadata: triggerMetadata,
         state: row.state as AgentSession['state'],
         conversation: Array.isArray(row.conversation) ? (row.conversation as AgentSession['conversation']) : [],
         pending_inputs: Array.isArray(row.pending_inputs) ? (row.pending_inputs as AgentSession['pending_inputs']) : [],

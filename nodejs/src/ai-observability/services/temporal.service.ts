@@ -3,10 +3,10 @@ import fs from 'fs/promises'
 import { Counter } from 'prom-client'
 
 import { EncryptionCodec } from '~/common/temporal/codec'
+import { isDevEnv } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
 
 import { RawKafkaEvent } from '../../types'
-import { isDevEnv } from '../../utils/env-utils'
-import { logger } from '../../utils/logger'
 import { AIObservabilityConfig } from '../config'
 
 export type TemporalServiceConfig = Pick<

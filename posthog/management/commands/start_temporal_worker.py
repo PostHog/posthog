@@ -210,7 +210,7 @@ from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.settings import (
+from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
 )

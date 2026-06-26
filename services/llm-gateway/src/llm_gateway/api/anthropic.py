@@ -1,7 +1,8 @@
 import asyncio
+import json
 import time
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import litellm
@@ -13,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
     BEDROCK_CONFIG,
+    CLOUDFLARE_ANTHROPIC_CONFIG,
     _sanitize_request_data,
     handle_llm_request,
     normalize_litellm_model_name,
@@ -24,6 +26,12 @@ from llm_gateway.bedrock import (
     map_to_bedrock_model,
 )
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
+from llm_gateway.cloudflare import (
+    cloudflare_litellm_model,
+    ensure_cloudflare_configured,
+    ensure_cloudflare_model_allowed,
+    make_cloudflare_anthropic_call,
+)
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
 from llm_gateway.metrics.prometheus import (
@@ -202,6 +210,31 @@ def strip_server_side_tools(data: dict[str, Any], *, model: str, product: str) -
         del data["tools"]
 
 
+async def _send_cloudflare_messages(
+    request_data: dict[str, Any],
+    user: RateLimitedUser,
+    is_streaming: bool,
+    product: str,
+) -> dict[str, Any] | StreamingResponse:
+    ensure_cloudflare_model_allowed(request_data["model"])
+    settings = get_settings()
+    api_base, api_key = ensure_cloudflare_configured(settings)
+
+    data = dict(request_data)
+    original_model = data["model"]
+    llm_call = make_cloudflare_anthropic_call(api_base, api_key)
+
+    return await handle_llm_request(
+        request_data=data,
+        user=user,
+        model=original_model,
+        is_streaming=is_streaming,
+        provider_config=CLOUDFLARE_ANTHROPIC_CONFIG,
+        llm_call=llm_call,
+        product=product,
+    )
+
+
 async def _send_bedrock_messages(
     request_data: dict[str, Any],
     user: RateLimitedUser,
@@ -286,7 +319,8 @@ def _wrap_stream_with_breaker(
         success = True
         try:
             async for chunk in inner:
-                yield chunk
+                # body_iterator types loosely as str|bytes|memoryview; our upstream only emits bytes.
+                yield cast(bytes, chunk)
         except asyncio.CancelledError:
             # Client disconnect — neither success nor failure of Anthropic.
             raise
@@ -317,6 +351,9 @@ async def _handle_anthropic_messages(
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
+
+    if provider == "cloudflare":
+        return await _send_cloudflare_messages(data, user, body.stream or False, product)
 
     if provider == "bedrock":
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
@@ -385,6 +422,22 @@ async def _handle_count_tokens(
     data = _sanitize_request_data(body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS))
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
+
+    if provider == "cloudflare":
+        ensure_cloudflare_model_allowed(body.model)
+        # CF Workers AI has no count_tokens endpoint. Approximate via litellm's tokenizer on the
+        # serialised payload — callers use this for context-window budgeting, where over-counting
+        # just trims and only under-counting would overflow.
+        aliased_model = cloudflare_litellm_model(body.model)
+        try:
+            count = await asyncio.to_thread(litellm.token_counter, model=aliased_model, text=json.dumps(data))
+        except Exception as exc:
+            logger.exception("cloudflare_count_tokens_failed", model=body.model)
+            raise HTTPException(
+                status_code=502,
+                detail={"error": {"message": "Failed to count tokens", "type": "internal_error"}},
+            ) from exc
+        return {"input_tokens": count}
 
     if provider == "bedrock":
         return await _bedrock_count_tokens_impl(data, body.model, user, product)

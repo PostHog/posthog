@@ -61,7 +61,6 @@ import {
     IdentityLinkStateStore,
     IdentityStore,
     isDeltaEventKind,
-    isSlackTriggerMetadata,
     LogLevel,
     LogSink,
     MemoryStore,
@@ -256,7 +255,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // Slack-triggered sessions relay the model's reply back into the originating
     // thread (the system prompt below tells the model to answer in natural
     // language instead of calling a slack tool).
-    const slackReply = isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
+    const slackReply = session.trigger_metadata?.kind === 'slack' ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
             id: f.ref.id,

@@ -4,11 +4,11 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import { getBlockDecryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
-import { PostgresRouter } from '~/utils/db/postgres'
 
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
@@ -47,7 +47,7 @@ jest.mock('~/ingestion/pipelines/sessionreplay/shared/crypto', () => ({
     getBlockDecryptor: jest.fn(),
 }))
 
-jest.mock('~/utils/db/redis', () => ({
+jest.mock('~/common/utils/db/redis', () => ({
     createRedisPoolFromConfig: jest.fn().mockReturnValue({
         acquire: jest.fn(),
         release: jest.fn(),

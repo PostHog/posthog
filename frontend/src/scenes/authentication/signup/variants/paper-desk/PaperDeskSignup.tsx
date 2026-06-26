@@ -57,7 +57,7 @@ function SignupEmailPanel(): JSX.Element {
 
     return (
         <PaperDeskCard footer={footer}>
-            <CardTitle title="Get started" sub="No credit card. No sales call. Just hogs." />
+            <CardTitle title="Get started" sub="Make your product self-driving." />
             <Form logic={signupLogic} formKey="signupPanelEmail" enableFormOnSubmit className="flex flex-col gap-4">
                 <RegionField />
                 <LemonField
