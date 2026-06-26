@@ -33,7 +33,10 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
-from products.customer_analytics.backend.logic import custom_property_values as _custom_property_values_logic
+from products.customer_analytics.backend.logic import (
+    custom_property_sync as _custom_property_sync_logic,
+    custom_property_values as _custom_property_values_logic,
+)
 from products.customer_analytics.backend.logic.custom_property_definitions import coerce_is_big_number
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
@@ -1374,3 +1377,11 @@ def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> 
     """The account's current (non-deleted) custom property values as contracts, newest first."""
     rows = _custom_property_values_logic.list_active_custom_property_values(team_id=team_id, account_id=account_id)
     return [_to_custom_property_value(row) for row in rows]
+
+
+SyncResult = _custom_property_sync_logic.SyncResult
+
+
+def sync_custom_property_values(team_id: int, saved_query_id: str | UUID) -> SyncResult:
+    """Sync every enabled source backed by this view onto matching accounts; returns the run outcome."""
+    return _custom_property_sync_logic.sync_custom_property_values(team_id=team_id, saved_query_id=saved_query_id)
