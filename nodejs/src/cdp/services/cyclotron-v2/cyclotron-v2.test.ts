@@ -996,8 +996,10 @@ describe('Cyclotron V2', () => {
         })
 
         describe('Worker: fairDequeue ordering', () => {
+            // The email queue is intrinsically fair-dequeued — the worker derives
+            // it from the queue name, so an EMAIL_QUEUE worker is already fair.
             const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
-                createWorker(EMAIL_QUEUE, { fairDequeue: true, ...overrides })
+                createWorker(EMAIL_QUEUE, overrides)
 
             it('picks small-tenant jobs into the same batch as big-tenant jobs', async () => {
                 // The 2M-vs-1 scenario at a smaller scale: team A enqueues 5,
@@ -1153,21 +1155,19 @@ describe('Cyclotron V2', () => {
                 ])
             })
 
-            it('preserves FIFO when fairDequeue is false (default)', async () => {
-                // Same scenario, but with the flag off, all team-A jobs come first.
+            it('keeps non-email queues on FIFO (priority, scheduled) ordering', async () => {
+                // Fair dequeue is intrinsic to the email queue; a non-email
+                // queue worker stays strict FIFO. Team A enqueues 5 then team B
+                // enqueues 1 on the default (hog) queue — A's 5 come first.
                 const teamA = 100
                 const teamB = 200
-                await manager.bulkCreateJobs(
-                    Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
-                )
-                await manager.bulkCreateJobs([{ teamId: teamB, queueName: EMAIL_QUEUE }])
+                await manager.bulkCreateJobs(Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: QUEUE })))
+                await manager.bulkCreateJobs([{ teamId: teamB, queueName: QUEUE }])
 
-                const worker = createWorker(EMAIL_QUEUE, { batchMaxSize: 2 })
+                const worker = createWorker(QUEUE, { batchMaxSize: 2 })
                 const jobs = await dequeueOneBatch(worker)
 
                 expect(jobs).toHaveLength(2)
-                // FIFO: both jobs are team A (their dequeue_seq is ignored by the
-                // ordering, scheduled-time wins, A came first).
                 expect(jobs.every((j) => j.teamId === teamA)).toBe(true)
             })
 

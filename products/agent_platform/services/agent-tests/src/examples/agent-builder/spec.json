@@ -1,5 +1,5 @@
 {
-    "model": "anthropic/claude-sonnet-4-6",
+    "models": { "mode": "auto", "level": "high" },
     "reasoning": "high",
     "triggers": [
         {
@@ -239,6 +239,7 @@
                 "agent-applications-env-keys-get",
                 "agent-native-tools-list",
                 "agent-resolve-resource",
+                "agent-applications-models",
                 "execute-sql",
                 "insight-query",
                 "get-llm-total-costs-for-project",

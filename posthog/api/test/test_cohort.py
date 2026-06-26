@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -24,7 +25,7 @@ from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
-from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE, CohortViewSet
+from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE, CohortFilters
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -43,6 +44,7 @@ from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.dependencies import find_behavioral_cohorts
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
@@ -1806,13 +1808,11 @@ email@example.org,
                 make(7, refs=(1, 5)),
             ]
         }
-        viewset = CohortViewSet()
-
         # Without the realtime exemption, every behavioral cohort and its referrers are excluded.
-        self.assertEqual(viewset._find_behavioral_cohorts(cohorts), {1, 2, 3, 5, 6, 7})
+        self.assertEqual(find_behavioral_cohorts(cohorts), {1, 2, 3, 5, 6, 7})
         # With it, 5 is flag-compatible (not a seed) and 6 only referenced 5, so both stay.
         # 7 still reaches real seed 1, so it remains excluded.
-        self.assertEqual(viewset._find_behavioral_cohorts(cohorts, allow_realtime_backfilled=True), {1, 2, 3, 7})
+        self.assertEqual(find_behavioral_cohorts(cohorts, allow_realtime_backfilled=True), {1, 2, 3, 7})
 
     @patch("posthog.api.cohort.report_user_action")
     def test_basic_list_omits_heavy_fields(self, patch_capture):
@@ -2498,6 +2498,35 @@ email@example.org,
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 2, response)
+
+    def test_cohort_persons_paginate_newest_created_first(self):
+        # Members must paginate by created_at DESC (newest first), matching the legacy PersonQuery order.
+        # `created_at` order is deliberately decorrelated from insertion order (id) so that the
+        # ActorsQuery default (id ASC) produces a different first page than the required order —
+        # otherwise this regression is invisible (get_serialized_people re-sorts each page by
+        # created_at DESC, so a single page always *looks* correctly ordered).
+        created_at_by_label = {"a": "2021-01-02", "b": "2021-01-04", "c": "2021-01-01", "d": "2021-01-03"}
+        uuid_by_label = {}
+        for label in ["a", "b", "c", "d"]:  # insertion order → ascending id
+            with freeze_time(created_at_by_label[label]):
+                person = create_person(team=self.team, distinct_ids=[label], properties={"$os": "Chrome"})
+                uuid_by_label[label] = str(person.uuid)
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        paged_ids: list[str] = []
+        url: Optional[str] = f"/api/cohort/{cohort.pk}/persons?limit=2"
+        while url:
+            page = self.client.get(url).json()
+            paged_ids += [row["id"] for row in page["results"]]
+            url = page["next"]
+
+        expected = [uuid_by_label[label] for label in ["b", "d", "a", "c"]]  # created_at DESC
+        self.assertEqual(paged_ids, expected)
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -3300,6 +3329,305 @@ email@example.org,
                 "code": "behavioral_cohort_found",
                 "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
                 "attr": "filters",
+            }.items(),
+            response.json().items(),
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_cohort_used_in_flags_allows_static_snapshot_cohort_that_preserves_behavioral_filters(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        behavioral_filter = {
+            "event_type": "events",
+            "explicit_datetime": "-14d",
+            "key": "$pageview",
+            "value": "performed_event_first_time",
+            "type": "behavioral",
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort A",
+            filters=filters_for({"key": "$some_prop", "value": "something", "type": "person", "operator": "exact"}),
+        )
+        static_snapshot_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static snapshot cohort",
+            is_static=True,
+            filters=filters_for(behavioral_filter),
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(cohort.pk)]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={"name": "cohort A", "filters": filters_for(cohort_filter(static_snapshot_cohort.pk))},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_cohort_used_in_flags_allows_cohort_depending_on_static_snapshot_cohort(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        behavioral_filter = {
+            "event_type": "events",
+            "explicit_datetime": "-14d",
+            "key": "$pageview",
+            "value": "performed_event_first_time",
+            "type": "behavioral",
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort A",
+            filters=filters_for({"key": "$some_prop", "value": "something", "type": "person", "operator": "exact"}),
+        )
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team, name="behavioral cohort", filters=filters_for(behavioral_filter)
+        )
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            filters=filters_for(cohort_filter(behavioral_cohort.pk)),
+        )
+        nested_cohort = Cohort.objects.create(
+            team=self.team,
+            name="nested cohort",
+            filters=filters_for(cohort_filter(static_cohort.pk)),
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(cohort.pk)]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={"name": "cohort A", "filters": filters_for(cohort_filter(nested_cohort.pk))},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_cohort_behind_static_snapshot_used_in_flag_allows_behavioral_filters(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        source_cohort = Cohort.objects.create(
+            team=self.team,
+            name="source cohort",
+            filters=filters_for({"key": "$some_prop", "value": "something", "type": "person", "operator": "exact"}),
+        )
+        static_snapshot_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static snapshot cohort",
+            is_static=True,
+            filters=filters_for(cohort_filter(source_cohort.pk)),
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(static_snapshot_cohort.pk)]}]},
+            name="This is a static cohort-based flag",
+            key="static-cohort-flag",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{source_cohort.pk}",
+            data={
+                "name": "source cohort",
+                "filters": filters_for(
+                    {
+                        "event_type": "events",
+                        "explicit_datetime": "-14d",
+                        "key": "$pageview",
+                        "value": "performed_event_first_time",
+                        "type": "behavioral",
+                    }
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_static_cohort_used_in_flag_preserves_behavioral_filters(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        behavioral_filter = {
+            "event_type": "events",
+            "explicit_datetime": "-14d",
+            "key": "$pageview",
+            "value": "performed_event_first_time",
+            "type": "behavioral",
+        }
+        static_filters = CohortFilters.model_validate(
+            filters_for(behavioral_filter), context={"team": self.team}
+        ).model_dump(exclude_none=True)
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            filters=static_filters,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(static_cohort.pk)]}]},
+            name="This is a static cohort-based flag",
+            key="static-cohort-flag",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.pk}",
+            data={
+                "name": "renamed static cohort",
+                "filters": static_filters,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @parameterized.expand([("with_filters", True), ("without_filters", False)])
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_static_cohort_used_in_flag_rejects_static_to_dynamic_behavioral_filters(
+        self, _name: str, include_filters: bool, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        behavioral_filter = {
+            "event_type": "events",
+            "explicit_datetime": "-14d",
+            "key": "$pageview",
+            "value": "performed_event_first_time",
+            "type": "behavioral",
+        }
+        static_filters = CohortFilters.model_validate(
+            filters_for(behavioral_filter), context={"team": self.team}
+        ).model_dump(exclude_none=True)
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            filters=static_filters,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(static_cohort.pk)]}]},
+            name="This is a static cohort-based flag",
+            key="static-cohort-flag",
+            created_by=self.user,
+        )
+
+        data = {
+            "name": "static cohort",
+            "is_static": False,
+        }
+        if include_filters:
+            data["filters"] = static_filters
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.pk}",
+            data=data,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertLessEqual(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+                "attr": "filters" if include_filters else None,
+            }.items(),
+            response.json().items(),
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_static_cohort_used_in_flag_rejects_static_to_dynamic_behavioral_groups(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        behavioral_filter = {
+            "event_type": "events",
+            "explicit_datetime": "-14d",
+            "key": "$pageview",
+            "value": "performed_event_first_time",
+            "type": "behavioral",
+        }
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            groups=[{"properties": [behavioral_filter]}],
+        )
+        self.assertIsNone(static_cohort.filters)
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(static_cohort.pk)]}]},
+            name="This is a static cohort-based flag",
+            key="static-cohort-flag",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.pk}",
+            data={
+                "name": "static cohort",
+                "is_static": False,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertLessEqual(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+                "attr": None,
             }.items(),
             response.json().items(),
         )
@@ -5290,6 +5618,34 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         )
         return cohort_a_id, cohort_b_id
 
+    def _create_flag_referencing_cohort_through_static_snapshot(self) -> tuple[int, int]:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        source_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Source cohort",
+            filters=filters_for({"key": "$some_prop", "value": "something", "type": "person", "operator": "exact"}),
+        )
+        static_snapshot_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Static snapshot cohort",
+            is_static=True,
+            filters=filters_for(cohort_filter(source_cohort.pk)),
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(static_snapshot_cohort.pk)]}]},
+            name="Static snapshot flag",
+            key="static-snapshot-flag",
+            created_by=self.user,
+            active=True,
+        )
+        return source_cohort.pk, static_snapshot_cohort.pk
+
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_used_in_returns_feature_flags(self, patch_calculate_cohort, patch_capture):
@@ -5372,6 +5728,15 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         flags = response.json()["feature_flags"]["results"]
         self.assertEqual(len(flags), 1)
         self.assertEqual(flags[0]["key"], "transitive-flag")
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_used_in_excludes_flags_behind_static_snapshot(self, patch_calculate_cohort, patch_capture):
+        source_cohort_id, _ = self._create_flag_referencing_cohort_through_static_snapshot()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{source_cohort_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["feature_flags"], {"results": [], "total": 0, "has_more": False})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -5838,6 +6203,23 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(
             "This cohort is used in 1 active feature flag(s): Transitive Flag",
+            response.json()["detail"],
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_deletion_protection_ignores_flags_behind_static_snapshot(self, patch_calculate_cohort, patch_capture):
+        source_cohort_id, _ = self._create_flag_referencing_cohort_through_static_snapshot()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{source_cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotIn("active feature flag", response.json()["detail"])
+        self.assertIn(
+            "This cohort is used as criteria in 1 other cohort(s): Static snapshot cohort",
             response.json()["detail"],
         )
 

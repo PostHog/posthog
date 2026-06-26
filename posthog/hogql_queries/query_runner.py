@@ -44,6 +44,11 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
+    MCPToolDailyStatsQuery,
+    MCPToolDescriptionsQuery,
+    MCPToolFailuresQuery,
+    MCPToolStatsQuery,
+    MCPToolTopUsersQuery,
     NodeKind,
     PathsQuery,
     PropertyGroupFilter,
@@ -312,6 +317,11 @@ RunnableQueryNode = Union[
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
     MCPHarnessBreakdownQuery,
+    MCPToolTopUsersQuery,
+    MCPToolFailuresQuery,
+    MCPToolStatsQuery,
+    MCPToolDailyStatsQuery,
+    MCPToolDescriptionsQuery,
 ]
 
 
@@ -946,6 +956,61 @@ def get_query_runner(
 
         return MCPHarnessBreakdownQueryRunner(
             query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolTopUsersQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolTopUsersQueryRunner
+
+        return MCPToolTopUsersQueryRunner(
+            query=cast(MCPToolTopUsersQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolFailuresQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolFailuresQueryRunner
+
+        return MCPToolFailuresQueryRunner(
+            query=cast(MCPToolFailuresQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolStatsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolStatsQueryRunner
+
+        return MCPToolStatsQueryRunner(
+            query=cast(MCPToolStatsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolDailyStatsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolDailyStatsQueryRunner
+
+        return MCPToolDailyStatsQueryRunner(
+            query=cast(MCPToolDailyStatsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolDescriptionsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolDescriptionsQueryRunner
+
+        return MCPToolDescriptionsQueryRunner(
+            query=cast(MCPToolDescriptionsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

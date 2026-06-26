@@ -513,9 +513,18 @@ export interface ExperimentApiExposureConfigApi {
     properties: EventPropertyFilterApi[]
 }
 
+export type MultipleVariantHandlingApi = (typeof MultipleVariantHandlingApi)[keyof typeof MultipleVariantHandlingApi]
+
+export const MultipleVariantHandlingApi = {
+    Exclude: 'exclude',
+    FirstSeen: 'first_seen',
+} as const
+
 export interface ExperimentApiExposureCriteriaApi {
     exposure_config?: ExperimentApiExposureConfigApi | null
     filterTestAccounts?: boolean | null
+    /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
+    multiple_variant_handling?: MultipleVariantHandlingApi | null
 }
 
 export type KindApi = (typeof KindApi)[keyof typeof KindApi]

@@ -16,11 +16,16 @@ import {
 } from '../generated/api'
 import type { GitHubSourceApi, PullRequestListItemApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
+import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
 // Safety bound on the PR table (mirrors the endpoint's server-side limit). Surfaced
 // in copy when hit so a truncated list is never mistaken for the whole picture.
 export const PR_TABLE_LIMIT = 1000
+
+// The workflow-health endpoint returns the top workflows by run count (`workflow_health.py` `_LIMIT`).
+// When hit, the fleet header labels its totals as "top N" so they're never read as the whole fleet.
+export const WORKFLOW_HEALTH_LIMIT = 100
 
 // The endpoints are project-scoped; the generated client takes the id as a string.
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -666,6 +671,17 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
         }),
 
         selectors({
+            // Fleet verdict + rollups across every workflow row, for the all-workflows health strip.
+            fleetSummary: [
+                (s) => [s.workflowHealth],
+                (workflowHealth): FleetSummary => computeFleetSummary(workflowHealth),
+            ],
+            // The endpoint caps at the top workflows by run count; when hit, the header's totals cover only
+            // those, so it labels them as "top N" rather than fleet-wide.
+            fleetTruncated: [
+                (s) => [s.workflowHealth],
+                (workflowHealth): boolean => workflowHealth.length >= WORKFLOW_HEALTH_LIMIT,
+            ],
             filters: [
                 (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search, s.stuckOnly],
                 (stateFilter, author, repo, ciStatus, search, stuckOnly): PullRequestFilters => ({

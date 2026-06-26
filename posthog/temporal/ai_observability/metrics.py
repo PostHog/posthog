@@ -92,6 +92,18 @@ def increment_errors(error_type: str, *, provider: str | None = None) -> None:
     counter.add(1)
 
 
+def increment_user_errors(error_type: str, *, provider: str | None = None) -> None:
+    """Track terminal user-actionable eval errors separately from system failures."""
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    attrs: dict[str, str | int | float | bool] = {"error_type": error_type}
+    if provider is not None:
+        attrs["provider"] = provider
+    meter = get_metric_meter(attrs)
+    counter = meter.create_counter("llma_eval_user_errors", "Terminal user-actionable evaluation errors")
+    counter.add(1)
+
+
 def increment_eval_signal_outcome(outcome: str) -> None:
     """Track eval signal activity outcomes (skipped_config_disabled, skipped_org_not_approved, skipped_low_significance, emitted, summarization_failed)."""
     meter = get_metric_meter({"outcome": outcome})

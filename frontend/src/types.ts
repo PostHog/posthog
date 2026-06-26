@@ -5585,7 +5585,6 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
-    | 'desktop_recording'
     | 'early_access_feature'
     | 'element'
     | 'endpoint'
@@ -6834,7 +6833,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.ERROR_TRACKING
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
-    | ProductKey.LOGS,
+    | ProductKey.LOGS
+    | ProductKey.MCP_ANALYTICS,
     OnboardingProduct
 >
 

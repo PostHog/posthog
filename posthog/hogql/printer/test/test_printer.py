@@ -495,6 +495,11 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("1.0 % 2.66"), "modulo(1.0, 2.66)")
         self.assertEqual(self._expr("'string'"), "%(hogql_val_0)s")
 
+    def test_case_insensitive_function_name(self):
+        # rand is registered case-insensitively, so uppercase RAND() resolves to rand()
+        self.assertEqual(self._expr("rand()"), "rand()")
+        self.assertEqual(self._expr("RAND()"), "rand()")
+
     def test_arrays(self):
         self.assertEqual(self._expr("[]"), "[]")
         self.assertEqual(self._expr("[1,2]"), "[1, 2]")
@@ -638,7 +643,7 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk),
                 "hogql",
             ),
-            "properties.`$browser with a \\` tick`",
+            "properties.`$browser with a `` tick`",
         )
         self.assertEqual(
             self._expr(
@@ -646,7 +651,7 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk),
                 "hogql",
             ),
-            "properties.`$browser \\\\with a \\n\\` tick`",
+            "properties.`$browser \\\\with a \\n`` tick`",
         )
         # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
         self.assertEqual(

@@ -161,19 +161,31 @@ class JanitorUpstreamError(APIException):
         # still see the upstream payload.
         if isinstance(e.body, dict):
             msg = e.body.get("error") or e.body.get("detail") or e.body.get("message")
-            # Append structured upstream errors (custom-tool compile failures carry
-            # errors=[{kind, message, line}]) so the caller + concierge model see the
-            # concrete reason, not just the opaque `tool_compile_failed` code.
+            # Append structured upstream errors so the caller + concierge model
+            # see the concrete reason, not just the opaque code. Two shapes:
+            # custom-tool compile -> top-level errors=[{kind, message, line}];
+            # freeze/validate -> report.errors=[{code, message, pointer}] (e.g.
+            # invalid_model from the models gate).
             sub_errors = e.body.get("errors")
+            if not sub_errors:
+                report = e.body.get("report")
+                sub_errors = report.get("errors") if isinstance(report, dict) else None
             if isinstance(sub_errors, list) and sub_errors:
                 parts: list[str] = []
                 for er in sub_errors:
                     if not isinstance(er, dict) or not isinstance(er.get("message"), str):
                         continue
-                    kind = er.get("kind")
+                    kind = er.get("kind") or er.get("code")
                     line = er.get("line")
+                    pointer = er.get("pointer")
                     prefix = f"{kind}: " if isinstance(kind, str) else ""
-                    suffix = f" (line {line})" if isinstance(line, int) else ""
+                    suffix = (
+                        f" (line {line})"
+                        if isinstance(line, int)
+                        else f" [{pointer}]"
+                        if isinstance(pointer, str)
+                        else ""
+                    )
                     parts.append(f"{prefix}{er['message']}{suffix}")
                 if parts:
                     joined = "; ".join(parts)
@@ -577,6 +589,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object_read_actions = [
         "list",
         "retrieve",
+        "models",
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
@@ -961,6 +974,25 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(payload)
 
     @extend_schema(
+        operation_id="agent_applications_models",
+        description=(
+            "Served-model catalog — each model's id, provider, context window, and "
+            "USD-per-million-token pricing — plus the curated auto-level → model map. "
+            "Project-agnostic; sourced from the AI gateway catalog. Powers the config "
+            "UI model browser and the agent builder's model-choosing skill."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="models")
+    def models(self, request: Request, **kwargs) -> Response:
+        """The model catalog. Proxies the janitor, which owns the gateway-catalog
+        client and the level map (single source for runtime + UI + agents)."""
+        try:
+            payload = _janitor().get_models()
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
         operation_id="agent_applications_sessions_list",
         parameters=[
             OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
@@ -1016,11 +1048,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                     allow_null=True,
                                     required=False,
                                     help_text=(
-                                        "Trigger-specific metadata stamped at session creation. Shape varies "
-                                        "by trigger kind; cron firings carry "
-                                        "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                                        "Render this on session-detail so the operator can tell at a glance "
-                                        "that a session was fired by which cron / when."
+                                        "Trigger-specific metadata stamped at session creation. Discriminated on "
+                                        "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                                        "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates "
+                                        "and strips unknown keys at the persistence boundary, so consumers can "
+                                        "trust `kind` and per-kind fields. TODO: narrow this DictField to a "
+                                        "polymorphic serializer mirroring the union (needs `hogli build:openapi`)."
                                     ),
                                 ),
                                 "principal": _AGENT_SESSION_PRINCIPAL,
@@ -1222,11 +1255,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         allow_null=True,
                         required=False,
                         help_text=(
-                            "Trigger-specific metadata stamped at session creation. Shape varies "
-                            "by trigger kind; cron firings carry "
-                            "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                            "Render this on session-detail so the operator can tell at a glance "
-                            "that a session was fired by which cron / when."
+                            "Trigger-specific metadata stamped at session creation. Discriminated on "
+                            "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                            "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and "
+                            "strips unknown keys at the persistence boundary, so consumers can trust "
+                            "`kind` and per-kind fields. TODO: narrow this DictField to a polymorphic "
+                            "serializer mirroring the union (needs `hogli build:openapi`)."
                         ),
                     ),
                     "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
@@ -2142,7 +2176,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="validate")
     def validate(self, request: Request, **kwargs) -> Response:
-        """Pre-flight checks before freeze + promote: entrypoint file exists,
+        """Pre-flight checks before freeze + promote: agent.md exists,
         every native tool id is registered, every custom tool has its
         compiled.js + schema.json, every skill path exists, every declared
         secret has a value set in this revision's env block. Returns
@@ -2264,7 +2298,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                             "Fully-assembled system prompt the runner would pass "
                             "to pi-ai for a session against this revision. "
                             "Concatenates the platform framework preamble, the "
-                            "bundle's `agent.md` (or `spec.entrypoint`), and the "
+                            "bundle's `agent.md`, and the "
                             "skills index. Inspect before promotion to confirm "
                             "the model will see what you expect."
                         ),
@@ -3091,11 +3125,12 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                     allow_null=True,
                                     required=False,
                                     help_text=(
-                                        "Trigger-specific metadata stamped at session creation. Shape varies "
-                                        "by trigger kind; cron firings carry "
-                                        "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                                        "Render this on session-detail so the operator can tell at a glance "
-                                        "that a session was fired by which cron / when."
+                                        "Trigger-specific metadata stamped at session creation. Discriminated on "
+                                        "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                                        "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates "
+                                        "and strips unknown keys at the persistence boundary, so consumers can "
+                                        "trust `kind` and per-kind fields. TODO: narrow this DictField to a "
+                                        "polymorphic serializer mirroring the union (needs `hogli build:openapi`)."
                                     ),
                                 ),
                                 "principal": _AGENT_SESSION_PRINCIPAL,
