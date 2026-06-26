@@ -4404,8 +4404,8 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@posthog/mcp-analytics':
-        specifier: npm:@posthog/mcp@0.4.4
-        version: '@posthog/mcp@0.4.4(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.25.0)'
+        specifier: npm:@posthog/mcp@0.5.0
+        version: '@posthog/mcp@0.5.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.25.0)'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -9929,8 +9929,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/mcp@0.4.4':
-    resolution: {integrity: sha512-wN+5K2fnP0z6dNAi02fWYU39GrQpcPcSGtom+WttM8Yl9hLenrJ+XDu2fNt9xUAtKHquKNpZAv+rSUy/p7Ef9Q==}
+  '@posthog/mcp@0.5.0':
+    resolution: {integrity: sha512-0XtnLb860ktC7/U5bw97WHhLbUhWbyw+8kXYDp4zIi9YrbLJQvjiuLz8FGOvJcgyO6s5bNUts5rgMoSlDMhCcQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -30383,7 +30383,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.4.4(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.25.0)':
+  '@posthog/mcp@0.5.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.25.0)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@posthog/core': 1.38.0
