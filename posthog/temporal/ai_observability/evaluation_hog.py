@@ -26,8 +26,8 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
     Used by both the Temporal activity and the test endpoint.
     Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
     When allows_na=True, a `return null` is treated as N/A (not an error).
-    Sets "unexpected": True only when the bytecode raised something other than a
-    HogVM error — i.e. a bug in our code rather than in the user's Hog source.
+    Raw Python exceptions raised from the VM are logged and returned as generic
+    runtime errors here so the caller can record user-actionable Hog failures.
     """
     properties = event_data["properties"]
     if isinstance(properties, str):
@@ -63,13 +63,15 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
         return {"verdict": None, "reasoning": "", "error": "Memory limit exceeded"}
     except HogVMException as e:
         return {"verdict": None, "reasoning": "", "error": f"Runtime error: {e}"}
-    except Exception as e:
-        logger.exception("Unexpected error executing Hog eval bytecode")
+    except Exception:
+        logger.exception("Hog eval bytecode raised non-HogVM exception")
         return {
             "verdict": None,
             "reasoning": "",
-            "error": f"Unexpected error during evaluation: {type(e).__name__}: {e}",
-            "unexpected": True,
+            "error": (
+                "Runtime error: Hog evaluation failed while running. "
+                "Check for null values, invalid function inputs, or unsupported operations."
+            ),
         }
 
     reasoning = "\n".join(response.stdout) if response.stdout else ""
