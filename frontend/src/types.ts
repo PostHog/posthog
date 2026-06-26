@@ -5373,6 +5373,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
     CHANNELS_MANAGE = 'channels:manage',
+    FILES_WRITE = 'files:write',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
