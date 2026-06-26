@@ -44,7 +44,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         assert dict(results)["g00"] == "LATEST"
         # the two-phase is actually applied: keys are picked via an IN-subquery limited to N+1 (results alone can't
         # prove the heavy argMax was limited rather than run over every group)
-        assert "in(tuple(" in sql
+        assert "globalIn(tuple(" in sql
         assert "LIMIT 11" in sql
 
     def test_aggregate_without_group_by_counts_all_groups(self):
@@ -58,7 +58,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         sql, results = self._run(team, "SELECT count() FROM groups LIMIT 5")
 
         assert results[0][0] == 12
-        assert "in(tuple(" not in sql
+        assert "globalIn(tuple(" not in sql
 
     def test_null_limit_does_not_crash_the_compiler(self):
         team = self._team()

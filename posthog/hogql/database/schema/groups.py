@@ -17,7 +17,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 
 GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "index": IntegerDatabaseField(
@@ -67,7 +67,16 @@ def select_from_groups_table(requested_fields: dict[str, list[str | int]], key_l
         # properties), then argMax the heavy properties for only those keys.
         keys = parse_select("SELECT index, key FROM raw_groups GROUP BY index, key")
         keys.limit = ast.Constant(value=key_limit)
-        select.where = parse_expr("(index, key) IN {keys}", placeholders={"keys": keys})
+        # GLOBAL IN, not IN: `groups` is Distributed, so a plain IN subquery is evaluated per-shard against only that
+        # shard's local rows -- each shard could pick a different key set and dedup a group over a subset of its
+        # versions. GLOBAL IN computes the key set once on the initiator and broadcasts it, so every shard dedups the
+        # same keys over all their versions. The set is small (bounded by the limit), so the broadcast is cheap.
+        # (Built directly: the HogQL parser has no GLOBAL IN syntax; the op is only ever set on the AST.)
+        select.where = ast.CompareOperation(
+            op=ast.CompareOperationOp.GlobalIn,
+            left=ast.Tuple(exprs=[ast.Field(chain=["index"]), ast.Field(chain=["key"])]),
+            right=keys,
+        )
     return select
 
 
