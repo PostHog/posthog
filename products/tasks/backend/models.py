@@ -155,6 +155,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
             models.Index(fields=["archived"], name="posthog_task_archived_idx"),
+            models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
+            models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
         ]
 
     def __str__(self):
@@ -252,11 +254,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
     @property
     def latest_run(self) -> Optional["TaskRun"]:
-        # Use .all() which respects prefetch_related cache, then sort in Python
-        # This avoids N+1 queries when tasks are loaded with prefetch_related("runs")
-        runs = list(self.runs.all())
+        runs = [run for run in self.runs.all() if run.team_id == self.team_id]
         if runs:
-            return max(runs, key=lambda r: r.created_at)
+            return max(runs, key=lambda r: (r.created_at, r.id))
         return None
 
     def _assign_task_number(self) -> None:
@@ -495,7 +495,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         """Create the Task row without an initial run or workflow.
 
         For callers that own run creation themselves — e.g. the sandbox warm path
-        (`products/tasks/backend/services/warm.py`), which creates the first run with its
+        (`products/tasks/backend/logic/services/warm.py`), which creates the first run with its
         own state. The run `extra_state` assembled by `_build_task` is discarded here.
         """
         task, _ = Task._build_task(
@@ -574,14 +574,24 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
         if start_workflow:
-            execute_task_processing_workflow(
-                task_id=str(task.id),
-                run_id=str(task_run.id),
-                team_id=task.team.id,
-                user_id=user_id,
-                create_pr=create_pr,
-                slack_thread_context=slack_thread_context,
-                posthog_mcp_scopes=posthog_mcp_scopes,
+            # Defer the fire-and-forget workflow start until the creating transaction commits.
+            # Otherwise, when create_and_run runs inside a transaction.atomic() block, the
+            # workflow's first activity can read the TaskRun before its row is visible and fail.
+            # on_commit runs the callback immediately in autocommit mode, so non-atomic callers
+            # are unaffected.
+            run_id = str(task_run.id)
+            team_id = task.team.id
+            task_id = str(task.id)
+            transaction.on_commit(
+                lambda: execute_task_processing_workflow(
+                    task_id=task_id,
+                    run_id=run_id,
+                    team_id=team_id,
+                    user_id=user_id,
+                    create_pr=create_pr,
+                    slack_thread_context=slack_thread_context,
+                    posthog_mcp_scopes=posthog_mcp_scopes,
+                )
             )
 
         return task
@@ -776,6 +786,15 @@ class TaskRun(models.Model):
                 KeyTransform("pr_url", "output"),
                 name="task_run_output_pr_url_idx",
                 condition=models.Q(output__pr_url__isnull=False),
+            ),
+            # Time-range scans over runs (default ordering, recent-runs lookups, and the
+            # signals outcome-billing query that buckets PR runs into a period).
+            models.Index(fields=["created_at"], name="task_run_created_at_idx"),
+            models.Index(fields=["task", "-created_at", "-id"], name="task_run_task_created_idx"),
+            models.Index(
+                fields=["team", "stage", "task"],
+                name="task_run_team_stage_task_idx",
+                condition=models.Q(stage__isnull=False),
             ),
         ]
 

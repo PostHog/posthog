@@ -36,10 +36,10 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -627,6 +627,24 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPHarnessBreakdownQuery]: {
+        name: 'MCP harness breakdown',
+        description: 'MCP tool-call activity grouped by client harness.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolTopUsersQuery]: {
+        name: 'MCP tool top users',
+        description: 'Top users of a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolFailuresQuery]: {
+        name: 'MCP tool failures',
+        description: 'Recurring exception messages for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
@@ -745,7 +763,7 @@ export function NewInsightButton(): JSX.Element {
             resourceType={AccessControlResourceType.Insight}
             minAccessLevel={AccessControlLevel.Editor}
         >
-            <AppShortcut
+            <Shortcut
                 name="NewInsight"
                 keybind={[keyBinds.new]}
                 intent="New insight"
@@ -764,7 +782,7 @@ export function NewInsightButton(): JSX.Element {
                         New
                     </LemonButton>
                 </LemonMenu>
-            </AppShortcut>
+            </Shortcut>
         </AccessControlAction>
     )
 }

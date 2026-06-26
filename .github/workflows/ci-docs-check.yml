@@ -7,6 +7,11 @@ on:
                 description: 'File that triggers doc regeneration when changed'
                 required: true
                 type: string
+            additional_source_files:
+                description: 'Extra files (newline-separated) that also trigger regeneration, e.g. the generator script'
+                required: false
+                type: string
+                default: ''
             build_command:
                 description: 'Command to regenerate the docs'
                 required: true
@@ -38,9 +43,15 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   SOURCE_FILE: ${{ inputs.source_file }}
+                  ADDITIONAL_SOURCE_FILES: ${{ inputs.additional_source_files }}
               run: |
-                  if gh pr diff "$PR_NUMBER" --name-only \
-                      | grep -q "$SOURCE_FILE"; then
+                  # Regenerate when the data file OR any additional source (e.g. the generator) changes,
+                  # so a generator-only edit can't pass without validating the committed output.
+                  # --repo is required because this step runs before checkout, so gh has no
+                  # local git remote to infer the repo from (otherwise: "not a git repository").
+                  changed_files=$(gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only)
+                  if printf '%s\n' "$changed_files" \
+                      | grep -qFf <(printf '%s\n' "$SOURCE_FILE" "$ADDITIONAL_SOURCE_FILES" | grep -v '^$'); then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   fi
 

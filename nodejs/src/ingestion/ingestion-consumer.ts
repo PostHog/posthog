@@ -6,6 +6,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -14,15 +15,30 @@ import {
     OverflowOutput,
     TophogOutput,
 } from '~/common/outputs'
-import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from '~/common/outputs'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+} from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '~/common/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { logger } from '~/common/utils/logger'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
-import { parseSplitAiEventsConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import {
@@ -32,21 +48,15 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from '~/ingestion/pipelines/analytics'
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
-import { PostgresRouter } from '~/utils/db/postgres'
-import {
-    EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerComponent,
-} from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
-import { logger } from '~/utils/logger'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
 
 import { AiEventSubpipelineFactory } from './common/ai-subpipeline.contract'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import { IngestionConsumerConfig } from './config'
+import {
+    FeatureFlagCalledDedupService,
+    createFeatureFlagCalledDedupService,
+} from './utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
@@ -58,6 +68,8 @@ export type IngestionConsumerFullConfig = IngestionConsumerConfig &
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
     redisPool: RedisPool
+    /** Dedicated pool for $feature_flag_called dedup claims; reuses redisPool when unset */
+    featureFlagCalledDedupRedisPool?: RedisPool
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
@@ -68,6 +80,7 @@ export interface IngestionConsumerDeps {
         | GroupsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
         | AppMetricsOutput
         | TophogOutput
     >
@@ -111,6 +124,7 @@ export class IngestionConsumer {
     public hogTransformer: HogTransformer
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
+    private featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -188,6 +202,11 @@ export class IngestionConsumer {
             })
         }
 
+        this.featureFlagCalledDedupService = createFeatureFlagCalledDedupService(
+            this.deps.featureFlagCalledDedupRedisPool ?? this.deps.redisPool,
+            this.config
+        )
+
         this.hogTransformer = deps.hogTransformer
 
         this.personsStore = new BatchWritingPersonsStore(this.deps.personRepository, this.deps.outputs, {
@@ -258,17 +277,13 @@ export class IngestionConsumer {
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             outputs,
-            splitAiEventsConfig: parseSplitAiEventsConfig(
-                this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
-                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_PERCENTAGE
-            ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
+                PERSON_MERGE_EVENTS_ENABLED: this.config.PERSON_MERGE_EVENTS_ENABLED,
+                PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
@@ -286,6 +301,7 @@ export class IngestionConsumer {
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
+            featureFlagCalledDedupService: this.featureFlagCalledDedupService,
             teamManager: this.deps.teamManager,
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,

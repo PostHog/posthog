@@ -346,6 +346,13 @@ def configure_connection(
         conn.execute("INSTALL delta")
 
     conn.execute("LOAD ducklake")
+    # Default inlining off. DuckLake's per-catalog `data_inlining_row_limit`
+    # is cached in-memory at ATTACH time and never refreshed, so a SET on
+    # `ducklake_metadata` doesn't reach long-lived workers. Setting the
+    # session-level fallback here lets every connection default to no
+    # inlining regardless of when the underlying worker first ATTACHed the
+    # catalog (see ducklake_catalog.cpp DataInliningRowLimit lookup order).
+    conn.execute("SET ducklake_default_data_inlining_row_limit = 0")
     conn.execute("LOAD httpfs")
     conn.execute("LOAD delta")
     conn.execute(storage_config.to_duckdb_secret_sql())
@@ -401,6 +408,8 @@ def configure_cross_account_connection(
         conn.execute("INSTALL delta")
 
     conn.execute("LOAD ducklake")
+    # See configure_connection for why this session-level fallback is set.
+    conn.execute("SET ducklake_default_data_inlining_row_limit = 0")
     conn.execute("LOAD httpfs")
     conn.execute("LOAD delta")
 
@@ -461,7 +470,7 @@ def ensure_ducklake_bucket_exists(
         else:
             config = get_config()
 
-    from products.data_warehouse.backend.s3 import ensure_bucket_exists
+    from products.data_warehouse.backend.facade.api import ensure_bucket_exists
 
     settings = _get_django_settings()
     raw_endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") if settings else ""

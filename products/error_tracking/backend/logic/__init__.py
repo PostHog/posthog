@@ -114,6 +114,18 @@ def issue_exists(team_id: int) -> bool:
     return ErrorTrackingIssue.objects.filter(team_id=team_id).exists()
 
 
+def issue_exists_by_id(team_id: int, issue_id: UUID | str) -> bool:
+    return ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id).exists()
+
+
+def get_issue_basics(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue | None:
+    return (
+        ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id)
+        .only("id", "name", "description", "status")
+        .first()
+    )
+
+
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return (
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint)
@@ -503,13 +515,13 @@ def get_assignment_rule(team_id: int, rule_id: str) -> ErrorTrackingAssignmentRu
 
 
 def create_assignment_rule(
-    team_id: int, *, filters: dict, assignee_type: str, assignee_id: int | UUID
+    team_id: int, *, filters: dict, assignee_type: str, assignee_id: int | UUID, order_key: int = 0
 ) -> ErrorTrackingAssignmentRule:
     return ErrorTrackingAssignmentRule.objects.create(
         team_id=team_id,
         filters=filters,
         bytecode=_rule_bytecode(team_id, filters),
-        order_key=0,
+        order_key=order_key,
         user_id=cast(int, assignee_id) if assignee_type == "user" else None,
         role_id=cast(UUID, assignee_id) if assignee_type == "role" else None,
     )

@@ -48,6 +48,9 @@ const errorTrackingAssignmentRulesCreate = (): ToolBase<
         if (params.assignee !== undefined) {
             body['assignee'] = params.assignee
         }
+        if (params.order_key !== undefined) {
+            body['order_key'] = params.order_key
+        }
         const result = await context.api.request<Schemas.ErrorTrackingAssignmentRule>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/assignment_rules/`,
@@ -180,7 +183,7 @@ const ErrorTrackingIssuesPartialUpdateSchema = ErrorTrackingIssuesPartialUpdateP
 
 const errorTrackingIssuesPartialUpdate = (): ToolBase<
     typeof ErrorTrackingIssuesPartialUpdateSchema,
-    WithPostHogUrl<Schemas.ErrorTrackingIssueFull>
+    WithPostHogUrl<Schemas.ErrorTrackingIssueRead>
 > =>
     withUiApp('error-issue', {
         name: 'error-tracking-issues-partial-update',
@@ -197,7 +200,7 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
             if (params.description !== undefined) {
                 body['description'] = params.description
             }
-            const result = await context.api.request<Schemas.ErrorTrackingIssueFull>({
+            const result = await context.api.request<Schemas.ErrorTrackingIssueRead>({
                 method: 'PATCH',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,
                 body,

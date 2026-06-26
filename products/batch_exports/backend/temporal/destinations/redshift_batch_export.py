@@ -1013,6 +1013,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                     consumer=consumer,
                     producer_task=producer_task,
                     transformer=transformer,
+                    records_total=inputs.batch_export.records_total,
                 )
 
                 if merge_settings.requires_merge is True:
@@ -1379,6 +1380,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             producer_task=producer_task,
             transformer=transformer,
             json_columns=table_schemas.super_columns,
+            records_total=inputs.batch_export.records_total,
         )
 
         if result.error is not None:
