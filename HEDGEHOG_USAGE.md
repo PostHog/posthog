@@ -4,7 +4,7 @@ An inventory of every image in [`frontend/public/hedgehog/`](frontend/public/hed
 
 Most hogs are exposed as named React components from [`frontend/src/lib/components/hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) (the central registry).
 A few are imported directly by a single component. Nothing references hogs by `/static/hedgehog/<name>.png` string path any more.
-The Hogfetti confetti animation ([`Hogfetti/hogs/`](frontend/src/lib/components/Hogfetti/hogs/)) and the Flappy Hog game ([`shared/flappy-hog/`](frontend/src/scenes/onboarding/shared/flappy-hog/)) bundle their own hog copies locally rather than referencing the registry — those self-contained copies are tracked in the [Hogfetti pool](#hogfetti-pool-15) and [Flappy Hog assets](#flappy-hog-assets-2) sections below, not in the table, since they no longer consume `public/hedgehog/` and sit outside this replacement effort.
+The Hogfetti confetti animation ([`Hogfetti/hogs/`](frontend/src/lib/components/Hogfetti/hogs/)) bundles its own hog copies locally rather than referencing the registry — those self-contained copies are tracked in the [Hogfetti pool](#hogfetti-pool-15) section below, not in the table, since they no longer consume `public/hedgehog/` and sit outside this replacement effort.
 
 We want to retire these hedgehogs and replace them with illustrations from [`@posthog/brand`](https://brand.posthog.com/hoggies) (import via `@posthog/brand/hoggies`). The **Replacement** column holds the brand hoggie slug to swap in; it's per usage site, since different surfaces may want different art. A blank cell means the brand library has no suitable equivalent yet — those gaps are enumerated, with briefs for the design team, under [Missing from the brand library](#missing-from-the-brand-library) at the bottom.
 
@@ -190,15 +190,6 @@ They're listed here rather than in the Used table because they no longer consume
 | `experiments-hog.png`       | Still used elsewhere                                                     |
 | `waving-hog.png`            | Still used elsewhere                                                     |
 | `microphone-hog.png`        | Still used elsewhere                                                     |
-
-## Flappy Hog assets (2)
-
-The Flappy Hog game ([`FlappyHog.tsx`](frontend/src/scenes/onboarding/shared/FlappyHog.tsx)) bundles its art locally under [`shared/flappy-hog/`](frontend/src/scenes/onboarding/shared/flappy-hog/) instead of `public/hedgehog/`, so it's tracked here rather than in the Used table. These are bespoke game assets with no brand-library equivalent — keep them as-is.
-
-| Asset (in `shared/flappy-hog/`) | Role               | `public/hedgehog/` original                                                            |
-| ------------------------------- | ------------------ | -------------------------------------------------------------------------------------- |
-| `flappy-hog-splash.png`         | Game splash screen | Moved out of `public/hedgehog/` (was Flappy-only) — original deleted                   |
-| `robot-hog.png`                 | Playable character | Local copy; original stays in `public/hedgehog/` for the `RobotHog` registry component |
 
 ## Cleanup notes
 
