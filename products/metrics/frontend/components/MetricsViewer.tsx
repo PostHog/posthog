@@ -1,19 +1,37 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
-import { LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { MetricCard, useChartTheme } from '@posthog/quill-charts'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import {
+    computeMetricSummary,
+    computeMetricSummaryChange,
+    getMetricChangeTooltip,
+    type MetricSummary,
+    METRIC_SUMMARY_LABELS,
+} from 'lib/components/Metric/metricSummary'
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { DateMappingOption } from '~/types'
 
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { MetricAggregation, metricsViewerLogic } from './metricsViewerLogic'
+import { MetricAggregation, metricsViewerLogic, MetricsViewMode } from './metricsViewerLogic'
+
+const VIEW_MODE_OPTIONS: { value: MetricsViewMode; label: string }[] = [
+    { value: 'chart', label: 'Chart' },
+    { value: 'stat', label: 'Stat' },
+]
+
+// The stat card shows a single headline value. 'latest' (the most recent bucket) is the natural
+// default for a live metric; the user can switch total/average/latest in a later PR.
+const STAT_SUMMARY: MetricSummary = 'latest'
 
 const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'sum', label: 'Sum' },
@@ -78,13 +96,16 @@ export const MetricsViewer = (): JSX.Element => {
         aggregation,
         dateFrom,
         dateTo,
+        viewMode,
         sparklineValues,
         sparklineLabels,
+        statTotal,
         queryResultsLoading,
         hasMetricName,
     } = useValues(logic)
-    const { setMetricName, setAggregation, setDateFrom, setDateTo, fetchQueryResults } = useActions(logic)
+    const { setMetricName, setAggregation, setDateFrom, setDateTo, setViewMode, fetchQueryResults } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
+    const chartTheme = useChartTheme()
 
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
     useEffect(() => {
@@ -172,12 +193,41 @@ export const MetricsViewer = (): JSX.Element => {
                     allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
                     use24HourFormat
                 />
+                <LemonSegmentedButton
+                    size="small"
+                    value={viewMode}
+                    options={VIEW_MODE_OPTIONS}
+                    onChange={(value) => setViewMode(value)}
+                />
             </div>
             <div className="relative h-[360px] border rounded p-3">
                 {!hasMetricName ? (
                     <div className="h-full flex items-center justify-center text-secondary text-sm">
                         Pick a metric to see its time series.
                     </div>
+                ) : hasResults && viewMode === 'stat' ? (
+                    <MetricCard
+                        className="h-full"
+                        title={metricName}
+                        restingSubtitle={`${METRIC_SUMMARY_LABELS[STAT_SUMMARY]} · ${aggregation}`}
+                        value={computeMetricSummary(STAT_SUMMARY, statTotal, sparklineValues)}
+                        change={computeMetricSummaryChange(
+                            STAT_SUMMARY,
+                            { total: statTotal, data: sparklineValues },
+                            undefined
+                        )}
+                        changeTooltip={getMetricChangeTooltip(STAT_SUMMARY, false, null)}
+                        changeSize="md"
+                        changeInline
+                        hoverChangeFromPreviousPoint
+                        data={sparklineValues}
+                        labels={sparklineLabels.map(renderLabel)}
+                        theme={chartTheme}
+                        sparklineFill
+                        sparklineHeight={140}
+                        formatValue={(value) => humanFriendlyNumber(value)}
+                        dataAttr="metrics-stat-value"
+                    />
                 ) : hasResults ? (
                     <Sparkline
                         type="line"

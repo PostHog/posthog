@@ -12,6 +12,9 @@ import type { metricsViewerLogicType } from './metricsViewerLogicType'
 
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95'
 
+// `chart` shows the time series; `stat` shows a single headline value + change pill (a Grafana "stat" panel).
+export type MetricsViewMode = 'chart' | 'stat'
+
 export type MetricsViewerSeries = _MetricSeriesApi
 
 const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
@@ -36,6 +39,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
         setDateFrom: (dateFrom: string | null) => ({ dateFrom }),
         setDateTo: (dateTo: string | null) => ({ dateTo }),
+        setViewMode: (viewMode: MetricsViewMode) => ({ viewMode }),
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -49,6 +53,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         ],
         dateFrom: [DEFAULT_DATE_FROM as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
         dateTo: [null as string | null, { setDateTo: (_, { dateTo }) => dateTo }],
+        viewMode: ['chart' as MetricsViewMode, { setViewMode: (_, { viewMode }) => viewMode }],
         queryAbortController: [
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
@@ -102,7 +107,18 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         hasMetricName: [(s) => [s.metricName], (metricName) => metricName.trim().length > 0],
         // The viewer renders the first series only for now; group-by lands
         // multi-series rendering in a later PR.
-        sparklineValues: [(s) => [s.queryResults], (results) => (results[0]?.points ?? []).map((p) => p.value)],
-        sparklineLabels: [(s) => [s.queryResults], (results) => (results[0]?.points ?? []).map((p) => p.time)],
+        // Metrics has no compare/previous-series concept, so "current" is simply the first series.
+        currentSeries: [(s) => [s.queryResults], (results): MetricsViewerSeries | undefined => results[0]],
+        sparklineValues: [
+            (s) => [s.currentSeries],
+            (series: MetricsViewerSeries | undefined) => (series?.points ?? []).map((p) => p.value),
+        ],
+        sparklineLabels: [
+            (s) => [s.currentSeries],
+            (series: MetricsViewerSeries | undefined) => (series?.points ?? []).map((p) => p.time),
+        ],
+        // The stat card summarizes the per-bucket `sparklineValues` into one headline value;
+        // `statTotal` is the grand total across buckets (the basis for the 'total' summary).
+        statTotal: [(s) => [s.sparklineValues], (values: number[]) => values.reduce((sum, v) => sum + v, 0)],
     }),
 ])
