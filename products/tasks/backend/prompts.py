@@ -3,9 +3,10 @@ PostHog's setup wizard has already run in this repository and integrated PostHog
 contains its uncommitted changes (modified source files, an updated package manifest, installed
 dependencies, a `posthog-setup-report.md` summary, and possibly a `.posthog-events.json` plan).
 
-The wizard's full console output is saved to `.posthog-wizard-output.log`. Read it whenever you need
-to understand what the wizard actually did — which files it touched, any warnings it printed, or why
-something in the working tree looks the way it does. It is a local reference only, like the report.
+The wizard's full console output is saved to `/tmp/wizard-cloud-run/wizard-output.log` (outside the
+repository, so it can never be committed). Read it whenever you need to understand what the wizard
+actually did — which files it touched, any warnings it printed, or why something in the working tree
+looks the way it does.
 
 Your job is NOT to integrate PostHog or write any product/instrumentation code. Do not add, remove,
 edit, or "improve" the PostHog setup the wizard produced, and do not create new PostHog events,
@@ -17,9 +18,8 @@ dashboards, or insights. Your only responsibilities:
 2. Commit the wizard's changes to a new branch called `posthog-wizard/instrumentation` with a clear
    commit message. You should look at past commits to understand what's the convention for commit
    messages in this repository. It should resemble the concept of "Instrument repository with PostHog"
-   - Do NOT commit `posthog-setup-report.md`, `.posthog-events.json`, or `.posthog-wizard-output.log` —
-     they are a local reference only. Make sure none of them are staged or appear in the commit (leave
-     them untracked, or exclude them).
+   - Do NOT commit `posthog-setup-report.md` or `.posthog-events.json` — they are a local reference
+     only. Make sure neither is staged or appears in the commit (leave them untracked, or exclude them).
 3. Open a pull request. Write the PR description FROM the contents of `posthog-setup-report.md`:
    - Summarize what the wizard changed (files, SDK, configuration).
    - List EVERY PostHog insight and dashboard the wizard created, with their names and links from

@@ -29,9 +29,11 @@ WIZARD_TIMEOUT_EXIT_CODE = 124
 # only aborts the exec if `timeout` itself wedges.
 _SANDBOX_EXEC_TIMEOUT_SECONDS = WIZARD_RUN_TIMEOUT_SECONDS + 120
 
-# The wizard's console output is written here in the repo so the downstream agent can read what the
-# wizard did (and why it failed). Local reference only — the agent prompt instructs not to commit it.
-WIZARD_OUTPUT_FILENAME = ".posthog-wizard-output.log"
+# The wizard's console output is written OUTSIDE the cloned repo working tree so it can never be
+# committed to the user's PR by mistake. The downstream agent reads it from this fixed path to
+# understand what the wizard did (and why it failed).
+WIZARD_OUTPUT_DIR = "/tmp/wizard-cloud-run"
+WIZARD_OUTPUT_LOG_PATH = f"{WIZARD_OUTPUT_DIR}/wizard-output.log"
 
 
 @dataclass
@@ -100,9 +102,11 @@ def run_wizard(input: RunWizardInput) -> None:
 
         result = sandbox.execute(command, timeout_seconds=_SANDBOX_EXEC_TIMEOUT_SECONDS)
 
-        # Persist the wizard's output in the repo so the agent can consult what happened. Written
-        # before the exit-code check so a failed run still leaves a record on disk for post-mortems.
-        sandbox.write_file(f"{repo_path}/{WIZARD_OUTPUT_FILENAME}", _format_wizard_output(result).encode("utf-8"))
+        # Persist the wizard's output outside the repo tree so the agent can consult what happened
+        # without any chance of committing it. Written before the exit-code check so a failed run
+        # still leaves a record on disk for post-mortems.
+        sandbox.execute(f"mkdir -p {shlex.quote(WIZARD_OUTPUT_DIR)}")
+        sandbox.write_file(WIZARD_OUTPUT_LOG_PATH, _format_wizard_output(result).encode("utf-8"))
 
         if result.stdout:
             emit_agent_log(ctx.run_id, "debug", result.stdout)
