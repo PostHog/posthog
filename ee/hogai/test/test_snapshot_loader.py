@@ -45,23 +45,33 @@ from ee.hogai.eval.schema import (
 
 
 class TestSnapshotLoader(BaseTest):
+    # Team ids this class loads snapshots for. Keep in sync with the ids passed to _extras() (asserted there).
+    LOADED_TEAM_IDS = (9990, 99990)
+
+    def _clear_loaded_group_type_mappings(self):
+        # _load_group_type_mappings commits GTM rows through the off-ORM persons connection (outside the
+        # test transaction), so they don't roll back. Clear them scoped to this class's teams — in setUp
+        # to recover from a prior run that left rows, and in tearDown so they can't bleed into later tests
+        # sharing the persons DB.
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+            cursor.execute("DELETE FROM posthog_grouptypemapping WHERE team_id = ANY(%s)", [list(self.LOADED_TEAM_IDS)])
+
     def setUp(self):
         super().setUp()
+        self._clear_loaded_group_type_mappings()
         TEAM_TAXONOMY_QUERY_DATA_SOURCE.clear()
         EVENT_TAXONOMY_QUERY_DATA_SOURCE.clear()
         ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE.clear()
-        # _load_group_type_mappings writes through the off-ORM persons connection, which commits
-        # outside the test transaction; clear rows leaked from prior tests so counts stay deterministic.
-        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
-            cursor.execute("DELETE FROM posthog_grouptypemapping")
 
     def tearDown(self):
+        self._clear_loaded_group_type_mappings()
         TEAM_TAXONOMY_QUERY_DATA_SOURCE.clear()
         EVENT_TAXONOMY_QUERY_DATA_SOURCE.clear()
         ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE.clear()
         super().tearDown()
 
     def _extras(self, team_id: int) -> dict[str, Any]:
+        assert team_id in self.LOADED_TEAM_IDS, "Add new test team ids to LOADED_TEAM_IDS so cleanup stays scoped"
         return {
             "aws_endpoint_url": "http://localhost:9000",
             "aws_bucket_name": "evals",
