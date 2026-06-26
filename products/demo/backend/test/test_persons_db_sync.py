@@ -6,6 +6,8 @@ from django.conf import settings
 
 import psycopg
 
+from posthog.persons_db import persons_db_connection
+
 from products.demo.backend.matrix.persons_db_sync import (
     _insert_groups,
     _insert_person_distinct_ids,
@@ -15,7 +17,6 @@ from products.demo.backend.matrix.persons_db_sync import (
     delete_group_type_mappings,
     get_group_type_mapping_count,
 )
-from posthog.persons_db import persons_db_connection
 
 SYNC_TEST_TEAM_ID = 2_000_000_010
 SYNC_TEST_PROJECT_ID = 2_000_000_010
