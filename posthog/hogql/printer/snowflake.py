@@ -4,6 +4,7 @@ from typing import ClassVar
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
+from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_snowflake_identifier
 from posthog.hogql.printer.postgres import PostgresPrinter
@@ -12,6 +13,7 @@ from posthog.hogql.printer.snowflake_functions import (
     SNOWFLAKE_FUNCTION_RENAMES_LOWER,
     SNOWFLAKE_PASSTHROUGH_FUNCTIONS,
 )
+from posthog.hogql.printer.types import JoinExprResponse
 
 # Date parts accepted by dateDiff, inlined as a literal into DATEDIFF (allowlisted
 # to keep the inlined value injection-safe).
@@ -92,6 +94,50 @@ class SnowflakePrinter(PostgresPrinter):
         # would read a different column than the one resolved. Quoting pins the exact name, matching
         # how table names are printed.
         return escape_snowflake_identifier(name)
+
+    # --- PIVOT / UNPIVOT
+    #
+    # Snowflake's `PIVOT (agg(value) FOR col IN (...))` / `UNPIVOT (value FOR name IN (cols))`
+    # reference their columns by bare, unqualified name — a table-qualified `t.col` is a syntax
+    # error inside the clause. While rendering the clause body we flip `_in_pivot_clause` so fields
+    # print as their bare (still quoted) column name; the source table itself prints normally.
+
+    _in_pivot_clause: bool = False
+
+    def visit_field_type(self, type: ast.FieldType) -> str:
+        if self._in_pivot_clause:
+            resolved = type.resolve_database_field(self.context)
+            name = resolved.name if isinstance(resolved, DatabaseField) else type.name
+            return self._print_identifier(name)
+        return super().visit_field_type(type)
+
+    def _render_pivot_source(self, table: ast.Expr) -> str:
+        if isinstance(table, ast.JoinExpr):
+            return self._print_join_expr_chain(table)
+        rendered = self.visit(table)
+        return rendered.printed_sql if isinstance(rendered, JoinExprResponse) else rendered
+
+    def visit_pivot_expr(self, node: ast.PivotExpr) -> str:
+        if node.group_by:
+            raise QueryError(f"PIVOT with an explicit GROUP BY is not supported {self._dialect_error_suffix()}.")
+        table = self._render_pivot_source(node.table)
+        previous, self._in_pivot_clause = self._in_pivot_clause, True
+        try:
+            aggregates = ", ".join(self.visit(agg) for agg in node.aggregates)
+            columns = " ".join(self.visit(col) for col in node.columns)
+        finally:
+            self._in_pivot_clause = previous
+        return f"{table} PIVOT ({aggregates} FOR {columns})"
+
+    def visit_unpivot_expr(self, node: ast.UnpivotExpr) -> str:
+        table = self._render_pivot_source(node.table)
+        include_nulls = "INCLUDE NULLS " if node.include_nulls else ""
+        previous, self._in_pivot_clause = self._in_pivot_clause, True
+        try:
+            columns = " ".join(self.visit(col) for col in node.columns)
+        finally:
+            self._in_pivot_clause = previous
+        return f"{table} UNPIVOT {include_nulls}({columns})"
 
     # --- Function Calls
 

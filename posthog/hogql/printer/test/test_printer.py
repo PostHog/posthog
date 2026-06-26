@@ -7272,3 +7272,18 @@ class TestSnowflakePrinter(BaseTest):
         # it natively, so it should print straight through.
         sql = self._select("SELECT event FROM events QUALIFY row_number() OVER (ORDER BY timestamp) = 1")
         self.assertIn("QUALIFY", sql)
+
+    def test_snowflake_pivot_emits_unqualified_columns_and_star_projection(self):
+        # Snowflake rejects table-qualified columns inside PIVOT, and its output columns are named
+        # after the IN values (which HogQL can't enumerate) — so the projection stays `*`.
+        sql = self._select("SELECT * FROM events PIVOT(count(timestamp) FOR event IN ('pageview', 'click'))")
+        self.assertIn('PIVOT (count("timestamp") FOR "event" IN (', sql)
+        self.assertTrue(sql.startswith("SELECT * FROM events PIVOT ("), sql)
+
+    def test_snowflake_unpivot_emits_unqualified_columns(self):
+        sql = self._select("SELECT * FROM (SELECT 1 AS jan, 2 AS feb) AS t UNPIVOT(amount FOR month IN (jan, feb))")
+        self.assertIn('UNPIVOT ("amount" FOR "month" IN ("jan", "feb"))', sql)
+
+    def test_snowflake_pivot_rejects_inner_group_by(self):
+        with self.assertRaises(QueryError):
+            self._select("SELECT * FROM events PIVOT(count(timestamp) FOR event IN ('a') GROUP BY uuid)")
