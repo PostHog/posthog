@@ -599,6 +599,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             fullWidth,
         }),
         reportDashboardTileAdded: (tileType: DashboardAddTileType) => ({ tileType }),
+        reportDashboardTileInsertedInline: (
+            tileType: DashboardAddTileType,
+            column: number,
+            row: number,
+            fullWidth: boolean
+        ) => ({ tileType, column, row, fullWidth }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -1648,6 +1654,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardTileAdded: async ({ tileType }) => {
             posthog.capture('dashboard tile added', { tile_type: tileType })
+        },
+        reportDashboardTileInsertedInline: async ({ tileType, column, row, fullWidth }) => {
+            posthog.capture('dashboard tile inserted inline', {
+                tile_type: tileType,
+                column,
+                row,
+                full_width: fullWidth,
+            })
         },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {

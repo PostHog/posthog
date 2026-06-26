@@ -2189,6 +2189,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
             actions.updateLayouts({ ...values.layouts, sm: newSmLayout })
 
+            // The inline insert has now landed at the line — report it (outcome, vs the option-clicked intent).
+            const insertedTileType = newTile.text
+                ? 'text_card'
+                : newTile.button_tile
+                  ? 'button'
+                  : newTile.widget
+                    ? 'widget'
+                    : 'insight'
+            eventUsageLogic.actions.reportDashboardTileInsertedInline(insertedTileType, slot.x, slot.y, slot.w != null)
+
             // In edit mode the change is saved with the rest of the edit session.
             if (values.layoutEditMode) {
                 return
