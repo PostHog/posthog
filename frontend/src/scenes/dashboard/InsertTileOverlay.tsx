@@ -150,8 +150,11 @@ function InsertionStrip({
                         size="xsmall"
                         type="primary"
                         icon={<IconPlusSmall />}
+                        sideIcon={null}
                         data-attr="dashboard-inline-add-tile"
-                    />
+                    >
+                        Add
+                    </LemonButton>
                 </LemonMenu>
             </div>
         </div>
