@@ -14,7 +14,7 @@ import type { mcpAnalyticsSceneLogicType } from './mcpAnalyticsSceneLogicType'
 export type MCPAnalyticsTab = 'dashboard' | 'sessions' | 'tool-quality' | 'intent-clustering'
 
 export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
-    dashboard: 'Overview of your MCP usage.',
+    dashboard: 'Tool call volume, error rates, and latency across your MCP server.',
     sessions: 'Sessions where users interacted with your MCP tools.',
     'tool-quality': 'Understand how reliably your MCP tools support user workflows.',
     'intent-clustering':
