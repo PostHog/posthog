@@ -108,7 +108,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                             showPathCleaningHighlight={showPathCleaningHighlight}
                             hideIcon
                             showSingleName
-                            hideMathTagWhenCustomName
+                            hideHogQLTagWhenCustomName
                         />
                     }
                     disabledReason={!canEditInsight ? 'You need editor access to modify this insight.' : undefined}
