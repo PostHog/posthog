@@ -1169,11 +1169,11 @@ class BigQueryStorageConsumer(Consumer):
     ):
         super().__init__(model=model)
         channel = BigQueryWriteGrpcTransport.create_channel(
+            credentials=client.sync_client._credentials,
             compression=grpc.Compression.Gzip,
         )
         transport = BigQueryWriteGrpcTransport(channel=channel)
         self.write_client = bigquery_storage_v1.BigQueryWriteClient(
-            credentials=client.sync_client._credentials,
             transport=transport,
         )
         self.stream: AppendRowsStream | None = None
@@ -1201,15 +1201,46 @@ class BigQueryStorageConsumer(Consumer):
             "Send to stream finished",
         )
 
-    def send_data(self, data: bytes) -> None:
+    def send_data(self, data: bytes, max_attempts: int = 5) -> None:
         """Actually send the data, this is blocking."""
         req = types.AppendRowsRequest()
         req.arrow_rows.rows.serialized_record_batch = data
 
-        stream = self.stream or self.start_stream()
+        # NOTE: This retry loop can generate duplicates. The default stream is
+        # at-least-once, which means the chunk could have been ingested before
+        # the connection is dropped. We can't tell whether that was the case
+        # from here and must retry the chunk. The solution would be to switch
+        #  to a PENDING stream with offsets, so that we can incrementally
+        # commit. But that is more complicated, as it requires keeping track of
+        # said offset, so we accept the duplicates for now.
+        # TODO: Evaluate switching over and do it.
+        attempt = 0
+        while True:
+            try:
+                stream = self.stream or self.start_stream()
+                send = stream.send(req)
+                return send.result()
+            except ServiceUnavailable:
+                attempt += 1
+                if attempt >= max_attempts:
+                    raise
 
-        send = stream.send(req)
-        return send.result()
+                backoff = min(2**attempt, 32)
+                self.logger.warning(
+                    "Storage stream transient error encountered",
+                    attempt=attempt,
+                    backoff=backoff,
+                    exc_info=True,
+                )
+                try:
+                    # Reset the stream for the next attempt
+                    stream.close()
+                except Exception:
+                    pass
+                finally:
+                    self.stream = None
+
+                time.sleep(backoff)
 
     def start_stream(self) -> AppendRowsStream:
         """Start an append rows stream."""
@@ -1277,6 +1308,9 @@ async def run_consumers(
                                 (pa.uint8(), pa.int64()): functools.partial(_cast_as_type, type=pa.int64()),
                                 # BigQuery Storage requires that TIMESTAMP columns be 'us'
                                 (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
+                                    _cast_to_lossless_timestamp, unit="us"
+                                ),
+                                (pa.timestamp("ms", tz="Etc/UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
                                     _cast_to_lossless_timestamp, unit="us"
                                 ),
                             },
@@ -1603,6 +1637,10 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                         (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
                                             _cast_to_lossless_timestamp, unit="us"
                                         ),
+                                        (
+                                            pa.timestamp("ms", tz="Etc/UTC"),
+                                            pa.timestamp("us", tz="UTC"),
+                                        ): functools.partial(_cast_to_lossless_timestamp, unit="us"),
                                     },
                                 ),
                                 serialized,
