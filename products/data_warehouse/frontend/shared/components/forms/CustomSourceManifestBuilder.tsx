@@ -4,7 +4,6 @@ import { IconPlus, IconSparkles, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -19,6 +18,7 @@ import {
     eligibleParentTables,
     EMPTY_PARENT_FIELDS,
     type HeaderEntry,
+    isCustomSourceAiBuilderEnabled,
     type ManifestState,
     type Paginator,
     PAGINATOR_DEFAULTS,
@@ -92,11 +92,7 @@ export function CustomSourceManifestBuilder({
         useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    // The AI draft intro needs both the feature flag and the org's AI-data-processing consent — the
-    // backend rejects drafting without consent, so skip straight to the manual builder when it's off.
-    const aiBuilderEnabled =
-        !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER] &&
-        !!currentOrganization?.is_ai_data_processing_approved
+    const aiBuilderEnabled = isCustomSourceAiBuilderEnabled(featureFlags, currentOrganization)
     const {
         updateState,
         updateTable,

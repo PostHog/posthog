@@ -33,6 +33,7 @@ import {
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { CDC_SOURCE_TYPES } from '../../cdc'
+import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
@@ -722,8 +723,7 @@ export function SourceFormComponent({
     )
     const customAiIntroActive =
         sourceConfig.name === 'Custom' &&
-        !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER] &&
-        !!currentOrganization?.is_ai_data_processing_approved &&
+        isCustomSourceAiBuilderEnabled(featureFlags, currentOrganization) &&
         !customManifestShowBuilder
 
     // Default showDescription to same as showPrefix for backward compatibility
