@@ -1,4 +1,8 @@
-use regex::RegexBuilder;
+use std::sync::Arc;
+
+use once_cell::sync::Lazy;
+use quick_cache::sync::Cache;
+use regex::{Regex, RegexBuilder};
 use serde_json::Value;
 
 use crate::{
@@ -6,6 +10,27 @@ use crate::{
     values::{HogValue, Num},
     vm::HogVM,
 };
+
+// Compiling a regex is orders of magnitude more expensive than matching against an already-compiled
+// one, and rule patterns are constant across the events they run on — so compile once and reuse.
+// The cache is bounded so dynamically constructed patterns can't grow it without limit, and global
+// (rather than per-VM) so a pattern is compiled at most once fleet-wide instead of once per worker.
+static REGEX_CACHE: Lazy<Cache<(String, bool), Arc<Regex>>> = Lazy::new(|| Cache::new(8192));
+
+fn compiled_regex(pattern: &str, case_insensitive: bool) -> Result<Arc<Regex>, VmError> {
+    let key = (pattern.to_owned(), case_insensitive);
+    if let Some(regex) = REGEX_CACHE.get(&key) {
+        return Ok(regex);
+    }
+    let regex = Arc::new(
+        RegexBuilder::new(pattern)
+            .case_insensitive(case_insensitive)
+            .build()
+            .map_err(|e| VmError::InvalidRegex(pattern.to_string(), e.to_string()))?,
+    );
+    REGEX_CACHE.insert(key, regex.clone());
+    Ok(regex)
+}
 
 pub fn like(
     val: impl AsRef<str>,
@@ -21,12 +46,7 @@ pub fn regex_match(
     pattern: impl AsRef<str>,
     case_sensitive: bool,
 ) -> Result<bool, VmError> {
-    let mut builder = RegexBuilder::new(pattern.as_ref());
-    // TODO - this is expensive, but I'm not keen on optimizing it right now
-    let regex = builder
-        .case_insensitive(!case_sensitive)
-        .build()
-        .map_err(|e| VmError::InvalidRegex(pattern.as_ref().to_string(), e.to_string()))?;
+    let regex = compiled_regex(pattern.as_ref(), !case_sensitive)?;
     Ok(regex.is_match(val.as_ref()))
 }
 
@@ -34,9 +54,7 @@ pub fn regex_extract(
     haystack: impl AsRef<str>,
     pattern: impl AsRef<str>,
 ) -> Result<String, VmError> {
-    let regex = RegexBuilder::new(pattern.as_ref())
-        .build()
-        .map_err(|e| VmError::InvalidRegex(pattern.as_ref().to_string(), e.to_string()))?;
+    let regex = compiled_regex(pattern.as_ref(), false)?;
     let Some(captures) = regex.captures(haystack.as_ref()) else {
         return Ok(String::new());
     };
@@ -200,5 +218,38 @@ mod tests {
         // Backslash loses special meaning if not escaping a metacharacter
         assert!(like("hello\\there", "hello\\there", true).unwrap());
         assert!(like("hello\\x", "hello\\x", true).unwrap());
+    }
+
+    #[test]
+    fn test_compiled_regex_is_cached() {
+        // Same (pattern, case) must hand back the same compiled regex instead of recompiling.
+        let a = compiled_regex("foo.*bar", false).unwrap();
+        let b = compiled_regex("foo.*bar", false).unwrap();
+        assert!(Arc::ptr_eq(&a, &b));
+
+        // Case variants are distinct cache entries, not aliases.
+        let insensitive = compiled_regex("foo.*bar", true).unwrap();
+        assert!(!Arc::ptr_eq(&a, &insensitive));
+    }
+
+    #[test]
+    fn test_regex_match_case_sensitivity() {
+        assert!(regex_match("Hello", "hello", false).unwrap()); // case-insensitive matches
+        assert!(!regex_match("Hello", "hello", true).unwrap()); // case-sensitive does not
+    }
+
+    #[test]
+    fn test_invalid_regex_errors() {
+        assert!(matches!(
+            regex_match("anything", "(unclosed", true),
+            Err(VmError::InvalidRegex(..))
+        ));
+    }
+
+    #[test]
+    fn test_regex_extract_uses_cache() {
+        assert_eq!(regex_extract("id=42;", r"id=(\d+)").unwrap(), "42");
+        // Second call exercises the cached compilation path and stays correct.
+        assert_eq!(regex_extract("id=7;", r"id=(\d+)").unwrap(), "7");
     }
 }

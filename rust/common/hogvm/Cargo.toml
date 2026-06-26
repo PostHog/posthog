@@ -14,3 +14,5 @@ regex.workspace = true
 rand.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
+once_cell.workspace = true
+quick_cache.workspace = true
