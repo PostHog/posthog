@@ -310,8 +310,7 @@ def _create_person_in_persons_db(create_kwargs: dict[str, Any], dids: list[str])
     person = Person(**create_kwargs)
     if not person.uuid:
         person.uuid = UUIDT()
-    if person.created_at is None:
-        person.created_at = now()
+    person.created_at = person.created_at or now()
 
     with persons_db_connection(writer=True, autocommit=True) as conn:
         person.id = insert_seed_person(
@@ -479,8 +478,7 @@ def create_group(*, team: Team | None = None, group_type_index: int, group_key: 
 
     if _get_active_fake() is None:
         group = Group(**create_kwargs)
-        if group.created_at is None:
-            group.created_at = now()
+        group.created_at = group.created_at or now()
         group.version = group.version or 0
         with persons_db_connection(writer=True, autocommit=True) as conn:
             group.id = insert_seed_group(

@@ -228,7 +228,8 @@ class TestSnapshotLoader(BaseTest):
         self.assertEqual(PropertyDefinition.objects.filter(team_id=team.id).count(), 2)
         with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
             cursor.execute("SELECT count(*) FROM posthog_grouptypemapping WHERE team_id = %s", (team.id,))
-            group_type_mapping_count = cursor.fetchone()[0]
+            row = cursor.fetchone()
+            group_type_mapping_count = row[0] if row else 0
         self.assertEqual(group_type_mapping_count, 2)
         self.assertEqual(DataWarehouseTable.objects.filter(team_id=team.id).count(), 2)
 

@@ -21,7 +21,8 @@ def table_exists(table_name: str) -> bool:
         """,
             [table_name],
         )
-        return cursor.fetchone()[0]
+        row = cursor.fetchone()
+        return bool(row[0]) if row else False
 
 
 class TestPersonSchemaConsistency(TestCase):
