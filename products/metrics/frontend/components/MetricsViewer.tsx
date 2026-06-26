@@ -14,6 +14,7 @@ import { DateMappingOption } from '~/types'
 
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
+import { MetricsChartLegend } from './MetricsChartLegend'
 import { MetricStatPanel } from './MetricStatPanel'
 import { LIVE_REFRESH_MS, MetricAggregation, metricsViewerLogic, MetricsViewMode } from './metricsViewerLogic'
 
@@ -289,6 +290,7 @@ export const MetricsViewer = (): JSX.Element => {
                 ) : null}
                 {queryResultsLoading && <SpinnerOverlay />}
             </div>
+            {viewMode === 'chart' && hasResults && <MetricsChartLegend series={chartSeries} />}
         </div>
     )
 }
