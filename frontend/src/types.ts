@@ -6830,7 +6830,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.ERROR_TRACKING
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
-    | ProductKey.LOGS,
+    | ProductKey.LOGS
+    | ProductKey.MCP_ANALYTICS,
     OnboardingProduct
 >
 

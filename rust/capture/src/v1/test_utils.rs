@@ -63,6 +63,7 @@ pub fn test_context() -> RequestContext {
         created_at: Some("2026-03-19T14:30:00.000Z".to_string()),
         capture_internal: false,
         historical_migration: false,
+        gateway_signature: None,
     }
 }
 
@@ -111,6 +112,7 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::default(),
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -133,6 +135,7 @@ pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
         details: None,
         destination: Destination::default(),
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -155,6 +158,7 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
         details: Some("missing_event_name"),
         destination: Destination::default(),
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -217,6 +221,7 @@ pub fn realistic_pageview(distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -251,6 +256,7 @@ pub fn realistic_identify(distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -285,6 +291,7 @@ pub fn realistic_custom(distinct_id: &str, event_name: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        is_gateway_verified: false,
     }
 }
 
@@ -666,6 +673,7 @@ pub struct TestStateBuilder {
     restriction_service: Option<EventRestrictionService>,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     mock_producer: Option<Arc<MockProducer>>,
+    ai_gateway_signing_secret: Option<String>,
 }
 
 impl Default for TestStateBuilder {
@@ -683,12 +691,19 @@ impl TestStateBuilder {
             restriction_service: None,
             global_rate_limiter: None,
             mock_producer: None,
+            ai_gateway_signing_secret: None,
         }
     }
 
     /// Configure quota limiter to reject all events for any token.
     pub fn with_quota_limited(mut self) -> Self {
         self.quota_limited = true;
+        self
+    }
+
+    /// Set the AI-gateway HMAC signing secret used by provenance verification.
+    pub fn with_ai_gateway_signing_secret(mut self, secret: impl Into<String>) -> Self {
+        self.ai_gateway_signing_secret = Some(secret.into());
         self
     }
 
@@ -828,6 +843,7 @@ impl TestStateBuilder {
             replay_overflow_limiter: None,
             v1_sink_router: Some(Arc::new(v1_router)),
             capture_v1_scatter_gather_min_batch: 8,
+            ai_gateway_signing_secret: self.ai_gateway_signing_secret,
         };
 
         TestState {

@@ -577,6 +577,8 @@ ignore_imports = [
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)
     # directly. Thin each viewset to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
+    "products.data_warehouse.backend.presentation.views.column_statistics -> products.warehouse_sources.backend.models.column_statistics",
+    "products.data_warehouse.backend.presentation.views.column_statistics -> products.warehouse_sources.backend.models.table",
     "products.data_warehouse.backend.presentation.views.data_modeling_job -> products.data_modeling.backend.models.data_modeling_job",
     "products.data_warehouse.backend.presentation.views.data_warehouse -> products.batch_exports.backend.models.batch_export",
     "products.data_warehouse.backend.presentation.views.data_warehouse -> products.cdp.backend.models.hog_functions.hog_function",

@@ -7,7 +7,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1242_consolidate_duckgres_models_drop"),
+        ("posthog", "1243_alter_team_options"),
     ]
 
     operations = [
