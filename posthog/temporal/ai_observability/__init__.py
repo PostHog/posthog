@@ -51,7 +51,6 @@ from posthog.temporal.ai_observability.run_tagger import (
     execute_tagger_activity,
     fetch_tagger_activity,
 )
-from posthog.temporal.ai_observability.sentiment import ClassifySentimentWorkflow, classify_sentiment_activity
 from posthog.temporal.ai_observability.shared_activities import (
     fetch_all_clustering_filters_activity,
     fetch_all_clustering_jobs_activity,
@@ -106,14 +105,6 @@ TAGGER_ACTIVITIES = [
     disable_tagger_activity,
 ]
 
-SENTIMENT_WORKFLOWS = [
-    ClassifySentimentWorkflow,
-]
-
-SENTIMENT_ACTIVITIES = [
-    classify_sentiment_activity,
-]
-
 WORKFLOWS = [
     BatchTraceSummarizationWorkflow,
     BatchTraceSummarizationCoordinatorWorkflow,
@@ -129,8 +120,6 @@ WORKFLOWS = [
     AIObservabilityEvaluationSamplerWorkflow,
     AIObservabilityEvaluationClusteringCoordinatorWorkflow,
     AIObservabilityEvaluationClusteringWorkflow,
-    # Keep sentiment workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
-    ClassifySentimentWorkflow,
     # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     RunEvaluationWorkflow,
 ]
@@ -166,8 +155,6 @@ ACTIVITIES = [
     generate_evaluation_cluster_labels_activity,
     compute_evaluation_cluster_aggregates_activity,
     emit_evaluation_cluster_events_activity,
-    # Keep sentiment activity registered here temporarily so orphaned workflows on general-purpose queue can complete
-    classify_sentiment_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
