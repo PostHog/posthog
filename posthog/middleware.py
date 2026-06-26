@@ -788,9 +788,9 @@ def per_request_logging_context_middleware(
             # before returning, so this only fires for ones that don't.
             if isinstance(response, StreamingHttpResponse):
                 held = [
-                    alias
-                    for alias in db_connections
-                    if db_connections[alias].connection is not None and not db_connections[alias].in_atomic_block
+                    conn.alias
+                    for conn in db_connections.all(initialized_only=True)
+                    if conn.connection is not None and not conn.in_atomic_block
                 ]
                 if held:
                     _user = getattr(request, "user", None)
