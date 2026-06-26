@@ -337,6 +337,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
         model: str | None = None,
+        runtime_adapter: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
@@ -354,7 +355,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
+            RuntimeAdapter,
             get_pr_authorship_mode,
+            get_provider_for_runtime_adapter,
             resolve_user_github_integration_for_task,
             user_github_integration_is_usable,
         )
@@ -444,6 +447,19 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
         if model:
             extra_state["model"] = model
+
+        # The model's runtime adapter and the provider derived from it. The agent server can't route
+        # a model without its runtime (it resolves the provider from the runtime), so callers that pin
+        # a non-default model must pass the matching runtime — mirrors the warm path in `facade/api`.
+        # Codex runs need permission mode `auto` (same default the warm path applies) so a headless
+        # run doesn't stall waiting on a prompt; an explicit `initial_permission_mode` still wins.
+        if runtime_adapter:
+            extra_state["runtime_adapter"] = runtime_adapter
+            provider = get_provider_for_runtime_adapter(runtime_adapter)
+            if provider is not None:
+                extra_state["provider"] = provider.value
+            if initial_permission_mode is None and runtime_adapter == RuntimeAdapter.CODEX.value:
+                initial_permission_mode = "auto"
 
         # Forwarded to the in-sandbox agent and lifted onto its $ai_generation traces as an
         # `ai_stage` property (see TaskProcessingContext / agent-server configureEnvironment).
@@ -540,6 +556,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
         model: str | None = None,
+        runtime_adapter: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
@@ -564,6 +581,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             output_schema=output_schema,
             interaction_origin=interaction_origin,
             model=model,
+            runtime_adapter=runtime_adapter,
             initial_permission_mode=initial_permission_mode,
             sandbox_resources=sandbox_resources,
             sandbox_timeout_seconds=sandbox_timeout_seconds,

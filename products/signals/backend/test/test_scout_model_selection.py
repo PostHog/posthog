@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.scout_harness.model_selection import GLM_MODEL, resolve_scout_model
+from products.signals.backend.scout_harness.model_selection import GLM_MODEL, ScoutModel, resolve_scout_model
 
 _PAYLOAD_PATH = "products.signals.backend.scout_harness.model_selection.posthoganalytics.get_feature_flag_payload"
 
@@ -25,9 +25,15 @@ def _fake_team(team_id: int = _TEAM_ID, parent_team_id: int | None = None) -> Te
     return cast(Team, SimpleNamespace(id=team_id, parent_team_id=parent_team_id))
 
 
-def _resolve(skill: str = _SKILL, run_id: str = _RUN_ID, *, team: Team | None = None, payload: object) -> str | None:
+def _resolve_full(
+    skill: str = _SKILL, run_id: str = _RUN_ID, *, team: Team | None = None, payload: object
+) -> ScoutModel:
     with patch(_PAYLOAD_PATH, return_value=payload):
         return resolve_scout_model(team or _fake_team(), skill, run_id)
+
+
+def _resolve(skill: str = _SKILL, run_id: str = _RUN_ID, *, team: Team | None = None, payload: object) -> str | None:
+    return _resolve_full(skill=skill, run_id=run_id, team=team, payload=payload).model
 
 
 def _scouts(scouts: dict, team_id: int = _TEAM_ID) -> dict:
@@ -63,6 +69,37 @@ class TestResolveScoutModel:
         with patch(_PAYLOAD_PATH, return_value=None) as mock_payload:
             resolve_scout_model(_fake_team(), _SKILL, _RUN_ID)
         assert mock_payload.call_args.args[0] == "scouts-model-selection"
+
+    def test_infers_codex_runtime_for_glm(self) -> None:
+        # A routed non-Claude model must carry a runtime, else the agent server can't route it. GLM
+        # is OpenAI-compatible, so it infers the `codex` runtime.
+        resolved = _resolve_full(payload=_scouts({_SKILL: {GLM_MODEL: 1}}))
+        assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex")
+
+    def test_infers_claude_runtime_for_claude_model(self) -> None:
+        resolved = _resolve_full(payload=_scouts({_SKILL: {"claude-opus-4-8": 1}}))
+        assert resolved == ScoutModel(model="claude-opus-4-8", runtime_adapter="claude")
+
+    def test_explicit_runtime_adapter_overrides_inference(self) -> None:
+        # Object form pins the runtime explicitly, beating the id-based inference (which would say codex).
+        resolved = _resolve_full(payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, "runtime_adapter": "claude"}}}))
+        assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="claude")
+
+    def test_object_form_drops_malformed_fraction(self) -> None:
+        # A pinned runtime can't rescue a malformed fraction — the entry is dropped, agent default kept.
+        resolved = _resolve_full(
+            payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": "lots", "runtime_adapter": "codex"}}})
+        )
+        assert resolved == ScoutModel(model=None, runtime_adapter=None)
+
+    def test_named_default_remainder_infers_its_runtime(self) -> None:
+        # The remainder model (named `default`) also gets a runtime inferred from its id. With no
+        # fractional models, every run lands in the remainder, so this is deterministic.
+        resolved = _resolve_full(payload=_scouts({_SKILL: {"default": GLM_MODEL}}))
+        assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex")
+
+    def test_unconfigured_keeps_both_defaults(self) -> None:
+        assert _resolve_full(payload=None) == ScoutModel(model=None, runtime_adapter=None)
 
     def test_each_team_gets_its_own_config(self) -> None:
         # One payload, two teams, different model per team — the whole point of the team key.
