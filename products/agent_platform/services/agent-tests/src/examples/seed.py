@@ -431,12 +431,33 @@ def build_skill_zip(skill_id: str, skill_md: str, companions: dict[str, str]) ->
     return buf.getvalue()
 
 
+def _post_frontmatter_body(body: str) -> str:
+    """The body the store keeps (frontmatter stripped), for drift comparison."""
+    match = _FRONTMATTER_RE.match(body)
+    return (body[match.end() :] if match else body).strip()
+
+
 def ensure_store_skill(slug: str, skill_id: str, description: str, body: str, companions: dict[str, str]) -> str:
-    """Find-or-import the bundle skill into the `llm_skills` store; return its store
-    name. Idempotent: an existing skill of the same name is reused (re-runs don't
-    duplicate). Raises SeedError on an import failure other than a name conflict."""
-    status, _ = _req("GET", f"/llm_skills/name/{skill_id}/")
+    """Find-or-create the bundle skill in the `llm_skills` store, publishing a new
+    version when its body/description has drifted — freeze pulls the store copy, so
+    a stale store skill would ship instead of the bundle's. Returns the store name."""
+    want_body = _post_frontmatter_body(body)
+    want_desc = (description or "").strip()
+    status, existing = _req("GET", f"/llm_skills/name/{skill_id}/")
     if status == 200:
+        if (existing.get("body") or "").strip() == want_body and (
+            existing.get("description") or ""
+        ).strip() == want_desc:
+            return skill_id
+        ver = existing.get("version")
+        status, payload = _req(
+            "PATCH",
+            f"/llm_skills/name/{skill_id}/",
+            {"base_version": ver, "body": want_body, "description": want_desc},
+        )
+        if status not in (200, 201):
+            raise SeedError(f"skill update failed for '{skill_id}': {status} {payload}")
+        log(slug, f"updated store skill '{skill_id}' (v{ver} → v{payload.get('version', '?')})")
         return skill_id
     skill_md = skill_md_for_store(skill_id, description, body)
     zip_bytes = build_skill_zip(skill_id, skill_md, companions)
