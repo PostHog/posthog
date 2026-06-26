@@ -718,7 +718,7 @@ function RunDetail({
                 </div>
             ) : null}
 
-            <div className="border rounded bg-surface-primary">
+            <div className="border rounded bg-surface-primary p-3">
                 <LogsViewer
                     {...logsLogicProps}
                     hideDateFilter
