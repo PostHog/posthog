@@ -88,19 +88,11 @@ pub struct Options {
 pub struct RawOptions(pub Value);
 
 /// Error produced when `RawOptions::validate` cannot coerce one or more fields.
+/// Carries the offending field names for logging; the wire/metric tag is the
+/// static `DETAIL_INVALID_OPTIONS` constant applied at the drop site.
 #[derive(Debug)]
 pub struct OptionsError {
     pub invalid_fields: Vec<&'static str>,
-}
-
-impl OptionsError {
-    pub fn metric_tag(&self) -> &'static str {
-        "invalid_options"
-    }
-
-    pub fn detail(&self) -> &'static str {
-        "invalid_options"
-    }
 }
 
 impl RawOptions {
@@ -890,23 +882,45 @@ mod tests {
         assert_eq!(opts.disable_skew_correction, None);
     }
 
-    #[test]
-    fn raw_options_native_bool_passthrough() {
-        let raw = RawOptions(serde_json::json!({
-            "cookieless_mode": true,
-            "disable_skew_correction": false
-        }));
-        let opts = raw.validate().unwrap();
-        assert_eq!(opts.cookieless_mode, Some(true));
-        assert_eq!(opts.disable_skew_correction, Some(false));
+    #[rstest::rstest]
+    #[case::native_true(serde_json::json!(true), Some(true))]
+    #[case::native_false(serde_json::json!(false), Some(false))]
+    #[case::str_true(serde_json::json!("true"), Some(true))]
+    #[case::str_false(serde_json::json!("false"), Some(false))]
+    #[case::str_one(serde_json::json!("1"), Some(true))]
+    #[case::str_zero(serde_json::json!("0"), Some(false))]
+    #[case::str_uppercase(serde_json::json!("FALSE"), Some(false))]
+    #[case::str_padded(serde_json::json!("  true  "), Some(true))]
+    #[case::num_one(serde_json::json!(1), Some(true))]
+    #[case::num_zero(serde_json::json!(0), Some(false))]
+    #[case::num_large(serde_json::json!(42), Some(true))]
+    #[case::num_negative(serde_json::json!(-1), Some(true))]
+    fn raw_options_bool_coercion_valid(
+        #[case] input: serde_json::Value,
+        #[case] expected: Option<bool>,
+    ) {
+        let raw = RawOptions(serde_json::json!({ "cookieless_mode": input }));
+        assert_eq!(raw.validate().unwrap().cookieless_mode, expected);
+    }
+
+    #[rstest::rstest]
+    #[case::array(serde_json::json!([1, 2, 3]))]
+    #[case::object(serde_json::json!({"nested": true}))]
+    #[case::yes(serde_json::json!("yes"))]
+    #[case::off(serde_json::json!("off"))]
+    #[case::empty_string(serde_json::json!(""))]
+    fn raw_options_bool_uncoercible(#[case] input: serde_json::Value) {
+        let raw = RawOptions(serde_json::json!({ "cookieless_mode": input }));
+        let err = raw.validate().unwrap_err();
+        assert_eq!(err.invalid_fields, vec!["cookieless_mode"]);
     }
 
     #[test]
-    fn raw_options_string_bool_coercion() {
+    fn raw_options_all_bool_fields_routed_to_correct_slot() {
         let raw = RawOptions(serde_json::json!({
             "cookieless_mode": "true",
-            "disable_skew_correction": "0",
-            "process_person_profile": "FALSE"
+            "disable_skew_correction": 0,
+            "process_person_profile": false
         }));
         let opts = raw.validate().unwrap();
         assert_eq!(opts.cookieless_mode, Some(true));
@@ -914,49 +928,25 @@ mod tests {
         assert_eq!(opts.process_person_profile, Some(false));
     }
 
-    #[test]
-    fn raw_options_number_bool_coercion() {
-        let raw = RawOptions(serde_json::json!({
-            "cookieless_mode": 1,
-            "disable_skew_correction": 0,
-            "process_person_profile": 42
-        }));
-        let opts = raw.validate().unwrap();
-        assert_eq!(opts.cookieless_mode, Some(true));
-        assert_eq!(opts.disable_skew_correction, Some(false));
-        assert_eq!(opts.process_person_profile, Some(true));
+    #[rstest::rstest]
+    #[case::string(serde_json::json!("tour-123"), Some("tour-123"))]
+    #[case::integer(serde_json::json!(999), Some("999"))]
+    #[case::negative_integer(serde_json::json!(-5), Some("-5"))]
+    fn raw_options_product_tour_id_coercion_valid(
+        #[case] input: serde_json::Value,
+        #[case] expected: Option<&str>,
+    ) {
+        let raw = RawOptions(serde_json::json!({ "product_tour_id": input }));
+        assert_eq!(raw.validate().unwrap().product_tour_id.as_deref(), expected);
     }
 
-    #[test]
-    fn raw_options_product_tour_id_string_passthrough() {
-        let raw = RawOptions(serde_json::json!({"product_tour_id": "tour-123"}));
-        let opts = raw.validate().unwrap();
-        assert_eq!(opts.product_tour_id.as_deref(), Some("tour-123"));
-    }
-
-    #[test]
-    fn raw_options_product_tour_id_integer_coercion() {
-        let raw = RawOptions(serde_json::json!({"product_tour_id": 999}));
-        let opts = raw.validate().unwrap();
-        assert_eq!(opts.product_tour_id.as_deref(), Some("999"));
-    }
-
-    #[test]
-    fn raw_options_uncoercible_bool_returns_error() {
-        let raw = RawOptions(serde_json::json!({
-            "cookieless_mode": [1, 2, 3]
-        }));
-        let err = raw.validate().unwrap_err();
-        assert_eq!(err.invalid_fields, vec!["cookieless_mode"]);
-        assert_eq!(err.metric_tag(), "invalid_options");
-        assert_eq!(err.detail(), "invalid_options");
-    }
-
-    #[test]
-    fn raw_options_uncoercible_string_returns_error() {
-        let raw = RawOptions(serde_json::json!({
-            "product_tour_id": {"nested": true}
-        }));
+    #[rstest::rstest]
+    #[case::object(serde_json::json!({"nested": true}))]
+    #[case::array(serde_json::json!(["a"]))]
+    #[case::bool(serde_json::json!(true))]
+    #[case::float(serde_json::json!(1.5))]
+    fn raw_options_product_tour_id_uncoercible(#[case] input: serde_json::Value) {
+        let raw = RawOptions(serde_json::json!({ "product_tour_id": input }));
         let err = raw.validate().unwrap_err();
         assert_eq!(err.invalid_fields, vec!["product_tour_id"]);
     }
@@ -990,16 +980,6 @@ mod tests {
         }));
         let opts = raw.validate().unwrap();
         assert_eq!(opts.cookieless_mode, Some(true));
-    }
-
-    #[test]
-    fn raw_options_bool_string_edge_cases() {
-        // "yes", "no", "on", "off" are NOT coercible
-        let raw = RawOptions(serde_json::json!({"cookieless_mode": "yes"}));
-        assert!(raw.validate().is_err());
-
-        let raw = RawOptions(serde_json::json!({"cookieless_mode": "1"}));
-        assert_eq!(raw.validate().unwrap().cookieless_mode, Some(true));
     }
 
     #[test]

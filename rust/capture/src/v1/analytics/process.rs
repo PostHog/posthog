@@ -287,12 +287,14 @@ fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<Wrapped
 
         match validate_event(&event) {
             Ok(raw_ts) => {
-                // Options validation: coerce or drop
+                // Options validation: coerce known fields or drop the event.
+                // The malformed-event metric is emitted uniformly by
+                // observe_malformed_events (keyed on the details tag), matching
+                // the other validate-stage drops; here we only log the offending
+                // field names, which the aggregate metric can't carry.
                 let options = match event.options.validate() {
                     Ok(opts) => opts,
                     Err(opts_err) => {
-                        metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => opts_err.metric_tag())
-                            .increment(1);
                         crate::ctx_log!(
                             Level::WARN,
                             context,
@@ -1180,6 +1182,30 @@ mod tests {
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].options.disable_skew_correction, Some(true));
+    }
+
+    #[test]
+    fn validate_events_structural_error_takes_precedence_over_invalid_options() {
+        use crate::v1::analytics::types::RawOptions;
+
+        // An event with BOTH a structural error (empty event name) and
+        // uncoercible options must drop for the structural reason: options
+        // validation only runs after validate_event() passes.
+        let ctx = test_utils::test_context();
+        let mut ev = valid_event();
+        ev.uuid = "f1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c62".to_string();
+        ev.event = String::new();
+        ev.options = RawOptions(serde_json::json!({"cookieless_mode": [1, 2, 3]}));
+
+        let batch = Batch {
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![ev],
+        };
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("missing_event_name"));
     }
 
     // --- normalize_timestamp ---
