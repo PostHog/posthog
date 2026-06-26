@@ -64,7 +64,13 @@ def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
             f"Saved query {saved_query.id} ({saved_query.name}) has no linked EndpointVersion"
         )
 
-    saved_query.query = build_endpoint_hogql(version.query, saved_query.team, bucket_overrides=version.bucket_overrides)
+    saved_query.query = build_endpoint_hogql(
+        version.query,
+        saved_query.team,
+        bucket_overrides=version.bucket_overrides,
+        # Temporal rebuilds are userless and operate on an already-owned endpoint saved query.
+        bypass_warehouse_access_control=True,
+    )
     saved_query.save(update_fields=["query", "updated_at"])
 
 
@@ -248,7 +254,12 @@ class EndpointMaterializationService:
         bucket_overrides: dict[str, str] | None,
     ) -> None:
         """Point the saved query at the version's materializable HogQL and sync cadence."""
-        saved_query.query = build_endpoint_hogql(version.query, self.team, bucket_overrides=bucket_overrides)
+        saved_query.query = build_endpoint_hogql(
+            version.query,
+            self.team,
+            bucket_overrides=bucket_overrides,
+            user=self.user,
+        )
         saved_query.external_tables = saved_query.s3_tables
         saved_query.is_materialized = True
         saved_query.sync_frequency_interval = sync_frequency_to_sync_frequency_interval(
@@ -312,7 +323,7 @@ class EndpointMaterializationService:
         if not can_mat:
             return MaterializationPreview.cant_materialize(reason)
 
-        hogql_query = convert_insight_query_to_hogql(version.query, self.team)
+        hogql_query = convert_insight_query_to_hogql(version.query, self.team, user=self.user)
 
         range_pairs: list[dict] = []
         aggregates: list[dict] = []
@@ -329,7 +340,11 @@ class EndpointMaterializationService:
 
             if variable_infos:
                 transformed = transform_query_for_materialization(
-                    hogql_query, variable_infos, self.team, bucket_overrides=bucket_overrides
+                    hogql_query,
+                    variable_infos,
+                    self.team,
+                    bucket_overrides=bucket_overrides,
+                    user=self.user,
                 )
                 transformed_query_str = transformed.get("query")
 

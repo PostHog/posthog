@@ -6,8 +6,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.schema import DataWarehouseNode, TrendsQuery
+
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 
 from products.endpoints.backend.materialization_transforms import (
     DownstreamCTEShape,
@@ -23,6 +29,8 @@ from products.endpoints.backend.materialization_transforms import (
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
+from ee.models.rbac.access_control import AccessControl
+
 pytestmark = [pytest.mark.django_db]
 
 
@@ -30,7 +38,7 @@ class TestVariableAnalysis(APIBaseTest):
     """Test variable analysis for materialization eligibility."""
 
     def test_materialization_transform_compiles_warehouse_table_without_user_context(self):
-        DataWarehouseTable.objects.create(
+        table = DataWarehouseTable.objects.create(
             team=self.team,
             name="web_vitals_mv",
             columns={"page": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
@@ -50,12 +58,59 @@ class TestVariableAnalysis(APIBaseTest):
         }
 
         with mock.patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=True):
-            materialized_query = build_endpoint_hogql(query, self.team)
+            materialized_query = build_endpoint_hogql(query, self.team, bypass_warehouse_access_control=True)
 
         assert materialized_query["variables"] == {}
         assert "{variables" not in materialized_query["query"]
-        assert "web_vitals_mv" in materialized_query["query"]
+        assert table.name in materialized_query["query"]
         assert "page" in materialized_query["query"]
+
+    def test_materialization_transform_respects_user_warehouse_access_control(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="denied_web_vitals_mv",
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime", "valid": True},
+            },
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/denied-web-vitals/*.parquet",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(table.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        query = TrendsQuery(
+            series=[
+                DataWarehouseNode(
+                    id=table.name,
+                    table_name=table.name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="timestamp",
+                )
+            ]
+        ).model_dump()
+
+        with mock.patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=True):
+            with pytest.raises(QueryError, match=f"You don't have access to table `{table.name}`"):
+                build_endpoint_hogql(query, self.team, user=self.user)
+
+            materialized_query = build_endpoint_hogql(query, self.team, bypass_warehouse_access_control=True)
+
+        assert table.name in materialized_query["query"]
 
     def test_simple_variable_detection(self):
         query = {
