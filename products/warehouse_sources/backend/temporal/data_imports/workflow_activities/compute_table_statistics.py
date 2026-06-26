@@ -17,7 +17,7 @@ import json
 import uuid
 import dataclasses
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from django.utils import timezone
 
@@ -37,9 +37,6 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import clean_type
-
-if TYPE_CHECKING:
-    import pyarrow as pa
 
 logger = structlog.get_logger(__name__)
 
@@ -119,14 +116,18 @@ class _ColumnStat:
     has_min_max: bool
 
 
-def _aggregate_add_action_stats(add_actions: "pa.Table", columns: dict[str, Any]) -> tuple[int, dict[str, _ColumnStat]]:
+def _aggregate_add_action_stats(add_actions: Any, columns: dict[str, Any]) -> tuple[int, dict[str, _ColumnStat]]:
     """Aggregate the Delta log's per-file stats into per-column whole-table stats.
 
     `add_actions` is `DeltaTable.get_add_actions(flatten=True)` — one row per live file, with
     `num_records` and (where the log carries stats) `null_count.<col>`, `min.<col>`, `max.<col>`.
     Returns `(row_count, {column_name: _ColumnStat})`. Columns with no log stats get `has_min_max=False`.
     """
-    data = add_actions.to_pydict()
+    import pyarrow as pa  # noqa: PLC0415 — heavy dep kept off this module's flag-check import path
+
+    # deltalake>=1.x returns an arro3 RecordBatch (no `to_pydict`); pa.table() normalizes both that
+    # (via the Arrow C interface) and an already-pyarrow input to a pyarrow Table we can read as a dict.
+    data = pa.table(add_actions).to_pydict()
     row_count = sum(n for n in data.get("num_records", []) if n is not None)
 
     result: dict[str, _ColumnStat] = {}
