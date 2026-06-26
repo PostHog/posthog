@@ -3,6 +3,8 @@ from typing import Any, cast
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
@@ -1415,6 +1417,20 @@ class TestFilterToQuery(BaseTest):
                 showPercentStackView=True,
             ),
         )
+
+    @parameterized.expand(
+        [
+            ("TRENDS", "trendsFilter"),
+            ("STICKINESS", "stickinessFilter"),
+            ("LIFECYCLE", "lifecycleFilter"),
+            ("FUNNELS", "funnelsFilter"),
+        ]
+    )
+    def test_legend_position_absent_when_not_set(self, insight: str, filter_key: str):
+        query = filter_to_query({"insight": insight})
+
+        serialized_filter = query.model_dump(exclude_none=True).get(filter_key, {})
+        self.assertNotIn("legendPosition", serialized_filter)
 
     def test_funnels_filter(self):
         filter: dict[str, Any] = {

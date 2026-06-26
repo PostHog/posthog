@@ -23141,7 +23141,6 @@
                     "default": "vertical"
                 },
                 "legendPosition": {
-                    "default": "bottom",
                     "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
@@ -26027,7 +26026,6 @@
             "additionalProperties": false,
             "properties": {
                 "legendPosition": {
-                    "default": "bottom",
                     "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
@@ -43166,7 +43164,6 @@
                     "type": "array"
                 },
                 "legendPosition": {
-                    "default": "bottom",
                     "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
@@ -45479,7 +45476,6 @@
                     "type": "boolean"
                 },
                 "legendPosition": {
-                    "default": "bottom",
                     "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"

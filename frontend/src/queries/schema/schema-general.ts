@@ -1457,8 +1457,7 @@ export type TrendsFilter = {
     display?: TrendsFilterLegacy['display']
     /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
-    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
-     * @default bottom */
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showAlertThresholdLines?: boolean
@@ -1757,8 +1756,7 @@ export type FunnelsFilter = {
      * @default false
      */
     showLegend?: boolean
-    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
-     * @default bottom */
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showValuesOnSeries?: boolean
@@ -1963,8 +1961,7 @@ export interface StickinessCriteria {
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
-    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
-     * @default bottom */
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
@@ -2032,8 +2029,7 @@ export type LifecycleFilter = {
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
-    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
-     * @default bottom */
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default true */
     stacked?: boolean

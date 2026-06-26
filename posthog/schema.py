@@ -5614,7 +5614,7 @@ class LifecycleFilter(BaseModel):
         extra="forbid",
     )
     legendPosition: LegendPosition | None = Field(
-        default=LegendPosition.BOTTOM,
+        default=None,
         description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
     )
     showLegend: bool | None = False
@@ -7179,7 +7179,7 @@ class StickinessFilter(BaseModel):
     display: ChartDisplayType | None = None
     hiddenLegendIndexes: list[int] | None = None
     legendPosition: LegendPosition | None = Field(
-        default=LegendPosition.BOTTOM,
+        default=None,
         description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
     )
     resultCustomizationBy: ResultCustomizationBy | None = Field(
@@ -7981,7 +7981,7 @@ class TrendsFilter(BaseModel):
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
     legendPosition: LegendPosition | None = Field(
-        default=LegendPosition.BOTTOM,
+        default=None,
         description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
     )
     metricChangeDecreaseColor: str | None = Field(
@@ -23110,7 +23110,7 @@ class FunnelsFilter(BaseModel):
     )
     layout: FunnelLayout | None = FunnelLayout.VERTICAL
     legendPosition: LegendPosition | None = Field(
-        default=LegendPosition.BOTTOM,
+        default=None,
         description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
     )
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
