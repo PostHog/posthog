@@ -1102,6 +1102,129 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         if destination_cohort is not None:
             self.assertTrue(destination_cohort.groups[0]["properties"][0]["value"] == destination_cohort_prop_value)
 
+    def _flag_dependency_property(self, dependency_flag):
+        return {
+            "key": str(dependency_flag.id),
+            "type": "flag",
+            "value": "true",
+            "operator": "flag_evaluates_to",
+        }
+
+    def test_copy_feature_flag_remaps_dependency_present_in_target(self):
+        """A flag dependency is remapped to the matching flag in the target project when it exists there."""
+        target_project = self.team_2
+
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1, created_by=self.user, key="parent-flag", active=True
+        )
+        # Same-key parent already exists in the target project, but with a different ID
+        target_parent = FeatureFlag.objects.create(
+            team=target_project, created_by=self.user, key="parent-flag", active=True
+        )
+        self.assertNotEqual(source_parent.id, target_parent.id)
+
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_parent)]}]
+            },
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": dependent_flag.key,
+            "from_project": dependent_flag.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["failed"]), 0)
+        success = response.json()["success"][0]
+        self.assertNotIn("flag_dependency_warnings", success)
+
+        copied_flag = FeatureFlag.objects.get(key="dependent-flag", team_id=target_project.id)
+        dependency_prop = copied_flag.filters["groups"][0]["properties"][0]
+        # Dependency now points at the target project's parent flag, not the source one
+        self.assertEqual(dependency_prop["key"], str(target_parent.id))
+
+    def test_copy_feature_flag_dependency_missing_in_target_drops_with_warning(self):
+        """When no matching flag exists in the target, the dependency is dropped and a warning is returned."""
+        target_project = self.team_2
+
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1, created_by=self.user, key="parent-flag", active=True
+        )
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            self._flag_dependency_property(source_parent),
+                            {"key": "$some_prop", "value": "x", "type": "person", "operator": "exact"},
+                        ],
+                    }
+                ]
+            },
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": dependent_flag.key,
+            "from_project": dependent_flag.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["failed"]), 0)
+        success = response.json()["success"][0]
+        self.assertIn("flag_dependency_warnings", success)
+        self.assertIn("parent-flag", success["flag_dependency_warnings"][0])
+
+        # Flag dependency dropped, but other properties in the group are preserved
+        copied_flag = FeatureFlag.objects.get(key="dependent-flag", team_id=target_project.id)
+        remaining = copied_flag.filters["groups"][0]["properties"]
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0]["type"], "person")
+
+    def test_copy_feature_flag_dependency_disabled_in_target_drops_with_warning(self):
+        """A dependency on a flag that exists but is disabled in the target is dropped with a warning."""
+        target_project = self.team_2
+
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1, created_by=self.user, key="parent-flag", active=True
+        )
+        FeatureFlag.objects.create(team=target_project, created_by=self.user, key="parent-flag", active=False)
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_parent)]}]
+            },
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": dependent_flag.key,
+            "from_project": dependent_flag.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["failed"]), 0)
+        success = response.json()["success"][0]
+        self.assertIn("flag_dependency_warnings", success)
+        self.assertIn("disabled", success["flag_dependency_warnings"][0])
+
     def test_copy_remote_config_flag_preserves_type(self):
         """Test that copying a remote config flag preserves the is_remote_configuration field."""
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"

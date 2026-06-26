@@ -19,6 +19,7 @@ from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
+from posthog.utils import safe_int
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
@@ -63,6 +64,15 @@ class CopyFlagsSuccessItemSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Name of the feature flag")
     active = serializers.BooleanField(help_text="Whether the flag is active")
     team_id = serializers.IntegerField(help_text="Team ID the flag was copied to")
+    flag_dependency_warnings = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Warnings for flag dependencies that were dropped because no matching active flag exists in the target project",
+    )
+    schedule_copy_warning = serializers.CharField(
+        required=False,
+        help_text="Warning emitted when the flag was copied but its scheduled changes failed to copy",
+    )
 
 
 class CopyFlagsResponseSerializer(serializers.Serializer):
@@ -288,6 +298,22 @@ class OrganizationFeatureFlagView(
         successful_projects = []
         failed_projects = []
 
+        # Flag dependencies reference other flags by ID, which differs across projects. Like cohorts,
+        # we remap them by the dependency flag's key, so resolve each source dependency ID to its key once.
+        source_dependency_keys: dict[int, str] = {}
+        for group in flag_to_copy.get_filters().get("groups", []) or []:
+            for prop in group.get("properties", []) or []:
+                if isinstance(prop, dict) and prop.get("type") == "flag":
+                    dependency_id = safe_int(prop.get("key"))
+                    if dependency_id is not None and dependency_id not in source_dependency_keys:
+                        dependency_flag = (
+                            FeatureFlag.objects.filter(id=dependency_id, team__project_id=from_project)
+                            .only("key")
+                            .first()
+                        )
+                        if dependency_flag:
+                            source_dependency_keys[dependency_id] = dependency_flag.key
+
         # Get accessible teams for the user
         user_permissions = UserPermissions(user=request.user)
         accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
@@ -400,8 +426,11 @@ class OrganizationFeatureFlagView(
                         except (ValueError, TypeError):
                             continue
 
-            # Retrieve filters per iteration since cohort replacement logic mutates the dict
-            filters = flag_to_copy.get_filters()
+            # Retrieve filters per iteration since cohort replacement logic mutates the dict.
+            # Deep-copy before remapping flag dependencies, whose target IDs are project-specific,
+            # so one target's IDs don't leak into the next iteration.
+            filters = copy.deepcopy(flag_to_copy.get_filters())
+            flag_dependency_warnings = self._remap_flag_dependencies(filters, source_dependency_keys, target_project_id)
             if flag_to_copy.has_encrypted_payloads:
                 # Decrypt payloads before copying to ensure the new flag has unencrypted payloads
                 # that will be re-encrypted by the serializer if needed
@@ -466,6 +495,8 @@ class OrganizationFeatureFlagView(
                 result = feature_flag_serializer.data
                 if schedule_copy_error:
                     result["schedule_copy_warning"] = f"Flag copied but schedules failed: {schedule_copy_error}"
+                if flag_dependency_warnings:
+                    result["flag_dependency_warnings"] = flag_dependency_warnings
                 successful_projects.append(result)
             except Exception as e:
                 failed_projects.append(
@@ -481,6 +512,50 @@ class OrganizationFeatureFlagView(
             {"success": successful_projects, "failed": failed_projects},
             status=status.HTTP_200_OK,
         )
+
+    def _remap_flag_dependencies(self, filters, source_dependency_keys, target_project_id):
+        """Remap flag-dependency references to the matching flag in the target project.
+
+        Flag dependencies store the parent flag's ID, which differs across projects, so we match by
+        key — the same approach used for cohorts. When no active flag with that key exists in the
+        target project, the dependency is dropped and a warning is returned rather than failing the
+        whole copy (the validator would otherwise reject a dangling or disabled dependency).
+        """
+        warnings: list[str] = []
+        for group in filters.get("groups", []) or []:
+            kept_properties = []
+            for prop in group.get("properties", []) or []:
+                if not (isinstance(prop, dict) and prop.get("type") == "flag"):
+                    kept_properties.append(prop)
+                    continue
+
+                source_dependency_id = safe_int(prop.get("key"))
+                source_key = (
+                    source_dependency_keys.get(source_dependency_id) if source_dependency_id is not None else None
+                )
+                target_flag = (
+                    FeatureFlag.objects.filter(
+                        key=source_key, team__project_id=target_project_id, deleted=False
+                    ).first()
+                    if source_key
+                    else None
+                )
+
+                if target_flag and target_flag.active:
+                    # Preserve the original key type (dependencies are typically stored as strings)
+                    prop["key"] = str(target_flag.id) if isinstance(prop.get("key"), str) else target_flag.id
+                    kept_properties.append(prop)
+                elif target_flag and not target_flag.active:
+                    warnings.append(
+                        f"Removed dependency on flag '{source_key}' because that flag is disabled in the target project."
+                    )
+                else:
+                    label = source_key or prop.get("key")
+                    warnings.append(
+                        f"Removed dependency on flag '{label}' because no flag with that key exists in the target project."
+                    )
+            group["properties"] = kept_properties
+        return warnings
 
     def _copy_feature_flag_schedules(self, source_schedules, target_flag, user, cohort_mapping, cohort_cache):
         """
