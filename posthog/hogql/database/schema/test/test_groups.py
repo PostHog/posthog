@@ -25,17 +25,18 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
 
     def test_bare_limit_two_phase_returns_correct_deduplicated_rows(self):
         team = self._team()
-        for i in range(1, 12):
+        # Exactly 10 groups so a LIMIT 10 returns all of them -- the inner key subquery is unordered, so seeding more
+        # than the limit would make which keys survive (and thus whether g00 is present) non-deterministic.
+        for i in range(1, 10):
             create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={"name": f"name-{i}"})
-        # g00 (smallest key, always inside the limit window) has two ClickHouse rows: an older stale version and a
-        # newer one. The two-phase limits on (index, key), so both versions of g00 still feed the outer argMax, which
-        # must return LATEST. Written straight to ClickHouse since one group key = one Postgres row.
+        # g00 has two ClickHouse rows: an older stale version and a newer one. The two-phase limits on (index, key),
+        # so both versions of g00 still feed the outer argMax, which must return LATEST. Written straight to ClickHouse
+        # since one group key = one Postgres row.
         raw_create_group_ch(team.pk, 0, "g00", {"name": "STALE"}, datetime(2020, 1, 1), timestamp=datetime(2020, 1, 1))
         raw_create_group_ch(team.pk, 0, "g00", {"name": "LATEST"}, datetime(2024, 1, 1), timestamp=datetime(2024, 1, 1))
 
         sql, results = self._run(team, "SELECT key, properties.name FROM groups LIMIT 10")
 
-        # the limit must not under-return: 12 groups exist, 10 requested
         assert len(results) == 10
         # ...the returned keys are distinct (no dedup leak duplicating a group)
         assert len({key for key, _ in results}) == 10
@@ -45,6 +46,33 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         # prove the heavy argMax was limited rather than run over every group)
         assert "in(tuple(" in sql
         assert "LIMIT 11" in sql
+
+    def test_aggregate_without_group_by_counts_all_groups(self):
+        team = self._team()
+        for i in range(12):
+            create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={})
+
+        # `count()` collapses to one row, so the LIMIT bounds output rows, not groups. Limiting the dedup would make
+        # the count wrong (it would count only the limited keys). With 12 groups, a buggy pushdown of LIMIT 5 would
+        # return 6, not 12.
+        sql, results = self._run(team, "SELECT count() FROM groups LIMIT 5")
+
+        assert results[0][0] == 12
+        assert "in(tuple(" not in sql
+
+    def test_null_limit_does_not_crash_the_compiler(self):
+        team = self._team()
+        create_group(team_id=team.pk, group_type_index=0, group_key="g00", properties={})
+
+        # `LIMIT NULL` parses to a Constant(value=None); the two-phase guard must bail rather than compute `None + 1`.
+        # ClickHouse rejects `LIMIT NULL` itself (as it does on master), so we only assert the compiler no longer
+        # crashes with a Python TypeError before the query reaches ClickHouse.
+        try:
+            self._run(team, "SELECT key FROM groups LIMIT NULL")
+        except TypeError:
+            raise AssertionError("LIMIT NULL crashed the HogQL compiler with a TypeError")
+        except Exception:
+            pass
 
     def test_order_by_limit_returns_global_top_and_is_not_limited(self):
         team = self._team()

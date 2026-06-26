@@ -79,19 +79,28 @@ def _resolved_table(table_type) -> object | None:
     return getattr(table_type, "table", None)
 
 
+def _is_nonneg_int_constant(expr) -> bool:
+    return isinstance(expr, ast.Constant) and isinstance(expr.value, int) and expr.value >= 0
+
+
 def _bare_limit_key_count(node: SelectQuery) -> int | None:
-    # The two-phase key limit is only safe for a direct `select ... from groups limit N` with nothing that changes
-    # which/how many rows survive: a WHERE/PREWHERE/HAVING/QUALIFY filters after the dedup, an ORDER BY would need the
-    # keys ordered too, a DISTINCT/GROUP BY could collapse the limited rows below the requested count, an ARRAY JOIN
-    # can drop rows whose array is empty, and LIMIT BY/WITH TIES/PERCENT or a non-constant LIMIT/OFFSET reshape the
-    # result. In those cases we fall back to the full dedup (correct, just not bounded). The `revenue_analytics` lazy
-    # join is attached to `node` after this runs and is a row-preserving LEFT JOIN, so limiting the keys underneath it
-    # stays correct for an unordered limit.
+    # Deferred: posthog.hogql.property imports database schema modules, so a top-level import here is circular.
+    from posthog.hogql.property import has_aggregation  # noqa: PLC0415
+
+    # The two-phase key limit is only safe for a direct `select ... from groups limit N` whose rows map 1:1 to the
+    # limited groups, with nothing that changes which/how many rows survive. Bail on: an aggregate in the SELECT with
+    # no GROUP BY (e.g. `count()` collapses to one row, so the limit bounds output rows, not groups -- limiting the
+    # dedup would make the aggregate wrong); a WHERE/PREWHERE/HAVING/QUALIFY (filters after the dedup); an ORDER BY
+    # (the keys would need the same ordering); a DISTINCT/GROUP BY (could collapse the limited rows below the count);
+    # an ARRAY JOIN (can drop rows whose array is empty); LIMIT BY/WITH TIES/PERCENT; or a LIMIT/OFFSET that isn't a
+    # non-negative integer constant. In those cases we fall back to the full dedup (correct, just not bounded). The
+    # `revenue_analytics` lazy join is attached to `node` after this runs and is a row-preserving LEFT JOIN, so
+    # limiting the keys underneath it stays correct for an unordered limit.
     if (
         node.select_from is None
         or node.select_from.next_join is not None
-        or not isinstance(node.limit, ast.Constant)
-        or (node.offset is not None and not isinstance(node.offset, ast.Constant))
+        or not _is_nonneg_int_constant(node.limit)
+        or (node.offset is not None and not _is_nonneg_int_constant(node.offset))
         or node.where
         or node.prewhere
         or node.having
@@ -103,11 +112,12 @@ def _bare_limit_key_count(node: SelectQuery) -> int | None:
         or node.limit_by
         or node.limit_with_ties
         or node.limit_percent
+        or any(has_aggregation(expr) for expr in node.select)
         or not isinstance(_resolved_table(node.select_from.type), GroupsTable)
     ):
         return None
 
-    offset = node.offset.value if isinstance(node.offset, ast.Constant) else 0
+    offset = node.offset.value if node.offset is not None else 0
     # +1 mirrors persons: leaves room to detect whether more rows exist; the outer LIMIT trims the extra group.
     return node.limit.value + offset + 1
 
