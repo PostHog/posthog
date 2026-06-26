@@ -137,13 +137,18 @@ export function DefaultTooltip<Meta = unknown>({
             >
                 {rows.map((s) => {
                     const isClosest = s.series.key === closestKey
-                    const clickable = onRowClick ? ' cursor-pointer rounded hover:bg-current/10 -mx-1 px-1' : ''
+                    const clickable = onRowClick ? ' cursor-pointer hover:bg-current/10' : ''
                     return (
                         <div
                             key={s.series.key}
                             data-attr="hog-chart-tooltip-row"
                             data-closest={isClosest ? 'true' : undefined}
-                            className={`flex items-center gap-2 min-w-0${isClosest ? ' font-semibold' : ''}${clickable}`}
+                            className={`flex items-center gap-2 min-w-0 py-0.5 px-1.5${isClosest ? ' font-semibold' : ''}${clickable}`}
+                            style={
+                                isClosest
+                                    ? { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '4px' }
+                                    : undefined
+                            }
                             onClick={onRowClick ? () => onRowClick(s) : undefined}
                         >
                             <TooltipSwatch color={s.color} />

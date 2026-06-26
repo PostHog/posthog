@@ -11,6 +11,7 @@ from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.tasks.tasks import delete_organization_data_and_notify_task, delete_project_data_and_notify_task
+from posthog.test.persons import create_person
 
 
 class TestDeleteProjectDataAndNotifyTask(BaseTest):
@@ -81,9 +82,9 @@ class TestDeleteProjectPersonsEndToEnd(BaseTest):
         team = Team.objects.create(organization=self.organization, name="Team to delete")
         other_team = Team.objects.create(organization=self.organization, name="Other team")
 
-        p1 = Person.objects.create(team=team, distinct_ids=["a", "b"])
-        p2 = Person.objects.create(team=team, distinct_ids=["c"])
-        p_other = Person.objects.create(team=other_team, distinct_ids=["d"])
+        p1 = create_person(team=team, distinct_ids=["a", "b"])
+        p2 = create_person(team=team, distinct_ids=["c"])
+        p_other = create_person(team=other_team, distinct_ids=["d"])
 
         with fake_personhog_client(gate_enabled=personhog_enabled) as fake:
             if personhog_enabled:

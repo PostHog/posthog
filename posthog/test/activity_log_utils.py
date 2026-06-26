@@ -860,7 +860,7 @@ class ActivityLogTestHelper(APILicensedTest):
                 "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
                 return_value=(True, None),
             ),
-            patch("products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"),
+            patch("products.data_warehouse.backend.logic.data_load.service.sync_external_data_job_workflow"),
         ):
             data = {
                 "source_type": source_type,

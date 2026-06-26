@@ -18,6 +18,7 @@ from django.conf import settings
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
+from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -742,8 +743,9 @@ class DockerSandbox(SandboxBase):
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
         # persisted in a resume snapshot, so sourcing it from a backend exec is a trust hole.
+        unset_flags = "".join(f"-u {name} " for name in SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS)
         server_cmd = (
-            f"env BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
+            f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
