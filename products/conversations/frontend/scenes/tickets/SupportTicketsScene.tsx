@@ -108,7 +108,7 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
                     }
                     withIcon
                 />
-                {!ticket.identity_verified && <IdentityBadge verified={false} iconOnly />}
+                {ticket.identity_verified === false && <IdentityBadge verified={false} iconOnly />}
             </div>
         ),
     },

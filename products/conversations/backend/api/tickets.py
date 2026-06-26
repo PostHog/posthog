@@ -296,9 +296,10 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         extra_kwargs = {
             "identity_verified": {
                 "help_text": (
-                    "Trust signal indicating the ticket's claimed identity was attested by the server "
+                    "Trust signal indicating whether the ticket's claimed identity was attested by the server "
                     "(widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). "
-                    "False for anonymous or unverified sources."
+                    "True when verified, false when assessed but not attested, null when unknown "
+                    "(e.g. created before this signal existed)."
                 )
             },
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
