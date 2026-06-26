@@ -142,8 +142,8 @@
 
     <macros>
         <shard>01</shard>
-        <replica>aux</replica>
+        <replica>logs</replica>
         <hostClusterType>online</hostClusterType>
-        <hostClusterRole>aux</hostClusterRole>
+        <hostClusterRole>logs</hostClusterRole>
     </macros>
 </clickhouse>
