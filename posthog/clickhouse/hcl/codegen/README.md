@@ -22,9 +22,9 @@ engine, and order already resolved (no text parsing). A node's schema =
 `compose(its layers)` (see `../nodes`); placement falls out of it:
 
 - **`node_roles`** = the roles whose composition surfaced a statement. A change to a
-  `shared/` object appears in every managed role's node → `node_roles` = those roles
+  `roles/shared/` object appears in every managed role's node → `node_roles` = those roles
   (the pilot manages OPS + LOGS, so `[LOGS, OPS]`); a change to an OPS-only object
-  (`roles/ops*`, `env/*`) appears only in the ops nodes → `node_roles = [OPS]`.
+  (under `roles/ops/`) appears only in the ops nodes → `node_roles = [OPS]`.
 - **`is_alter_on_replicated_table`** = ALTER on a `Replicated*` MergeTree (engine).
 - **`sharded`** = replicated *and* on the multi-shard DATA cluster.
 - **Env-specific** statements (only some envs) are flagged for `settings.CLOUD_DEPLOYMENT`
@@ -62,6 +62,6 @@ and bump `max_migration.txt`.
 
 ## Adding/moving objects
 
-Placement is the manifest + which layer a file lives in. Put shared (all-role) objects
-in `shared/`, OPS-only in `roles/ops*` or `env/*`, and add the (env, role) line to
-`../nodes`. `check.sh` verifies every composition against its golden.
+Placement is the manifest + which layer a file lives in. Put cross-role objects in
+`roles/shared/`, OPS-only in `roles/ops/<shared|prod|env>/`, and add the (env, role) line
+to `../nodes`. `check.sh` verifies every composition against its golden.

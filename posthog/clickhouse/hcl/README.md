@@ -18,11 +18,12 @@ declared once in the manifest — there is no object→roles side-table.
 hcl/
   bin/hclexp               # wrapper: $HCLEXP_BIN local binary, or pinned container image
   nodes                    # composition manifest: (env, role) -> ordered layer list  ← placement
-  shared/                  # objects identical on every role (query_log_archive path + custom_metrics_* sub-views)
-  roles/ops/, roles/ops-prod/   # OPS-only objects (ops-prod = prod envs only)
-  roles/logs/              # LOGS objects identical across all cloud envs
-  env/<env>/ops.hcl        # per-env OPS overlays (sharded_tophog zoo_path, prod-us ProfileEvents2, dev prom_metrics)
-  env-logs/<env>/          # per-env LOGS overlays (kafka/zoo_path/distributed variants; traces on prod only)
+  roles/shared/            # objects on every role (query_log_archive path + custom_metrics_* sub-views + ops_query_log_archive_mv)
+  roles/ops/shared/        # OPS objects on every OPS env
+  roles/ops/prod/          # OPS objects on both prod envs only (the metrics suite)
+  roles/ops/<env>/         # per-env OPS overlay (sharded_tophog zoo_path, prod-us ProfileEvents2, dev prom_metrics); env ∈ local/dev/prod-us/prod-eu
+  roles/logs/shared/       # LOGS objects on every LOGS env
+  roles/logs/<env>/        # per-env LOGS overlay (kafka/zoo_path/distributed variants; traces on prod only); env ∈ dev/prod-us/prod-eu
   <layer>/sql/<object>.sql # view/MV query bodies extracted from a layer, referenced as query = file("sql/<object>.sql")
   golden/<env>-<role>.hcl  # resolved composition per node (the desired schema); check.sh diffs against it
   sql/<env>-<role>.sql     # generated build-from-scratch CREATE schema per node (apply to a fresh ClickHouse)
@@ -33,9 +34,9 @@ hcl/
   codegen/gen_migration.py # turn an edit into run_sql_with_exceptions(...) operations
 ```
 
-`node_roles` is **derived**: an object in `shared/` appears in every node's composition →
-`node_roles` = every managed role (currently `[LOGS, OPS]`); an object in `roles/ops/` appears
-only in the ops nodes → `[OPS]`; a `roles/logs/` object → `[LOGS]`.
+`node_roles` is **derived**: an object in `roles/shared/` appears in every node's composition →
+`node_roles` = every managed role (currently `[LOGS, OPS]`); an object under `roles/ops/` appears
+only in the ops nodes → `[OPS]`; one under `roles/logs/` → `[LOGS]`.
 
 Per-node `{shard}` / `{replica}` stay as ClickHouse macros, so replicas collapse to one definition.
 Some objects reference tables outside the composed set by design (custom_metrics → `system`, the
@@ -60,9 +61,9 @@ docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
 `../../../../python-clickhouse-schema` — and `export HCLEXP_BIN=…/hclexp`; the wrapper prefers it.)
 
 1. **Edit the right layer** for what you're changing:
-   - all-role object (the `query_log_archive` path, `custom_metrics_*` sub-views) → `shared/`
-   - OPS-only → `roles/ops/` (all envs), `roles/ops-prod/` (prod only), or `env/<env>/ops.hcl` (one env)
-   - LOGS → `roles/logs/` (common) or `env-logs/<env>/` (per-env / differing)
+   - all-role object (the `query_log_archive` path, `custom_metrics_*` sub-views, cross-cluster MVs) → `roles/shared/`
+   - OPS-only → `roles/ops/shared/` (all OPS envs), `roles/ops/prod/` (both prod envs), or `roles/ops/<env>/` (one env)
+   - LOGS → `roles/logs/shared/` (common) or `roles/logs/<env>/` (per-env / differing)
    - a brand-new object → add it to the layer above **and**, if it's on a new role, add that role's
      line to `nodes` (+ a golden for it).
    - a long view/MV `query` → keep it in `<layer>/sql/<object>.sql` and reference it as
