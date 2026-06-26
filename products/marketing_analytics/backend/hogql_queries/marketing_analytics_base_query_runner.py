@@ -37,7 +37,7 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
     DRILL_DOWN_LEVEL_CONFIG,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
 )
-from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
@@ -49,6 +49,11 @@ from .utils import convert_team_conversion_goals_to_objects
 logger = structlog.get_logger(__name__)
 
 ResponseType = TypeVar("ResponseType", bound=AnalyticsQueryResponseProtocol)
+
+# Discriminator column tagging each row in the compare UNION ALL with its period.
+COMPARE_PERIOD_FIELD = "_period"
+COMPARE_PERIOD_CURRENT = "current"
+COMPARE_PERIOD_PREVIOUS = "previous"
 
 
 class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
@@ -570,6 +575,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         """
         valid_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] = []
         warnings: list[str] = []
+        seen_names: set[str] = set()
 
         for goal in conversion_goals:
             goal_name = getattr(goal, "conversion_goal_name", "Unknown")
@@ -620,9 +626,40 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     )
                     continue
 
+            # Names become SQL column aliases downstream, so a duplicate would collide
+            # ("Cannot redefine an alias"). Keep the first, skip the rest with a warning.
+            if goal_name in seen_names:
+                logger.warning(
+                    "filtering_out_duplicate_named_conversion_goal",
+                    goal_name=goal_name,
+                )
+                warnings.append(f"Conversion goal '{goal_name}' skipped: duplicate name")
+                continue
+            seen_names.add(goal_name)
+
             valid_goals.append(goal)
 
         return valid_goals, warnings
+
+    def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
+        """Filter a query's SELECT to the columns requested in self.query.select, in order."""
+        if not self.query.select:
+            return query.select if query.select else []
+
+        column_mapping: dict[str, ast.Expr] = {}
+        for col in query.select:
+            key = col.alias if isinstance(col, ast.Alias) else str(col)
+            column_mapping[key] = col
+
+        # Skip duplicates so a repeated request (e.g. two conversion goals sharing a
+        # name) can't emit the same alias twice and trip "Cannot redefine an alias".
+        filtered_select: list[ast.Expr] = []
+        seen: set[str] = set()
+        for requested_col in self.query.select:
+            if requested_col in column_mapping and requested_col not in seen:
+                filtered_select.append(column_mapping[requested_col])
+                seen.add(requested_col)
+        return filtered_select
 
     def _create_conversion_goal_processors(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
@@ -922,6 +959,99 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # channel is a computed alias, so GROUP BY the same expression
             return [self._build_channel_type_expr()]
         return [ast.Field(chain=[field]) for field in self.config.group_by_fields]
+
+    def _build_compare_pivot(
+        self,
+        current_period_query: ast.SelectQuery,
+        previous_period_query: ast.SelectQuery,
+        select_columns: list[ast.Expr],
+        key_columns: list[str],
+    ) -> ast.SelectQuery:
+        """Combine the two period queries with UNION ALL + a GROUP BY pivot instead of a LEFT JOIN.
+
+        ClickHouse runs a LEFT JOIN sequentially (build the right side, then probe the left); the
+        UNION ALL lets it run both period branches as concurrent pipelines. The pivot reproduces the
+        LEFT JOIN exactly:
+        - Each period query already emits one row per key, so `anyIf(col, _period=...)` picks that
+          single value.
+        - For a current row with no previous counterpart, `anyIf(col, _period='previous')` matches
+          no rows and returns the default of the column's type — '' / 0 for non-Nullable columns,
+          NULL for already-Nullable ones (CPC / CTR / ROAS). This is exactly what the LEFT JOIN
+          produces under ClickHouse's default `join_use_nulls = 0`, so reproducing it manually
+          (e.g. forcing NULL) would actually diverge from the join.
+        - `HAVING countIf(current) > 0` drops previous-only rows — matching the LEFT JOIN keeping
+          `current_period` as the left side.
+        The output tuples, aliases, order and limit are identical to the join form, so the ORDER BY
+        (over a current-period metric, expressed on the same tuple alias) and pagination are unchanged.
+
+        `key_columns` are the columns that uniquely identify a row — the same keys the old LEFT JOIN
+        matched on. Each runner passes the keys appropriate to its query shape.
+        """
+        column_aliases = [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
+
+        def _labeled_period(period: str, period_query: ast.SelectQuery) -> ast.SelectQuery:
+            select: list[ast.Expr] = [
+                ast.Alias(alias=COMPARE_PERIOD_FIELD, expr=ast.Constant(value=period)),
+                *(ast.Field(chain=[alias]) for alias in column_aliases),
+            ]
+            return ast.SelectQuery(
+                select=select,
+                select_from=ast.JoinExpr(table=period_query),
+            )
+
+        union_query = ast.SelectSetQuery.create_from_queries(
+            [
+                _labeled_period(COMPARE_PERIOD_CURRENT, current_period_query),
+                _labeled_period(COMPARE_PERIOD_PREVIOUS, previous_period_query),
+            ],
+            "UNION ALL",
+        )
+        union_alias = "combined"
+
+        def _period_eq(period: str) -> ast.Expr:
+            return ast.CompareOperation(
+                left=ast.Field(chain=[union_alias, COMPARE_PERIOD_FIELD]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=period),
+            )
+
+        def _any_if(alias: str, period: str) -> ast.Expr:
+            return ast.Call(
+                name="anyIf",
+                args=[ast.Field(chain=[union_alias, alias]), _period_eq(period)],
+            )
+
+        # Build the pivot columns in the same order/alias as the join form.
+        pivot_columns: list[ast.Expr] = [
+            ast.Alias(
+                alias=alias,
+                expr=ast.Call(
+                    name="tuple",
+                    args=[_any_if(alias, COMPARE_PERIOD_CURRENT), _any_if(alias, COMPARE_PERIOD_PREVIOUS)],
+                ),
+            )
+            for alias in column_aliases
+        ]
+
+        group_by: list[ast.Expr] = [ast.Field(chain=[union_alias, key]) for key in key_columns]
+        having = ast.CompareOperation(
+            left=ast.Call(name="countIf", args=[_period_eq(COMPARE_PERIOD_CURRENT)]),
+            op=ast.CompareOperationOp.Gt,
+            right=ast.Constant(value=0),
+        )
+
+        select_from = ast.JoinExpr(table=union_query, alias=union_alias)
+        paginated = self._build_paginated_query(pivot_columns, select_from)
+        paginated.group_by = group_by
+        paginated.having = having
+        return paginated
+
+    def _build_paginated_query(
+        self, select_columns: list[ast.Expr], select_from: ast.JoinExpr | None, ctes=None
+    ) -> ast.SelectQuery:
+        """Build a paginated SelectQuery. Only the compare-capable table runners override this
+        (order-by / limit differ); the aggregated runner never builds a compare pivot."""
+        raise NotImplementedError
 
     # Abstract methods that subclasses must implement
 

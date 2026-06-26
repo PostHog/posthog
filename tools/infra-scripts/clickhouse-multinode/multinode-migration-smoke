@@ -2,7 +2,7 @@
 #
 # End-to-end smoke test for ClickHouse migrations against a multi-node topology.
 #
-# Boots one ClickHouse server per logical cluster (data + ai_events + aux + ops + sessions),
+# Boots one ClickHouse server per logical cluster (data + ai_events + aux + ops + sessions + logs),
 # runs `manage.py migrate_clickhouse` with MULTINODE_CLICKHOUSE=1 (so migrations respect
 # their declared NodeRole instead of being collapsed to NodeRole.ALL), then runs the
 # verification script to assert each node ended up with the tables it should have.
@@ -24,7 +24,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 cd "$SCRIPT_DIR/../../.."
 
 COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
-CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions)
+CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs)
 INFRA_SERVICES=(zookeeper kafka db redis7)
 ALL_SERVICES=("${INFRA_SERVICES[@]}" "${CH_SERVICES[@]}")
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"

@@ -115,7 +115,11 @@ class ModelConfigurationSerializer(serializers.Serializer):
 
     provider = serializers.ChoiceField(choices=LLMProvider.choices)
     model = serializers.CharField(max_length=100)
-    provider_key_id = serializers.UUIDField(required=False, allow_null=True)
+    provider_key_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.",
+    )
     provider_key_name = serializers.SerializerMethodField(read_only=True)
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
@@ -430,6 +434,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
 class EvaluationFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
+    evaluation_type = django_filters.ChoiceFilter(
+        choices=EvaluationType.choices,
+        help_text="Filter by evaluation type",
+    )
     order_by = django_filters.OrderingFilter(
         fields=(
             ("created_at", "created_at"),
@@ -448,6 +456,7 @@ class EvaluationFilter(django_filters.FilterSet):
         fields = {
             "id": ["in"],
             "enabled": ["exact"],
+            "evaluation_type": ["exact"],
         }
 
     def filter_search(self, queryset, name, value):

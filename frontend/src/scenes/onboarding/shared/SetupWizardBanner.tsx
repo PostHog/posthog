@@ -9,11 +9,12 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
 
-export function useWizardCommand(): { wizardCommand: string; isCloudOrDev: boolean } {
+export function useWizardCommand(subcommand?: string): { wizardCommand: string; isCloudOrDev: boolean } {
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const region = preflight?.region || Region.US
+    const subcommandPart = subcommand ? ` ${subcommand}` : ''
     return {
-        wizardCommand: `npx -y @posthog/wizard@latest${region === Region.EU ? ' --region eu' : ''}`,
+        wizardCommand: `npx -y @posthog/wizard@latest${subcommandPart}${region === Region.EU ? ' --region eu' : ''}`,
         isCloudOrDev: isCloudOrDev ?? false,
     }
 }
