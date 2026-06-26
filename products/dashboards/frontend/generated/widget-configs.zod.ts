@@ -68,16 +68,16 @@ export const logsWidgetFormSchema = logsWidgetConfigSchema.pick({
     timezone: true,
 })
 
-export const surveyResultsWidgetFormSchema = surveyResultsWidgetConfigSchema.pick({
-    surveyId: true,
-    limit: true,
-    dateRange: true,
-})
-
 export const sessionReplayWidgetFormSchema = sessionReplayWidgetConfigSchema.pick({
     limit: true,
     orderBy: true,
     orderDirection: true,
     dateRange: true,
     filterTestAccounts: true,
+})
+
+export const surveyResultsWidgetFormSchema = surveyResultsWidgetConfigSchema.pick({
+    surveyId: true,
+    limit: true,
+    dateRange: true,
 })
