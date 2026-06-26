@@ -1266,13 +1266,15 @@ class TestDirectPostgresQuery(APIBaseTest):
             'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function',
         )
 
-    @override_settings(CLOUD_DEPLOYMENT="US")
+    # DEV (not US/EU) keeps the host guard active without the internal-team allowlist, which the
+    # test team's auto-assigned id can otherwise collide with (US team_id 2 / EU team_id 1).
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_blocks_internal_host(self, mock_connect):
-        # Teams 2 (US) / 1 (EU) are allow-listed for internal IPs in _is_host_safe, so if this test's team
-        # lands on id 2 under test sharding the SSRF block never fires. Pin a non-allow-listed id.
-        team = Team.objects.create(organization=self.organization, name="ssrf-block-test", id=10_000_002)
-
+        # team id 2 (US) / 1 (EU) are allowlisted to reach internal IPs, so use an explicit
+        # non-allowlisted id — otherwise this flakes when pytest-split orders the test first in
+        # its shard and self.team happens to be assigned pk 2, bypassing the SSRF block.
+        team = Team.objects.create(id=984961485, name="ssrf_test_team", organization=self.organization)
         source = ExternalDataSource.objects.create(
             team=team,
             source_id="source_id",
