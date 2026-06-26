@@ -8,7 +8,7 @@ side-table.
 
 ## How it works
 
-```
+```text
 edit OPS HCL ─▶ for each env in ../nodes: hclexp plan (committed goldens ─▶ working composition)
             ─▶ gen_migration.py: merge across envs, derive targeting
             ─▶ operations = [run_sql_with_exceptions(...), ...]

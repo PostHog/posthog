@@ -99,6 +99,7 @@ docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
    the real cluster converged to it.)
 
 5. **Verify**:
+
    ```bash
    bash $HCL/check.sh          # validate + diff every node vs golden + sql freshness; must exit 0
    ```
