@@ -8,7 +8,7 @@ Also see: user-facing documentation under [in the runbook](https://posthog.com/d
 
 ### Writing an async migration
 
-To write an async migration, you should create a migration file inside [`products/async_migrations/backend/migrations`](https://github.com/PostHog/posthog/tree/master/products/async_migrations/backend/migrations). The name should follow the convention we use for Django and EE migrations (e.g. `0005_update_events_schema`). Check out the existing migrations or [examples](https://github.com/PostHog/posthog/tree/master/products/async_migrations/backend/examples).
+To write an async migration, you should create a migration file inside [`products/async_migrations/backend/ch_migration_definitions`](https://github.com/PostHog/posthog/tree/master/products/async_migrations/backend/ch_migration_definitions). The name should follow the convention we use for Django and EE migrations (e.g. `0005_update_events_schema`). Check out the existing migrations or [examples](https://github.com/PostHog/posthog/tree/master/products/async_migrations/backend/examples).
 
 ### Workflow and architecture
 

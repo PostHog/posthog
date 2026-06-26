@@ -78,7 +78,7 @@ export function AsyncMigrations(): JSX.Element {
         title: 'Migration',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             const link =
-                'https://github.com/PostHog/posthog/blob/master/products/async_migrations/backend/migrations/' +
+                'https://github.com/PostHog/posthog/blob/master/products/async_migrations/backend/ch_migration_definitions/' +
                 asyncMigration.name +
                 '.py'
             return <LemonTableLink to={link} title={asyncMigration.name} description={asyncMigration.description} />

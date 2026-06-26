@@ -25,7 +25,7 @@ ASYNC_MIGRATION_TO_DEPENDENCY: dict[str, Optional[str]] = {}
 # inverted mapping of ASYNC_MIGRATION_TO_DEPENDENCY
 DEPENDENCY_TO_ASYNC_MIGRATION: dict[Optional[str], str] = {}
 
-ASYNC_MIGRATIONS_MODULE_PATH = "products.async_migrations.backend.migrations"
+ASYNC_MIGRATIONS_MODULE_PATH = "products.async_migrations.backend.ch_migration_definitions"
 ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "products.async_migrations.backend.examples"
 
 all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)

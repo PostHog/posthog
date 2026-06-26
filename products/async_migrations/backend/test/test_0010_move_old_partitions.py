@@ -9,7 +9,9 @@ from products.async_migrations.backend.test.util import AsyncMigrationBaseTest
 pytestmark = pytest.mark.async_migrations
 
 MIGRATION_NAME = "0010_move_old_partitions"
-migration_module = importlib.import_module(f"products.async_migrations.backend.migrations.{MIGRATION_NAME}")
+migration_module = importlib.import_module(
+    f"products.async_migrations.backend.ch_migration_definitions.{MIGRATION_NAME}"
+)
 
 
 class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
