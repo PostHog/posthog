@@ -400,6 +400,27 @@ mod tests {
         })
     }
 
+    /// A `performed_event_multiple` leaf whose window comes from `explicit_datetime`(_to) rather than
+    /// `time_value`/`time_interval` (pass `Value::Null` for an absent `_to`).
+    fn behavioral_performed_event_multiple_explicit(
+        explicit_datetime: &str,
+        explicit_datetime_to: Value,
+        operator: &str,
+        operator_value: i64,
+    ) -> Value {
+        json!({
+            "type": "behavioral",
+            "value": "performed_event_multiple",
+            "key": "$pageview",
+            "explicit_datetime": explicit_datetime,
+            "explicit_datetime_to": explicit_datetime_to,
+            "operator": operator,
+            "operator_value": operator_value,
+            "conditionHash": "0123456789abcdef",
+            "bytecode": behavioral_bytecode(),
+        })
+    }
+
     fn person_leaf() -> Value {
         json!({
             "type": "person",
@@ -594,6 +615,109 @@ mod tests {
             frozen.by_lsk.is_empty(),
             "an hourly-deferred multiple leaves no worker metadata",
         );
+    }
+
+    #[test]
+    fn freeze_explicit_relative_lower_multiple_carries_window_days_and_op() {
+        // The UI stores "in the last N days" as `explicit_datetime: "-Nd"`; the frozen metadata must
+        // carry the resolved window days and predicate op so the worker can bucket and compare.
+        for (explicit_datetime, expected_variant, expected_days, why) in [
+            (
+                "-30d",
+                StateVariant::BehavioralDailyBuckets,
+                30,
+                "-30d → 30 days → daily",
+            ),
+            (
+                "-1y",
+                StateVariant::BehavioralCompressedHistory,
+                365,
+                "-1y → 365 days → compressed",
+            ),
+        ] {
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(
+                    CohortId(1),
+                    TeamId(7),
+                    &wrap(vec![behavioral_performed_event_multiple_explicit(
+                        explicit_datetime,
+                        Value::Null,
+                        "gte",
+                        3,
+                    )]),
+                )
+                .unwrap();
+            let frozen = builder.freeze(UTC);
+
+            let lsk = frozen.by_condition_to_lsk[&HASH][0];
+            let meta = frozen.by_lsk[&lsk];
+            assert_eq!(meta.variant, expected_variant, "{why}");
+            assert_eq!(meta.window, None, "{why}");
+            assert_eq!(meta.window_days, Some(expected_days), "{why}");
+            assert_eq!(meta.predicate_op, Some(PredicateOp::Gte(3)), "{why}");
+        }
+    }
+
+    #[test]
+    fn freeze_drops_an_explicit_absolute_range_multiple() {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event_multiple_explicit(
+                    "2026-01-01",
+                    json!("2026-12-31"),
+                    "gte",
+                    3,
+                )]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+        assert!(
+            frozen.by_lsk.is_empty(),
+            "an absolute-range multiple has no sliding window and leaves no worker metadata",
+        );
+    }
+
+    #[test]
+    fn freeze_explicit_relative_lower_matches_the_time_value_interval_window_days() {
+        // A relative `explicit_datetime` and the equivalent `time_value`/`time_interval` resolve to the
+        // same frozen window metadata — they are the same oracle query.
+        let mut explicit_builder = TeamFiltersBuilder::default();
+        explicit_builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event_multiple_explicit(
+                    "-30d",
+                    Value::Null,
+                    "gte",
+                    3,
+                )]),
+            )
+            .unwrap();
+        let explicit = explicit_builder.freeze(UTC);
+        let explicit_meta = explicit.by_lsk[&explicit.by_condition_to_lsk[&HASH][0]];
+
+        let mut interval_builder = TeamFiltersBuilder::default();
+        interval_builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event_multiple(
+                    30, "day", "gte", 3,
+                )]),
+            )
+            .unwrap();
+        let interval = interval_builder.freeze(UTC);
+        let interval_meta = interval.by_lsk[&interval.by_condition_to_lsk[&HASH][0]];
+
+        assert_eq!(explicit_meta.window_days, Some(30));
+        assert_eq!(explicit_meta.window_days, interval_meta.window_days);
+        assert_eq!(explicit_meta.variant, interval_meta.variant);
+        assert_eq!(explicit_meta.predicate_op, interval_meta.predicate_op);
     }
 
     #[test]
