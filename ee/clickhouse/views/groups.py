@@ -841,7 +841,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             span.set_attribute("property_key", key)
             span.set_attribute("has_value_filter", value_filter is not None)
 
-            value_expr = "replaceRegexpAll(tupleElement(keysAndValues, 2), '^\"|\"$', '') AS value"
             where_extra = ""
             placeholders: dict[str, ast.Expr] = {
                 "group_type_index": ast.Constant(value=int(group_type_index)),
@@ -851,14 +850,20 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 where_extra = "AND value ILIKE {value_filter}"
                 placeholders["value_filter"] = ast.Constant(value=f"%{value_filter}%")
 
-            # nosemgrep: hogql-fstring-audit (only constant SQL fragments value_expr/where_extra are interpolated; key/value/index go through parse_select placeholders)
+            # Dedup to each group's latest value of the requested property. Aggregating only the
+            # extracted property (not the whole properties blob, as the `groups` lazy table would)
+            # keeps memory bounded on teams with many large groups.
+            # nosemgrep: hogql-fstring-audit (only the constant where_extra fragment is interpolated; key/value/index go through parse_select placeholders)
             query = parse_select(
                 f"""
-                SELECT {value_expr}, count(*) AS count
-                FROM groups
-                ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) AS keysAndValues
-                WHERE index = {{group_type_index}}
-                  AND tupleElement(keysAndValues, 1) = {{key}}
+                SELECT value, count(*) AS count
+                FROM (
+                    SELECT argMax(properties[{{key}}], updated_at) AS value
+                    FROM raw_groups
+                    WHERE index = {{group_type_index}}
+                    GROUP BY index, key
+                )
+                WHERE value IS NOT NULL
                   {where_extra}
                 GROUP BY value
                 ORDER BY count DESC, value ASC
