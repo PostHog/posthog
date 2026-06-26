@@ -194,4 +194,47 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.deniedScopeObjects).toEqual([])
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
     })
+
+    const HINT_TEAMS = [
+        { id: 11, organization: 'org-a', name: 'A project' },
+        { id: 22, organization: 'org-b', name: 'B project' },
+    ] as any
+
+    it('pre-selects the hinted project and its org from the team_id param', () => {
+        logic.actions.setTeamHint(22)
+        logic.actions.setRequiredAccessLevel('team')
+        logic.actions.loadAllTeamsSuccess(HINT_TEAMS)
+        expect(logic.values.selectedOrganization).toBe('org-b')
+        expect(logic.values.oauthAuthorization.scoped_teams).toEqual([22])
+        expect(logic.values.teamHint).toBeNull()
+    })
+
+    it('does not pre-select the current project while a team_id hint is pending', () => {
+        // The eager current-org selection is what authorized the wrong project on a
+        // fast CTA click; with a hint pending it must stay empty until teams load.
+        logic.actions.setTeamHint(22)
+        logic.actions.setRequiredAccessLevel('team')
+        expect(logic.values.selectedOrganization).toBeNull()
+        expect(logic.values.oauthAuthorization.scoped_teams).toEqual([])
+    })
+
+    it('falls back to the current org/team when the hinted team is inaccessible', () => {
+        const currentTeam = {
+            id: MOCK_DEFAULT_USER.team?.id,
+            organization: MOCK_DEFAULT_USER.organization?.id,
+            name: 'Current project',
+        }
+        logic.actions.setTeamHint(999)
+        logic.actions.setRequiredAccessLevel('team')
+        logic.actions.loadAllTeamsSuccess([...HINT_TEAMS, currentTeam] as any)
+        expect(logic.values.teamHint).toBeNull()
+        expect(logic.values.selectedOrganization).toBe(MOCK_DEFAULT_USER.organization?.id)
+        expect(logic.values.oauthAuthorization.scoped_teams).toEqual([MOCK_DEFAULT_USER.team?.id])
+    })
+
+    it('pre-selects the current org/team when no team_id hint is given', () => {
+        logic.actions.setRequiredAccessLevel('team')
+        expect(logic.values.selectedOrganization).toBe(MOCK_DEFAULT_USER.organization?.id)
+        expect(logic.values.oauthAuthorization.scoped_teams).toEqual([MOCK_DEFAULT_USER.team?.id])
+    })
 })
