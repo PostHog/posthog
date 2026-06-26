@@ -153,20 +153,6 @@ We want to retire these hedgehogs and replace them with illustrations from [`@po
 | `graphs-hog.png`        | `GraphsHog`                | `products/dashboards/frontend/components/WidgetCard/WidgetCardBody.tsx`                           | `chart-hog`        |
 | `graphs-hog.png`        | `GraphsHog`                | `frontend/src/lib/components/ProductIntroduction/ProductIntroduction.stories.tsx` (Storybook)     | `chart-hog`        |
 
-## Cleanup notes
-
-**Orphaned `police-hog`** — once nothing referenced its `public/hedgehog/` original any more:
-
-- **`public/hedgehog/police-hog.png`** was deleted (the `PoliceHog` registry export was never rendered).
-- The **`PoliceHog` registry export** in [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) was removed along with it.
-
-**Orphaned Hogfetti-only hogs** — `space-hog` and `tron-hog` were referenced only by Hogfetti's inline copies:
-
-- **`public/hedgehog/space-hog.png` and `public/hedgehog/tron-hog.png`** were deleted (Hogfetti keeps its own `Hogfetti/hogs/` copies).
-- The **`SpaceHog` and `TronHog` registry exports** in [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) were removed along with them.
-
-**Removed dead registry exports** — never rendered anywhere, so the exports and their `public/hedgehog/` images were deleted: `ThreeBearsHogs`, `DeskHog`, `DisguiseHog`, `HospitalHog`, `LaptopHog1`, `LaptopHog2`, `PopUpBinocularsHog`.
-
 ## Missing from the brand library
 
 These current hogs have **no suitable `@posthog/brand` equivalent**, so they block a full retirement of `public/hedgehog/`. Each row is a brief for the design team: what to draw and where it's used so the intent is clear. Until these land in [`@posthog/brand`](https://brand.posthog.com/hoggies), the corresponding **Replacement** cells above stay blank.
