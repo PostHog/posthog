@@ -240,6 +240,7 @@
                 "agent-native-tools-list",
                 "agent-resolve-resource",
                 "agent-applications-models",
+                "agent-applications-spec-schema",
                 "execute-sql",
                 "insight-query",
                 "get-llm-total-costs-for-project",
@@ -297,7 +298,7 @@
         {
             "id": "choosing-the-model",
             "path": "skills/choosing-the-model/SKILL.md",
-            "description": "Picking `spec.model` + `spec.reasoning` for an agent's actual job \u2014 the cost/quality axes (model family, reasoning level, context budget) and how to match model to task without defaulting to the most or least expensive. Load whenever you're about to set or review an agent's model, or the user asks which / cheapest model to use."
+            "description": "Picking `spec.models` (the auto/manual model policy) for an agent's actual job \u2014 the cost/quality axes (level/model, reasoning, optimize_for, context budget) and how to match policy to task without defaulting to the most or least expensive. Load whenever you're about to set or review an agent's model policy, or the user asks which / cheapest model to use."
         },
         {
             "id": "secrets-and-integrations",

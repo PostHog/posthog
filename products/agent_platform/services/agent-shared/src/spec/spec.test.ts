@@ -72,8 +72,7 @@ describe('AgentSpecSchema', () => {
 
     describe('models.manual model id format', () => {
         // ModelIdSchema enforces `<provider>/<model-id>` so a bare id doesn't
-        // freeze fine and then 400 on the very first session. Mirrored by
-        // the Python schema in backend/logic/spec_schema.py.
+        // freeze fine and then 400 on the very first session.
         it('rejects a bare model id (no provider prefix)', () => {
             expect(() =>
                 AgentSpecSchema.parse({

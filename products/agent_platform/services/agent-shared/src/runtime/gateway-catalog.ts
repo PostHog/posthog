@@ -152,9 +152,8 @@ export interface ModelPolicyIssue {
  * `haiku-4-5` will 400 at the gateway regardless of catalog state, and we'd
  * rather catch it at freeze than ship a session that fails on the first call.
  */
-// Mirror of `ModelIdSchema` in agent-shared/src/spec/spec.ts and
-// `_AGENT_SPEC_JSON_SCHEMA_RAW.models.manual.models[].model.pattern` in
-// backend/logic/spec_schema.py — keep all three in sync.
+// Mirror of `ModelIdSchema` in agent-shared/src/spec/spec.ts (the single
+// source of truth for the id format) — keep the two in sync.
 const MODEL_ID_PATTERN = /^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$/
 
 export function validateModelPolicy(policy: ModelPolicy, models: CatalogModel[]): ModelPolicyIssue[] {

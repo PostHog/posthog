@@ -72,13 +72,16 @@ they live in the store and the agent only references them.
 After any `spec` write, `posthog__agent-applications-revisions-retrieve` to
 confirm what actually persisted.
 
-When the edit changes `spec` (a trigger, tool, limit, model,
-`reasoning`), don't hand-edit the structure from memory. There's no
-spec-schema tool, so get the shape right empirically: run
-`posthog__agent-applications-revisions-validate-create` on the draft
-and let its concrete errors point at the field you got wrong, and use
-`posthog__agent-native-tools-list` for the valid tool ids. Iterate on
-validate until it's clean rather than guessing the structure.
+When the edit changes `spec` (a trigger, tool, limit, model policy,
+`reasoning`), don't hand-edit the structure from memory. Pull the exact
+shape from `posthog__agent-applications-spec-schema` first — it returns
+the canonical JSON Schema (every field, enum, default, with descriptions);
+pass `section` (e.g. `models`, `triggers`, `limits`) to fetch just the part
+you're editing. Then run
+`posthog__agent-applications-revisions-validate-create` on the draft to
+confirm, letting its concrete errors point at anything you got wrong, and
+use `posthog__agent-native-tools-list` for the valid tool ids. Schema to
+get it right, validate to prove it.
 
 If the edit changes how the agent authenticates to a service (identity
 provider, scopes, MCP auth.provider), load

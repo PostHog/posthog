@@ -11,33 +11,25 @@ the cheapest either. Match the policy to the job.
 
 ## auto is the default — start there
 
-The model lives in `spec.models`, a discriminated union on
-`mode`:
+`spec.models` is a discriminated union on `mode`. For the exact shape —
+every field, enum, and default — call
+`@posthog/agent-applications-spec-schema` with `section: "models"` rather
+than reciting it from memory; it stays current as the schema moves. The
+judgment that schema can't give you is below.
 
-- **`auto`** (the default for almost every agent) — you pick a
-  `level` (`low` / `medium` / `high`, default `medium`) and the
-  platform resolves it to a maintained, priority-ordered,
-  cross-provider model list at runtime. The list is kept current as
-  models ship and prices move, so an `auto` agent rides upgrades
-  without a spec edit and falls back across providers automatically.
-- **`manual`** — an explicit, author-ordered priority list. Only
-  reach for this when the agent genuinely needs a specific model
-  (a fine-tune, a capability only one model has, a contractual /
-  compliance pin). It opts you OUT of platform model upgrades.
+- **`auto`** (the default for almost every agent) — pick a `level`
+  (`low` / `medium` / `high`) and the platform resolves it to a
+  maintained, priority-ordered, cross-provider list at runtime, so the
+  agent rides model upgrades and cross-provider fallback for free.
+- **`manual`** — an explicit, author-ordered priority list. Reach for it
+  only when the agent genuinely needs a specific model (a fine-tune, a
+  capability only one model has, a contractual / compliance pin); it opts
+  you OUT of platform upgrades.
 
-```jsonc
-// auto — the recommendation for most agents
-{ "models": { "mode": "auto", "level": "medium" } }
-
-// auto with reasoning, when the job benefits from deliberation
-{ "models": { "mode": "auto", "level": "high", "reasoning": "high" } }
-
-// manual — explicit, PROVIDER-DIVERSE priority list
-{ "models": { "mode": "manual", "models": [
-    { "model": "anthropic/claude-sonnet-4-6", "reasoning": "high" },
-    { "model": "openai/gpt-5" }
-] } }
-```
+`optimize_for` (on either mode) trades cost for resilience: `cost`
+(default) pins one model for the session to keep its prompt cache warm;
+`availability` fails over on outage at the price of a one-time cold
+re-read. Leave it at `cost` unless uptime matters more than spend.
 
 ## The cost / quality axes
 
