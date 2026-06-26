@@ -223,26 +223,22 @@ describe('insightAlertsLogic', () => {
 })
 
 describe('areAnomalyAlertsSupportedForInsight', () => {
-    it('returns false when anomaly detection is disabled', () => {
-        expect(areAnomalyAlertsSupportedForInsight(API_QUERY)).toBe(false)
+    it('returns false when query is null or undefined', () => {
+        expect(areAnomalyAlertsSupportedForInsight(null)).toBe(false)
+        expect(areAnomalyAlertsSupportedForInsight(undefined)).toBe(false)
     })
 
-    it('returns true for trends insight viz when anomaly detection is enabled', () => {
-        expect(areAnomalyAlertsSupportedForInsight(API_QUERY, { anomalyDetectionEnabled: true })).toBe(true)
+    it('returns true for trends insight viz', () => {
+        expect(areAnomalyAlertsSupportedForInsight(API_QUERY)).toBe(true)
     })
 
-    it('returns false for funnel insight viz even when anomaly detection is enabled', () => {
-        expect(areAnomalyAlertsSupportedForInsight(FUNNEL_QUERY, { anomalyDetectionEnabled: true })).toBe(false)
+    it('returns false for funnel insight viz', () => {
+        expect(areAnomalyAlertsSupportedForInsight(FUNNEL_QUERY)).toBe(false)
     })
 
     it('requires the SQL alerts flag for HogQL-backed insights', () => {
-        expect(areAnomalyAlertsSupportedForInsight(HOGQL_QUERY, { anomalyDetectionEnabled: true })).toBe(false)
-        expect(
-            areAnomalyAlertsSupportedForInsight(HOGQL_QUERY, {
-                anomalyDetectionEnabled: true,
-                hogqlAlertsEnabled: true,
-            })
-        ).toBe(true)
+        expect(areAnomalyAlertsSupportedForInsight(HOGQL_QUERY)).toBe(false)
+        expect(areAnomalyAlertsSupportedForInsight(HOGQL_QUERY, { hogqlAlertsEnabled: true })).toBe(true)
     })
 })
 

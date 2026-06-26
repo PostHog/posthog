@@ -134,7 +134,6 @@ export function EditAlertModal({
 
     const { currentTeam } = useValues(teamLogic)
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
-    const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
     const alerts15MinuteIntervalEnabled = useFeatureFlag('ALERTS_15_MINUTE_INTERVAL')
@@ -285,9 +284,7 @@ export function EditAlertModal({
                                             valueColumnOptions: hogqlValueColumnOptions,
                                             labelColumnOptions: hogqlLabelColumnOptions,
                                         }}
-                                        anomalyDetectionEnabled={
-                                            anomalyDetectionEnabled && supportsAnomalyDetection(alertForm.config)
-                                        }
+                                        supportsAnomalyDetection={supportsAnomalyDetection(alertForm.config)}
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
                                         simulationResultLoading={simulationResultLoading}

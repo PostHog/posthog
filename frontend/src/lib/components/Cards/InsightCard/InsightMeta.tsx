@@ -208,7 +208,6 @@ export function InsightMeta({
     })
     const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query, {
         hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
-        anomalyDetectionEnabled: !!featureFlags[FEATURE_FLAGS.ALERTS_ANOMALY_DETECTION],
     })
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions

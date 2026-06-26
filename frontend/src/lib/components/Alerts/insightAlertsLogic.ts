@@ -49,9 +49,9 @@ export const areAlertsSupportedForInsight = (
 
 export const areAnomalyAlertsSupportedForInsight = (
     query?: Record<string, any> | null,
-    options: { hogqlAlertsEnabled?: boolean; anomalyDetectionEnabled?: boolean } = {}
+    options: { hogqlAlertsEnabled?: boolean } = {}
 ): boolean => {
-    if (!query || !options.anomalyDetectionEnabled) {
+    if (!query) {
         return false
     }
     if (isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null) {

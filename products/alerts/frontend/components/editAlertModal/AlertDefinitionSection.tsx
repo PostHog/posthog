@@ -69,7 +69,7 @@ export interface AlertDefinitionSectionProps {
     trends: TrendsDefinitionProps
     funnel: FunnelDefinitionProps
     hogql: HogQLDefinitionProps
-    anomalyDetectionEnabled: boolean
+    supportsAnomalyDetection: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
@@ -94,7 +94,7 @@ export function AlertDefinitionSection({
     trends,
     funnel,
     hogql,
-    anomalyDetectionEnabled,
+    supportsAnomalyDetection,
     investigationAgentEnabled,
     simulationResult,
     simulationResultLoading,
@@ -148,7 +148,7 @@ export function AlertDefinitionSection({
                 />
             ) : null}
 
-            {anomalyDetectionEnabled && (
+            {supportsAnomalyDetection && (
                 <LemonSegmentedButton
                     fullWidth
                     value={alertMode}
