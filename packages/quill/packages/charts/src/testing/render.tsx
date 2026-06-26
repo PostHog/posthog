@@ -38,7 +38,7 @@ export function renderHogChart<Meta = unknown>(
         const userTooltip = props.tooltip
         const captureTooltip = (ctx: TooltipContext<Meta>): ReactNode => {
             lastTooltipContext = ctx
-            return userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx as TooltipContext)
+            return userTooltip ? userTooltip(ctx) : <DefaultTooltip {...(ctx as TooltipContext)} />
         }
         toRender = React.cloneElement(ui, { tooltip: captureTooltip })
     }
