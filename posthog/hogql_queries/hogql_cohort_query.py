@@ -196,13 +196,28 @@ class TestWrapperCohortQuery:
         return self.clickhouse_query or "", {}
 
 
+_VALID_PROPERTY_OPERATORS = frozenset(op.value for op in PropertyOperator)
+
+
+def coerce_person_operator(operator: Optional[str]) -> PropertyOperator:
+    """Normalize a person property's operator to a valid PropertyOperator.
+
+    Malformed saved filters can carry an operator outside the PropertyOperator enum, which would
+    fail PersonPropertyFilter validation and abort the cohort recalculation. Treat unknown operators
+    as EXACT — the same default already applied when no operator is set — rather than crashing.
+    """
+    if operator and operator in _VALID_PROPERTY_OPERATORS:
+        return PropertyOperator(operator)
+    return PropertyOperator.EXACT
+
+
 def convert_property(prop: Property) -> PersonPropertyFilter:
     value = prop.value
     if isinstance(value, Number):
         value = str(value)
     elif isinstance(value, list):
         value = [str(x) for x in value]
-    return PersonPropertyFilter(key=prop.key, value=value, operator=prop.operator or PropertyOperator.EXACT)
+    return PersonPropertyFilter(key=prop.key, value=value, operator=coerce_person_operator(prop.operator))
 
 
 def property_to_typed_property(property: Property) -> EventPropertyFilter | HogQLPropertyFilter:
@@ -523,7 +538,7 @@ class HogQLCohortQuery:
         # value = test@posthog.com
         actors_query = ActorsQuery(
             properties=[
-                PersonPropertyFilter(key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT)
+                PersonPropertyFilter(key=prop.key, value=prop.value, operator=coerce_person_operator(prop.operator))
             ],
             select=["id"],
         )
@@ -682,9 +697,12 @@ class HogQLCohortQuery:
 
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]],
-        ) -> Condition:
+        ) -> Optional[Condition]:
+            # Malformed saved filters can carry empty or null property groups (e.g. a non-empty
+            # outer group wrapping a nested AND/OR group with no values). Such a group contributes
+            # no matching criteria, so skip it instead of aborting the whole cohort recalculation.
             if not prop:
-                raise ValidationError("Cohort has a null property", str(prop))
+                return None
 
             if isinstance(prop, Property):
                 return Condition(self._get_condition_for_property(prop), prop.negation or False)
@@ -695,10 +713,10 @@ class HogQLCohortQuery:
                 if should_combine_person_properties_or and prop.type == PropertyOperatorType.OR:
                     return Condition(combine_person_properties(prop.values, PropertyOperatorType.OR), False)
 
-            children = [build_conditions(property) for property in prop.values]
+            children = [child for child in (build_conditions(value) for value in prop.values) if child is not None]
 
             if len(children) == 0:
-                raise ValidationError("Cohort has a property group with no condition", str(prop))
+                return None
 
             all_children_negated = all(condition.negation for condition in children)
             all_children_positive = all(not condition.negation for condition in children)
@@ -747,6 +765,8 @@ class HogQLCohortQuery:
             )
 
         condition = build_conditions(self.property_groups)
+        if condition is None:
+            raise ValidationError("Cohort has no valid matching criteria", str(self.property_groups))
         if condition.negation:
             raise ValidationError("Top level condition cannot be negated", str(self.property_groups))
         return condition.query

@@ -460,6 +460,51 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(Cohort.DoesNotExist):
             hogql_query.query_str("clickhouse")
 
+    def test_empty_nested_property_group_is_skipped(self) -> None:
+        # A non-empty outer group wrapping an empty nested AND/OR group must not abort the query
+        # build: the empty group carries no criteria and is skipped. Regression for malformed saved
+        # filters crashing calculate_cohort_ch with "Cohort has a property group with no condition".
+        cohort_filters = {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"},
+                    ],
+                },
+                {"type": "AND", "values": []},
+            ],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="Empty nested group cohort", filters={"properties": cohort_filters}
+        )
+
+        # The single real person condition survives; the empty group neither appears nor raises.
+        query_str = HogQLCohortQuery(cohort=cohort).query_str("clickhouse")
+        self.assertIn("email", query_str)
+
+    def test_invalid_person_operator_is_normalized(self) -> None:
+        # A person property carrying an operator outside the PropertyOperator enum must not fail
+        # PersonPropertyFilter validation mid-recalc — it is normalized to EXACT instead of raising.
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "email", "type": "person", "value": "a@b.com", "operator": "not_a_real_operator"},
+                    ],
+                },
+            ],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="Invalid operator cohort", filters={"properties": cohort_filters}
+        )
+
+        query_str = HogQLCohortQuery(cohort=cohort).query_str("clickhouse")
+        self.assertIn("email", query_str)
+
 
 class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
     """Tests for HogQLRealtimeCohortQuery which uses precalculated_events for behavioral filters."""

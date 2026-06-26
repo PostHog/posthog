@@ -34,6 +34,7 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Filter, Team
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
@@ -283,8 +284,9 @@ def format_person_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]
     if cohort.is_static:
         return format_static_cohort_query(cohort, index, prepend="")
 
-    if not cohort.properties.values:
-        # No person can match an empty cohort
+    if not cohort.properties.flat:
+        # No person can match an empty cohort. `.flat` (rather than `.values`) also catches a
+        # non-empty outer group that only wraps empty nested AND/OR groups — i.e. no real criteria.
         return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
 
     # Compile the cohort criteria via HogQLCohortQuery and embed the result as a person-id subquery.
@@ -735,6 +737,19 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         history.error = str(e)
         history.error_code = parse_error_code(e)
         history.save(update_fields=["finished_at", "error", "error_code"])
+        # Malformed saved filters raise validation errors that silently block this cohort (and its
+        # dependents) from recalculating. Capture them with the cohort context so the offending
+        # cohort is identifiable — the ambient capture drops cohort_id/team_id/filters once the
+        # exception leaves this scope. Transient ClickHouse errors are left to the existing handling.
+        if isinstance(e, (ValidationError, PydanticValidationError)):
+            capture_exception(
+                e,
+                additional_properties={
+                    "cohort_id": cohort.id,
+                    "team_id": team.id,
+                    "filters": cohort.properties.to_dict(),
+                },
+            )
         raise
 
 
@@ -752,7 +767,9 @@ def _recalculate_cohortpeople_for_team_hogql(
     cohort_params: dict[str, Any]
     if cohort.is_static:
         cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
-    elif not cohort.properties.values:
+    elif not cohort.properties.flat:
+        # `.flat` (rather than `.values`) also short-circuits a non-empty outer group that only
+        # wraps empty nested AND/OR groups — otherwise the recursive query builder would abort.
         history.finished_at = timezone.now()
         history.count = 0
         history.error = "Cohort has no properties defined"

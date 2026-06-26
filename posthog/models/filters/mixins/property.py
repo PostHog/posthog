@@ -117,7 +117,16 @@ class PropertyMixin(BaseParamMixin):
                 has_property_groups = True
 
         if has_simple_properties and has_property_groups:
-            raise ValidationError("Property list cannot contain both PropertyGroup and Property objects")
+            # Malformed saved filters can mix nested groups with bare property dicts in one list.
+            # Promote each bare property into a single-element AND group so the list is uniformly
+            # groups, rather than aborting parsing (which silently blocks cohort recalculation).
+            groups: list[PropertyGroup] = []
+            for prop in prop_list:
+                if "key" in prop and not ("type" in prop and "values" in prop):
+                    groups.append(PropertyGroup(PropertyOperatorType.AND, self._parse_properties([prop])))
+                else:
+                    groups.append(self._parse_property_group(prop))
+            return groups
 
         if has_property_groups:
             return [self._parse_property_group(group) for group in prop_list]

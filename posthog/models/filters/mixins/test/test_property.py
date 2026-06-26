@@ -90,7 +90,10 @@ def test_property_group_invalid_parsing():
         filter.property_groups  # noqa: B018
 
 
-def test_property_group_includes_unhomogenous_groups():
+def test_property_group_promotes_mixed_property_and_group_lists():
+    # A list mixing bare property dicts with nested groups must not abort parsing — each bare
+    # property is promoted into a single-element AND group so the list is uniformly groups.
+    # Malformed saved filters of this shape otherwise crashed async cohort recalculation.
     filter = Filter(
         data={
             "properties": {
@@ -105,8 +108,21 @@ def test_property_group_includes_unhomogenous_groups():
         }
     )
 
-    with pytest.raises(ValidationError):
-        filter.property_groups  # noqa: B018
+    groups = filter.property_groups
+    assert groups.type == "AND"
+    assert all(isinstance(value, PropertyGroup) for value in groups.values)
+
+    assert groups.values[0].type == "OR"
+    assert groups.values[0].values[0].key == "attr"
+
+    # bare properties promoted into single-element AND groups
+    assert groups.values[1].type == "AND"
+    assert isinstance(groups.values[1].values[0], Property)
+    assert groups.values[1].values[0].key == "attr"
+    assert groups.values[2].values[0].key == "attr_2"
+
+    # empty nested group preserved (carries no criteria)
+    assert groups.values[3].values == []
 
 
 def test_property_multi_level_to_dict():
