@@ -7137,6 +7137,32 @@ export namespace Schemas {
       startAtZero?: boolean | null;
     }
 
+    export type SliceContent = typeof SliceContent[keyof typeof SliceContent];
+
+
+    export const SliceContent = {
+      Labels: 'labels',
+      Values: 'values',
+      None: 'none',
+    } as const;
+
+    export type ValueDisplay = typeof ValueDisplay[keyof typeof ValueDisplay];
+
+
+    export const ValueDisplay = {
+      Absolute: 'absolute',
+      Percentage: 'percentage',
+    } as const;
+
+    export interface PieChartSettings {
+      /** Whether to show the aggregation total below the chart. Defaults to on. */
+      showTotal?: boolean | null;
+      /** What to render on each slice. Defaults to labels. */
+      sliceContent?: SliceContent | null;
+      /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
+      valueDisplay?: ValueDisplay | null;
+    }
+
     export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
 
 
@@ -7199,13 +7225,13 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
+      pie?: PieChartSettings | null;
       /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
       resultCustomizations?: ChartSettingsResultCustomizations;
       rightYAxisSettings?: YAxisSettings | null;
       seriesBreakdownColumn?: string | null;
       showLegend?: boolean | null;
       showNullsAsZero?: boolean | null;
-      showPieTotal?: boolean | null;
       showTotalRow?: boolean | null;
       showValuesOnSeries?: boolean | null;
       showXAxisBorder?: boolean | null;
