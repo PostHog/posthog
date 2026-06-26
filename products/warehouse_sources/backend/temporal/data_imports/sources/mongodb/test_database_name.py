@@ -8,7 +8,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
     _DNS_RESOLUTION_FAILURE_MARKERS,
+    _MONGO_AUTHENTICATION_FAILED_MESSAGE,
+    _MONGO_CONNECT_FAILED_MESSAGE,
     _MONGO_HOST_UNRESOLVED_MESSAGE,
+    _MONGO_NOT_AUTHORIZED_MESSAGE,
+    _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
     MongoDBSource,
 )
@@ -87,3 +91,70 @@ class TestMongoValidateCredentialsServerSelection:
 
         assert ok is False
         assert err == _MONGO_UNREACHABLE_MESSAGE
+
+
+class TestMongoValidateCredentialsOperationFailure:
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_not_authorized_returns_clean_message_and_redacts_internals(self, mock_get_collections):
+        from pymongo.errors import OperationFailure
+
+        # pymongo appends the full server response (clusterTime, signature, BSON ids) to str(e).
+        # All values here are synthetic — the real driver error must never reach the user.
+        details = {
+            "ok": 0.0,
+            "errmsg": "not authorized on demo_db to execute command { listCollections: 1 }",
+            "code": 13,
+            "codeName": "Unauthorized",
+            "$clusterTime": {"clusterTime": "Timestamp(1, 1)", "signature": {"keyId": 1234567890}},
+        }
+        mock_get_collections.side_effect = OperationFailure(
+            "not authorized on demo_db to execute command { listCollections: 1 }", 13, details
+        )
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_NOT_AUTHORIZED_MESSAGE
+        for leaked in ("full error", "signature", "clusterTime", "keyId", "demo_db"):
+            assert leaked not in (err or "")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_authentication_failure_returns_clean_message(self, mock_get_collections):
+        from pymongo.errors import OperationFailure
+
+        mock_get_collections.side_effect = OperationFailure(
+            "Authentication failed.", 18, {"ok": 0.0, "errmsg": "Authentication failed.", "code": 18}
+        )
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_AUTHENTICATION_FAILED_MESSAGE
+        assert "full error" not in (err or "")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_unescaped_credentials_returns_actionable_message(self, mock_get_collections):
+        from pymongo.errors import InvalidURI
+
+        mock_get_collections.side_effect = InvalidURI(
+            "Username and password must be escaped according to RFC 3986, use urllib.parse.quote_plus"
+        )
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_unknown_connect_error_returns_generic_message_without_internals(self, mock_get_collections):
+        mock_get_collections.side_effect = Exception("some-internal-driver-detail-xyz")
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_CONNECT_FAILED_MESSAGE
+        assert "xyz" not in (err or "")
