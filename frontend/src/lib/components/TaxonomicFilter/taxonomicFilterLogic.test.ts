@@ -10,7 +10,11 @@ import {
     SKELETON_ROWS_PER_GROUP,
     taxonomicFilterLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+} from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -1215,6 +1219,43 @@ describe('taxonomicFilterLogic', () => {
             }).toDispatchActions(['selectItem'])
 
             expect(onChange).toHaveBeenCalledWith(group, 'properties.$current_url', item)
+        })
+    })
+
+    describe('feature flag dependency group disable state', () => {
+        let flagLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            flagLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'flagDependencyTest',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+            })
+            flagLogic.mount()
+        })
+
+        afterEach(() => {
+            flagLogic.unmount()
+        })
+
+        const getFeatureFlagsGroup = (): TaxonomicFilterGroup => {
+            const group = flagLogic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.FeatureFlags)
+            if (!group) {
+                throw new Error('Feature Flags group not found')
+            }
+            return group
+        }
+
+        it.each([
+            { description: 'active flag is selectable', item: { id: 1, active: true }, expected: false },
+            { description: 'explicitly inactive flag is disabled', item: { id: 2, active: false }, expected: true },
+            // Recent items are stored stripped of `active` (see #66492); they must stay selectable.
+            {
+                description: 'recent flag item without `active` is selectable',
+                item: { id: 3, name: 'recent' },
+                expected: false,
+            },
+        ])('$description', ({ item, expected }) => {
+            expect(getFeatureFlagsGroup().getIsDisabled?.(item as any)).toBe(expected)
         })
     })
 })

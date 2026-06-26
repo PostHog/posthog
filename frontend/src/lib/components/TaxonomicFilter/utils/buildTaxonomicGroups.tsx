@@ -829,7 +829,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getIcon: (featureFlag: FeatureFlagType) => (
                 <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
             ),
-            getIsDisabled: (featureFlag: FeatureFlagType) => !featureFlag.active,
+            // Only disable explicitly inactive flags. Recent items are stored stripped of
+            // `active`, so `!active` would wrongly disable every recent flag (see #66492).
+            getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
             localItemsSearch: (items: TaxonomicDefinitionTypes[], query: string): TaxonomicDefinitionTypes[] => {
                 // Note: This function doesn't have direct access to the current value
                 // The actual filtering logic needs to be implemented in the infinite list logic

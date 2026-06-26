@@ -1280,7 +1280,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: (featureFlag: FeatureFlagType) => (
                             <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
                         ),
-                        getIsDisabled: (featureFlag: FeatureFlagType) => !featureFlag.active,
+                        // Only disable explicitly inactive flags. Recent items are stored stripped of
+                        // `active`, so `!active` would wrongly disable every recent flag (see #66492).
+                        getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
                         localItemsSearch: (items, query) => {
                             if (!query) {
                                 return items
