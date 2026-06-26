@@ -64,6 +64,20 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
                 render: (_, row) => row.delivered.toLocaleString(),
             },
             {
+                title: 'Bounced',
+                dataIndex: 'bounced',
+                key: 'bounced',
+                align: 'right',
+                render: (_, row) => row.bounced.toLocaleString(),
+            },
+            {
+                title: 'Blocked',
+                dataIndex: 'blocked',
+                key: 'blocked',
+                align: 'right',
+                render: (_, row) => row.blocked.toLocaleString(),
+            },
+            {
                 title: 'Opened',
                 dataIndex: 'opened',
                 key: 'opened',
