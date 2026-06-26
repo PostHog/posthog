@@ -147,41 +147,41 @@ describe('alertFormLogic', () => {
         return logic
     }
 
-    it('keeps ordinary new alerts in threshold mode by default', () => {
-        const logic = alertFormLogic({
-            alert: null,
-            insightId: 42,
-            onEditSuccess: jest.fn(),
-            insightVizDataLogicProps: insightLogicProps,
-            insightInterval: 'day',
-        })
-        logic.mount()
+    it.each([
+        ['ordinary', { insightInterval: 'day' as const }, '', AlertCalculationInterval.DAILY, null],
+        [
+            'anomaly',
+            {
+                insightInterval: 'hour' as const,
+                defaultToAnomalyDetection: true,
+                insightName: 'Weekly signups',
+            },
+            'Anomaly in Weekly signups',
+            AlertCalculationInterval.HOURLY,
+            {
+                type: 'zscore',
+                threshold: 0.95,
+                window: 168,
+                preprocessing: { diffs_n: 1 },
+            },
+        ],
+    ])(
+        'prefills %s new alerts with the expected defaults',
+        (_name, alertProps, expectedName, expectedInterval, expectedDetectorConfig) => {
+            const logic = alertFormLogic({
+                alert: null,
+                insightId: 42,
+                onEditSuccess: jest.fn(),
+                insightVizDataLogicProps: insightLogicProps,
+                ...alertProps,
+            })
+            logic.mount()
 
-        expect(logic.values.alertForm.detector_config).toBeNull()
-        expect(logic.values.alertForm.name).toBe('')
-    })
-
-    it('prefills new anomaly alerts with detector defaults and a readable name', () => {
-        const logic = alertFormLogic({
-            alert: null,
-            insightId: 42,
-            onEditSuccess: jest.fn(),
-            insightVizDataLogicProps: insightLogicProps,
-            insightInterval: 'hour',
-            defaultToAnomalyDetection: true,
-            insightName: 'Weekly signups',
-        })
-        logic.mount()
-
-        expect(logic.values.alertForm.name).toBe('Anomaly in Weekly signups')
-        expect(logic.values.alertForm.calculation_interval).toBe(AlertCalculationInterval.HOURLY)
-        expect(logic.values.alertForm.detector_config).toEqual({
-            type: 'zscore',
-            threshold: 0.95,
-            window: 168,
-            preprocessing: { diffs_n: 1 },
-        })
-    })
+            expect(logic.values.alertForm.name).toBe(expectedName)
+            expect(logic.values.alertForm.calculation_interval).toBe(expectedInterval)
+            expect(logic.values.alertForm.detector_config).toEqual(expectedDetectorConfig)
+        }
+    )
 
     it('shows success toast and no error toast when create succeeds', async () => {
         const logic = mountForm()

@@ -6,11 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import {
-    areAlertsSupportedForInsight,
-    areAnomalyAlertsSupportedForInsight,
-    insightAlertsLogic,
-} from 'lib/components/Alerts/insightAlertsLogic'
+import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
@@ -206,7 +202,7 @@ export function InsightMeta({
         hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
         funnelAlertsEnabled: !!featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS],
     })
-    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query, {
+    const canCreateAnomalyAlertForInsight = areAlertsSupportedForInsight(query, {
         hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
     })
 

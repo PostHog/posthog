@@ -9,12 +9,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import {
-    alertsUnsupportedReason,
-    areAlertsSupportedForInsight,
-    areAnomalyAlertsSupportedForInsight,
-    insightAlertsLogic,
-} from './insightAlertsLogic'
+import { alertsUnsupportedReason, areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
 
 const Insight42 = '42' as InsightShortId
@@ -33,14 +28,6 @@ const FUNNEL_QUERY = {
     source: {
         kind: NodeKind.FunnelsQuery,
         series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
-    },
-}
-
-const HOGQL_QUERY = {
-    kind: NodeKind.DataVisualizationNode,
-    source: {
-        kind: NodeKind.HogQLQuery,
-        query: 'select timestamp, count() from events group by timestamp order by timestamp',
     },
 }
 
@@ -219,26 +206,6 @@ describe('insightAlertsLogic', () => {
         }).toMatchValues({
             alerts: [expect.objectContaining({ id: 'keep' })],
         })
-    })
-})
-
-describe('areAnomalyAlertsSupportedForInsight', () => {
-    it('returns false when query is null or undefined', () => {
-        expect(areAnomalyAlertsSupportedForInsight(null)).toBe(false)
-        expect(areAnomalyAlertsSupportedForInsight(undefined)).toBe(false)
-    })
-
-    it('returns true for trends insight viz', () => {
-        expect(areAnomalyAlertsSupportedForInsight(API_QUERY)).toBe(true)
-    })
-
-    it('returns false for funnel insight viz', () => {
-        expect(areAnomalyAlertsSupportedForInsight(FUNNEL_QUERY)).toBe(false)
-    })
-
-    it('requires the SQL alerts flag for HogQL-backed insights', () => {
-        expect(areAnomalyAlertsSupportedForInsight(HOGQL_QUERY)).toBe(false)
-        expect(areAnomalyAlertsSupportedForInsight(HOGQL_QUERY, { hogqlAlertsEnabled: true })).toBe(true)
     })
 })
 

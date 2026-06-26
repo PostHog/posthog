@@ -26,8 +26,7 @@ import {
 
 import {
     DEFAULT_ANOMALY_DETECTION_THRESHOLD,
-    getDefaultEnsembleDetectorConfig,
-    getDefaultSingleDetectorConfigs,
+    getDefaultZScoreDetectorConfig,
     getDefaultWindow,
 } from '../detectorConfigDefaults'
 
@@ -120,6 +119,73 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
 
 const SINGLE_DETECTOR_OPTIONS = DETECTOR_OPTIONS.filter((o) => o.value !== 'ensemble')
 
+function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorConfig> {
+    return {
+        zscore: getDefaultZScoreDetectorConfig(window),
+        mad: {
+            type: 'mad',
+            threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD,
+            window,
+            preprocessing: { diffs_n: 1 },
+        },
+        iqr: { type: 'iqr', multiplier: 1.5, window },
+        threshold: { type: 'threshold' },
+        ecod: { type: 'ecod', threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD, window },
+        copod: { type: 'copod', threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD, window },
+        isolation_forest: {
+            type: 'isolation_forest',
+            threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD,
+            n_estimators: 100,
+            window,
+            preprocessing: { diffs_n: 1, lags_n: 3 },
+        },
+        knn: {
+            type: 'knn',
+            threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD,
+            n_neighbors: 5,
+            method: 'largest',
+            window,
+            preprocessing: { diffs_n: 1, lags_n: 3 },
+        },
+        lof: {
+            type: 'lof',
+            threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD,
+            n_neighbors: 20,
+            window,
+            preprocessing: { diffs_n: 1, lags_n: 3 },
+        },
+        hbos: { type: 'hbos', threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD, n_bins: 10, window },
+        ocsvm: {
+            type: 'ocsvm',
+            threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD,
+            window,
+            preprocessing: { diffs_n: 1, lags_n: 3 },
+        },
+        pca: {
+            type: 'pca',
+            threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD,
+            window,
+            preprocessing: { diffs_n: 1, lags_n: 3 },
+        },
+    }
+}
+
+function getDefaultEnsemble(window: number): EnsembleDetectorConfig {
+    return {
+        type: 'ensemble',
+        operator: EnsembleOperator.AND,
+        detectors: [
+            getDefaultZScoreDetectorConfig(window),
+            {
+                type: 'mad',
+                threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD,
+                window,
+                preprocessing: { diffs_n: 1 },
+            },
+        ],
+    }
+}
+
 function Label({ text, tooltip }: { text: string; tooltip: string }): JSX.Element {
     return (
         <label className="text-xs font-semibold text-secondary mb-1 flex items-center gap-1">
@@ -141,7 +207,7 @@ function getSelectedType(value: DetectorConfig | null): string {
 export function DetectorSelector({ value, onChange, calculationInterval }: DetectorSelectorProps): JSX.Element {
     const selectedType = getSelectedType(value)
     const defaultWindow = getDefaultWindow(calculationInterval)
-    const defaultConfigs = getDefaultSingleDetectorConfigs(defaultWindow)
+    const defaultConfigs = getDefaultSingleConfigs(defaultWindow)
 
     const handleTypeChange = (type: string | null): void => {
         if (!type) {
@@ -150,7 +216,7 @@ export function DetectorSelector({ value, onChange, calculationInterval }: Detec
         }
 
         if (type === 'ensemble') {
-            onChange(getDefaultEnsembleDetectorConfig(defaultWindow))
+            onChange(getDefaultEnsemble(defaultWindow))
             return
         }
 
@@ -205,7 +271,7 @@ function EnsembleConfig({
     calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     const { operator, detectors } = config
-    const defaults = getDefaultSingleDetectorConfigs(getDefaultWindow(calculationInterval))
+    const defaults = getDefaultSingleConfigs(getDefaultWindow(calculationInterval))
 
     const handleOperatorChange = (newOperator: string): void => {
         onChange({ ...config, operator: newOperator as EnsembleOperator })

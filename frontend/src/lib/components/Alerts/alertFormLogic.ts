@@ -14,7 +14,6 @@ import { userLogic } from 'scenes/userLogic'
 import {
     AlertCalculationInterval,
     AlertConditionType,
-    DetectorConfig,
     GoalLine,
     HogQLAlertConfig,
     InsightThresholdType,
@@ -186,10 +185,6 @@ function defaultAlertName(props: AlertFormLogicProps, goalLines?: GoalLine[] | n
     return goalLines && goalLines.length > 0 ? `Crossed ${goalLines[0].label}` : ''
 }
 
-function defaultDetectorConfig(props: AlertFormLogicProps, interval: AlertCalculationInterval): DetectorConfig | null {
-    return props.defaultToAnomalyDetection ? getDefaultAnomalyDetectorConfig(interval) : null
-}
-
 const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
     if (goalLines == null || goalLines.length == 0) {
         return {}
@@ -294,7 +289,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           calculation_interval: calculationInterval,
                           skip_weekend: false,
                           schedule_restriction: null,
-                          detector_config: defaultDetectorConfig(props, calculationInterval),
+                          detector_config: props.defaultToAnomalyDetection
+                              ? getDefaultAnomalyDetectorConfig(calculationInterval)
+                              : null,
                           investigation_agent_enabled: false,
                           investigation_gates_notifications: false,
                           investigation_inconclusive_action: 'notify',
