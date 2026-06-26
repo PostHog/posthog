@@ -879,6 +879,9 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         assert response.results[0][0] == "current"
 
     def test_custom_properties_lazy_join_isolated_per_team(self):
+        # An account exists in self.team, so the query returns a row; the assertion only passes
+        # if the other team's value is filtered out rather than leaking through the join.
+        account = Account.objects.unscoped().create(team=self.team, name="Ours")
         other_account = Account.objects.unscoped().create(team=self.other_team, name="Theirs")
         other_definition = CustomPropertyDefinition.objects.unscoped().create(team=self.other_team, name="Plan")
         CustomPropertyValue.objects.unscoped().create(
@@ -886,8 +889,12 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         )
 
         response = execute_hogql_query(
-            f"SELECT accounts.custom_properties.values.`{other_definition.id}` FROM system.accounts AS accounts",
+            f"SELECT id, accounts.custom_properties.values.`{other_definition.id}` FROM system.accounts AS accounts",
             team=self.team,
             user=self.user,
         )
-        assert response.results == []
+        rows_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert str(account.id) in rows_by_id
+        assert rows_by_id[str(account.id)] != "secret"
+        assert rows_by_id[str(account.id)] in (None, "")
