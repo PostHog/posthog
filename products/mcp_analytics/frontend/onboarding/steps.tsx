@@ -54,8 +54,14 @@ function MCPAnalyticsInstallStep(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
     const { completeOnboarding } = useActions(onboardingLogic)
-    // The shared wizard hook only emits the base command; slot in our subcommand.
-    const command = wizardCommand.replace('@posthog/wizard@latest', '@posthog/wizard@latest mcp-analytics')
+    // The shared wizard hook only emits the base command; slot in our subcommand right
+    // after the package reference (before any flags like `--region eu`). Matching
+    // `@posthog/wizard@<anything>` keeps this working if the hook ever pins a version;
+    // the fallback guarantees the subcommand is never silently dropped.
+    const WIZARD_PKG_RE = /@posthog\/wizard@\S+/
+    const command = WIZARD_PKG_RE.test(wizardCommand)
+        ? wizardCommand.replace(WIZARD_PKG_RE, '$& mcp-analytics')
+        : `${wizardCommand} mcp-analytics`
 
     // The moment tool calls start flowing the setup worked — whisk them to their data
     // instead of making them click "Go to dashboard".

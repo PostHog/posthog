@@ -27,7 +27,7 @@ const DEFAULT_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 export function MCPAnalyticsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
-    const { onboardingState, signals, signalsLoading } = useValues(mcpAnalyticsOnboardingLogic)
+    const { onboardingState, signals } = useValues(mcpAnalyticsOnboardingLogic)
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
         {
@@ -72,7 +72,10 @@ export function MCPAnalyticsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            {signalsLoading && signals === null ? (
+            {/* `signals === null` means we don't know yet — still loading, or a transient
+                query failure. Hold the skeleton rather than falling through to the empty
+                dashboard (the very state this onboarding exists to avoid); the 20s poll retries. */}
+            {signals === null ? (
                 <LemonSkeleton className="h-64 w-full" />
             ) : onboardingState && onboardingState !== 'onboarded' ? (
                 <MCPAnalyticsOnboarding state={onboardingState} />
