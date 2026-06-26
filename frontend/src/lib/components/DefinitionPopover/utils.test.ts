@@ -19,8 +19,10 @@ describe('DefinitionPopover operator helpers', () => {
 
         it.each([
             [PropertyOperator.GreaterThanOrEqual, 'greater than or equal'],
-            // A semver `>=` filter on e.g. $os_version (no `type` on the legacy step) — the reported bug
+            // Semver filters on e.g. $os_version (no `type` on the legacy step) — the reported bug
             [PropertyOperator.SemverGte, 'greater than or equal (semver)'],
+            [PropertyOperator.SemverLte, 'less than or equal (semver)'],
+            [PropertyOperator.SemverEq, 'equals (semver)'],
         ])('reads operator %s from a legacy action step property that has no type', (operator, expected) => {
             // Legacy action step properties are stored without a `type` field
             const property = { key: '$os_version', value: '14.4.1', operator } as AnyPropertyFilter
