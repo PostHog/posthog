@@ -291,3 +291,27 @@ class TestBillingAlertEvaluator(BaseTest):
         assert repeated.kind == BillingAlertEvent.Kind.CHECK
         assert repeated.threshold_breached is True
         assert alert.state == BillingAlertConfiguration.State.FIRING
+
+    def test_state_machine_uses_locked_current_state_for_repeated_firing(self) -> None:
+        alert = self._alert(state=BillingAlertConfiguration.State.NOT_FIRING, cooldown_hours=24)
+        stale_alert = BillingAlertConfiguration.objects.unscoped().get(pk=alert.pk)
+
+        firing = evaluate_and_record_billing_alert(alert, now=NOW, billing_response=_billing_response([60, 60, 100]))
+        BillingAlertEvent.objects.unscoped().filter(pk=firing.pk).update(notification_sent_at=NOW)
+        BillingAlertConfiguration.objects.unscoped().filter(pk=alert.pk).update(last_notified_at=NOW)
+
+        repeated = evaluate_and_record_billing_alert(
+            stale_alert,
+            now=NOW.replace(hour=13),
+            billing_response=_billing_response([60, 60, 100]),
+        )
+
+        assert repeated.kind == BillingAlertEvent.Kind.CHECK
+        assert repeated.state_before == BillingAlertConfiguration.State.FIRING
+        assert repeated.state_after == BillingAlertConfiguration.State.FIRING
+        assert (
+            BillingAlertEvent.objects.unscoped()
+            .filter(alert_id=alert.pk, kind=BillingAlertEvent.Kind.FIRING, evaluation_date=firing.evaluation_date)
+            .count()
+            == 1
+        )
