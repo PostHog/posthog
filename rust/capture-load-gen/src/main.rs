@@ -343,3 +343,47 @@ async fn main() -> Result<()> {
     stats::print_summary(&counters, &merged, started.elapsed());
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_divides_evenly() {
+        let parts: Vec<u64> = (0..10).map(|i| split(1000, 10, i)).collect();
+        assert!(parts.iter().all(|&p| p == 100));
+        assert_eq!(parts.iter().sum::<u64>(), 1000);
+    }
+
+    #[test]
+    fn split_gives_remainder_to_low_indices() {
+        let parts: Vec<u64> = (0..10).map(|i| split(1003, 10, i)).collect();
+        assert_eq!(
+            parts,
+            vec![101, 101, 101, 100, 100, 100, 100, 100, 100, 100]
+        );
+        assert_eq!(parts.iter().sum::<u64>(), 1003);
+    }
+
+    #[test]
+    fn split_handles_more_shards_than_work() {
+        let parts: Vec<u64> = (0..10).map(|i| split(5, 10, i)).collect();
+        assert_eq!(parts.iter().sum::<u64>(), 5);
+        assert_eq!(parts.iter().filter(|&&p| p == 0).count(), 5);
+    }
+
+    #[test]
+    fn claim_drains_the_counter_exactly() {
+        let remaining = AtomicU64::new(250);
+        let mut taken = Vec::new();
+        loop {
+            let n = claim(&remaining, 100);
+            if n == 0 {
+                break;
+            }
+            taken.push(n);
+        }
+        assert_eq!(taken, vec![100, 100, 50]);
+        assert_eq!(remaining.load(Ordering::Relaxed), 0);
+    }
+}

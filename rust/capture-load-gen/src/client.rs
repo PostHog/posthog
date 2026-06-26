@@ -78,3 +78,52 @@ impl CaptureClient {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    fn sample_events(n: usize) -> Vec<RawEvent> {
+        (0..n)
+            .map(|i| RawEvent {
+                event: format!("e{i}"),
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    fn client(gzip: bool) -> CaptureClient {
+        CaptureClient::new(
+            "http://localhost:0",
+            "tok".into(),
+            gzip,
+            Duration::from_secs(1),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn encode_plain_is_a_valid_batch_payload() {
+        let body = client(false).encode(&sample_events(3)).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(value["api_key"], "tok");
+        let batch: Vec<RawEvent> = serde_json::from_value(value["batch"].clone()).unwrap();
+        assert_eq!(batch.len(), 3);
+        assert_eq!(batch[0].event, "e0");
+    }
+
+    #[test]
+    fn encode_gzip_roundtrips_to_the_same_payload() {
+        let body = client(true).encode(&sample_events(5)).unwrap();
+
+        let mut json = String::new();
+        GzDecoder::new(&body[..]).read_to_string(&mut json).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(value["api_key"], "tok");
+        assert_eq!(value["batch"].as_array().unwrap().len(), 5);
+    }
+}
