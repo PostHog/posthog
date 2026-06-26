@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -49,6 +48,21 @@ export function FunnelTooltip({
 }: FunnelTooltipProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    // Pure compare bars (no real breakdown) show only the period; breakdown and
+    // breakdown + compare bars show the breakdown value (plus the period if any).
+    const headerLabel = funnelTooltipHeaderLabel({
+        breakdownLabel:
+            !series.compare_label || hasBreakdown(series.breakdown_value)
+                ? formatBreakdownLabel(
+                      series.breakdown_value,
+                      breakdownFilter,
+                      allCohorts.results,
+                      formatPropertyValueForDisplay
+                  )
+                : null,
+        compareLabel: series.compare_label,
+        comparePeriodDateRange,
+    })
     return (
         <div
             data-attr="funnel-tooltip"
@@ -58,28 +72,19 @@ export function FunnelTooltip({
                 'shadow-none': embedded,
             })}
         >
-            <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />} fullWidth>
-                <strong>
+            <div className="FunnelTooltip__header">
+                <Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />
+                <strong className="FunnelTooltip__title">
                     <EntityFilterInfo filter={getActionFilterFromFunnelStep(series)} allowWrap />
-                    <span className="mx-1">•</span>
-                    {funnelTooltipHeaderLabel({
-                        // Pure compare bars (no real breakdown) show only the period; breakdown and
-                        // breakdown + compare bars show the breakdown value (plus the period if any).
-                        breakdownLabel:
-                            !series.compare_label || hasBreakdown(series.breakdown_value)
-                                ? formatBreakdownLabel(
-                                      series.breakdown_value,
-                                      breakdownFilter,
-                                      allCohorts.results,
-                                      formatPropertyValueForDisplay
-                                  )
-                                : null,
-                        compareLabel: series.compare_label,
-                        comparePeriodDateRange,
-                    })}
+                    {headerLabel && (
+                        <>
+                            <span className="FunnelTooltip__separator">•</span>
+                            {headerLabel}
+                        </>
+                    )}
                 </strong>
-            </LemonRow>
-            <LemonDivider className="my-2" />
+            </div>
+            <LemonDivider className="my-1" />
             <table>
                 <tbody>
                     <tr>
@@ -118,7 +123,7 @@ export function FunnelTooltip({
             </table>
             {showPersonsModal && (
                 <>
-                    <LemonDivider className="my-2" />
+                    <LemonDivider className="my-1" />
                     <ClickToInspectActors groupTypeLabel={groupTypeLabel} />
                 </>
             )}

@@ -212,8 +212,22 @@
 .FunnelTooltip {
     width: 20rem;
 
-    .LemonRow__content {
+    &__header {
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-start;
+        line-height: 1.5rem; // Match the step-number Lettermark height so icon and title align
+    }
+
+    &__title {
+        min-width: 0; // Let long event names wrap instead of overflowing the tooltip
         overflow-wrap: anywhere;
+    }
+
+    &__separator {
+        margin: 0 0.25rem;
+        font-weight: 400;
+        color: var(--color-text-secondary);
     }
 
     table {
@@ -222,19 +236,23 @@
         border-collapse: collapse;
     }
 
-    tr {
-        height: 1.75rem;
+    td {
+        height: 1.5rem;
+        vertical-align: middle;
     }
 
+    // Labels and values share the tooltip's outer padding as their left/right edge, so
+    // the metric labels line up with the header's step-number icon above them.
     td:first-child {
-        padding: 0 0.5rem;
+        padding-right: 0.5rem;
         font-weight: 500;
+        color: var(--color-text-secondary);
     }
 
     td:last-child {
-        padding-right: 0.5rem;
         font-weight: 600;
         text-align: right;
+        white-space: nowrap;
     }
 
     .table-subtext {
