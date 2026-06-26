@@ -41,20 +41,34 @@ def insert_seed_person(
     version: int | None = None,
     created_at: datetime | None = None,
     last_seen_at: datetime | None = None,
+    properties_last_updated_at: dict[str, Any] | None = None,
+    properties_last_operation: dict[str, Any] | None = None,
 ) -> int:
     """Insert one person row and return its database id.
 
     Pass ``uuid`` when the caller needs to reference the person downstream (e.g. to
     mirror it into ClickHouse); otherwise a fresh ``UUIDT`` is generated. ``created_at``
-    defaults to ``now()`` (matching the model's ``auto_now_add``); ``version`` and
-    ``last_seen_at`` default to NULL, mirroring ``Person.objects.create`` with no override.
+    defaults to ``now()`` (matching the model's ``auto_now_add``); ``version``,
+    ``last_seen_at`` and the ``properties_last_*`` maps default to NULL, mirroring
+    ``Person.objects.create`` with no override.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             f"INSERT INTO {settings.PERSON_TABLE_NAME} "
-            "(created_at, properties, is_identified, uuid, team_id, version, last_seen_at) "
-            "VALUES (COALESCE(%s, now()), %s, %s, %s, %s, %s, %s) RETURNING id",
-            (created_at, Jsonb(properties), is_identified, uuid or UUIDT(), team_id, version, last_seen_at),
+            "(created_at, properties, is_identified, uuid, team_id, version, last_seen_at, "
+            "properties_last_updated_at, properties_last_operation) "
+            "VALUES (COALESCE(%s, now()), %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (
+                created_at,
+                Jsonb(properties),
+                is_identified,
+                uuid or UUIDT(),
+                team_id,
+                version,
+                last_seen_at,
+                Jsonb(properties_last_updated_at) if properties_last_updated_at is not None else None,
+                Jsonb(properties_last_operation) if properties_last_operation is not None else None,
+            ),
         )
         row = cursor.fetchone()
         assert row is not None  # RETURNING always yields a row on a successful insert

@@ -5884,13 +5884,10 @@ class TestBatchCommitsEndToEnd:
         def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
             batch_sizes.append(len(batch_persons))
 
-        # Use Django's database connection for persons DB (shares test transaction)
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        connection = connections[PERSONS_DB_FOR_WRITE]
-        with connection.cursor() as cursor:
+        # Non-autocommit: process_persons_in_batches expects a transactional cursor (its commit_fn drives commits).
+        with persons_db_connection(writer=True) as connection, connection.cursor() as cursor:
             # Set up cursor settings
             cursor.execute("SET application_name = 'test_batch_commits'")
 
@@ -6068,13 +6065,10 @@ class TestBatchCommitsEndToEnd:
         def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
             batch_sizes.append(len(batch_persons))
 
-        # Use Django's database connection for persons DB (shares test transaction)
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        connection = connections[PERSONS_DB_FOR_WRITE]
-        with connection.cursor() as cursor:
+        # Non-autocommit: process_persons_in_batches expects a transactional cursor (its commit_fn drives commits).
+        with persons_db_connection(writer=True) as connection, connection.cursor() as cursor:
             result = process_persons_in_batches(
                 person_property_diffs=person_property_updates,
                 cursor=cursor,
@@ -6423,15 +6417,10 @@ class TestKafkaClickHouseRoundTrip:
 
         cluster.any_host(insert_person_ch).result()
 
-        # Get a Postgres connection for the job
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        persons_conn = connections[PERSONS_DB_FOR_WRITE]
-
-        # Create real Kafka producer
-        with override_settings(TEST=False):
+        # Create real Kafka producer. Non-autocommit: the dagster job drives commit()/rollback() on this resource.
+        with persons_db_connection(writer=True) as persons_conn, override_settings(TEST=False):
             kafka_producer = _KafkaProducer(test=False)
 
             try:
@@ -6699,13 +6688,10 @@ class TestKafkaClickHouseRoundTrip:
         cluster.any_host(insert_persons_ch_team2).result()
 
         # Run the Dagster job
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        persons_conn = connections[PERSONS_DB_FOR_WRITE]
-
-        with override_settings(TEST=False):
+        # Non-autocommit: the dagster job drives commit()/rollback() on this resource connection.
+        with persons_db_connection(writer=True) as persons_conn, override_settings(TEST=False):
             kafka_producer = _KafkaProducer(test=False)
 
             try:

@@ -324,6 +324,8 @@ def _create_person_in_persons_db(create_kwargs: dict[str, Any], dids: list[str])
             version=person.version,
             created_at=person.created_at,
             last_seen_at=person.last_seen_at,
+            properties_last_updated_at=person.properties_last_updated_at,
+            properties_last_operation=person.properties_last_operation,
         )
         for distinct_id in dids:
             insert_seed_distinct_id(conn, team_id=person.team_id, person_id=person.id, distinct_id=distinct_id)
