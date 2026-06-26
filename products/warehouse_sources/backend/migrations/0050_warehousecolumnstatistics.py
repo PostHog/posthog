@@ -40,7 +40,11 @@ class Migration(migrations.Migration):
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        db_constraint=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (
@@ -51,7 +55,12 @@ class Migration(migrations.Migration):
                         to="warehouse_sources.datawarehousetable",
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(
+                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
+                    ),
+                ),
             ],
             options={
                 "constraints": [

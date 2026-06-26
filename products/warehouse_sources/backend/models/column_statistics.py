@@ -19,7 +19,14 @@ class WarehouseColumnStatistics(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     is then False) and truncates long-string min/max, so treat string bounds as approximate.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # db_constraint=False on the FKs to hot tables (posthog_team, posthog_user): creating a real FK
+    # constraint takes a SHARE ROW EXCLUSIVE lock on the parent, which stalls under write traffic. Team
+    # scoping is enforced at the app level by TeamScopedRootMixin, and these are derived rows, so we don't
+    # need DB-level referential integrity here. The table FK targets a non-hot table, so it keeps its constraint.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
     table = models.ForeignKey(
         "warehouse_sources.DataWarehouseTable", on_delete=models.CASCADE, related_name="column_statistics"
     )

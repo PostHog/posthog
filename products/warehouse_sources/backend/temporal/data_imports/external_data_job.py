@@ -9,7 +9,7 @@ from django.conf import settings
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
-from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
@@ -519,23 +519,30 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 )
 
             # Profile the synced table's columns (null %, min/max, row count) from the Delta log. Gated up
-            # front (feature flag only — no data leaves our infra). Keyed per schema with USE_EXISTING so
-            # only one runs per schema at a time; the activity itself caps recompute to once a day. Same
-            # fire-and-forget metadata queue; ABANDON so it never blocks or fails the import.
+            # front (feature flag only — no data leaves our infra). Keyed per schema so only one runs per
+            # schema at a time: a concurrent sync that tries to start a second one gets
+            # WorkflowAlreadyStartedError, which we swallow (the running one already covers this schema).
+            # The activity itself caps recompute to once a day. Fire-and-forget metadata queue; ABANDON so
+            # it never blocks or fails the import.
             if statistics_enabled:
-                await workflow.start_child_workflow(
-                    ComputeTableStatisticsWorkflow.run,
-                    ComputeTableStatisticsInputs(
-                        team_id=inputs.team_id,
-                        schema_id=inputs.external_data_schema_id,
-                    ),
-                    id=f"compute-warehouse-table-statistics-{inputs.external_data_schema_id}",
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                    task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-                    parent_close_policy=ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(minutes=30),
-                )
+                try:
+                    await workflow.start_child_workflow(
+                        ComputeTableStatisticsWorkflow.run,
+                        ComputeTableStatisticsInputs(
+                            team_id=inputs.team_id,
+                            schema_id=inputs.external_data_schema_id,
+                        ),
+                        id=f"compute-warehouse-table-statistics-{inputs.external_data_schema_id}",
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                        task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+                        parent_close_policy=ParentClosePolicy.ABANDON,
+                        execution_timeout=dt.timedelta(minutes=30),
+                    )
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.info(
+                        "Column statistics already running for schema, skipping",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
 
             # Create source templates
             await workflow.execute_activity(

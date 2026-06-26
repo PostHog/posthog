@@ -12,8 +12,8 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class WarehouseColumnStatisticsSerializer(serializers.ModelSerializer):
-    table = serializers.PrimaryKeyRelatedField(
-        read_only=True, help_text="ID of the data warehouse table this column belongs to."
+    table = serializers.UUIDField(
+        source="table_id", read_only=True, help_text="ID of the data warehouse table this column belongs to."
     )
     column_name = serializers.CharField(read_only=True, help_text="Name of the column these statistics describe.")
     column_type = serializers.CharField(

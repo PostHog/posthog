@@ -213,8 +213,9 @@ class TestComputeTableStatisticsSync:
 
         rows = WarehouseColumnStatistics.objects.for_team(team.id).filter(table_id=table.id, column_name="amount")
         assert rows.count() == 1  # overwritten, not duplicated
-        assert rows.first().row_count == 99
-        assert rows.first().computed_for_delta_version == 5
+        row = rows.get()
+        assert row.row_count == 99
+        assert row.computed_for_delta_version == 5
 
     def test_skipped_when_computed_recently(self) -> None:
         team = self._team()
