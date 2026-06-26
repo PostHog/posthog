@@ -2691,6 +2691,8 @@ importers:
 
   products/batch_exports: {}
 
+  products/billing_alerts: {}
+
   products/business_knowledge:
     dependencies:
       '@posthog/icons':
