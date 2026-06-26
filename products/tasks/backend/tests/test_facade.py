@@ -201,6 +201,24 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIn(stale.id, stale_ids)
         self.assertNotIn(fresh.id, stale_ids)
 
+        ancient = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        now = django_timezone.now()
+        TaskRun.objects.filter(pk=ancient.pk).update(
+            created_at=now - timedelta(hours=50), updated_at=now - timedelta(hours=2)
+        )
+        resuming = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        TaskRun.objects.filter(pk=resuming.pk).update(
+            created_at=now - timedelta(hours=50), updated_at=now - timedelta(minutes=10)
+        )
+
+        self.assertNotIn(ancient.id, facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100))
+
+        hard_capped = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24), limit=100, created_hard_cap=timedelta(hours=48)
+        )
+        self.assertIn(ancient.id, hard_capped)
+        self.assertNotIn(resuming.id, hard_capped)
+
         with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
             self.assertTrue(facade.fail_task_run(stale.id, "boom"))
             # already-failed run is no longer QUEUED -> no-op
