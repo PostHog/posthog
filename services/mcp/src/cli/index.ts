@@ -100,9 +100,9 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
                 output_format: properties.output_format,
                 ...(properties.error_message ? { error_message: properties.error_message } : {}),
             }
-            void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL_CANONICAL, toolCallProperties)
-            // Legacy shim: remove with the hono shim once insights migrate off `mcp_tool_call`.
             void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, toolCallProperties)
+            // Legacy shim: remove with the hono shim once insights migrate off `mcp_tool_call`.
+            void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL_LEGACY, toolCallProperties)
         },
         [],
         { requireDestructiveConfirmation: true }
