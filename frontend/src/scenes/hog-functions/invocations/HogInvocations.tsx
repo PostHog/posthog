@@ -57,6 +57,17 @@ const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
 ]
 
 /**
+ * Workflows label a finished run "Completed" (matching the Metrics tab) rather than "Succeeded":
+ * the run reached the end of execution, but whether it actually went well can depend on async
+ * outcomes (e.g. an email bounce) surfaced separately by the per-row warning indicator. Destinations
+ * keep "Succeeded" — their invocations are synchronous, so success is decided within the run.
+ */
+const runStatusLabel = (status: RunStatus, functionKind: HogInvocationsFunctionKind): string =>
+    status === 'succeeded' && functionKind === 'hog_flow'
+        ? 'Completed'
+        : status.charAt(0).toUpperCase() + status.slice(1)
+
+/**
  * Preset windows mirroring the Logs viewer — covers minute-level scoping
  * (5m / 30m / 1h) plus the longer windows the table already supported.
  * Pairs with `allowTimePrecision` + `allowFixedRangeWithTime` so custom
@@ -300,7 +311,9 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
             width: 0,
             render: (_, row) => (
                 <div className="flex items-center gap-1">
-                    <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
+                    <LemonTag type={tagTypeForStatus(row.status)}>
+                        {runStatusLabel(row.status, functionKind).toUpperCase()}
+                    </LemonTag>
                     {row.problem_log_level && row.status === 'succeeded' ? (
                         <Tooltip
                             title={
@@ -486,6 +499,7 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                     <StatusFilterDropdown
+                        functionKind={functionKind}
                         value={filters.status ?? []}
                         onChange={(next) =>
                             setFilters({
@@ -544,6 +558,7 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
             </div>
 
             <RerunModal
+                functionKind={functionKind}
                 isOpen={rerunModalOpen}
                 onClose={() => setRerunModalOpen(false)}
                 initialDateFrom={filters.date_from}
@@ -773,6 +788,7 @@ function DetailField({
 }
 
 function RerunModal({
+    functionKind,
     isOpen,
     onClose,
     initialDateFrom,
@@ -780,6 +796,7 @@ function RerunModal({
     countMatches,
     onSubmit,
 }: {
+    functionKind: HogInvocationsFunctionKind
     isOpen: boolean
     onClose: () => void
     initialDateFrom: string
@@ -897,7 +914,7 @@ function RerunModal({
                         // exactly-once guard, so offering it here would queue a rerun that re-fires nothing.
                         options={STATUS_OPTIONS.filter((o) => o.value !== 'running').map((o) => ({
                             key: o.value,
-                            label: o.label,
+                            label: runStatusLabel(o.value, functionKind),
                         }))}
                         onChange={(values) => setStatus(values as RunStatus[])}
                         placeholder="Pick statuses to re-run"
@@ -945,9 +962,11 @@ function RerunModal({
 }
 
 function StatusFilterDropdown({
+    functionKind,
     value,
     onChange,
 }: {
+    functionKind: HogInvocationsFunctionKind
     value: RunStatus[]
     onChange: (next: RunStatus[]) => void
 }): JSX.Element {
@@ -955,7 +974,7 @@ function StatusFilterDropdown({
         value.length === 0 || value.length === STATUS_OPTIONS.length
             ? 'All statuses'
             : value.length === 1
-              ? (STATUS_OPTIONS.find((o) => o.value === value[0])?.label ?? value[0])
+              ? runStatusLabel(value[0], functionKind)
               : `${value.length} statuses`
     return (
         <LemonDropdown
@@ -979,7 +998,7 @@ function StatusFilterDropdown({
                                 )
                             }
                         >
-                            {option.label}
+                            {runStatusLabel(option.value, functionKind)}
                         </LemonButton>
                     ))}
                 </div>
