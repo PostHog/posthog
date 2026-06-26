@@ -1,12 +1,8 @@
-import { combineUrl } from 'kea-router'
-
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
+import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityTab, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { matchingExceptionsUrl, matchingIssuesUrl } from './ruleMatchUrls'
 
 const DATE_RANGE_LABELS: Record<string, string> = {
     '-7d': '7 days',
@@ -52,32 +48,8 @@ export function MatchResultBanner({
         )
     }
 
-    const issuesUrl = urls.errorTracking({
-        filterGroup: { type: filterType, values: [{ type: filterType, values: properties }] },
-        dateRange: { date_from: dateRange, date_to: null },
-    })
-
-    const exceptionsUrl = combineUrl(
-        urls.activity(ActivityTab.ExploreEvents),
-        {},
-        {
-            q: {
-                kind: NodeKind.DataTableNode,
-                full: true,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                    orderBy: ['timestamp DESC'],
-                    after: dateRange,
-                    event: '$exception',
-                    properties,
-                    tags: { productKey: ProductKey.ERROR_TRACKING },
-                },
-                propertiesViaUrl: true,
-                showPersistentColumnConfigurator: true,
-            },
-        }
-    ).url
+    const issuesUrl = matchingIssuesUrl(properties, filterType, dateRange)
+    const exceptionsUrl = matchingExceptionsUrl(properties, dateRange)
 
     const issuesLink = (
         <Link to={`${window.location.origin}${issuesUrl}`} target="_blank" targetBlankIcon={false}>

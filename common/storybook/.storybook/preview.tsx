@@ -10,6 +10,7 @@ import { worker } from '~/mocks/browser'
 import { defaultMocks } from '~/mocks/handlers'
 
 import { getStorybookAppContext } from './app-context'
+import { withChartCanvasSnapshot } from './decorators/withChartCanvasSnapshot'
 import { withFeatureFlags } from './decorators/withFeatureFlags'
 import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
@@ -23,8 +24,9 @@ const setupMsw = (): void => {
         onUnhandledRequest(request, print) {
             // MSW warns on all unhandled requests, but we don't necessarily care
             const pathAllowList = ['/images/']
+            const { pathname } = new URL(request.url)
 
-            if (pathAllowList.some((path) => request.url.pathname.startsWith(path))) {
+            if (pathAllowList.some((path) => pathname.startsWith(path))) {
                 return
             }
 
@@ -94,6 +96,8 @@ export const decorators: Meta['decorators'] = [
     withTheme,
     // Set the page URL
     withPageUrl,
+    // Suppress quill-charts canvas painting for snapshot stories that opt in via testOptions.skipCanvasDraw
+    withChartCanvasSnapshot,
 ]
 
 const preview: Preview = {

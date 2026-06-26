@@ -30,6 +30,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
+    InternalStageResult,
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import assert_clickhouse_records_in_s3
@@ -67,7 +68,7 @@ async def test_s3_export_workflow_handles_unexpected_insert_activity_errors(
 
     @activity.defn(name="insert_into_internal_stage_activity")
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
-        return
+        return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -133,7 +134,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
 
     @activity.defn(name="insert_into_internal_stage_activity")
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
-        return
+        return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -186,7 +187,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_compatible_batc
 
     @activity.defn(name="insert_into_internal_stage_activity")
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
-        return
+        return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
     @activity.defn(name="insert_into_s3_activity_from_stage")
     async def never_finish_activity_from_stage(_):

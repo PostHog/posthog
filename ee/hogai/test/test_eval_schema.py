@@ -5,8 +5,8 @@ from posthog.test.base import BaseTest
 
 import fastavro
 
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
 from products.warehouse_sources.backend.models import DataWarehouseTable
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 
 from ee.hogai.eval.schema import DataWarehouseTableSnapshot
 

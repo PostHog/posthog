@@ -125,26 +125,54 @@
        right-aligned, or an interactive button — gets it consistently. */
     .quill-table__head {
         height: 2.05rem;
-        padding-inline: 0.75rem;
+        padding-inline: 1rem;
         font-size: var(--text-xxs, 0.625rem);
         font-weight: 500;
         color: var(--muted-foreground);
         text-transform: uppercase;
         letter-spacing: 0.05em;
         white-space: nowrap;
-        background-color: var(--background);
         border-bottom: 1px solid var(--border);
     }
 
     .quill-table__cell {
         padding-block: 0.5rem;
-        padding-inline: 0.75rem;
-        background-color: var(--background);
+        padding-inline: 1rem;
         border-bottom: 1px solid var(--border);
     }
 
     .quill-table__body .quill-table__row:last-child .quill-table__cell {
         border-bottom: none;
+    }
+
+    /* `size="sm"`: tighten head/cell inline padding so the edge columns align with
+       a `Card size="sm"` (0.75rem inline). Block padding and the header's negative
+       button margin are unchanged. */
+    .quill-table[data-size='sm'] .quill-table__head,
+    .quill-table[data-size='sm'] .quill-table__cell {
+        padding-inline: 0.75rem;
+    }
+
+    /* Full-span empty cell. height:100% claims the lone body row's height (which
+       fills a height-bounded Table), and the inner flex column resolves that
+       height so children — including Empty's own flex-1 — stretch and center.
+       With an auto-height table it collapses to its content instead. */
+    .quill-table__empty {
+        height: 100%;
+    }
+
+    /* Empty already sits inside the table's own border, so drop its dashed frame. */
+    .quill-table__empty [data-slot='empty'] {
+        border: none;
+    }
+
+    .quill-table__empty-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
     }
 
     .quill-table__row:hover .quill-table__cell {
@@ -223,11 +251,19 @@
        generic viewport-edge shadows above still signal off-screen overflow.
        ========================================================================= */
 
+    /* Sticky cells get an opaque background or scrolled-under content bleeds
+       through; plain cells stay transparent. The background is inherited, so set
+       `--quill-table-sticky-bg` on the Table (or any ancestor) to match a
+       non-default surface, e.g. `var(--card)` inside a Card; it falls back to the
+       app background. The fallback lives here (not as a re-declaration on
+       `.quill-table`) so an override on the outer container still inherits down. */
+
     /* --- Sticky header --- */
     .quill-table[data-sticky-header] .quill-table__head {
         position: sticky;
         top: var(--quill-table-sticky-top, 0);
         z-index: 2;
+        background-color: var(--quill-table-sticky-bg, var(--background));
     }
 
     /* --- Sticky columns — sticky="left" | "right" on TableHead / TableCell.
@@ -237,6 +273,7 @@
     .quill-table__cell[data-sticky] {
         position: sticky;
         z-index: 1;
+        background-color: var(--quill-table-sticky-bg, var(--background));
     }
 
     .quill-table__head[data-sticky='left'],

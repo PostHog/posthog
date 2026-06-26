@@ -6,7 +6,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { alphabet, formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
+import { alphabet } from 'lib/utils/strings'
 
 import type { MultivariateFlagVariant } from '~/types'
 

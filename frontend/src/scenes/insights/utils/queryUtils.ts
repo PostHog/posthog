@@ -1,4 +1,4 @@
-import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
+import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { isValidRE2 } from 'lib/utils/regexp'
 import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from 'scenes/funnels/funnelUtils'
 
@@ -182,6 +182,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.Metric]: ChartDisplayType.ActionsLineGraph,
 
     // cumulative time series
     [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayType.ActionsLineGraphCumulative,
@@ -200,6 +201,9 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
 
     // separate runner
     [ChartDisplayType.BoxPlot]: ChartDisplayType.BoxPlot,
+
+    // separate runner — only the two range endpoints, cached on its own key
+    [ChartDisplayType.SlopeGraph]: ChartDisplayType.SlopeGraph,
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
@@ -261,6 +265,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             funnelStepReference: undefined,
             breakdownSorting: undefined,
             dataColorTheme: undefined,
+            legendPosition: undefined,
         }
 
         if (isTrendsQuery(cleanedQuery)) {

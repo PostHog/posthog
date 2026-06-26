@@ -1,6 +1,6 @@
 jest.unmock('lib/utils/concurrencyController')
 
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 
 import { ConcurrencyController } from './concurrencyController'
 

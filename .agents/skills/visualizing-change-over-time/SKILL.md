@@ -8,8 +8,8 @@ description: >
   "changed", "moved", "grew", "dropped", "improved", or "regressed" between two
   points or periods, or mentions "before/after", "period over period", "week over
   week", "delta", "slope graph", "slopegraph", or comparing many series across two
-  snapshots. Surfaces the SlopeChart as one of the options. Not for picking a native
-  insight ChartDisplayType in the product analytics insight editor.
+  snapshots. Surfaces both the `SlopeChart` quill component and the native
+  `ChartDisplayType.SlopeGraph` insight display as options.
 ---
 
 # Visualizing change over time
@@ -76,14 +76,24 @@ charts AGENTS.md for theme wiring and sizing.
 
 ## Scope note
 
-`SlopeChart` is a charts-library component — use it for dashboards, reports, the
-`mcp_analytics` frontend, and custom visualizations. It already backs the **Slope**
-view toggle on Max's inline trends result card
-(`services/mcp/src/ui-apps/components/TrendsVisualizer.tsx`). It is **not** yet a
-native insight `ChartDisplayType`, so it does not appear in the product analytics
-insight chart picker and cannot be created through the `posthog:insight-create` MCP
-tool. If
-a user wants the slope graph as a first-class, one-click insight display, that is a
-larger change: add `ChartDisplayType.SlopeChart` in `frontend/src/types.ts`, a
-picker entry in `ChartFilter.tsx` (gate behind a feature flag), and a rendering path
-in the trends view — mirroring how `BoxPlot` was wired in.
+There are **two** ways to render a slope graph; which you reach for depends on the surface:
+
+- **`SlopeChart`** — the `@posthog/quill-charts` component. Use it when building UI
+  directly: dashboards, reports, the `mcp_analytics` frontend, custom visualizations.
+  It backs the **Slope** view toggle on Max's inline trends result card
+  (`services/mcp/src/ui-apps/components/TrendsVisualizer.tsx`).
+- **`ChartDisplayType.SlopeGraph`** — a first-class insight display (value
+  `'SlopeGraph'` in `frontend/src/types.ts`), rendered by the backend
+  `SlopeGraphTrendsQueryRunner`
+  (`posthog/hogql_queries/insights/trends/slope_graph_trends_query_runner.py`). It
+  takes a `TrendsQuery` and keeps the **first and last bucket** of the date range as
+  the two slope points (the last segment is dashed when it's the current,
+  still-accumulating period). Set it via `trendsFilter.display: "SlopeGraph"`
+  (trends-only).
+  - In the **product insight editor**, the picker entry is gated behind
+    `FEATURE_FLAGS.SLOPE_GRAPH_INSIGHT` (`slope-graph-insight`).
+  - Via the **API / `posthog:insight-create` MCP tool** it works without the flag —
+    pass a `TrendsQuery` with `trendsFilter.display: "SlopeGraph"`. To frame a clean
+    before → after, choose the date range and `interval` so the first bucket is your
+    baseline and the last is "now" (e.g. monthly buckets starting from the baseline
+    month).

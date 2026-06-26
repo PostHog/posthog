@@ -27,8 +27,8 @@ top-level `required` array.
 - `AGENT_SPEC_JSON_SCHEMA` — full shape, used for OpenAPI annotation so the
   MCP tool surface advertises every field plus its default.
 - `AGENT_SPEC_JSON_SCHEMA_FOR_WRITE` — relaxed required list, used for
-  Django `validate_spec` so the same `{"model": "x"}` that zod accepts also
-  passes Django.
+  Django `validate_spec` so the same `{"model": "anthropic/claude-haiku-4-5"}`
+  that zod accepts also passes Django.
 """
 
 from __future__ import annotations
@@ -42,12 +42,10 @@ from typing import Any
 _APPROVAL_POLICY_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "approvers": {
-            "type": "array",
-            "minItems": 1,
-            "items": {"type": "string", "enum": ["team_admins", "session_principal"]},
-            "default": ["team_admins"],
-        },
+        # `principal` (default) — the session's principal clears it (a generic
+        # identity match, decided at the lightweight ingress API). `agent` — the
+        # agent's owners (created_by + team admins) clear it in the console.
+        "type": {"type": "string", "enum": ["principal", "agent"], "default": "principal"},
         "allow_edit": {"type": "boolean", "default": False},
         "ttl_ms": {
             "type": "integer",
@@ -55,7 +53,6 @@ _APPROVAL_POLICY_JSON_SCHEMA: dict[str, Any] = {
             "maximum": 7 * 24 * 60 * 60 * 1000,
             "default": 24 * 60 * 60 * 1000,
         },
-        "allow_agent_approver": {"type": "boolean", "default": False},
     },
     "additionalProperties": False,
 }
@@ -86,6 +83,14 @@ _AUTH_CONFIG_JSON_SCHEMA: dict[str, Any] = {
                         "properties": {
                             "type": {"type": "string", "const": "posthog"},
                             "scopes": {"default": [], "type": "array", "items": {"type": "string"}},
+                            # Invocation boundary: bind to the agent's owning project
+                            # (default) or its owning organization. Mirrors the
+                            # `audience` field on `AuthModeSchema`'s posthog variant.
+                            "audience": {
+                                "default": "project",
+                                "type": "string",
+                                "enum": ["project", "organization"],
+                            },
                         },
                         "required": ["type"],
                         "additionalProperties": False,
@@ -126,7 +131,107 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
-        "model": {"type": "string", "minLength": 1},
+        # Model selection (mirrors `AgentSpecSchema.models`, default
+        # auto/medium). auto: platform resolves `level` to a cross-provider list
+        # at runtime. manual: author's explicit priority list.
+        "models": {
+            "description": (
+                "How this agent selects its model. `auto`: pick a quality/cost `level` and the platform "
+                "resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: "
+                "give an explicit priority-ordered `models` list (primary first). `optimize_for` governs "
+                "how the chosen model is treated across the session's turns."
+            ),
+            "default": {"mode": "auto", "level": "medium", "optimize_for": "cost"},
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "mode": {"type": "string", "const": "auto"},
+                        "level": {
+                            "description": (
+                                "Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning "
+                                "jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded "
+                                "work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a "
+                                "priority-ordered cross-provider list at session start."
+                            ),
+                            "default": "medium",
+                            "type": "string",
+                            "enum": ["low", "medium", "high"],
+                        },
+                        "reasoning": {
+                            "description": (
+                                "Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … "
+                                "xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/"
+                                "spec default."
+                            ),
+                            "type": "string",
+                            "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                        },
+                        "optimize_for": {
+                            "description": (
+                                "Session model stability vs. resilience. `cost` (default): the first turn picks a "
+                                "working model and PINS it for the whole session — keeps the provider's prompt cache "
+                                "warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if "
+                                "the pinned model is down the turn fails rather than re-reading the whole context cold "
+                                "on another provider. `availability`: fail over to the next model when the session's "
+                                "model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` "
+                                "for long/expensive sessions, `availability` where uptime matters more than spend."
+                            ),
+                            "default": "cost",
+                            "type": "string",
+                            "enum": ["cost", "availability"],
+                        },
+                    },
+                    "required": ["mode"],
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "mode": {"type": "string", "const": "manual"},
+                        "models": {
+                            "description": "Explicit priority-ordered fallback list — the runner tries entries in order (primary first).",
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "model": {
+                                        "description": "Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).",
+                                        "type": "string",
+                                        "minLength": 1,
+                                        # Mirror of `ModelIdSchema` in agent-shared/src/spec/spec.ts.
+                                        # `<provider>/<model-id>` — bare ids freeze fine but the
+                                        # gateway 400s on first session; reject at authoring time.
+                                        "pattern": r"^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$",
+                                    },
+                                    "reasoning": {
+                                        "description": "Per-model reasoning effort override (else the spec default).",
+                                        "type": "string",
+                                        "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                                    },
+                                },
+                                "required": ["model"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        "optimize_for": {
+                            "description": (
+                                "Session model stability vs. resilience. `cost` (default): pin the first working model "
+                                "for the whole session (warm prompt cache, no mid-session failover). `availability`: "
+                                "fail over down this list when the session's model fails (survives outages, re-reads "
+                                "context cold)."
+                            ),
+                            "default": "cost",
+                            "type": "string",
+                            "enum": ["cost", "availability"],
+                        },
+                    },
+                    "required": ["mode", "models"],
+                    "additionalProperties": False,
+                },
+            ],
+        },
         "triggers": {
             "default": [],
             "type": "array",
@@ -144,6 +249,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                     "auto_resume_threads": {"default": False, "type": "boolean"},
                                     "allow_workspace_participants": {"default": False, "type": "boolean"},
                                     "ack_reaction": {"type": "string"},
+                                    "allow_direct_messages": {"default": False, "type": "boolean"},
                                     "trusted_workspaces": {
                                         "anyOf": [
                                             {"minItems": 1, "type": "array", "items": {"type": "string"}},
@@ -155,6 +261,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                     "mention_only",
                                     "auto_resume_threads",
                                     "allow_workspace_participants",
+                                    "allow_direct_messages",
                                     "trusted_workspaces",
                                 ],
                                 "additionalProperties": False,
@@ -280,6 +387,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "path": {"type": "string"},
                             "requires_approval": {"type": "boolean", "default": False},
                             "approval_policy": _APPROVAL_POLICY_JSON_SCHEMA,
+                            "requires_identity": {"type": "string"},
                         },
                         "required": ["kind", "id", "path"],
                         "additionalProperties": False,
@@ -294,7 +402,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "kind": {"type": "string", "const": "custom_template"},
                             "from_template": {"type": "string"},
                             "alias": {"type": "string"},
-                            "version": {"type": "integer", "minimum": 0},
+                            "version": {"type": "integer", "minimum": 1},
                         },
                         "required": ["kind", "from_template", "alias"],
                         "additionalProperties": False,
@@ -330,8 +438,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             "default": [],
             "type": "array",
             # Single flat shape — third-party MCP server reachable over HTTP.
-            # The `kind: 'agent'` agent-to-agent variant was removed; see
-            # `docs/agent-platform/plans/agent-as-mcp-server.md` for re-add.
+            # The `kind: 'agent'` agent-to-agent variant was removed.
             "items": {
                 "type": "object",
                 "properties": {
@@ -339,7 +446,9 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "url": {"type": "string", "format": "uri"},
                     "auth": {
                         "type": "object",
-                        "properties": {"integration": {"type": "string"}},
+                        "properties": {
+                            "provider": {"type": "string"},
+                        },
                         "additionalProperties": False,
                     },
                     "secrets": {
@@ -374,32 +483,8 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                     "properties": {
                                         "name": {"type": "string", "minLength": 1},
                                         "requires_approval": {"type": "boolean", "default": False},
-                                        "approval_policy": {
-                                            "type": "object",
-                                            "properties": {
-                                                "approvers": {
-                                                    "type": "array",
-                                                    "minItems": 1,
-                                                    "items": {
-                                                        "type": "string",
-                                                        "enum": ["team_admins", "session_principal"],
-                                                    },
-                                                    "default": ["team_admins"],
-                                                },
-                                                "allow_edit": {"type": "boolean", "default": False},
-                                                "ttl_ms": {
-                                                    "type": "integer",
-                                                    "minimum": 60000,
-                                                    "maximum": 7 * 24 * 60 * 60 * 1000,
-                                                    "default": 24 * 60 * 60 * 1000,
-                                                },
-                                                "allow_agent_approver": {
-                                                    "type": "boolean",
-                                                    "default": False,
-                                                },
-                                            },
-                                            "additionalProperties": False,
-                                        },
+                                        # Same block as the native/custom tool refs — keep in sync.
+                                        "approval_policy": _APPROVAL_POLICY_JSON_SCHEMA,
                                     },
                                     "required": ["name"],
                                     "additionalProperties": False,
@@ -423,19 +508,105 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "description": {"type": "string"},
                     # Registry lineage for a skill pinned from a template.
                     # Present on a draft spec; freeze resolves `from_template`,
-                    # assembles `skills/<alias>/SKILL.md`, and stamps id/path.
+                    # assembles `skills/<alias>/SKILL.md`, and stamps id/path +
+                    # `source_version_id`. Allowed here so a forked frozen spec
+                    # (which carries the stamped provenance) round-trips through
+                    # the write path — authors can't set skills[] regardless, the
+                    # serializer pins it to the server value.
                     "from_template": {"type": "string"},
                     "alias": {"type": "string"},
-                    "version": {"type": "integer", "minimum": 0},
+                    "version": {"type": "integer", "minimum": 1},
+                    "source_version_id": {"type": "string"},
                 },
                 "required": ["id", "path"],
                 "additionalProperties": False,
             },
         },
-        "integrations": {"default": [], "type": "array", "items": {"type": "string"}},
-        "secrets": {"default": [], "type": "array", "items": {"type": "string"}},
+        # Identity providers users can link against. Mirror IdentityProviderConfigSchema
+        # in services/agent-shared/src/spec/spec.ts.
+        "identity_providers": {
+            "default": [],
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "const": "posthog"},
+                            "id": {"type": "string", "minLength": 1, "default": "posthog"},
+                            # `agent` (one app-scoped credential shared by every asker)
+                            # isn't implemented at runtime yet, so it's rejected here
+                            # until it lands — the runtime seam exists, but no spec can
+                            # select it. Keep in lockstep with the zod enum in spec.ts.
+                            "binding": {"type": "string", "enum": ["principal"], "default": "principal"},
+                            "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
+                            # Backend-injected on promote (the provisioned
+                            # OAuthApplication's client_id). Authors never set it.
+                            "client_id": {"type": "string"},
+                        },
+                        "required": ["kind"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "const": "oauth2"},
+                            "id": {"type": "string", "minLength": 1},
+                            # `agent` (one app-scoped credential shared by every asker)
+                            # isn't implemented at runtime yet, so it's rejected here
+                            # until it lands — the runtime seam exists, but no spec can
+                            # select it. Keep in lockstep with the zod enum in spec.ts.
+                            "binding": {"type": "string", "enum": ["principal"], "default": "principal"},
+                            "authorize_url": {"type": "string", "format": "uri"},
+                            "token_url": {"type": "string", "format": "uri"},
+                            "client_id": {"type": "string", "minLength": 1},
+                            "client_secret_ref": {"type": "string"},
+                            "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
+                            "userinfo_url": {"type": "string", "format": "uri"},
+                        },
+                        "required": ["kind", "id", "authorize_url", "token_url", "client_id"],
+                        "additionalProperties": False,
+                    },
+                ]
+            },
+        },
+        # Two accepted forms — mirrors `SecretRefSchema` in
+        # services/agent-shared/src/spec/spec.ts. The bare-string form
+        # declares a resolvable name without authority to be sent over the
+        # wire by `@posthog/http-request`; the object form pins the secret
+        # to a fixed set of hosts (`allowed_hosts`), and only then does the
+        # runner substitute it into outbound URL/headers/body. Keep this in
+        # lockstep with the zod schema; the runner is the source of truth.
+        "secrets": {
+            "default": [],
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {"type": "string", "minLength": 1},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "minLength": 1},
+                            "allowed_hosts": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {"type": "string", "minLength": 1},
+                            },
+                        },
+                        "required": ["name", "allowed_hosts"],
+                        "additionalProperties": False,
+                    },
+                ],
+            },
+        },
         "limits": {
-            "default": {"max_turns": 50, "max_tool_calls": 200, "max_wall_seconds": 900},
+            "default": {
+                "max_turns": 50,
+                "max_tool_calls": 200,
+                "max_wall_seconds": 900,
+                "max_memory_mb": 512,
+                "max_cpu_cores": 0.25,
+            },
             "type": "object",
             "properties": {
                 "max_turns": {"default": 50, "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991},
@@ -456,23 +627,70 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "exclusiveMinimum": 0,
                     "maximum": 200000,
                 },
+                "max_memory_mb": {
+                    "default": 512,
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384,
+                },
+                "max_cpu_cores": {"default": 0.25, "type": "number", "exclusiveMinimum": 0, "maximum": 8},
             },
-            "required": ["max_turns", "max_tool_calls", "max_wall_seconds"],
+            "required": ["max_turns", "max_tool_calls", "max_wall_seconds", "max_memory_mb", "max_cpu_cores"],
             "additionalProperties": False,
         },
-        "entrypoint": {"default": "agent.md", "type": "string"},
         "reasoning": {"type": "string", "enum": ["minimal", "low", "medium", "high", "xhigh"]},
+        "framework_prompt": {
+            "type": "object",
+            "properties": {
+                "omit": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "meta_tool_guidance",
+                            "state_contract",
+                            "tool_failure_guidance",
+                            "approval_guidance",
+                            "reasoning_hint",
+                        ],
+                    },
+                },
+                "version_pin": {"type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991},
+            },
+            "required": ["omit"],
+            "additionalProperties": False,
+        },
+        "resume": {
+            "type": "object",
+            "properties": {
+                "enabled": {"default": False, "type": "boolean"},
+                "max_completed_age_ms": {
+                    "default": 604800000,
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                },
+            },
+            "required": ["enabled", "max_completed_age_ms"],
+            "additionalProperties": False,
+        },
     },
+    # Structural required list (the RAW schema). Every entry here has a
+    # `default`, so `_relax_required_for_defaults` drops all of them from
+    # `AGENT_SPEC_JSON_SCHEMA_FOR_WRITE` — the schema authoring/validation
+    # actually runs against (serializers.validate_spec). So a spec may omit
+    # any of these, incl. `models`: the runner falls back to auto/medium.
+    # The old top-level `model` field is gone entirely; `models` replaces it.
+    # Mirror `AgentSpecSchema` in services/agent-shared/src/spec/spec.ts.
     "required": [
-        "model",
+        "models",
         "triggers",
         "tools",
         "mcps",
         "skills",
-        "integrations",
         "secrets",
         "limits",
-        "entrypoint",
     ],
     "additionalProperties": False,
 }

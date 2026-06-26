@@ -1372,7 +1372,12 @@ export function defineCatalogFilterTests(
             }
             const { tools } = await listToolsWithQuery(harness, '?features=this-feature-does-not-exist')
             expect(Array.isArray(tools)).toBe(true)
-            expect(tools.length).toBe(0)
+            // `always_available` utility tools (e.g. agent-feedback, gated by its
+            // own feature flag) bypass feature filtering by design, so an unknown
+            // feature yields only those — assert no feature-gated tool leaked,
+            // rather than a hard-empty list.
+            const featureGated = tools.filter((t) => t.name !== 'agent-feedback')
+            expect(featureGated).toHaveLength(0)
         })
 
         // Read-only mode is the safety toggle agents flip when they want

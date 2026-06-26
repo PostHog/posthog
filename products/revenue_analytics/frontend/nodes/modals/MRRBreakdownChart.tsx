@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useCallback } from 'react'
 
 import { getBarColorFromStatus } from 'lib/colors'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { getCurrencySymbol } from 'lib/utils/currency'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { teamLogic } from 'scenes/teamLogic'
 

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM posthog_personlessdistinctid\n            WHERE id IN (\n                SELECT id FROM posthog_personlessdistinctid\n                WHERE team_id = $1\n                LIMIT $2\n                FOR UPDATE SKIP LOCKED\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fc5037764742e242ed6745972363081ad6f13f95c1631338deb54f30d8b018f0"
+}

@@ -10,7 +10,7 @@ import {
     legendItemsFromSeries,
 } from '@posthog/quill-charts'
 
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
 
 import { Card, CardState } from '../dashboard/Card'
 import { formatMsAsSeconds } from '../dashboard/formatters'

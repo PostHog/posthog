@@ -28,8 +28,14 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
+from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
-from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.models.person.util import (
+    create_person as create_person_in_ch,
+    create_person_distinct_id,
+)
+from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.test.persons import add_distinct_id, create_person
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -841,14 +847,27 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             properties={"$browser": "whatever", "$os": "Mac OS X"},
         )
 
-        self.client.post("/api/person/{}/split/".format(person1.pk), {"main_distinct_id": "1"})
+        with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.id,
+                person_id=person1.pk,
+                uuid=str(person1.uuid),
+                distinct_ids=["1", "2", "3"],
+            )
 
-        people = Person.objects.filter(team_id=self.team.id).order_by("id")
-        self.assertEqual(people.count(), 3)
-        self.assertEqual(people[0].distinct_ids, ["1"])
-        self.assertEqual(people[0].properties, {"$browser": "whatever", "$os": "Mac OS X"})
-        self.assertEqual(people[1].distinct_ids, ["2"])
-        self.assertEqual(people[2].distinct_ids, ["3"])
+            self.client.post("/api/person/{}/split/".format(person1.pk), {"main_distinct_id": "1"})
+
+            split_calls = fake.assert_called("split_person", times=1)
+            self.assertEqual(list(split_calls[0].request.distinct_ids_to_split), ["2", "3"])
+            # "1" stays on the original; "2" and "3" each land on their own new person
+            self.assertEqual(fake._persons_by_distinct_id[(self.team.id, "1")].id, person1.pk)
+            moved = {did: fake._persons_by_distinct_id[(self.team.id, did)].id for did in ["2", "3"]}
+            self.assertNotIn(person1.pk, moved.values())
+            self.assertNotEqual(moved["2"], moved["3"])
+
+        # Properties stay on the original person when a main_distinct_id is given
+        person1.refresh_from_db()
+        self.assertEqual(person1.properties, {"$browser": "whatever", "$os": "Mac OS X"})
 
         self._assert_person_activity(
             person_id=person1.uuid,
@@ -887,13 +906,24 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             immediate=True,
         )
 
-        response = self.client.post("/api/person/{}/split/".format(person1.pk))
-        people = Person.objects.filter(team_id=self.team.id).order_by("id")
-        self.assertEqual(people.count(), 3)
-        self.assertEqual(people[0].distinct_ids, ["1"])
-        self.assertEqual(people[0].properties, {})
-        self.assertEqual(people[1].distinct_ids, ["2"])
-        self.assertEqual(people[2].distinct_ids, ["3"])
+        with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.id,
+                person_id=person1.pk,
+                uuid=str(person1.uuid),
+                distinct_ids=["1", "2", "3"],
+            )
+
+            response = self.client.post("/api/person/{}/split/".format(person1.pk))
+
+            # Without a main_distinct_id the first distinct_id stays; the rest split off
+            split_calls = fake.assert_called("split_person", times=1)
+            self.assertEqual(list(split_calls[0].request.distinct_ids_to_split), ["2", "3"])
+            self.assertEqual(fake._persons_by_distinct_id[(self.team.id, "1")].id, person1.pk)
+
+        # Properties are always kept on the original person
+        person1.refresh_from_db()
+        self.assertEqual(person1.properties, {"$browser": "whatever", "$os": "Mac OS X"})
         self.assertTrue(response.json()["success"])
 
     def test_split_people_partial_moves_only_specified_ids(self) -> None:
@@ -904,22 +934,34 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             immediate=True,
         )
 
-        response = self.client.post(
-            "/api/person/{}/split/".format(person1.pk),
-            {"distinct_ids_to_split": ["move1", "move2"]},
-        )
-        self.assertEqual(response.status_code, 201, response.content)
-        self.assertTrue(response.json()["success"])
+        with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.id,
+                person_id=person1.pk,
+                uuid=str(person1.uuid),
+                distinct_ids=["keep1", "move1", "keep2", "move2"],
+            )
 
+            response = self.client.post(
+                "/api/person/{}/split/".format(person1.pk),
+                {"distinct_ids_to_split": ["move1", "move2"]},
+            )
+            self.assertEqual(response.status_code, 201, response.content)
+            self.assertTrue(response.json()["success"])
+
+            split_calls = fake.assert_called("split_person", times=1)
+            self.assertEqual(list(split_calls[0].request.distinct_ids_to_split), ["move1", "move2"])
+
+            # Kept distinct_ids stay on the original; each moved one lands on its own new person.
+            for did in ["keep1", "keep2"]:
+                self.assertEqual(fake._persons_by_distinct_id[(self.team.id, did)].id, person1.pk)
+            moved = {did: fake._persons_by_distinct_id[(self.team.id, did)].id for did in ["move1", "move2"]}
+            self.assertNotIn(person1.pk, moved.values())
+            self.assertNotEqual(moved["move1"], moved["move2"])
+
+        # The partial-split guarantee: the original person keeps its properties.
         original = Person.objects.get(team_id=self.team.id, pk=person1.pk)
-        self.assertCountEqual(original.distinct_ids, ["keep1", "keep2"])
         self.assertEqual(original.properties, {"$browser": "whatever", "$os": "Mac OS X"})
-
-        # Two new persons, one per moved distinct_id.
-        other_people = Person.objects.filter(team_id=self.team.id).exclude(pk=person1.pk).order_by("id")
-        self.assertEqual(other_people.count(), 2)
-        moved_ids = {did for p in other_people for did in p.distinct_ids}
-        self.assertEqual(moved_ids, {"move1", "move2"})
 
     def test_split_people_partial_rejects_unknown_distinct_id(self) -> None:
         person1 = _create_person(
@@ -1001,7 +1043,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.validation_error_response("required", "This field is required.", "properties"),
         )
 
-    @mock.patch("posthog.api.person.capture_internal_routed")
+    @mock.patch("posthog.api.person.capture_internal")
     def test_new_update_single_person_property(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1024,7 +1066,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal_routed")
+    @mock.patch("posthog.api.person.capture_internal")
     def test_new_delete_person_properties(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1047,7 +1089,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal_routed")
+    @mock.patch("posthog.api.person.capture_internal")
     def test_update_person_property_by_numeric_id(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1070,7 +1112,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal_routed")
+    @mock.patch("posthog.api.person.capture_internal")
     def test_delete_person_property_by_numeric_id(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1093,7 +1135,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal_routed")
+    @mock.patch("posthog.api.person.capture_internal")
     def test_update_person_property_with_null_value(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1383,27 +1425,39 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             immediate=True,
         )
 
-        response = self.client.post("/api/person/{}/split/".format(person.uuid)).json()
-        self.assertTrue(response["success"])
+        with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.id,
+                person_id=person.pk,
+                uuid=str(person.uuid),
+                distinct_ids=["1", "2", "3"],
+            )
 
-        people = Person.objects.filter(team_id=self.team.id).order_by("id")
+            response = self.client.post("/api/person/{}/split/".format(person.uuid)).json()
+            self.assertTrue(response["success"])
+
+        # ClickHouse ends up with the original person plus one new person per
+        # split distinct_id, each with its deterministic UUID.
+        expected_person_by_did = {
+            "1": person.uuid,
+            "2": uuidFromDistinctId(self.team.pk, "2"),
+            "3": uuidFromDistinctId(self.team.pk, "3"),
+        }
         clickhouse_people = sync_execute(
             "SELECT id FROM person FINAL WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )
-        self.assertCountEqual(clickhouse_people, [(person.uuid,) for person in people])
+        self.assertCountEqual(clickhouse_people, [(uuid,) for uuid in expected_person_by_did.values()])
 
         pdis2 = sync_execute(
             "SELECT person_id, distinct_id, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )
 
-        self.assertEqual(len(pdis2), PersonDistinctId.objects.count())
-
-        for person in people:
-            self.assertEqual(len(person.distinct_ids), 1)
-            matching_row = next(row for row in pdis2 if row[0] == person.uuid)
-            self.assertEqual(matching_row, (person.uuid, person.distinct_ids[0], 0))
+        self.assertEqual(len(pdis2), 3)
+        for distinct_id, expected_uuid in expected_person_by_did.items():
+            matching_row = next(row for row in pdis2 if row[1] == distinct_id)
+            self.assertEqual(matching_row, (expected_uuid, distinct_id, 0))
 
     def test_split_person_overrides_delete_version(self):
         """
@@ -1413,23 +1467,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         When splitting, the new person should use version + 101 (e.g., version 101) to ensure
         ClickHouse sees the split person as more recent than the delete event.
         """
-        from posthog.models.person.missing_person import uuidFromDistinctId
         from posthog.models.person.util import delete_person
 
         # Create person A with UUID derived from the distinct_id (same UUID that split will use)
         person_a_uuid = uuidFromDistinctId(self.team.pk, "deleted_user")
-        person_a = Person.objects.create(
+        person_a = create_person(
             team=self.team,
             uuid=person_a_uuid,
             version=0,
         )
-        PersonDistinctId.objects.create(
-            team_id=self.team.pk,
-            person=person_a,
-            distinct_id="deleted_user",
-            version=0,
-        )
-        create_person(
+        add_distinct_id(person=person_a, distinct_id="deleted_user", version=0)
+        create_person_in_ch(
             team_id=self.team.pk,
             uuid=str(person_a.uuid),
             version=0,
@@ -1454,12 +1502,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Manually add the deleted distinct_id to person B (simulating a merge scenario)
         # This would happen in a real scenario where events come in for the deleted distinct_id
-        PersonDistinctId.objects.create(
-            team_id=self.team.pk,
-            person=person_b,
-            distinct_id="deleted_user",
-            version=2,
-        )
+        add_distinct_id(person=person_b, distinct_id="deleted_user", version=2)
         create_person_distinct_id(
             team_id=self.team.pk,
             distinct_id="deleted_user",
@@ -1472,8 +1515,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(set(person_b.distinct_ids), {"active_user", "deleted_user"})
 
         # Split person B
-        response = self.client.post("/api/person/{}/split/".format(person_b.uuid)).json()
-        self.assertTrue(response["success"])
+        with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.pk,
+                person_id=person_b.pk,
+                uuid=str(person_b.uuid),
+                distinct_ids=["active_user", "deleted_user"],
+                distinct_id_versions={"deleted_user": 2},
+            )
+
+            response = self.client.post("/api/person/{}/split/".format(person_b.uuid)).json()
+            self.assertTrue(response["success"])
 
         # Verify ClickHouse has the correct state
         ch_persons = sync_execute(
@@ -1591,7 +1643,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         for index in range(0, 19):
             created_ids.append(str(index + 100))
-            Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            create_person(  # creating without _create_person to guarentee created_at ordering
                 team=self.team,
                 distinct_ids=[str(index + 100)],
                 properties={"$browser": "whatever", "$os": "Windows"},
@@ -1601,10 +1653,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # In this case Clickhouse will return a user that then doesn't get returned by postgres.
         # We would return an empty "next" url.
         # Now we just return 9 people instead
-        create_person(team_id=self.team.pk, version=0)
+        create_person_in_ch(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(9):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -1615,12 +1667,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(9):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
     def test_retrieve_person(self):
-        person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+        person = create_person(  # creating without _create_person to guarentee created_at ordering
             team=self.team, distinct_ids=["123456789"]
         )
 
@@ -1631,7 +1683,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response["distinct_ids"] == ["123456789"]
 
     def test_retrieve_person_by_uuid(self):
-        person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+        person = create_person(  # creating without _create_person to guarentee created_at ordering
             team=self.team, distinct_ids=["123456789"]
         )
 
@@ -1720,7 +1772,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         shared_uuid = str(uuid4())
 
         # Phase 1: Person and distinct_id exist in CH as deleted
-        create_person(
+        create_person_in_ch(
             uuid=shared_uuid,
             team_id=self.team.pk,
             is_deleted=True,
@@ -1737,13 +1789,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Phase 2: New event reuses the distinct_id, creating a new person in PG
         # with the same deterministic UUID. The signal writes to CH with version=0,
         # which is ignored because 0 < 105.
-        person = Person.objects.create(team_id=self.team.pk, properties={"abcdefg": 11112}, version=0, uuid=shared_uuid)
-        PersonDistinctId.objects.create(
-            team_id=self.team.pk,
-            person=person,
-            distinct_id="distinct_id",
-            version=0,
-        )
+        person = create_person(team=self.team, properties={"abcdefg": 11112}, version=0, uuid=shared_uuid)
+        add_distinct_id(person=person, distinct_id="distinct_id", version=0)
 
         # Phase 3: Reset
         response = self.client.post(
@@ -1784,7 +1831,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Verify: PG person version is updated so future plugin-server updates aren't ignored
         person.refresh_from_db()
-        assert person.version > 105
+        assert person.version is not None and person.version > 105
 
     @mock.patch(
         f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",
@@ -1793,28 +1840,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @pytest.mark.flaky(reruns=2)
     def test_reset_person_distinct_id_not_found(self, mocked_ch_call):
         # person who shouldn't be changed
-        person_not_changed_1 = Person.objects.create(
-            team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
-        )
+        person_not_changed_1 = create_person(team=self.team, properties={"abcdef": 1111}, version=0, uuid=uuid4())
 
         # distinct id no update
-        PersonDistinctId.objects.create(
-            team_id=self.team.pk,
-            person=person_not_changed_1,
-            distinct_id="distinct_id-1",
-            version=0,
-        )
+        add_distinct_id(person=person_not_changed_1, distinct_id="distinct_id-1", version=0)
 
         # deleted person not re-used
-        person_deleted_1 = Person.objects.create(
-            team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
-        )
-        PersonDistinctId.objects.create(
-            team_id=self.team.pk,
-            person=person_deleted_1,
-            distinct_id="distinct_id-del-1",
-            version=16,
-        )
+        person_deleted_1 = create_person(team=self.team, properties={"abcdef": 1111}, version=0, uuid=uuid4())
+        add_distinct_id(person=person_deleted_1, distinct_id="distinct_id-del-1", version=16)
         person_deleted_1.delete()
 
         response = self.client.post(
@@ -2017,7 +2050,7 @@ class TestPersonFromClickhouse(TestPerson):
 
         for index in range(0, 19):
             created_ids.append(str(index + 100))
-            Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            create_person(  # creating without _create_person to guarentee created_at ordering
                 team=self.team,
                 distinct_ids=[str(index + 100)],
                 properties={"$browser": "whatever", "$os": "Windows"},

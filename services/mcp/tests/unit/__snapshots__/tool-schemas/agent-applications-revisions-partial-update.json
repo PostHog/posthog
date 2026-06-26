@@ -5,6 +5,7 @@
             "type": "string"
         },
         "bundle_uri": {
+            "description": "Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.",
             "type": "string"
         },
         "id": {
@@ -25,24 +26,134 @@
         },
         "spec": {
             "properties": {
-                "entrypoint": {
-                    "default": "agent.md",
-                    "type": "string"
+                "framework_prompt": {
+                    "properties": {
+                        "omit": {
+                            "default": [],
+                            "items": {
+                                "enum": [
+                                    "meta_tool_guidance",
+                                    "state_contract",
+                                    "tool_failure_guidance",
+                                    "approval_guidance",
+                                    "reasoning_hint"
+                                ],
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "version_pin": {
+                            "exclusiveMinimum": 0,
+                            "maximum": 2147483647,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
                 },
-                "integrations": {
+                "identity_providers": {
                     "default": [],
                     "items": {
-                        "type": "string"
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "binding": {
+                                        "default": "principal",
+                                        "enum": ["principal"],
+                                        "type": "string"
+                                    },
+                                    "client_id": {
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "default": "posthog",
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "const": "posthog",
+                                        "type": "string"
+                                    },
+                                    "scopes": {
+                                        "default": [],
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    }
+                                },
+                                "required": ["kind"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "authorize_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    },
+                                    "binding": {
+                                        "default": "principal",
+                                        "enum": ["principal"],
+                                        "type": "string"
+                                    },
+                                    "client_id": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "client_secret_ref": {
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "const": "oauth2",
+                                        "type": "string"
+                                    },
+                                    "scopes": {
+                                        "default": [],
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "token_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    },
+                                    "userinfo_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["kind", "id", "authorize_url", "token_url", "client_id"],
+                                "type": "object"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
                 "limits": {
                     "default": {
+                        "max_cpu_cores": 0.25,
+                        "max_memory_mb": 512,
                         "max_tool_calls": 200,
                         "max_turns": 50,
                         "max_wall_seconds": 900
                     },
                     "properties": {
+                        "max_cpu_cores": {
+                            "default": 0.25,
+                            "exclusiveMinimum": 0,
+                            "maximum": 8,
+                            "type": "number"
+                        },
+                        "max_memory_mb": {
+                            "default": 512,
+                            "exclusiveMinimum": 0,
+                            "maximum": 16384,
+                            "type": "number"
+                        },
                         "max_output_tokens": {
                             "exclusiveMinimum": 0,
                             "maximum": 200000,
@@ -75,7 +186,7 @@
                         "properties": {
                             "auth": {
                                 "properties": {
-                                    "integration": {
+                                    "provider": {
                                         "type": "string"
                                     }
                                 },
@@ -112,28 +223,20 @@
                                             "properties": {
                                                 "approval_policy": {
                                                     "properties": {
-                                                        "allow_agent_approver": {
-                                                            "default": false,
-                                                            "type": "boolean"
-                                                        },
                                                         "allow_edit": {
                                                             "default": false,
                                                             "type": "boolean"
-                                                        },
-                                                        "approvers": {
-                                                            "default": ["team_admins"],
-                                                            "items": {
-                                                                "enum": ["team_admins", "session_principal"],
-                                                                "type": "string"
-                                                            },
-                                                            "minItems": 1,
-                                                            "type": "array"
                                                         },
                                                         "ttl_ms": {
                                                             "default": 86400000,
                                                             "maximum": 604800000,
                                                             "minimum": 60000,
                                                             "type": "number"
+                                                        },
+                                                        "type": {
+                                                            "default": "principal",
+                                                            "enum": ["principal", "agent"],
+                                                            "type": "string"
                                                         }
                                                     },
                                                     "type": "object"
@@ -164,18 +267,127 @@
                     },
                     "type": "array"
                 },
-                "model": {
-                    "minLength": 1,
-                    "type": "string"
+                "models": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "level": {
+                                    "default": "medium",
+                                    "description": "Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start.",
+                                    "enum": ["low", "medium", "high"],
+                                    "type": "string"
+                                },
+                                "mode": {
+                                    "const": "auto",
+                                    "type": "string"
+                                },
+                                "optimize_for": {
+                                    "default": "cost",
+                                    "description": "Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend.",
+                                    "enum": ["cost", "availability"],
+                                    "type": "string"
+                                },
+                                "reasoning": {
+                                    "description": "Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default.",
+                                    "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["mode"],
+                            "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "mode": {
+                                    "const": "manual",
+                                    "type": "string"
+                                },
+                                "models": {
+                                    "description": "Explicit priority-ordered fallback list — the runner tries entries in order (primary first).",
+                                    "items": {
+                                        "properties": {
+                                            "model": {
+                                                "description": "Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).",
+                                                "minLength": 1,
+                                                "pattern": "^[a-z0-9_-]+\\/[a-zA-Z0-9._:-]+$",
+                                                "type": "string"
+                                            },
+                                            "reasoning": {
+                                                "description": "Per-model reasoning effort override (else the spec default).",
+                                                "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["model"],
+                                        "type": "object"
+                                    },
+                                    "minItems": 1,
+                                    "type": "array"
+                                },
+                                "optimize_for": {
+                                    "default": "cost",
+                                    "description": "Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold).",
+                                    "enum": ["cost", "availability"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["mode", "models"],
+                            "type": "object"
+                        }
+                    ],
+                    "default": {
+                        "level": "medium",
+                        "mode": "auto",
+                        "optimize_for": "cost"
+                    },
+                    "description": "How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns."
                 },
                 "reasoning": {
                     "enum": ["minimal", "low", "medium", "high", "xhigh"],
                     "type": "string"
                 },
+                "resume": {
+                    "properties": {
+                        "enabled": {
+                            "default": false,
+                            "type": "boolean"
+                        },
+                        "max_completed_age_ms": {
+                            "default": 604800000,
+                            "exclusiveMinimum": 0,
+                            "maximum": 2147483647,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
                 "secrets": {
                     "default": [],
                     "items": {
-                        "type": "string"
+                        "anyOf": [
+                            {
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            {
+                                "properties": {
+                                    "allowed_hosts": {
+                                        "items": {
+                                            "minLength": 1,
+                                            "type": "string"
+                                        },
+                                        "minItems": 1,
+                                        "type": "array"
+                                    },
+                                    "name": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["name", "allowed_hosts"],
+                                "type": "object"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -198,8 +410,11 @@
                             "path": {
                                 "type": "string"
                             },
+                            "source_version_id": {
+                                "type": "string"
+                            },
                             "version": {
-                                "minimum": 0,
+                                "minimum": 1,
                                 "type": "number"
                             }
                         },
@@ -216,28 +431,20 @@
                                 "properties": {
                                     "approval_policy": {
                                         "properties": {
-                                            "allow_agent_approver": {
-                                                "default": false,
-                                                "type": "boolean"
-                                            },
                                             "allow_edit": {
                                                 "default": false,
                                                 "type": "boolean"
-                                            },
-                                            "approvers": {
-                                                "default": ["team_admins"],
-                                                "items": {
-                                                    "enum": ["team_admins", "session_principal"],
-                                                    "type": "string"
-                                                },
-                                                "minItems": 1,
-                                                "type": "array"
                                             },
                                             "ttl_ms": {
                                                 "default": 86400000,
                                                 "maximum": 604800000,
                                                 "minimum": 60000,
                                                 "type": "number"
+                                            },
+                                            "type": {
+                                                "default": "principal",
+                                                "enum": ["principal", "agent"],
+                                                "type": "string"
                                             }
                                         },
                                         "type": "object"
@@ -261,28 +468,20 @@
                                 "properties": {
                                     "approval_policy": {
                                         "properties": {
-                                            "allow_agent_approver": {
-                                                "default": false,
-                                                "type": "boolean"
-                                            },
                                             "allow_edit": {
                                                 "default": false,
                                                 "type": "boolean"
-                                            },
-                                            "approvers": {
-                                                "default": ["team_admins"],
-                                                "items": {
-                                                    "enum": ["team_admins", "session_principal"],
-                                                    "type": "string"
-                                                },
-                                                "minItems": 1,
-                                                "type": "array"
                                             },
                                             "ttl_ms": {
                                                 "default": 86400000,
                                                 "maximum": 604800000,
                                                 "minimum": 60000,
                                                 "type": "number"
+                                            },
+                                            "type": {
+                                                "default": "principal",
+                                                "enum": ["principal", "agent"],
+                                                "type": "string"
                                             }
                                         },
                                         "type": "object"
@@ -300,6 +499,9 @@
                                     "requires_approval": {
                                         "default": false,
                                         "type": "boolean"
+                                    },
+                                    "requires_identity": {
+                                        "type": "string"
                                     }
                                 },
                                 "required": ["kind", "id", "path"],
@@ -318,7 +520,7 @@
                                         "type": "string"
                                     },
                                     "version": {
-                                        "minimum": 0,
+                                        "minimum": 1,
                                         "type": "number"
                                     }
                                 },
@@ -377,6 +579,10 @@
                                         "properties": {
                                             "ack_reaction": {
                                                 "type": "string"
+                                            },
+                                            "allow_direct_messages": {
+                                                "default": false,
+                                                "type": "boolean"
                                             },
                                             "allow_workspace_participants": {
                                                 "default": false,
@@ -442,6 +648,11 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "audience": {
+                                                                    "default": "project",
+                                                                    "enum": ["project", "organization"],
+                                                                    "type": "string"
+                                                                },
                                                                 "scopes": {
                                                                     "default": [],
                                                                     "items": {
@@ -592,6 +803,11 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "audience": {
+                                                                    "default": "project",
+                                                                    "enum": ["project", "organization"],
+                                                                    "type": "string"
+                                                                },
                                                                 "scopes": {
                                                                     "default": [],
                                                                     "items": {
@@ -698,6 +914,11 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "audience": {
+                                                                    "default": "project",
+                                                                    "enum": ["project", "organization"],
+                                                                    "type": "string"
+                                                                },
                                                                 "scopes": {
                                                                     "default": [],
                                                                     "items": {
@@ -787,7 +1008,6 @@
                     "type": "array"
                 }
             },
-            "required": ["model"],
             "type": "object"
         }
     },

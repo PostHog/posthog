@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { objectClean } from 'lib/utils'
+import { objectClean } from 'lib/utils/objects'
 
 import { AlertState } from '~/queries/schema/schema-general'
 

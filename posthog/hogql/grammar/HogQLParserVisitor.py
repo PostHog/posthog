@@ -539,6 +539,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#ColumnExprNullSafeEq.
+    def visitColumnExprNullSafeEq(self, ctx:HogQLParser.ColumnExprNullSafeEqContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#ColumnExprPrecedence3.
     def visitColumnExprPrecedence3(self, ctx:HogQLParser.ColumnExprPrecedence3Context):
         return self.visitChildren(ctx)

@@ -15,7 +15,7 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -536,8 +536,11 @@ export function LemonInputSelect<T = string>({
     }
 
     const _onFocus = (): void => {
-        // In single mode, when focusing with a selected value, enter edit mode right away
-        if (mode === 'single' && values.length > 0 && !inputValue) {
+        // In single mode with a free-text (custom) value, seed the input with the current value
+        // so the user can edit it. Don't do this for option-backed selects: there the key is an
+        // opaque id (e.g. a UUID), and seeding it makes the dropdown filter down to just the
+        // selected option, hiding every other choice. Leaving the input empty shows the full list.
+        if (mode === 'single' && values.length > 0 && !inputValue && allowCustomValues) {
             setInputValue(getStringKey(values[0]))
         }
         onFocus?.()

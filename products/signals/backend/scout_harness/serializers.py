@@ -40,6 +40,14 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text="Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled.",
     )
+    created_at = serializers.CharField(
+        help_text=(
+            "ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` "
+            "filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking "
+            "past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and "
+            "its bridge row aren't skipped."
+        ),
+    )
     started_at = serializers.CharField(help_text="ISO-8601 timestamp the TaskRun was created.")
     completed_at = serializers.CharField(
         allow_null=True,
@@ -164,6 +172,35 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class LinkedSignalReportSerializer(serializers.Serializer):
+    """Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+    for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+    the full report itself."""
+
+    id = serializers.UUIDField(help_text="UUID of the linked `SignalReport`.")
+    title = serializers.CharField(
+        allow_null=True,
+        help_text="LLM-generated report title, or null if the report hasn't been summarised yet.",
+    )
+    status = serializers.CharField(help_text="Current report status (e.g. `potential`, `ready`, `resolved`).")
+
+
+class ScoutEmissionReportLinkSerializer(serializers.Serializer):
+    """One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+
+    Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+    grouped into a report yet, was de-duplicated away, or its signal was deleted."""
+
+    finding_id = serializers.CharField(help_text="Stable id the finding was emitted under.")
+    source_id = serializers.CharField(
+        help_text="Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store.",
+    )
+    report = LinkedSignalReportSerializer(
+        allow_null=True,
+        help_text="The inbox report this finding linked to, or null if none could be resolved.",
+    )
+
+
 class SearchRecentRunsQuerySerializer(serializers.Serializer):
     """Query parameters for `search-recent-runs`."""
 
@@ -175,7 +212,7 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         required=False,
         help_text=(
             "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result "
-            "cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run "
+            "cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run "
             "from the prior page)."
         ),
     )
@@ -232,6 +269,16 @@ class ScratchpadEntrySerializer(serializers.Serializer):
         allow_null=True,
         help_text="Run that wrote this entry, or null if human-authored.",
     )
+    created_by_skill = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.",
+    )
+    created_by_run_url = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.",
+    )
 
 
 class SearchMemoryQuerySerializer(serializers.Serializer):
@@ -241,6 +288,18 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
+    )
+    date_from = serializers.DateTimeField(
+        required=False,
+        help_text="ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result "
+            "cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry "
+            "from the prior page)."
+        ),
     )
     keys_only = serializers.BooleanField(
         required=False,
@@ -261,8 +320,8 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=100,
-        help_text="Max rows to return (default 20, hard cap 100).",
+        max_value=500,
+        help_text="Max rows to return (default 20, hard cap 500).",
     )
 
 
@@ -271,7 +330,12 @@ class RememberRequestSerializer(serializers.Serializer):
 
     key = serializers.CharField(
         max_length=300,
-        help_text="Agent-chosen semantic key. Re-using a key updates the existing entry in place.",
+        help_text=(
+            "Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. "
+            "Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run "
+            "id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key "
+            "and keep the timestamp in `content`."
+        ),
     )
     content = serializers.CharField(
         max_length=MAX_SCRATCHPAD_CONTENT_LENGTH,
@@ -282,7 +346,8 @@ class RememberRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Run that authored this memory; persisted as `created_by_run_id` for lineage. "
-            "Must reference a run on this same project — cross-project run UUIDs are rejected."
+            "Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left "
+            "null), not rejected, so the memory write is never lost."
         ),
     )
 
@@ -994,9 +1059,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     )
     run_interval_minutes = serializers.IntegerField(
         required=False,
-        min_value=10,
+        min_value=30,
         max_value=43200,
-        help_text="Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.",
+        help_text="Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
     )
     last_run_at = serializers.DateTimeField(
         read_only=True,
@@ -1061,9 +1126,9 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
     )
     run_interval_minutes = serializers.IntegerField(
         required=False,
-        min_value=10,
+        min_value=30,
         max_value=43200,
-        help_text="Minutes between runs (10–43200). Defaults to 60 (hourly).",
+        help_text="Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
     )
 
     def validate_skill_name(self, value: str) -> str:
@@ -1072,3 +1137,49 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
             raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
         return value
+
+
+# --- Team metadata ---------------------------------------------------------
+
+
+class ScoutLimitsSerializer(serializers.Serializer):
+    """A team's enforced scout run caps and current usage.
+
+    These are the values the coordinator actually applies at dispatch (resolved per-team override →
+    fleet-wide default → code constant), so the UI can show the real throttle rather than what a
+    user thinks they configured.
+    """
+
+    max_runs_per_tick = serializers.IntegerField(
+        help_text="Most scout runs the team can start in a single 30-minute coordinator tick."
+    )
+    max_runs_per_day = serializers.IntegerField(
+        allow_null=True,
+        help_text="Most scout runs the team can start per rolling 24 hours, or null when uncapped.",
+    )
+    runs_today = serializers.IntegerField(
+        help_text="Scout runs the team has started in the trailing 24 hours.",
+    )
+    runs_remaining_today = serializers.IntegerField(
+        allow_null=True,
+        help_text="Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.",
+    )
+
+
+class ScoutMetadataSerializer(serializers.Serializer):
+    """Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
+    the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
+    change without a deploy to either app."""
+
+    enrolled = serializers.BooleanField(
+        help_text=(
+            "Whether this project runs scouts. True when the project is in the signals-scout flag's "
+            'enrollment set — either listed explicitly in guaranteed_team_ids or covered by the "*" '
+            "wildcard (every project that turns scouts on) — and not in skip_team_ids."
+        )
+    )
+    banner_message = serializers.CharField(
+        allow_null=True,
+        help_text="Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.",
+    )
+    limits = ScoutLimitsSerializer(help_text="The team's enforced scout run caps and current usage.")
