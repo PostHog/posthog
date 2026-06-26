@@ -1279,6 +1279,9 @@ async def run_consumers(
                                 (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
                                     _cast_to_lossless_timestamp, unit="us"
                                 ),
+                                (pa.timestamp("ms", tz="Etc/UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
+                                    _cast_to_lossless_timestamp, unit="us"
+                                ),
                             },
                         ),
                         serialized,
@@ -1603,6 +1606,10 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                         (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
                                             _cast_to_lossless_timestamp, unit="us"
                                         ),
+                                        (
+                                            pa.timestamp("ms", tz="Etc/UTC"),
+                                            pa.timestamp("us", tz="UTC"),
+                                        ): functools.partial(_cast_to_lossless_timestamp, unit="us"),
                                     },
                                 ),
                                 serialized,
