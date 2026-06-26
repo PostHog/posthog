@@ -125,7 +125,10 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         person_uuid = uuid4()
         with persons_db_connection(writer=True, autocommit=True) as conn:
             person_id = insert_seed_person(conn, team_id=self.team.pk, properties={}, version=0, uuid=person_uuid)
-            insert_seed_distinct_id(conn, team_id=self.team.pk, person_id=person_id, distinct_id="test-id", version=0)
+            # version=None exercises the sync's NULL->0 coercion (the point of this test).
+            insert_seed_distinct_id(
+                conn, team_id=self.team.pk, person_id=person_id, distinct_id="test-id", version=None
+            )
 
         run_distinct_id_sync(self.team.pk, live_run=True, deletes=False)
 

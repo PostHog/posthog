@@ -81,9 +81,13 @@ def insert_seed_distinct_id(
     team_id: int,
     person_id: int,
     distinct_id: str,
-    version: int = 0,
+    version: int | None = 0,
 ) -> None:
-    """Insert one distinct-id row linking ``distinct_id`` to ``person_id``."""
+    """Insert one distinct-id row linking ``distinct_id`` to ``person_id``.
+
+    ``version`` defaults to 0 but accepts ``None`` to write a NULL version (the column is
+    nullable), mirroring ``PersonDistinctId.objects.create(version=None)``.
+    """
     with conn.cursor() as cursor:
         cursor.execute(
             f"INSERT INTO {PERSON_DISTINCT_ID_TABLE} (distinct_id, person_id, team_id, version) VALUES (%s, %s, %s, %s)",
@@ -129,8 +133,8 @@ def insert_seed_group_type_mapping(
 ) -> int:
     """Insert one group-type-mapping row and return its id.
 
-    ``created_at`` is written as given (``None`` stays NULL — the model's auto_now_add only fires
-    through ``save()``, which this bypasses); callers pass ``now()`` for the normal case.
+    ``created_at`` is written as given (``None`` stays NULL — the model's custom ``save()`` stamps
+    created_at only on insert, which this bypasses); callers pass ``now()`` for the normal case.
     """
     with conn.cursor() as cursor:
         cursor.execute(

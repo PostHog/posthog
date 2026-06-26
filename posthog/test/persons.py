@@ -535,7 +535,7 @@ def create_group_type_mapping(*, team: Team | None = None, **kwargs: Any) -> Gro
                 group_type_index=mapping.group_type_index,
                 name_singular=mapping.name_singular,
                 name_plural=mapping.name_plural,
-                default_columns=list(mapping.default_columns) if mapping.default_columns else None,
+                default_columns=list(mapping.default_columns) if mapping.default_columns is not None else None,
                 detail_dashboard_id=mapping.detail_dashboard_id,
                 created_at=mapping.created_at,
             )
