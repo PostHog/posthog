@@ -35,6 +35,8 @@ RECONCILE_INTERVAL_SECONDS = 300.0
 RECONCILE_GRACE_SECONDS = 120  # don't race a _fail_run that is still in flight
 RECONCILE_LOOKBACK_SECONDS = 24 * 60 * 60  # wide enough to catch jobs orphaned by consumer outages
 
+SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 30.0
+
 
 class OwnershipLostError(Exception):
     """Raised when the advisory lock for a (team_id, schema_id) group is no longer held."""
@@ -84,13 +86,29 @@ class BatchConsumerAdapter(Protocol):
     succeeded_state: str
     waiting_retry_state: str
 
-    async def fetch_and_lock(
+    async def fetch_candidates(
         self,
         conn: psycopg.AsyncConnection[Any],
         *,
         limit: int,
         retry_backoff_base_seconds: int,
     ) -> list[PendingBatch]: ...
+
+    async def try_lock_group(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> bool: ...
+
+    async def unlock_group(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None: ...
 
     async def unlock(
         self,
@@ -171,15 +189,14 @@ class BatchConsumer:
         self._adapter = adapter
         self._health_reporter = health_reporter
         self._metrics = metrics or DELTA_CONSUMER_METRICS
-        self._semaphore = asyncio.Semaphore(config.max_concurrency)
         self._shutdown = asyncio.Event()
-        self._conn: psycopg.AsyncConnection[Any] | None = None
+        self._poll_conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_conn: psycopg.AsyncConnection[Any] | None = None
-        # Serialize reconnects: concurrent groups all hit _ensure_*_conn on a bounce; without a lock each would dial its own connection and orphan all but the last.
-        self._main_conn_lock = asyncio.Lock()
+        self._poll_conn_lock = asyncio.Lock()
         self._recovery_conn_lock = asyncio.Lock()
         self._recovery_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
+        self._in_flight: dict[tuple[int, str], asyncio.Task[None]] = {}
         # Monotonic stamp of the last reconcile sweep; runs inside the recovery loop so both share one connection.
         self._last_reconcile_monotonic = 0.0
         # batch_id -> monotonic start, for the stuck-batch watchdog.
@@ -192,16 +209,15 @@ class BatchConsumer:
             autocommit=True,
         )
 
-    async def _ensure_main_conn(self) -> psycopg.AsyncConnection[Any]:
-        """Return the main queue connection, reconnecting if a failover/pgbouncer bounce dropped it."""
-        if self._conn is not None and not self._conn.closed and not self._conn.broken:
-            return self._conn
-        async with self._main_conn_lock:
-            # Re-check under the lock: another coroutine may have already reconnected while we waited.
-            if self._conn is None or self._conn.closed or self._conn.broken:
-                logger.warning(self._event("queue_db_main_connection_reconnecting"))
-                self._conn = await self._connect()
-            return self._conn
+    async def _ensure_poll_conn(self) -> psycopg.AsyncConnection[Any]:
+        """Return the poll connection, reconnecting if a failover/pgbouncer bounce dropped it."""
+        if self._poll_conn is not None and not self._poll_conn.closed and not self._poll_conn.broken:
+            return self._poll_conn
+        async with self._poll_conn_lock:
+            if self._poll_conn is None or self._poll_conn.closed or self._poll_conn.broken:
+                logger.warning(self._event("queue_db_poll_connection_reconnecting"))
+                self._poll_conn = await self._connect()
+            return self._poll_conn
 
     async def _ensure_recovery_conn(self) -> psycopg.AsyncConnection[Any]:
         """Return the recovery/reconcile connection, reconnecting so a dropped one can't disable the sweeps forever."""
@@ -222,7 +238,7 @@ class BatchConsumer:
     async def run(self) -> None:
         self._install_signal_handlers()
 
-        self._conn = await self._connect()
+        self._poll_conn = await self._connect()
         self._recovery_conn = await self._connect()
 
         logger.info(
@@ -240,16 +256,22 @@ class BatchConsumer:
             while not self._shutdown.is_set():
                 self._report_health()
 
+                self._reap_finished_tasks()
+
+                available = self._config.max_concurrency - len(self._in_flight)
+                if available <= 0:
+                    await self._wait_or_shutdown(self._config.poll_interval_seconds)
+                    continue
+
                 poll_start = time.monotonic()
                 try:
-                    conn = await self._ensure_main_conn()
-                    batches = await self._adapter.fetch_and_lock(
+                    conn = await self._ensure_poll_conn()
+                    batches = await self._adapter.fetch_candidates(
                         conn,
                         limit=self._config.poll_limit,
                         retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
                     )
                 except psycopg.OperationalError as e:
-                    # Queue DB unreachable — keep the pod alive; the next iteration reconnects.
                     logger.exception(self._event("poll_failed_queue_db_unreachable"))
                     capture_exception(e)
                     await self._wait_or_shutdown(self._config.poll_interval_seconds)
@@ -269,22 +291,60 @@ class BatchConsumer:
                     group_count=len(groups),
                 )
 
-                self._metrics.active_groups.inc(len(groups))
-                try:
-                    await asyncio.gather(
-                        *[self._process_group(key, group_batches) for key, group_batches in groups.items()]
-                    )
-                finally:
-                    self._metrics.active_groups.dec(len(groups))
+                for key, group_batches in groups.items():
+                    if key in self._in_flight:
+                        continue
+                    if len(self._in_flight) >= self._config.max_concurrency:
+                        break
+                    task = asyncio.create_task(self._process_group_tracked(key, group_batches))
+                    self._in_flight[key] = task
+                    self._metrics.active_groups.inc()
+
+                await self._wait_or_shutdown(self._config.poll_interval_seconds)
         finally:
             await self._close()
 
+    def _reap_finished_tasks(self) -> None:
+        """Remove completed group tasks from the in-flight registry and log exceptions."""
+        finished = [key for key, task in self._in_flight.items() if task.done()]
+        for key in finished:
+            task = self._in_flight.pop(key)
+            self._metrics.active_groups.dec()
+            exc = task.exception() if not task.cancelled() else None
+            if exc is not None:
+                logger.exception(
+                    self._event("group_task_unhandled_exception"),
+                    team_id=key[0],
+                    schema_id=key[1],
+                    exc_info=exc,
+                )
+                capture_exception(exc)
+
+    async def _process_group_tracked(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
+        """Wrapper that ensures the group task is self-contained (never propagates exceptions to the event loop)."""
+        try:
+            await self._process_group(key, batches)
+        except Exception as e:
+            logger.exception(
+                self._event("process_group_unhandled_error"),
+                team_id=key[0],
+                schema_id=key[1],
+            )
+            capture_exception(e)
+
     async def _process_group(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
         team_id, schema_id = key
-        # Pin the connection that holds the advisory locks so status writes stay on the same session.
-        lock_conn = self._conn
-        await self._semaphore.acquire()
+        group_conn = await self._connect()
         try:
+            locked = await self._adapter.try_lock_group(group_conn, team_id=team_id, schema_id=schema_id)
+            if not locked:
+                logger.debug(
+                    self._event("group_lock_not_acquired"),
+                    team_id=team_id,
+                    schema_id=schema_id,
+                )
+                return
+
             for batch in batches:
                 if self._shutdown.is_set():
                     logger.info(
@@ -295,7 +355,7 @@ class BatchConsumer:
                     )
                     break
                 try:
-                    succeeded = await self._process_single(batch, lock_conn=lock_conn)
+                    succeeded = await self._process_single(batch, lock_conn=group_conn)
                 except OwnershipLostError:
                     logger.warning(
                         self._event("ownership_lost_abandoning_group"),
@@ -304,7 +364,6 @@ class BatchConsumer:
                     )
                     break
                 except Exception as e:
-                    # A queue-DB write failing mid-batch (e.g. stale conn after a bounce) must cost this group, not the pod.
                     logger.exception(
                         self._event("process_single_unhandled_error"),
                         team_id=team_id,
@@ -315,8 +374,6 @@ class BatchConsumer:
                     capture_exception(e)
                     succeeded = False
                 if not succeeded:
-                    # Stop processing sibling batches in this run once one fails or
-                    # enters waiting_retry -- later batches depend on earlier ones.
                     logger.info(
                         self._event("group_halted_by_non_success"),
                         team_id=team_id,
@@ -326,18 +383,19 @@ class BatchConsumer:
                     )
                     break
         finally:
-            self._semaphore.release()
             try:
-                assert lock_conn is not None
-                await self._adapter.unlock(lock_conn, batches=batches)
+                await self._adapter.unlock_group(group_conn, team_id=team_id, schema_id=schema_id)
             except Exception as e:
-                # A dead session already released its locks server-side; don't crash every concurrent group.
                 logger.exception(
-                    self._event("unlock_for_batches_failed"),
+                    self._event("unlock_group_failed"),
                     team_id=team_id,
                     external_data_schema_id=schema_id,
                 )
                 capture_exception(e)
+            try:
+                await group_conn.close()
+            except Exception:
+                pass
 
     async def _get_status_conn(self, lock_conn: psycopg.AsyncConnection[Any] | None) -> psycopg.AsyncConnection[Any]:
         """Return the connection to use for status writes, preferring the lock session."""
@@ -345,7 +403,7 @@ class BatchConsumer:
             if lock_conn.closed or lock_conn.broken:
                 raise OwnershipLostError("lock session is dead")
             return lock_conn
-        return await self._ensure_main_conn()
+        return await self._ensure_poll_conn()
 
     async def _verify_ownership(self, lock_conn: psycopg.AsyncConnection[Any] | None, batch: PendingBatch) -> None:
         """Raise OwnershipLostError if this session no longer holds the advisory lock."""
@@ -444,7 +502,7 @@ class BatchConsumer:
                 run_uuid=batch.run_uuid,
                 attempt=attempt,
             )
-            await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})")
+            await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})", conn=lock_conn)
             return False
 
         status_conn = await self._get_status_conn(lock_conn)
@@ -470,12 +528,24 @@ class BatchConsumer:
         heartbeat_task: asyncio.Task[None] | None = None
         try:
             start = time.monotonic()
-            should_process = await self._adapter.should_process_batch(await self._ensure_main_conn(), batch=batch)
+            should_process = await self._adapter.should_process_batch(status_conn, batch=batch)
             if should_process:
                 if lock_conn is not None:
                     heartbeat_task = asyncio.create_task(self._batch_heartbeat(lock_conn, batch, attempt))
                 await self._process_batch(batch)
-                await self._adapter.after_batch_processed(await self._ensure_main_conn(), batch=batch)
+
+                # Cancel heartbeat before any post-processing DB writes to avoid
+                # concurrent use of lock_conn (psycopg async connections are not
+                # safe for concurrent coroutine access).
+                if heartbeat_task is not None:
+                    heartbeat_task.cancel()
+                    try:
+                        await heartbeat_task
+                    except asyncio.CancelledError:
+                        pass
+                    heartbeat_task = None
+
+                await self._adapter.after_batch_processed(status_conn, batch=batch)
 
             duration = time.monotonic() - start
             self._metrics.batch_processing_duration_seconds.labels(team_id=team_id, schema_id=schema_id).observe(
@@ -513,7 +583,7 @@ class BatchConsumer:
                     attempt=attempt,
                 )
                 capture_exception(err)
-                await self._fail_run(batch, reason=f"max retries exceeded: {err}")
+                await self._fail_run(batch, reason=f"max retries exceeded: {err}", conn=lock_conn)
             else:
                 logger.warning(
                     self._event("batch_failed_will_retry"),
@@ -544,13 +614,11 @@ class BatchConsumer:
         conn: psycopg.AsyncConnection[Any] | None = None,
     ) -> None:
         """Fail the run via the adapter; the adapter isolates each step so a failure can't crash the consumer."""
-        conn = conn or await self._ensure_main_conn()
+        conn = conn or await self._ensure_poll_conn()
 
         try:
             await self._adapter.fail_run(conn, batch=batch, reason=reason)
         except Exception as e:
-            # Adapters are documented no-raise; this is the engine's backstop so a
-            # buggy adapter cannot crash _recovery_sweep or _process_single_inner.
             logger.exception(self._event("adapter_fail_run_raised"), batch_id=batch.id, run_uuid=batch.run_uuid)
             capture_exception(e)
         self._metrics.runs_failed_total.inc()
@@ -686,7 +754,6 @@ class BatchConsumer:
                 finally:
                     structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
         finally:
-            # Release probe locks acquired by keep_locks=True.
             try:
                 await self._adapter.unlock(conn, batches=stale)
             except Exception:
@@ -698,6 +765,8 @@ class BatchConsumer:
             loop.add_signal_handler(sig, self._shutdown.set)
 
     async def _close(self) -> None:
+        self._shutdown.set()
+
         for task in (self._recovery_task, self._heartbeat_task):
             if task is not None:
                 task.cancel()
@@ -706,17 +775,22 @@ class BatchConsumer:
                 except asyncio.CancelledError:
                     pass
 
+        # Drain in-flight group tasks; each task releases its own advisory lock and closes its connection.
+        if self._in_flight:
+            logger.info(self._event("draining_in_flight_groups"), count=len(self._in_flight))
+            tasks = list(self._in_flight.values())
+            done, pending = await asyncio.wait(tasks, timeout=SHUTDOWN_DRAIN_TIMEOUT_SECONDS)
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.wait(pending, timeout=5.0)
+            self._in_flight.clear()
+
         if self._recovery_conn is not None and not self._recovery_conn.closed:
             await self._recovery_conn.close()
 
-        if self._conn is not None and not self._conn.closed:
-            try:
-                await self._conn.execute("SELECT pg_advisory_unlock_all()")
-            except Exception as e:
-                # A broken session already lost its advisory locks; still close below.
-                logger.exception(self._event("advisory_unlock_all_failed_on_shutdown"))
-                capture_exception(e)
-            await self._conn.close()
+        if self._poll_conn is not None and not self._poll_conn.closed:
+            await self._poll_conn.close()
 
         logger.info(self._event("batch_consumer_stopped"))
 

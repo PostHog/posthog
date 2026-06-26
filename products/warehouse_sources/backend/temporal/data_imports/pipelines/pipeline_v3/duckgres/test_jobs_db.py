@@ -251,6 +251,45 @@ class TestDuckgresBatchQueueEligibility:
         assert batches == []
 
 
+@pytest.fixture
+async def conn_b(_db_url: str):
+    async with await psycopg.AsyncConnection.connect(_db_url, autocommit=True) as c:
+        yield c
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDuckgresBatchQueueGetCandidates:
+    @pytest.mark.asyncio
+    async def test_returns_delta_succeeded_candidates_without_locks(self, conn, conn_b):
+        batch_id = await _insert_batch(conn, team_id=1, schema_id="s1")
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        candidates_a = await DuckgresBatchQueue.get_delta_succeeded_candidates(conn)
+        assert len(candidates_a) == 1
+
+        candidates_b = await DuckgresBatchQueue.get_delta_succeeded_candidates(conn_b)
+        assert len(candidates_b) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDuckgresGroupLock:
+    @pytest.mark.asyncio
+    async def test_try_lock_group_exclusive_across_connections(self, conn, conn_b):
+        locked_a = await DuckgresBatchQueue.try_lock_group(conn, team_id=1, schema_id="s1")
+        assert locked_a is True
+
+        locked_b = await DuckgresBatchQueue.try_lock_group(conn_b, team_id=1, schema_id="s1")
+        assert locked_b is False
+
+    @pytest.mark.asyncio
+    async def test_unlock_group_releases_lock(self, conn, conn_b):
+        await DuckgresBatchQueue.try_lock_group(conn, team_id=1, schema_id="s1")
+        await DuckgresBatchQueue.unlock_group(conn, team_id=1, schema_id="s1")
+
+        locked_b = await DuckgresBatchQueue.try_lock_group(conn_b, team_id=1, schema_id="s1")
+        assert locked_b is True
+
+
 async def _mark_applied_raw(
     conn: psycopg.AsyncConnection[Any],
     *,

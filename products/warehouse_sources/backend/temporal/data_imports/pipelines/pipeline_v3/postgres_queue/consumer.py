@@ -55,18 +55,36 @@ class DeltaBatchConsumerAdapter:
     succeeded_state: str = SourceBatchStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
 
-    async def fetch_and_lock(
+    async def fetch_candidates(
         self,
         conn: psycopg.AsyncConnection[Any],
         *,
         limit: int,
         retry_backoff_base_seconds: int,
     ) -> list[PendingBatch]:
-        return await BatchQueue.get_unprocessed_and_lock(
+        return await BatchQueue.get_candidates(
             conn,
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
         )
+
+    async def try_lock_group(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> bool:
+        return await BatchQueue.try_lock_group(conn, team_id=team_id, schema_id=schema_id)
+
+    async def unlock_group(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        await BatchQueue.unlock_group(conn, team_id=team_id, schema_id=schema_id)
 
     async def unlock(
         self,

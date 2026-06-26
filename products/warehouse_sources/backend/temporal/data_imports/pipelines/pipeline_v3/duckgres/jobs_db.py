@@ -481,6 +481,125 @@ class DuckgresBatchQueue:
         return result
 
     @staticmethod
+    async def get_delta_succeeded_candidates(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        limit: int = 50,
+        retry_backoff_base_seconds: int = 0,
+        team_ids: list[int] | None = None,
+    ) -> list[PendingBatch]:
+        """Fetch Duckgres-eligible batches without acquiring advisory locks.
+
+        Same candidate selection as ``get_delta_succeeded_and_lock`` but the outer
+        query does NOT call ``pg_try_advisory_lock``.  Callers acquire the lock
+        per-group on a dedicated connection via ``try_lock_group``.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                WITH {ELIGIBILITY_CTES}
+                candidates AS MATERIALIZED (
+                    SELECT
+                        {pending_batch_select_columns("dgs")}
+                    FROM {BATCH_TABLE} b
+                    JOIN {DELTA_STATUS_VIEW} ds ON b.id = ds.batch_id
+                    JOIN run_starts rs_b ON rs_b.run_uuid = b.run_uuid
+                    LEFT JOIN {DUCKGRES_STATUS_VIEW} dgs ON b.id = dgs.batch_id
+                    WHERE
+                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
+                        AND ds.job_state = 'succeeded'
+                        AND (
+                            dgs.batch_id IS NULL
+                            OR (
+                                dgs.job_state = 'waiting_retry'
+                                AND dgs.created_at <= now() - make_interval(
+                                    secs => %(backoff)s * GREATEST(COALESCE(dgs.attempt, 1), 1)
+                                )
+                            )
+                        )
+                        AND (
+                            b.is_final_batch = true
+                            OR dgs.batch_id IS NOT NULL
+                            OR NOT EXISTS (
+                                SELECT 1
+                                FROM {DUCKGRES_APPLY_TABLE} current_apply
+                                WHERE current_apply.team_id = b.team_id
+                                    AND current_apply.schema_id = b.schema_id
+                                    AND current_apply.run_uuid = b.run_uuid
+                                    AND current_apply.batch_index = b.batch_index
+                            )
+                        )
+                        AND b.run_uuid NOT IN (SELECT run_uuid FROM failed_runs)
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} prev
+                            LEFT JOIN {DUCKGRES_APPLY_TABLE} a
+                                ON a.team_id = prev.team_id
+                                AND a.schema_id = prev.schema_id
+                                AND a.run_uuid = prev.run_uuid
+                                AND a.batch_index = prev.batch_index
+                            WHERE prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND prev.team_id = b.team_id
+                                AND prev.schema_id = b.schema_id
+                                AND prev.run_uuid = b.run_uuid
+                                AND prev.is_final_batch = false
+                                AND (
+                                    prev.batch_index < b.batch_index
+                                    OR (b.is_final_batch = true AND prev.batch_index <= b.batch_index)
+                                )
+                                AND a.id IS NULL
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM incomplete_runs ir
+                            WHERE ir.team_id = b.team_id
+                                AND ir.schema_id = b.schema_id
+                                AND ir.run_uuid <> b.run_uuid
+                                AND (ir.started_at, ir.run_uuid) < (rs_b.started_at, b.run_uuid)
+                        )
+                    ORDER BY b.created_at ASC, b.batch_index ASC, b.is_final_batch ASC
+                    LIMIT %(limit)s
+                )
+                SELECT c.*
+                FROM candidates c
+                ORDER BY c.created_at ASC, c.batch_index ASC, c.is_final_batch ASC
+                """,
+                {"limit": limit, "backoff": retry_backoff_base_seconds, "team_ids": team_ids},
+            )
+            rows = await cur.fetchall()
+        return [PendingBatch(**row) for row in rows]
+
+    @staticmethod
+    async def try_lock_group(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> bool:
+        """Acquire the advisory lock for a (team_id, schema_id) group. Returns True if acquired."""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"SELECT pg_try_advisory_lock({DUCKGRES_ADVISORY_LOCK_NAMESPACE}, hashtext(%(key)s))",
+                {"key": f"{team_id}:{schema_id}"},
+            )
+            row = await cur.fetchone()
+            return bool(row and row[0])
+
+    @staticmethod
+    async def unlock_group(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        """Release the advisory lock for a (team_id, schema_id) group (depth 1)."""
+        await conn.execute(
+            f"SELECT pg_advisory_unlock({DUCKGRES_ADVISORY_LOCK_NAMESPACE}, hashtext(%(key)s))",
+            {"key": f"{team_id}:{schema_id}"},
+        )
+
+    @staticmethod
     async def unlock_for_batches(
         conn: psycopg.AsyncConnection[Any],
         *,

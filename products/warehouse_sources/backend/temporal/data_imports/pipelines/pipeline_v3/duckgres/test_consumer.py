@@ -49,7 +49,7 @@ def _make_consumer(max_attempts: int = 3, **kwargs) -> DuckgresBatchConsumer:
         **kwargs,
     )
     consumer = DuckgresBatchConsumer(config=config, process_batch=AsyncMock())
-    consumer._conn = _make_healthy_conn()
+    consumer._poll_conn = _make_healthy_conn()
     consumer._recovery_conn = _make_healthy_conn()
     return consumer
 
@@ -183,10 +183,10 @@ class TestDuckgresEnablementGating:
         conn = _make_healthy_conn()
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_and_lock",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_candidates",
             new_callable=AsyncMock,
         ) as mock_fetch:
-            batches = await adapter.fetch_and_lock(conn, limit=50, retry_backoff_base_seconds=0)
+            batches = await adapter.fetch_candidates(conn, limit=50, retry_backoff_base_seconds=0)
 
         assert batches == []
         mock_fetch.assert_not_called()
@@ -200,7 +200,7 @@ class TestDuckgresEnablementGating:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_and_lock",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_candidates",
                 new_callable=AsyncMock,
                 return_value=[],
             ) as mock_fetch,
@@ -215,7 +215,7 @@ class TestDuckgresEnablementGating:
                 return_value=(0, None),
             ) as mock_backlog,
         ):
-            await adapter.fetch_and_lock(conn, limit=50, retry_backoff_base_seconds=30)
+            await adapter.fetch_candidates(conn, limit=50, retry_backoff_base_seconds=30)
 
         assert mock_fetch.call_args[1]["team_ids"] == [1, 2]
         assert mock_fetch.call_args[1]["retry_backoff_base_seconds"] == 30

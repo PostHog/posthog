@@ -422,6 +422,72 @@ class TestBatchQueueRetryBackoff:
         await BatchQueue.unlock_for_batches(conn, batches=batches)
 
 
+@pytest.mark.django_db(transaction=True)
+class TestBatchQueueGetCandidates:
+    @pytest.mark.asyncio
+    async def test_returns_same_batches_as_get_unprocessed(self, conn):
+        await _insert_batch(conn, batch_index=0)
+        await _insert_batch(conn, batch_index=1)
+
+        candidates = await BatchQueue.get_candidates(conn)
+
+        assert len(candidates) == 2
+        assert sorted(b.batch_index for b in candidates) == [0, 1]
+
+    @pytest.mark.asyncio
+    async def test_does_not_acquire_advisory_locks(self, conn, conn_b):
+        await _insert_batch(conn, team_id=1, schema_id="s1")
+
+        candidates_a = await BatchQueue.get_candidates(conn)
+        assert len(candidates_a) == 1
+
+        candidates_b = await BatchQueue.get_candidates(conn_b)
+        assert len(candidates_b) == 1
+
+    @pytest.mark.asyncio
+    async def test_skips_succeeded_batches(self, conn):
+        bid = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
+
+        assert await BatchQueue.get_candidates(conn) == []
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBatchQueueGroupLock:
+    @pytest.mark.asyncio
+    async def test_try_lock_group_acquires_lock(self, conn):
+        locked = await BatchQueue.try_lock_group(conn, team_id=1, schema_id="s1")
+        assert locked is True
+
+    @pytest.mark.asyncio
+    async def test_try_lock_group_exclusive_across_connections(self, conn, conn_b):
+        locked_a = await BatchQueue.try_lock_group(conn, team_id=1, schema_id="s1")
+        assert locked_a is True
+
+        locked_b = await BatchQueue.try_lock_group(conn_b, team_id=1, schema_id="s1")
+        assert locked_b is False
+
+    @pytest.mark.asyncio
+    async def test_try_lock_group_different_keys_independent(self, conn, conn_b):
+        locked_a = await BatchQueue.try_lock_group(conn, team_id=1, schema_id="s1")
+        locked_b = await BatchQueue.try_lock_group(conn_b, team_id=2, schema_id="s2")
+
+        assert locked_a is True
+        assert locked_b is True
+
+    @pytest.mark.asyncio
+    async def test_unlock_group_releases_lock(self, conn, conn_b):
+        await BatchQueue.try_lock_group(conn, team_id=1, schema_id="s1")
+
+        locked_b = await BatchQueue.try_lock_group(conn_b, team_id=1, schema_id="s1")
+        assert locked_b is False
+
+        await BatchQueue.unlock_group(conn, team_id=1, schema_id="s1")
+
+        locked_b = await BatchQueue.try_lock_group(conn_b, team_id=1, schema_id="s1")
+        assert locked_b is True
+
+
 class TestPendingBatchToExportSignal:
     def test_maps_all_fields(self):
         batch = PendingBatch(

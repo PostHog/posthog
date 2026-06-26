@@ -105,7 +105,7 @@ class DuckgresBatchConsumerAdapter:
         SINK_ELIGIBLE_BACKLOG.set(backlog)
         SINK_OLDEST_ELIGIBLE_AGE_SECONDS.set(oldest_age or 0.0)
 
-    async def fetch_and_lock(
+    async def fetch_candidates(
         self,
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -118,12 +118,30 @@ class DuckgresBatchConsumerAdapter:
 
         await self._run_maintenance(conn, team_ids)
 
-        return await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+        return await DuckgresBatchQueue.get_delta_succeeded_candidates(
             conn,
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
             team_ids=team_ids,
         )
+
+    async def try_lock_group(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> bool:
+        return await DuckgresBatchQueue.try_lock_group(conn, team_id=team_id, schema_id=schema_id)
+
+    async def unlock_group(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        await DuckgresBatchQueue.unlock_group(conn, team_id=team_id, schema_id=schema_id)
 
     async def unlock(
         self,

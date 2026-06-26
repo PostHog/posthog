@@ -514,6 +514,112 @@ class BatchQueue:
         ]
 
     @staticmethod
+    async def get_candidates(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        limit: int = 50,
+        retry_backoff_base_seconds: int = 0,
+    ) -> list[PendingBatch]:
+        """Fetch unprocessed batches without acquiring advisory locks.
+
+        Same candidate selection as ``get_unprocessed_and_lock`` but the outer
+        query does NOT call ``pg_try_advisory_lock``.  Callers acquire the lock
+        per-group on a dedicated connection via ``try_lock_group``.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                WITH candidates AS MATERIALIZED (
+                    SELECT
+                        {pending_batch_select_columns("s")}
+                    FROM {BATCH_TABLE} b
+                    LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                    WHERE
+                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND (
+                            s.batch_id IS NULL
+                            OR (
+                                s.job_state = 'waiting_retry'
+                                AND s.created_at <= now() - make_interval(
+                                    secs => %(backoff)s * GREATEST(COALESCE(s.attempt, 1), 1)
+                                )
+                            )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_prev
+                            LEFT JOIN {STATUS_VIEW} s_prev ON b_prev.id = s_prev.batch_id
+                            WHERE b_prev.run_uuid = b.run_uuid
+                                AND b_prev.batch_index < b.batch_index
+                                AND b_prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND (
+                                    s_prev.job_state = 'executing'
+                                    OR (
+                                        s_prev.job_state = 'waiting_retry'
+                                        AND s_prev.created_at > now() - make_interval(
+                                            secs => %(backoff)s * GREATEST(COALESCE(s_prev.attempt, 1), 1)
+                                        )
+                                    )
+                                )
+                        )
+                        AND b.run_uuid NOT IN (
+                            SELECT DISTINCT b2.run_uuid
+                            FROM {BATCH_TABLE} b2
+                            JOIN {STATUS_VIEW} s2 ON b2.id = s2.batch_id
+                            WHERE b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND s2.job_state = 'failed'
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_busy
+                            JOIN {STATUS_VIEW} s_busy ON b_busy.id = s_busy.batch_id
+                            WHERE b_busy.team_id = b.team_id
+                                AND b_busy.schema_id = b.schema_id
+                                AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND s_busy.job_state = 'executing'
+                        )
+                    ORDER BY b.created_at ASC, b.batch_index ASC
+                    LIMIT %(limit)s
+                )
+                SELECT c.*
+                FROM candidates c
+                ORDER BY c.created_at ASC, c.batch_index ASC
+                """,
+                {"limit": limit, "backoff": retry_backoff_base_seconds},
+            )
+            rows = await cur.fetchall()
+        return [PendingBatch(**row) for row in rows]
+
+    @staticmethod
+    async def try_lock_group(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> bool:
+        """Acquire the advisory lock for a (team_id, schema_id) group. Returns True if acquired."""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"SELECT pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(%(key)s))",
+                {"key": f"{team_id}:{schema_id}"},
+            )
+            row = await cur.fetchone()
+            return bool(row and row[0])
+
+    @staticmethod
+    async def unlock_group(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        """Release the advisory lock for a (team_id, schema_id) group (depth 1)."""
+        await conn.execute(
+            f"SELECT pg_advisory_unlock({ADVISORY_LOCK_NAMESPACE}, hashtext(%(key)s))",
+            {"key": f"{team_id}:{schema_id}"},
+        )
+
+    @staticmethod
     async def unlock_for_batches(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -521,9 +627,8 @@ class BatchQueue:
     ) -> None:
         """Release advisory locks once per returned batch row.
 
-        The MATERIALIZED CTE in get_unprocessed_and_lock ensures locks are
-        only acquired on rows that actually appear in the result set, so
-        one unlock per row balances the depth exactly.
+        The MATERIALIZED CTE in get_unprocessed_and_lock / get_stale_executing
+        acquires locks per row, so one unlock per row balances the depth exactly.
         """
         await unlock_advisory_locks(conn, batches=batches, namespace=ADVISORY_LOCK_NAMESPACE)
 
