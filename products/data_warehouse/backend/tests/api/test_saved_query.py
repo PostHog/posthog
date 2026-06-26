@@ -10,10 +10,10 @@ from parameterized import parameterized
 
 from posthog.models import ActivityLog
 
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataWarehouseManagedViewSet,
-    DataWarehouseModelPath,
     DataWarehouseSavedQuery,
 )
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
