@@ -228,3 +228,35 @@ class TestTaskRunMetrics(TestCase):
             )
 
         assert _sample_value("posthog_tasks_task_run_failed_total", labels) == before + 1
+
+    @parameterized.expand(
+        [
+            ("failed", 1.0),
+            ("completed", 0.0),
+        ]
+    )
+    def test_agent_turn_failure_counter_only_on_failed_transition(self, new_status: str, expected_delta: float) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            mode="interactive",
+            extra_state={"run_source": "manual", "runtime_adapter": "codex"},
+        )
+        labels = {
+            "origin_product": "user_created",
+            "mode": "interactive",
+            "run_source": "manual",
+            "runtime_adapter": "codex",
+        }
+        before = _sample_value("posthog_tasks_agent_turn_failed_total", labels)
+
+        with patch.object(facade, "signal_workflow_completion"):
+            facade.update_task_run(
+                run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"status": new_status, "error_message": "boom"},
+            )
+
+        assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + expected_delta

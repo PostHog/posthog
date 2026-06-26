@@ -11,8 +11,8 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
-from posthog.models import GroupTypeMapping
 from posthog.models.group_type_mapping import invalidate_group_types_cache
+from posthog.test.persons import create_group_type_mapping
 
 
 class TestGroupKeyFiltering(APIBaseTest):
@@ -25,7 +25,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def _create_mapping_and_rebuild(self, **kwargs):
         """Create a GroupTypeMapping, invalidate cache, and rebuild database."""
-        GroupTypeMapping.objects.create(**kwargs)
+        create_group_type_mapping(**kwargs)
 
     def _rebuild_database(self):
         invalidate_group_types_cache(self.team.project_id)

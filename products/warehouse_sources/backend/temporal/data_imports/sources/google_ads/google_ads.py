@@ -4,7 +4,7 @@ import datetime as dt
 import collections.abc
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import OperationalError, close_old_connections
 
 import grpc
 import pyarrow as pa
@@ -102,17 +102,31 @@ def _load_client_with_transient_retry(
             time.sleep(min(2 * attempt, 30))
 
 
+def _get_integration(integration_id: int, team_id: int) -> Integration:
+    """Fetch the OAuth ``Integration`` row, retrying once if the DB connection was dropped.
+
+    Temporal activities run in a long-lived worker that never goes through Django's request
+    cycle, so a pooled Postgres connection can be closed server-side while it sits idle.
+    ``close_old_connections()`` evicts connections already known to be stale, but one can still
+    die in the window before the query runs and surface as a transient ``OperationalError``
+    ("server closed the connection unexpectedly"). The failed query marks the connection
+    unusable, so a second eviction drops it and the retry runs on a fresh connection. This read
+    is idempotent, so it is safe to repeat. ``Integration.DoesNotExist`` is left to propagate.
+    """
+    close_old_connections()
+    try:
+        return Integration.objects.get(id=integration_id, team_id=team_id)
+    except OperationalError:
+        close_old_connections()
+        return Integration.objects.get(id=integration_id, team_id=team_id)
+
+
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
     """Initialize a `GoogleAdsClient` with provided config."""
     _ensure_grpc_receive_limit()
 
     if isinstance(config, GoogleAdsSourceConfig):
-        # Temporal activities run in a thread pool where Django DB connections can go
-        # stale between uses (Postgres closes the connection server-side). This
-        # function is invoked lazily from inside `get_rows` after the schema fetch,
-        # so the connection has often been idle for minutes by the time we reach it.
-        close_old_connections()
-        integration = Integration.objects.get(id=config.google_ads_integration_id, team_id=team_id)
+        integration = _get_integration(config.google_ads_integration_id, team_id)
 
         login_customer_id: str | None = None
         if config.is_mcc_account and config.is_mcc_account.enabled:

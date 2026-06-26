@@ -14,13 +14,18 @@ import {
     engineeringAnalyticsSources,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
-import type { GitHubSourceApi } from '../generated/api.schemas'
+import type { GitHubSourceApi, PullRequestListItemApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
+import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
 // Safety bound on the PR table (mirrors the endpoint's server-side limit). Surfaced
 // in copy when hit so a truncated list is never mistaken for the whole picture.
 export const PR_TABLE_LIMIT = 1000
+
+// The workflow-health endpoint returns the top workflows by run count (`workflow_health.py` `_LIMIT`).
+// When hit, the fleet header labels its totals as "top N" so they're never read as the whole fleet.
+export const WORKFLOW_HEALTH_LIMIT = 100
 
 // The endpoints are project-scoped; the generated client takes the id as a string.
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -35,8 +40,8 @@ export type CardFilter = 'open' | 'failing' | 'stuck'
 /** Mirrors the ci_cards "stuck" rule: open, non-draft, non-bot, older than 7 days. */
 export const STUCK_AFTER_DAYS = 7
 
-/** Mirrors the workflow_health endpoint's default window. */
-export const DEFAULT_WORKFLOW_DATE_FROM = '-30d'
+/** Mirrors the workflow_health endpoint's default window — CI health is a "right now" question. */
+export const DEFAULT_WORKFLOW_DATE_FROM = '-24h'
 
 export interface PullRequestRow {
     number: number
@@ -61,8 +66,10 @@ export interface PullRequestRow {
     pushes: number
     /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
     rerunCycles: number
-    /** Estimated Depot CI cost (USD). Null until the job-level warehouse source lands. */
+    /** Estimated CI cost (USD) over the PR's jobs (billable runners). Null when no cost / source unsynced. */
     estimatedCostUsd: number | null
+    /** Billable (self-hosted) minutes over the PR's jobs. Null when the job source isn't synced. */
+    billableMinutes: number | null
 }
 
 export interface CardsData {
@@ -72,14 +79,21 @@ export interface CardsData {
     failingCi: number
 }
 
-export interface WorkflowHealthDay {
-    /** UTC calendar day. */
-    day: string
+/** Bucket width of a workflow's history series. 'hour'/'day'/'week' come from the server (time-bucketed
+ *  workflow health); 'push' is computed client-side for the PR view, where each bucket is one push. */
+export type WorkflowGranularity = 'hour' | 'day' | 'week' | 'push'
+
+export interface WorkflowHealthBucket {
+    /** Bucket start (ISO), aligned to the granularity (top of hour / midnight / Monday). */
+    bucketStart: string
     runCount: number
     completed: number
     successes: number
     /** Decisive failures only (failure / timed_out); excludes skipped, cancelled, action_required. */
     failures: number
+    /** Pre-formatted sparkline label; when set, used verbatim instead of formatting bucketStart by time
+     *  (push buckets aren't time-aligned, so they carry their own "Push N (sha)" label). */
+    label?: string
 }
 
 export interface WorkflowHealthRow {
@@ -92,27 +106,111 @@ export interface WorkflowHealthRow {
     p50Seconds: number | null
     p95Seconds: number | null
     lastFailureAt: string | null
+    /** Most recent completed run was a decisive failure; null when nothing has completed. Drives OK/RED. */
+    latestRunFailed: boolean | null
+    /** Raw conclusion of the most recent completed run (success / cancelled / skipped / …); null if none. */
+    latestRunConclusion: string | null
+    /** Bucket width of `buckets`: 'hour', 'day', or 'week'. */
+    granularity: WorkflowGranularity
     /** Zero-filled across the whole window, oldest first. */
-    daily: WorkflowHealthDay[]
+    buckets: WorkflowHealthBucket[]
+    /** Billable CI minutes for this workflow within the scope; undefined when no cost data is loaded. */
+    billableMinutes?: number | null
+    /** Estimated $ cost for this workflow within the scope; null when nothing was costable. */
+    estimatedCostUsd?: number | null
+}
+
+export type WorkflowTrendDirection = 'up' | 'down' | 'flat'
+
+export interface WorkflowFailureSeries {
+    /** Completed runs per bucket — drives total (stacked) bar height, i.e. volume. */
+    completed: number[]
+    /** Decisive failures per bucket — the red portion of each stacked bar. */
+    failures: number[]
+    /** Per-bucket tooltip label. */
+    labels: string[]
+}
+
+function formatBucket(bucketStart: string, granularity: WorkflowGranularity): string {
+    const at = dayjs(bucketStart)
+    if (granularity === 'hour') {
+        return at.format('MMM D, HH:mm')
+    }
+    if (granularity === 'week') {
+        return `Week of ${at.format('MMM D')}`
+    }
+    return at.format('MMM D')
 }
 
 /**
- * Daily series for the trend sparkline. Bar height is the failure rate (decisive
- * failures over runs that completed that day), so healthy rows stay flat and bad days
- * spike. Skipped, cancelled, and action_required runs are not failures — counting them
- * as non-passing made green workflows look broken.
+ * Series for the run-status sparkline. Each bar is stacked: total height is completed runs (volume)
+ * and the red portion is decisive failures, so the red *fraction* reads as the failure rate — 1% is a
+ * sliver, 50% is half-red — which length encodes accurately (unlike shade). Skipped, cancelled, and
+ * action_required runs are not failures.
  */
-export function workflowTrendSeries(daily: WorkflowHealthDay[]): { values: number[]; labels: string[] } {
-    const values = daily.map((d) => (d.completed > 0 ? d.failures / d.completed : 0))
-    const labels = daily.map((d) => {
-        const date = dayjs(d.day).format('MMM D')
-        return d.completed > 0 ? `${date} · ${d.failures} of ${d.completed} failed` : `${date} · no completed runs`
+export function workflowFailureSeries(
+    buckets: WorkflowHealthBucket[],
+    granularity: WorkflowGranularity
+): WorkflowFailureSeries {
+    const completed = buckets.map((b) => b.completed)
+    const failures = buckets.map((b) => b.failures)
+    const labels = buckets.map((b) => {
+        // Push buckets carry their own label (not time-aligned); time buckets format from bucketStart.
+        const when = b.label ?? formatBucket(b.bucketStart, granularity)
+        return b.completed > 0 ? `${when} · ${b.failures} of ${b.completed} failed` : `${when} · no completed runs`
     })
-    return { values, labels }
+    return { completed, failures, labels }
+}
+
+/** Failure direction: are failures rising in the recent half of the window vs the prior half? */
+export function workflowFailureTrend(buckets: WorkflowHealthBucket[]): WorkflowTrendDirection {
+    if (buckets.length < 2) {
+        return 'flat'
+    }
+    const mid = Math.floor(buckets.length / 2)
+    const sumFailures = (slice: WorkflowHealthBucket[]): number => slice.reduce((total, b) => total + b.failures, 0)
+    const prior = sumFailures(buckets.slice(0, mid))
+    const recent = sumFailures(buckets.slice(mid))
+    if (recent > prior) {
+        return 'up'
+    }
+    if (recent < prior) {
+        return 'down'
+    }
+    return 'flat'
 }
 
 export function prKeyOf(row: Pick<PullRequestRow, 'repoOwner' | 'repoName' | 'number'>): string {
     return `${row.repoOwner}/${row.repoName}#${row.number}`
+}
+
+/** Map an API PR list item to the table row shape — shared by the PR list and the author page so both
+ *  feed the same PullRequestTable. ?? fallbacks degrade gracefully when a new frontend briefly hits an
+ *  older backend whose response predates the cost/push fields. */
+export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
+    return {
+        number: it.number,
+        title: it.title,
+        repoOwner: it.repo.owner,
+        repoName: it.repo.name,
+        authorHandle: it.author.handle,
+        authorAvatarUrl: it.author.avatar_url,
+        isBot: it.author.is_bot,
+        state: it.state as PRState,
+        isDraft: it.is_draft,
+        createdAt: it.created_at,
+        mergedAt: it.merged_at,
+        openToMergeSeconds: it.open_to_merge_seconds,
+        labels: it.labels,
+        runs: it.ci.runs,
+        passing: it.ci.passing,
+        failing: it.ci.failing,
+        pending: it.ci.pending,
+        pushes: it.pushes ?? 0,
+        rerunCycles: it.rerun_cycles ?? 0,
+        estimatedCostUsd: it.estimated_cost_usd ?? null,
+        billableMinutes: it.billable_minutes ?? null,
+    }
 }
 
 export interface PullRequestFilters {
@@ -372,32 +470,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         const response = await engineeringAnalyticsPullRequests(projectId(), {
                             source_id: values.sourceId ?? undefined,
                         })
-                        return response.items.map(
-                            (it): PullRequestRow => ({
-                                number: it.number,
-                                title: it.title,
-                                repoOwner: it.repo.owner,
-                                repoName: it.repo.name,
-                                authorHandle: it.author.handle,
-                                authorAvatarUrl: it.author.avatar_url,
-                                isBot: it.author.is_bot,
-                                state: it.state as PRState,
-                                isDraft: it.is_draft,
-                                createdAt: it.created_at,
-                                mergedAt: it.merged_at,
-                                openToMergeSeconds: it.open_to_merge_seconds,
-                                labels: it.labels,
-                                runs: it.ci.runs,
-                                passing: it.ci.passing,
-                                failing: it.ci.failing,
-                                pending: it.ci.pending,
-                                // Defensive ?? 0: during a deploy the new frontend can briefly hit an
-                                // older backend whose response predates these fields — degrade, don't crash.
-                                pushes: it.pushes ?? 0,
-                                rerunCycles: it.rerun_cycles ?? 0,
-                                estimatedCostUsd: it.estimated_cost_usd ?? null,
-                            })
-                        )
+                        return response.items.map(toPullRequestRow)
                     },
                 },
             ],
@@ -421,15 +494,25 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 p50Seconds: it.p50_seconds,
                                 p95Seconds: it.p95_seconds,
                                 lastFailureAt: it.last_failure_at,
-                                daily: it.daily.map((d) => ({
-                                    day: d.day,
-                                    runCount: d.run_count,
-                                    completed: d.completed,
-                                    successes: d.successes,
+                                // Defensive ?? null: a new frontend can briefly hit an older backend
+                                // whose response predates this field — degrade to "unknown", not crash.
+                                latestRunFailed: it.latest_run_failed ?? null,
+                                latestRunConclusion: it.latest_run_conclusion ?? null,
+                                // Defensive ?? 'day': older backends predate adaptive bucketing.
+                                granularity: (it.granularity ?? 'day') as WorkflowGranularity,
+                                // ?? []: a new frontend can briefly hit an older backend whose response
+                                // predates the buckets field during a rolling deploy — degrade, don't crash.
+                                buckets: (it.buckets ?? []).map((b) => ({
+                                    bucketStart: b.bucket_start,
+                                    runCount: b.run_count,
+                                    completed: b.completed,
+                                    successes: b.successes,
                                     // Defensive ?? 0: a new frontend can briefly hit an older backend whose
                                     // response predates this field — degrade to 0, don't compute NaN bars.
-                                    failures: d.failures ?? 0,
+                                    failures: b.failures ?? 0,
                                 })),
+                                billableMinutes: it.billable_minutes ?? null,
+                                estimatedCostUsd: it.estimated_cost_usd ?? null,
                             })
                         )
                     },
@@ -584,10 +667,21 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             ],
             // Cost & performance lens: surfaces per-PR pushes / re-runs / estimated cost. Transient
             // (no persisted/stateful UI in this phase, per SPEC).
-            costLensEnabled: [false, { setCostLensEnabled: (_, { enabled }) => enabled }],
+            costLensEnabled: [true, { setCostLensEnabled: (_, { enabled }) => enabled }],
         }),
 
         selectors({
+            // Fleet verdict + rollups across every workflow row, for the all-workflows health strip.
+            fleetSummary: [
+                (s) => [s.workflowHealth],
+                (workflowHealth): FleetSummary => computeFleetSummary(workflowHealth),
+            ],
+            // The endpoint caps at the top workflows by run count; when hit, the header's totals cover only
+            // those, so it labels them as "top N" rather than fleet-wide.
+            fleetTruncated: [
+                (s) => [s.workflowHealth],
+                (workflowHealth): boolean => workflowHealth.length >= WORKFLOW_HEALTH_LIMIT,
+            ],
             filters: [
                 (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search, s.stuckOnly],
                 (stateFilter, author, repo, ciStatus, search, stuckOnly): PullRequestFilters => ({
@@ -773,6 +867,16 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 }
                 return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
             },
+            // Mirror the applied branch into `?q=` so a branch-scoped view is shareable and survives reload.
+            setAppliedBranch: ({ branch }) => {
+                const searchParams = { ...router.values.searchParams }
+                if (branch) {
+                    searchParams.q = branch
+                } else {
+                    delete searchParams.q
+                }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
         })),
 
         urlToAction(({ actions, values }) => {
@@ -783,9 +887,24 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     actions.setSourceId(next)
                 }
             }
+            // `?q=` deep-links a branch-scoped workflow view (e.g. ?q=master). Stage it in the box and apply.
+            const applyBranchFromUrl = (q: string | undefined): void => {
+                const next = (q ?? '').trim()
+                if (next === values.appliedBranch) {
+                    return
+                }
+                actions.setBranchFilter(next)
+                // An empty value already applies+loads via setBranchFilter's listener; a real branch needs the apply.
+                if (next !== '') {
+                    actions.setAppliedBranch(next)
+                }
+            }
             return {
                 [urls.engineeringAnalytics()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => applySource(searchParams.source),
+                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => {
+                    applySource(searchParams.source)
+                    applyBranchFromUrl(searchParams.q)
+                },
             }
         }),
 

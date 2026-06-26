@@ -5,7 +5,7 @@
 <p><strong>Deprovision the managed warehouse for organization <code>{{ server.organization_id }}</code>?</strong></p>
 <p>This makes a real control-plane <code>/deprovision</code> call for server <code>{{ server.host }}</code>
 and tears down the org's managed warehouse. <strong>This cannot be undone.</strong> The
-<code>DuckgresServer</code> / <code>DuckgresServerTeam</code> / <code>DuckLakeBackfill</code> rows are
+<code>DuckgresServer</code> / <code>DuckgresServerTeam</code> rows are
 left in place for the record &mdash; delete them separately if needed.</p>
 
 <form method="post">
