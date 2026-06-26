@@ -111,6 +111,8 @@ class SandboxConfig(BaseModel):
 
 WORKING_DIR = "/tmp/workspace"
 
+REPO_READY_FILE = f"{WORKING_DIR}/.repo-ready"
+
 PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
 # TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
@@ -258,6 +260,8 @@ class SandboxBase(ABC):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        repo_ready_file: str | None = None,
+        wait_for_health: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -265,6 +269,12 @@ class SandboxBase(ABC):
         before calling this method.
         """
         ...
+
+    @abstractmethod
+    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None: ...
+
+    @abstractmethod
+    def mark_repo_ready(self, repo_ready_file: str) -> None: ...
 
     @abstractmethod
     def create_snapshot(self) -> str: ...

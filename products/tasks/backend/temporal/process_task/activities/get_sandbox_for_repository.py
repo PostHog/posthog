@@ -94,6 +94,7 @@ class GetSandboxForRepositoryOutput:
     connect_token: str | None
     used_snapshot: bool
     should_create_snapshot: bool
+    agent_server_launched: bool = False
 
 
 @activity.defn

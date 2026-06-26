@@ -46,7 +46,15 @@ from .activities.provision_sandbox import (
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
-from .activities.start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
+from .activities.start_agent_server import (
+    MarkRepoReadyInput,
+    StartAgentServerInput,
+    StartAgentServerOutput,
+    await_agent_server_ready,
+    launch_agent_server,
+    mark_repo_ready,
+    start_agent_server,
+)
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 from .credential_refresh import SANDBOX_GONE_ERROR_MESSAGE, CredentialRefreshExitReason, run_credential_refresh_loop
@@ -422,8 +430,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._post_slack_update()
 
             # Start agent-server for direct connection from PostHog Code
-            await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
-            agent_server_output = await self._start_agent_server(sandbox_output)
+            if sandbox_output.agent_server_launched:
+                agent_server_output = await self._await_agent_server_ready(sandbox_output)
+            else:
+                await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
+                agent_server_output = await self._start_agent_server(sandbox_output)
             await self._emit_progress("agent", "completed", "Started agent", "setup")
 
             await self._track_workflow_event(
@@ -698,6 +709,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         will_clone = bool(prepared.repository and not prepared.used_snapshot and has_clone_credentials)
         will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
 
+        overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
+        if overlap:
+            await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
+            await self._launch_agent_server(created, defer_for_clone=True)
+
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
             await workflow.execute_activity(
@@ -736,12 +752,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 
+        if overlap:
+            await self._mark_repo_ready(created.sandbox_id)
+
         return GetSandboxForRepositoryOutput(
             sandbox_id=created.sandbox_id,
             sandbox_url=created.sandbox_url,
             connect_token=created.connect_token,
             used_snapshot=prepared.used_snapshot,
             should_create_snapshot=prepared.should_create_snapshot,
+            agent_server_launched=overlap,
         )
 
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
@@ -774,6 +794,45 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _start_agent_server(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
         return await workflow.execute_activity(
             start_agent_server,
+            StartAgentServerInput(
+                context=self.context,
+                sandbox_id=sandbox_output.sandbox_id,
+                sandbox_url=sandbox_output.sandbox_url,
+                sandbox_connect_token=sandbox_output.connect_token,
+                posthog_mcp_scopes=self._posthog_mcp_scopes,
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _launch_agent_server(
+        self, created: GetSandboxForRepositoryOutput, *, defer_for_clone: bool
+    ) -> StartAgentServerOutput:
+        return await workflow.execute_activity(
+            launch_agent_server,
+            StartAgentServerInput(
+                context=self.context,
+                sandbox_id=created.sandbox_id,
+                sandbox_url=created.sandbox_url,
+                sandbox_connect_token=created.connect_token,
+                posthog_mcp_scopes=self._posthog_mcp_scopes,
+                defer_for_clone=defer_for_clone,
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _mark_repo_ready(self, sandbox_id: str) -> None:
+        await workflow.execute_activity(
+            mark_repo_ready,
+            MarkRepoReadyInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _await_agent_server_ready(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
+        return await workflow.execute_activity(
+            await_agent_server_ready,
             StartAgentServerInput(
                 context=self.context,
                 sandbox_id=sandbox_output.sandbox_id,

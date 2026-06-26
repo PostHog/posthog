@@ -693,6 +693,7 @@ class ModalSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        repo_ready_file: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -707,6 +708,7 @@ class ModalSandbox(SandboxBase):
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
         # Scope BASH_ENV to the agent-server process (not the container env) so only the
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
@@ -716,7 +718,7 @@ class ModalSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
@@ -800,6 +802,8 @@ class ModalSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        repo_ready_file: str | None = None,
+        wait_for_health: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -846,10 +850,24 @@ class ModalSandbox(SandboxBase):
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            repo_ready_file=repo_ready_file,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
-        if not self._launch_and_check(command):
+        launch_result = self.execute(command, timeout_seconds=30)
+        if launch_result.exit_code != 0:
+            logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {launch_result.stderr}")
+            raise SandboxExecutionError(
+                "Agent-server process failed to launch",
+                {"sandbox_id": self.id, "stderr": launch_result.stderr, "exit_code": str(launch_result.exit_code)},
+                cause=RuntimeError(launch_result.stderr or "launch command returned non-zero exit"),
+            )
+
+        if wait_for_health:
+            self.wait_for_agent_server_ready(allowed_domains)
+
+    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
+        if not self._wait_for_health_check():
             diagnostics = self._diagnose_startup_failure(allowed_domains)
             raise SandboxExecutionError(
                 "Agent-server failed to start",
@@ -857,7 +875,8 @@ class ModalSandbox(SandboxBase):
                 cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
             )
 
-        logger.info(f"Agent-server started in sandbox {self.id}")
+    def mark_repo_ready(self, repo_ready_file: str) -> None:
+        self.execute(f"touch {shlex.quote(repo_ready_file)}", timeout_seconds=10)
 
     def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
         if allowed_domains is not None:
