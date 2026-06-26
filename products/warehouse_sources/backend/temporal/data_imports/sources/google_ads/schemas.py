@@ -1,3 +1,5 @@
+from typing import Any
+
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 FIELD_ALIASES: dict[str, str] = {
@@ -8,7 +10,7 @@ FIELD_ALIASES: dict[str, str] = {
     "campaign.end_date_time": "campaign.end_date",
 }
 
-RESOURCE_SCHEMAS = {
+RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
     "ad": {
         "resource_name": "ad_group_ad",
         "primary_key": ["ad_group_ad.ad.id", "ad_group.id", "campaign.id", "customer.id"],

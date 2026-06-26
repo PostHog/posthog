@@ -757,8 +757,6 @@ class TestOverviewStatsSchemas:
     def test_overview_equals_stats_table_without_click_type(self, overview_alias, stats_alias):
         overview = RESOURCE_SCHEMAS[overview_alias]
         stats = RESOURCE_SCHEMAS[stats_alias]
-        assert isinstance(overview, dict)
-        assert isinstance(stats, dict)
 
         assert "segments.click_type" not in overview["field_names"]
         assert "segments.click_type" not in overview["primary_key"]
