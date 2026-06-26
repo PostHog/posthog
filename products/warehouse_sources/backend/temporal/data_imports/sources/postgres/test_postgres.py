@@ -85,6 +85,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _get_table_chunk_size,
     _has_duplicate_primary_keys,
     _is_connection_dropped_error,
+    _is_connection_limit_error,
     _is_dropped_or_connect_timeout,
     _is_invalid_ssl_negotiation_response,
     _is_options_startup_param_unsupported,
@@ -293,6 +294,10 @@ class TestPostgresSourceNonRetryableErrors:
             'OperationalError: connection failed: connection to server at "44.216.29.125", port 5432 failed: FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: too many connections for role "user"',
+            # Server-wide max_connections reached. Transient capacity on the customer's DB — a slot
+            # frees as soon as another connection closes — so it's retried in-process on connect and
+            # must stay out of NonRetryableErrors.
+            'OperationalError: connection failed: connection to server at "142.93.153.201", port 25060 failed: FATAL:  sorry, too many clients already',
             # Mid-stream SSL/connection drops during schema discovery — the pooler culled an idle
             # connection or the socket died. A fresh attempt reconnects, so these must stay retryable.
             "consuming input failed: SSL connection has been closed unexpectedly",
@@ -1009,6 +1014,43 @@ class TestDroppedOrConnectTimeout:
         assert _is_dropped_or_connect_timeout(error) is False
 
 
+class TestIsConnectionLimitError:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  sorry, too many clients already"
+            ),
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute"
+            ),
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                'FATAL:  too many connections for role "reader"'
+            ),
+        ],
+    )
+    def test_connection_limit_errors_are_detected(self, error):
+        assert _is_connection_limit_error(error) is True
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A connection that was established then dropped is a different class — not a limit.
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            ),
+            psycopg.errors.QueryCanceled("statement timeout"),
+            ValueError("sorry, too many clients already"),
+        ],
+    )
+    def test_unrelated_errors_are_not_detected(self, error):
+        assert _is_connection_limit_error(error) is False
+
+
 class TestRaiseIfSetupConnectionBroken:
     """A connection dropped mid-discovery must surface as a retryable error, not the masked
     `ProgrammingError: Explicit commit() forbidden within a Transaction context` that psycopg's
@@ -1075,6 +1117,31 @@ class TestConnectWithDroppedRetry:
 
         assert result is good_conn
         assert connect.call_count == 2
+
+    def test_retries_connection_limit_error_then_succeeds(self, logger):
+        good_conn = mock.MagicMock()
+        connect = mock.MagicMock(
+            side_effect=[
+                # The source is momentarily at its connection limit; slots free up by a
+                # later attempt, so the reconnect succeeds rather than failing the whole sync.
+                # Two consecutive refusals lock in that the loop keeps retrying past one attempt.
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                    "FATAL:  sorry, too many clients already"
+                ),
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                    "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute"
+                ),
+                good_conn,
+            ]
+        )
+
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
+
+        assert result is good_conn
+        assert connect.call_count == 3
 
     def test_permanent_error_is_not_retried(self, logger):
         connect = mock.MagicMock(

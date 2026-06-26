@@ -42,7 +42,9 @@ class TestSlackThreadHandler(TestCase):
         )
         handler = SlackThreadHandler(context)
 
-        handler.post_or_update_progress("In progress...", task_url="posthog-code://task/abc/run/xyz")
+        handler.post_or_update_progress(
+            "In progress...", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz"
+        )
 
         mock_client.chat_postMessage.assert_called_once()
         blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
@@ -50,6 +52,7 @@ class TestSlackThreadHandler(TestCase):
 
         assert len(actions) == 1
         assert actions[0]["text"]["text"] == "View agent logs"
+        assert actions[0]["url"] == "https://us.posthog.com/project/1/tasks/abc?runId=xyz"
 
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value="1234.9999")
     @patch.object(SlackThreadHandler, "_get_client")
