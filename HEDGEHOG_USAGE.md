@@ -4,7 +4,7 @@ An inventory of every image in [`frontend/public/hedgehog/`](frontend/public/hed
 
 Most hogs are exposed as named React components from [`frontend/src/lib/components/hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) (the central registry).
 A few are imported directly by a single component. Nothing references hogs by `/static/hedgehog/<name>.png` string path any more.
-The Hogfetti confetti animation ([`Hogfetti/hogs/`](frontend/src/lib/components/Hogfetti/hogs/)), the Flappy Hog game ([`shared/flappy-hog/`](frontend/src/scenes/onboarding/shared/flappy-hog/)), and the 368Hedgehogs game ([`368Hedgehogs/sprites/`](products/games/368Hedgehogs/sprites/)) bundle their own hog copies locally rather than referencing the registry or `/static/` paths — those self-contained copies are tracked in the [Hogfetti pool](#hogfetti-pool-15), [Flappy Hog assets](#flappy-hog-assets-2), and [368Hedgehogs assets](#368hedgehogs-assets-4) sections below, not in the table, since they no longer consume `public/hedgehog/` and sit outside this replacement effort.
+The Hogfetti confetti animation ([`Hogfetti/hogs/`](frontend/src/lib/components/Hogfetti/hogs/)) and the Flappy Hog game ([`shared/flappy-hog/`](frontend/src/scenes/onboarding/shared/flappy-hog/)) bundle their own hog copies locally rather than referencing the registry — those self-contained copies are tracked in the [Hogfetti pool](#hogfetti-pool-15) and [Flappy Hog assets](#flappy-hog-assets-2) sections below, not in the table, since they no longer consume `public/hedgehog/` and sit outside this replacement effort.
 
 We want to retire these hedgehogs and replace them with illustrations from [`@posthog/brand`](https://brand.posthog.com/hoggies) (import via `@posthog/brand/hoggies`). The **Replacement** column holds the brand hoggie slug to swap in; it's per usage site, since different surfaces may want different art. A blank cell means the brand library has no suitable equivalent yet — those gaps are enumerated, with briefs for the design team, under [Missing from the brand library](#missing-from-the-brand-library) at the bottom.
 
@@ -200,22 +200,11 @@ The Flappy Hog game ([`FlappyHog.tsx`](frontend/src/scenes/onboarding/shared/Fla
 | `flappy-hog-splash.png`         | Game splash screen | Moved out of `public/hedgehog/` (was Flappy-only) — original deleted                   |
 | `robot-hog.png`                 | Playable character | Local copy; original stays in `public/hedgehog/` for the `RobotHog` registry component |
 
-## 368Hedgehogs assets (4)
-
-The 368Hedgehogs game ([`368Hedgehogs.tsx`](products/games/368Hedgehogs/368Hedgehogs.tsx)) bundles its four board sprites locally under [`368Hedgehogs/sprites/`](products/games/368Hedgehogs/sprites/) as tiny 128×128 copies instead of pulling the full-size originals from `public/hedgehog/` by `/static/` path, so they're tracked here rather than in the Used table. These are self-contained game sprites and sit outside the replacement effort — keep them as-is.
-
-| Asset (in `368Hedgehogs/sprites/`) | Role        | `public/hedgehog/` original                                                                                            |
-| ---------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `burning-money-hog.png`            | `hog1` tile | Local copy; original stays for the billing usages — see [Used](#used-39)                                               |
-| `police-hog.png`                   | `hog2` tile | Local copy; the `public/hedgehog/` original was deleted (no remaining consumers) — see [Cleanup notes](#cleanup-notes) |
-| `sleeping-hog.png`                 | `hog3` tile | Local copy; original stays for the platform-status & verify-email usages                                               |
-| `warning-hog.png`                  | `hog4` tile | Local copy; original stays for the many error / empty-state usages — see [Used](#used-39)                              |
-
 ## Cleanup notes
 
 **Orphaned `police-hog`** — once nothing referenced its `public/hedgehog/` original any more:
 
-- **`public/hedgehog/police-hog.png`** was deleted (the 368Hedgehogs game keeps its own local sprite; the `PoliceHog` registry export was never rendered).
+- **`public/hedgehog/police-hog.png`** was deleted (the `PoliceHog` registry export was never rendered).
 - The **`PoliceHog` registry export** in [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) was removed along with it.
 
 **Hogfetti move** — trimming the Hogfetti pool to 15 inline 64×64 copies left some dead weight in the registry:
@@ -240,4 +229,4 @@ These current hogs have **no suitable `@posthog/brand` equivalent**, so they blo
 | Climber hog                | A hog mountaineering / scaling a peak — ambition, scaling up. Ideally two poses (mid-climb and near-summit); the Startup program shows both side by side.       | `climber-hog-01`, `climber-hog-02` | Startup program                                                                                              | Low — single scene               |
 | "Big leagues" signpost hog | A hog at a crossroads signpost (e.g. "Medium leagues →" / "Big leagues →") deciding to level up — growth / upsell.                                              | `big-leagues`                      | Add-on trial modal, endpoints upsell, account opportunities                                                  | Low                              |
 
-**Deliberately not replaced** (keep current art / acceptable to leave blank — no new art requested): `burning-money-hog` (billing), `hog-welder` (pending-deletion screens), and the non-platform `sleeping-hog` usages (verify-email). The platform-status `sleeping-hog` is covered by `driving-hogzilla`. The 368Hedgehogs game sprites are out of scope entirely — see [368Hedgehogs assets](#368hedgehogs-assets-4).
+**Deliberately not replaced** (keep current art / acceptable to leave blank — no new art requested): `burning-money-hog` (billing), `hog-welder` (pending-deletion screens), and the non-platform `sleeping-hog` usages (verify-email). The platform-status `sleeping-hog` is covered by `driving-hogzilla`.
