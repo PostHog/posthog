@@ -9,8 +9,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from django.db import connections
-
 from posthog.dags.person_property_reconciliation_restore import (
     compute_restore_diff,
     fetch_backup_entries,
@@ -20,10 +18,10 @@ from posthog.dags.person_property_reconciliation_restore import (
     restore_person_with_version_check,
 )
 from posthog.models import Organization, Person, Team
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.persons_db import persons_db_connection
 from posthog.test.persons import create_person
 
-# Exercises the persons DB directly (raw reads against PERSONS_DB_FOR_WRITE), so it must run against
+# Exercises the persons DB directly (raw reads against the persons writer), so it must run against
 # the real persons DB rather than the personhog fake.
 pytestmark = pytest.mark.persons_db_direct
 
@@ -543,11 +541,6 @@ class TestComputeRestoreDiff:
         }
 
 
-def get_persons_db_connection():
-    """Get the correct database connection for person-related tables."""
-    return connections[PERSONS_DB_FOR_WRITE]
-
-
 @pytest.mark.django_db(transaction=True)
 class TestRestoreIntegration:
     """Integration tests for restore functionality using real database."""
@@ -556,8 +549,7 @@ class TestRestoreIntegration:
     def setup_backup_table(self):
         """Create the backup table if it doesn't exist."""
         # Use persons database connection for backup table (since it references person_id)
-        persons_conn = get_persons_db_connection()
-        with persons_conn.cursor() as cursor:
+        with persons_db_connection(writer=True) as persons_conn, persons_conn.cursor() as cursor:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS posthog_person_reconciliation_backup (
                     job_id TEXT NOT NULL,
@@ -605,7 +597,7 @@ class TestRestoreIntegration:
         """Test fetching backup entries from database."""
         job_id = f"test-job-{uuid_module.uuid4()}"
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
                 cursor,
                 job_id=job_id,
@@ -638,7 +630,7 @@ class TestRestoreIntegration:
             version=1,
         )
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
                 cursor,
                 job_id=job_id,
@@ -677,7 +669,7 @@ class TestRestoreIntegration:
             version=1,
         )
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             # Create backup entries for both teams
             create_backup_entry(
                 cursor,
@@ -724,7 +716,7 @@ class TestRestoreIntegration:
                 )
                 persons.append((team.id, p))
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             # Create backup entries
             for team_id, person in persons:
                 create_backup_entry(
@@ -775,7 +767,7 @@ class TestRestoreIntegration:
                 )
                 persons[team.id].append(p)
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             for team_id, team_persons in persons.items():
                 for person in team_persons:
                     create_backup_entry(
@@ -803,7 +795,7 @@ class TestRestoreIntegration:
 
     def test_fetch_person_by_id(self, team, person):
         """Test fetching person by id."""
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             fetched = fetch_person_by_id(cursor, team.id, person.id)
 
         assert fetched is not None
@@ -826,7 +818,7 @@ class TestRestoreIntegration:
 
         person_ids = [p.id for p in persons]
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             fetched = fetch_persons_by_ids(cursor, team.id, person_ids)
 
         assert len(fetched) == 5
@@ -847,7 +839,7 @@ class TestRestoreIntegration:
         # Include non-existent ids
         person_ids = [person.id, 99999, 99998]
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             fetched = fetch_persons_by_ids(cursor, team.id, person_ids)
 
         # Only the existing person should be returned
@@ -860,7 +852,7 @@ class TestRestoreIntegration:
         """Test full_overwrite restore overwrites current state."""
         job_id = f"test-job-{uuid_module.uuid4()}"
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
                 cursor,
                 job_id=job_id,
@@ -900,7 +892,7 @@ class TestRestoreIntegration:
         person.properties = {"email": "reconciled@example.com", "name": "User Changed This"}
         person.save()
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
                 cursor,
                 job_id=job_id,
@@ -941,7 +933,7 @@ class TestRestoreIntegration:
         person.properties = {"email": "current@example.com", "brand_new": "added_later"}
         person.save()
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
                 cursor,
                 job_id=job_id,
@@ -981,7 +973,7 @@ class TestRestoreIntegration:
         original_properties = dict(person.properties)
         original_version = person.version
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
                 cursor,
                 job_id=job_id,
@@ -1019,7 +1011,7 @@ class TestRestoreIntegration:
         person.properties = {"email": "original@example.com"}
         person.save()
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
                 cursor,
                 job_id=job_id,
@@ -1053,8 +1045,7 @@ class TestRestoreJobEndToEnd:
     @pytest.fixture(autouse=True)
     def setup_backup_table(self):
         """Create the backup table if it doesn't exist."""
-        persons_conn = get_persons_db_connection()
-        with persons_conn.cursor() as cursor:
+        with persons_db_connection(writer=True) as persons_conn, persons_conn.cursor() as cursor:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS posthog_person_reconciliation_backup (
                     job_id TEXT NOT NULL,
@@ -1120,7 +1111,7 @@ class TestRestoreJobEndToEnd:
         )
 
         # Create backup entries
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
                 cursor,
                 job_id=job_id,
@@ -1144,35 +1135,33 @@ class TestRestoreJobEndToEnd:
                 version_after=3,
             )
 
-        # Create a Postgres resource that returns our connection
-        persons_conn = get_persons_db_connection()
-
         # Run the job
-        result = person_property_reconciliation_restore_from_backup.execute_in_process(
-            run_config={
-                "ops": {
-                    "get_backup_entries_by_team": {
-                        "config": {
-                            "job_id": job_id,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                    "restore_team_chunk": {
-                        "config": {
-                            "job_id": job_id,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                }
-            },
-            resources={
-                "cluster": cluster,
-                "persons_database": persons_conn,
-                "kafka_producer": mock_kafka_producer,
-            },
-        )
+        with persons_db_connection(writer=True) as persons_conn:
+            result = person_property_reconciliation_restore_from_backup.execute_in_process(
+                run_config={
+                    "ops": {
+                        "get_backup_entries_by_team": {
+                            "config": {
+                                "job_id": job_id,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                        "restore_team_chunk": {
+                            "config": {
+                                "job_id": job_id,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                    }
+                },
+                resources={
+                    "cluster": cluster,
+                    "persons_database": persons_conn,
+                    "kafka_producer": mock_kafka_producer,
+                },
+            )
 
         assert result.success
 
@@ -1216,7 +1205,7 @@ class TestRestoreJobEndToEnd:
         )
 
         # Create backup entries for both
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
                 cursor,
                 job_id=job_id,
@@ -1236,36 +1225,35 @@ class TestRestoreJobEndToEnd:
                 properties_after={"email": "team2@example.com"},
             )
 
-        persons_conn = get_persons_db_connection()
-
         # Run the job with team_ids filter - only restore team 1
-        result = person_property_reconciliation_restore_from_backup.execute_in_process(
-            run_config={
-                "ops": {
-                    "get_backup_entries_by_team": {
-                        "config": {
-                            "job_id": job_id,
-                            "team_ids": [team.id],
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                    "restore_team_chunk": {
-                        "config": {
-                            "job_id": job_id,
-                            "team_ids": [team.id],
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                }
-            },
-            resources={
-                "cluster": cluster,
-                "persons_database": persons_conn,
-                "kafka_producer": mock_kafka_producer,
-            },
-        )
+        with persons_db_connection(writer=True) as persons_conn:
+            result = person_property_reconciliation_restore_from_backup.execute_in_process(
+                run_config={
+                    "ops": {
+                        "get_backup_entries_by_team": {
+                            "config": {
+                                "job_id": job_id,
+                                "team_ids": [team.id],
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                        "restore_team_chunk": {
+                            "config": {
+                                "job_id": job_id,
+                                "team_ids": [team.id],
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                    }
+                },
+                resources={
+                    "cluster": cluster,
+                    "persons_database": persons_conn,
+                    "kafka_producer": mock_kafka_producer,
+                },
+            )
 
         assert result.success
 
@@ -1293,7 +1281,7 @@ class TestRestoreJobEndToEnd:
         original_properties = dict(person.properties)
         original_version = person.version
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             create_backup_entry(
                 cursor,
                 job_id=job_id,
@@ -1304,33 +1292,32 @@ class TestRestoreJobEndToEnd:
                 properties_after={"email": "current@example.com"},
             )
 
-        persons_conn = get_persons_db_connection()
-
-        result = person_property_reconciliation_restore_from_backup.execute_in_process(
-            run_config={
-                "ops": {
-                    "get_backup_entries_by_team": {
-                        "config": {
-                            "job_id": job_id,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": True,
-                        }
-                    },
-                    "restore_team_chunk": {
-                        "config": {
-                            "job_id": job_id,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": True,
-                        }
-                    },
-                }
-            },
-            resources={
-                "cluster": cluster,
-                "persons_database": persons_conn,
-                "kafka_producer": mock_kafka_producer,
-            },
-        )
+        with persons_db_connection(writer=True) as persons_conn:
+            result = person_property_reconciliation_restore_from_backup.execute_in_process(
+                run_config={
+                    "ops": {
+                        "get_backup_entries_by_team": {
+                            "config": {
+                                "job_id": job_id,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": True,
+                            }
+                        },
+                        "restore_team_chunk": {
+                            "config": {
+                                "job_id": job_id,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": True,
+                            }
+                        },
+                    }
+                },
+                resources={
+                    "cluster": cluster,
+                    "persons_database": persons_conn,
+                    "kafka_producer": mock_kafka_producer,
+                },
+            )
 
         assert result.success
 
@@ -1373,7 +1360,7 @@ class TestRestoreJobEndToEnd:
                 persons[team.id].append(person)
 
         # Create backup entries with distinct "before" data
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             for team in teams:
                 t = teams.index(team)
                 for p, person in enumerate(persons[team.id]):
@@ -1398,33 +1385,32 @@ class TestRestoreJobEndToEnd:
                         version_after=10 + p,
                     )
 
-        persons_conn = get_persons_db_connection()
-
-        result = person_property_reconciliation_restore_from_backup.execute_in_process(
-            run_config={
-                "ops": {
-                    "get_backup_entries_by_team": {
-                        "config": {
-                            "job_id": job_id,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                    "restore_team_chunk": {
-                        "config": {
-                            "job_id": job_id,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                }
-            },
-            resources={
-                "cluster": cluster,
-                "persons_database": persons_conn,
-                "kafka_producer": mock_kafka_producer,
-            },
-        )
+        with persons_db_connection(writer=True) as persons_conn:
+            result = person_property_reconciliation_restore_from_backup.execute_in_process(
+                run_config={
+                    "ops": {
+                        "get_backup_entries_by_team": {
+                            "config": {
+                                "job_id": job_id,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                        "restore_team_chunk": {
+                            "config": {
+                                "job_id": job_id,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                    }
+                },
+                resources={
+                    "cluster": cluster,
+                    "persons_database": persons_conn,
+                    "kafka_producer": mock_kafka_producer,
+                },
+            )
 
         assert result.success
 
@@ -1471,7 +1457,7 @@ class TestRestoreJobEndToEnd:
                 persons[team.id].append(person)
 
         # Create backup entries for all
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             for team in teams:
                 t = teams.index(team)
                 for p, person in enumerate(persons[team.id]):
@@ -1485,38 +1471,37 @@ class TestRestoreJobEndToEnd:
                         properties_after={"email": f"current_t{t}_p{p}@example.com", "status": "current"},
                     )
 
-        persons_conn = get_persons_db_connection()
-
         # Only restore teams 1 and 3 (indices)
         teams_to_restore = [teams[1].id, teams[3].id]
 
-        result = person_property_reconciliation_restore_from_backup.execute_in_process(
-            run_config={
-                "ops": {
-                    "get_backup_entries_by_team": {
-                        "config": {
-                            "job_id": job_id,
-                            "team_ids": teams_to_restore,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                    "restore_team_chunk": {
-                        "config": {
-                            "job_id": job_id,
-                            "team_ids": teams_to_restore,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                }
-            },
-            resources={
-                "cluster": cluster,
-                "persons_database": persons_conn,
-                "kafka_producer": mock_kafka_producer,
-            },
-        )
+        with persons_db_connection(writer=True) as persons_conn:
+            result = person_property_reconciliation_restore_from_backup.execute_in_process(
+                run_config={
+                    "ops": {
+                        "get_backup_entries_by_team": {
+                            "config": {
+                                "job_id": job_id,
+                                "team_ids": teams_to_restore,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                        "restore_team_chunk": {
+                            "config": {
+                                "job_id": job_id,
+                                "team_ids": teams_to_restore,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                    }
+                },
+                resources={
+                    "cluster": cluster,
+                    "persons_database": persons_conn,
+                    "kafka_producer": mock_kafka_producer,
+                },
+            )
 
         assert result.success
 
@@ -1568,7 +1553,7 @@ class TestRestoreJobEndToEnd:
                 all_persons.append(person)
 
         # Create backup entries for all
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             for team in teams:
                 t = teams.index(team)
                 for p, person in enumerate(persons[team.id]):
@@ -1582,8 +1567,6 @@ class TestRestoreJobEndToEnd:
                         properties_after={"email": f"current_t{t}_p{p}@example.com", "restored": False},
                     )
 
-        persons_conn = get_persons_db_connection()
-
         # Only restore specific persons: first person from each team + last person from team 0
         persons_to_restore = [
             persons[teams[0].id][0].id,  # team 0, person 0
@@ -1592,33 +1575,34 @@ class TestRestoreJobEndToEnd:
             persons[teams[2].id][0].id,  # team 2, person 0
         ]
 
-        result = person_property_reconciliation_restore_from_backup.execute_in_process(
-            run_config={
-                "ops": {
-                    "get_backup_entries_by_team": {
-                        "config": {
-                            "job_id": job_id,
-                            "person_ids": persons_to_restore,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                    "restore_team_chunk": {
-                        "config": {
-                            "job_id": job_id,
-                            "person_ids": persons_to_restore,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                }
-            },
-            resources={
-                "cluster": cluster,
-                "persons_database": persons_conn,
-                "kafka_producer": mock_kafka_producer,
-            },
-        )
+        with persons_db_connection(writer=True) as persons_conn:
+            result = person_property_reconciliation_restore_from_backup.execute_in_process(
+                run_config={
+                    "ops": {
+                        "get_backup_entries_by_team": {
+                            "config": {
+                                "job_id": job_id,
+                                "person_ids": persons_to_restore,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                        "restore_team_chunk": {
+                            "config": {
+                                "job_id": job_id,
+                                "person_ids": persons_to_restore,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                    }
+                },
+                resources={
+                    "cluster": cluster,
+                    "persons_database": persons_conn,
+                    "kafka_producer": mock_kafka_producer,
+                },
+            )
 
         assert result.success
 
@@ -1665,7 +1649,7 @@ class TestRestoreJobEndToEnd:
                 persons[team.id].append(person)
 
         # Create backup entries for all
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             for team in teams:
                 t = teams.index(team)
                 for p, person in enumerate(persons[team.id]):
@@ -1689,8 +1673,6 @@ class TestRestoreJobEndToEnd:
                         },
                     )
 
-        persons_conn = get_persons_db_connection()
-
         # Filter to teams 0 and 2, AND persons 1 and 3 within those teams
         # This should restore: team0/person1, team0/person3, team2/person1, team2/person3
         teams_to_restore = [teams[0].id, teams[2].id]
@@ -1701,35 +1683,36 @@ class TestRestoreJobEndToEnd:
             persons[teams[2].id][3].id,
         ]
 
-        result = person_property_reconciliation_restore_from_backup.execute_in_process(
-            run_config={
-                "ops": {
-                    "get_backup_entries_by_team": {
-                        "config": {
-                            "job_id": job_id,
-                            "team_ids": teams_to_restore,
-                            "person_ids": persons_to_restore,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                    "restore_team_chunk": {
-                        "config": {
-                            "job_id": job_id,
-                            "team_ids": teams_to_restore,
-                            "person_ids": persons_to_restore,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                        }
-                    },
-                }
-            },
-            resources={
-                "cluster": cluster,
-                "persons_database": persons_conn,
-                "kafka_producer": mock_kafka_producer,
-            },
-        )
+        with persons_db_connection(writer=True) as persons_conn:
+            result = person_property_reconciliation_restore_from_backup.execute_in_process(
+                run_config={
+                    "ops": {
+                        "get_backup_entries_by_team": {
+                            "config": {
+                                "job_id": job_id,
+                                "team_ids": teams_to_restore,
+                                "person_ids": persons_to_restore,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                        "restore_team_chunk": {
+                            "config": {
+                                "job_id": job_id,
+                                "team_ids": teams_to_restore,
+                                "person_ids": persons_to_restore,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                            }
+                        },
+                    }
+                },
+                resources={
+                    "cluster": cluster,
+                    "persons_database": persons_conn,
+                    "kafka_producer": mock_kafka_producer,
+                },
+            )
 
         assert result.success
 
@@ -1789,7 +1772,7 @@ class TestRestoreJobEndToEnd:
                 persons[team.id].append(person)
 
         # Create backup entries - "before" doesn't have new_after_backup
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             for team in teams:
                 t = teams.index(team)
                 for p, person in enumerate(persons[team.id]):
@@ -1809,33 +1792,32 @@ class TestRestoreJobEndToEnd:
                         },
                     )
 
-        persons_conn = get_persons_db_connection()
-
-        result = person_property_reconciliation_restore_from_backup.execute_in_process(
-            run_config={
-                "ops": {
-                    "get_backup_entries_by_team": {
-                        "config": {
-                            "job_id": job_id,
-                            "conflict_resolution": "restore_wins",
-                            "dry_run": False,
-                        }
-                    },
-                    "restore_team_chunk": {
-                        "config": {
-                            "job_id": job_id,
-                            "conflict_resolution": "restore_wins",
-                            "dry_run": False,
-                        }
-                    },
-                }
-            },
-            resources={
-                "cluster": cluster,
-                "persons_database": persons_conn,
-                "kafka_producer": mock_kafka_producer,
-            },
-        )
+        with persons_db_connection(writer=True) as persons_conn:
+            result = person_property_reconciliation_restore_from_backup.execute_in_process(
+                run_config={
+                    "ops": {
+                        "get_backup_entries_by_team": {
+                            "config": {
+                                "job_id": job_id,
+                                "conflict_resolution": "restore_wins",
+                                "dry_run": False,
+                            }
+                        },
+                        "restore_team_chunk": {
+                            "config": {
+                                "job_id": job_id,
+                                "conflict_resolution": "restore_wins",
+                                "dry_run": False,
+                            }
+                        },
+                    }
+                },
+                resources={
+                    "cluster": cluster,
+                    "persons_database": persons_conn,
+                    "kafka_producer": mock_kafka_producer,
+                },
+            )
 
         assert result.success
 
@@ -1883,7 +1865,7 @@ class TestRestoreJobEndToEnd:
                 )
                 persons[team.id].append(person)
 
-        with get_persons_db_connection().cursor() as cursor:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
             for team in teams:
                 t = teams.index(team)
                 for p, person in enumerate(persons[team.id]):
@@ -1897,36 +1879,35 @@ class TestRestoreJobEndToEnd:
                         properties_after={"email": f"current_t{t}_p{p}@example.com"},
                     )
 
-        persons_conn = get_persons_db_connection()
-
         # Run with batch_size=2 to test pagination (3 batches: 2, 2, 1)
-        result = person_property_reconciliation_restore_from_backup.execute_in_process(
-            run_config={
-                "ops": {
-                    "get_backup_entries_by_team": {
-                        "config": {
-                            "job_id": job_id,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                            "backup_batch_size": 2,
-                        }
-                    },
-                    "restore_team_chunk": {
-                        "config": {
-                            "job_id": job_id,
-                            "conflict_resolution": "full_overwrite",
-                            "dry_run": False,
-                            "backup_batch_size": 2,
-                        }
-                    },
-                }
-            },
-            resources={
-                "cluster": cluster,
-                "persons_database": persons_conn,
-                "kafka_producer": mock_kafka_producer,
-            },
-        )
+        with persons_db_connection(writer=True) as persons_conn:
+            result = person_property_reconciliation_restore_from_backup.execute_in_process(
+                run_config={
+                    "ops": {
+                        "get_backup_entries_by_team": {
+                            "config": {
+                                "job_id": job_id,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                                "backup_batch_size": 2,
+                            }
+                        },
+                        "restore_team_chunk": {
+                            "config": {
+                                "job_id": job_id,
+                                "conflict_resolution": "full_overwrite",
+                                "dry_run": False,
+                                "backup_batch_size": 2,
+                            }
+                        },
+                    }
+                },
+                resources={
+                    "cluster": cluster,
+                    "persons_database": persons_conn,
+                    "kafka_producer": mock_kafka_producer,
+                },
+            )
 
         assert result.success
 
