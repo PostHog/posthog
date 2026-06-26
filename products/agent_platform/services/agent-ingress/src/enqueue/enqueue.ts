@@ -71,9 +71,17 @@ export interface EnqueueInput {
      */
     idempotencyKey?: string
     /**
-     * Typed trigger metadata stamped on the session row. When omitted, a bare
-     * `{ kind }` is derived from `trigger` (chat/webhook/mcp); slack + cron
-     * always supply the full object.
+     * Typed trigger metadata stamped on the session row at CREATION time.
+     * When omitted, a bare `{ kind }` is derived from `trigger`
+     * (chat/webhook/mcp); slack + cron always supply the full object.
+     *
+     * Frozen on resume: when this call matches an existing session via
+     * `externalKey`, the stored `trigger_metadata` is preserved verbatim and
+     * any incoming value is silently ignored. For chat that means
+     * `supported_client_tools` declared on a second `/run` for the same
+     * external_key do NOT expand the runner's capability surface — it's
+     * pinned at session open. A client that gained new capabilities
+     * mid-session needs a new session to expose them.
      */
     triggerMetadata?: TriggerMetadata
     /**
@@ -200,16 +208,29 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
     return { kind: 'created', sessionId: session.id, isResume: false }
 }
 
-/** Bare `{ kind }` for triggers with no extra metadata. Slack/cron supply their own. */
+/**
+ * Bare `{ kind }` for triggers with no extra metadata. Exhaustive over
+ * `ElevationTrigger` — slack callers MUST supply full `triggerMetadata`
+ * (workspace_id/channel/ts/thread_ts), so the slack branch throws. Adding a
+ * new value to `ElevationTrigger` without updating this function is a compile
+ * error via the `never` assertion below.
+ */
 function bareTriggerMetadata(trigger: ElevationTrigger | undefined): TriggerMetadata {
-    if (trigger === 'webhook') {
-        return { kind: 'webhook' }
+    switch (trigger) {
+        case 'webhook':
+            return { kind: 'webhook' }
+        case 'mcp':
+            return { kind: 'mcp' }
+        case 'chat':
+        case undefined:
+            return { kind: 'chat' }
+        case 'slack':
+            throw new Error('slack trigger requires explicit triggerMetadata (workspace_id, channel, ts, thread_ts)')
+        default: {
+            const _exhaustive: never = trigger
+            throw new Error(`unhandled trigger kind: ${String(_exhaustive)}`)
+        }
     }
-    if (trigger === 'mcp') {
-        return { kind: 'mcp' }
-    }
-    // chat + undefined fall through here; slack/cron always pass full metadata.
-    return { kind: 'chat' }
 }
 
 /**

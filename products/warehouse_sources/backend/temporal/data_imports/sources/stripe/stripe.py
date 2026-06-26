@@ -145,6 +145,24 @@ def _is_stripe_resource_missing_error(error: stripe_lib.StripeError) -> bool:
     return getattr(error, "code", None) == "resource_missing"
 
 
+def _coerce_incremental_cursor(value: Any) -> Optional[int]:
+    """Coerce a stored incremental watermark to the Unix-timestamp int that Stripe object
+    `created`/`date` fields are. The persisted watermark can come back as a numeric string, so
+    comparing it directly against the int field raises `'<=' not supported between instances of
+    'int' and 'str'`. Returns None when the value can't be read as an int, so the caller skips
+    the cursor comparison rather than crashing."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _stripe_base_addresses() -> BaseAddresses:
     # Redirect Stripe API calls to a local mock (e.g. STRIPE_API_BASE=http://localhost:12111)
     # when running the stripe-mock dev service. No-op in production where the var is unset.
@@ -410,8 +428,9 @@ def get_rows(
                 f"created[gt]": db_incremental_field_last_value,
             },
         )
+        last_value_cursor = _coerce_incremental_cursor(db_incremental_field_last_value)
         for obj in stripe_objects.auto_paging_iter():
-            if obj[incremental_field_name] <= db_incremental_field_last_value:
+            if last_value_cursor is not None and obj[incremental_field_name] <= last_value_cursor:
                 break
 
             yield obj

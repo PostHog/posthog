@@ -13,7 +13,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.temporal.common.logger import get_logger
 
-from products.data_warehouse.backend.data_load.service import delete_external_data_schedule
+from products.data_warehouse.backend.logic.data_load.service import delete_external_data_schedule
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource

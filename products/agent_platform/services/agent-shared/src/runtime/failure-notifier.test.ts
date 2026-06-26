@@ -81,6 +81,11 @@ describe('categorize', () => {
         ['tool threw at dispatcher', 'tool_error'],
         ['tool_call_failed: timeout', 'tool_error'],
         ['sandbox timeout after 30s', 'transient_infra'], // sandbox keyword wins → infra
+
+        ['client_tool_unsupported:connect_mcp', 'capability_mismatch'],
+        ['Error: client_tool_unsupported:set_secret', 'capability_mismatch'],
+
+        ['client_tool_dispatcher_unavailable:focus', 'configuration'],
     ])('"%s" → %s', (reason, expected) => {
         expect(categorize(reason)).toBe(expected)
     })
@@ -97,12 +102,20 @@ describe('userFacingMessage', () => {
         expect(userFacingMessage('configuration')).toMatch(/owner/i)
         expect(userFacingMessage('quota_exhausted')).toMatch(/limit/i)
         expect(userFacingMessage('tool_error')).toMatch(/tool/i)
+        expect(userFacingMessage('capability_mismatch')).toMatch(/client/i)
         expect(userFacingMessage('unknown')).toMatch(/wasn't able/i)
     })
 
     it('never contains raw infra detail', () => {
         // Sanitization invariant: messages must not mention docker, MCP, kafka, etc.
-        for (const cat of ['transient_infra', 'configuration', 'quota_exhausted', 'tool_error', 'unknown'] as const) {
+        for (const cat of [
+            'transient_infra',
+            'configuration',
+            'quota_exhausted',
+            'tool_error',
+            'capability_mismatch',
+            'unknown',
+        ] as const) {
             const msg = userFacingMessage(cat)
             expect(msg.toLowerCase()).not.toMatch(/docker|kafka|redis|postgres|mcp|stack/i)
         }

@@ -261,12 +261,14 @@ from .hellobaton.source import HellobatonSource
 from .helpscout.source import HelpScoutSource
 from .hibob.source import HiBobSource
 from .high_level.source import HighLevelSource
+from .hightouch.source import HightouchSource
 from .hoorayhr.source import HoorayHRSource
 from .hubplanner.source import HubplannerSource
 from .hubspot.source import HubspotSource
 from .hugging_face.source import HuggingFaceSource
 from .humanitix.source import HumanitixSource
 from .huntr.source import HuntrSource
+from .ikas.source import IkasSource
 from .illumina_basespace.source import IlluminaBasespaceSource
 from .imagga.source import ImaggaSource
 from .incident_io.source import IncidentIoSource
@@ -309,6 +311,7 @@ from .launchdarkly.source import LaunchDarklySource
 from .leadfeeder.source import LeadfeederSource
 from .leexi.source import LeexiSource
 from .lemlist.source import LemlistSource
+from .lemon_squeezy.source import LemonSqueezySource
 from .less_annoying_crm.source import LessAnnoyingCRMSource
 from .lever.source import LeverSource
 from .liana.source import LianaSource

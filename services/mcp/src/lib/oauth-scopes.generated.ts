@@ -137,8 +137,6 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'organization_member:write',
     'person:read',
     'person:write',
-    'persisted_folder:read',
-    'persisted_folder:write',
     'plugin:read',
     'plugin:write',
     'product_tour:read',
