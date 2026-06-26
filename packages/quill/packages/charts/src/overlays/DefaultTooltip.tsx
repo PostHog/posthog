@@ -174,7 +174,9 @@ export function DefaultTooltip<Meta = unknown>({
                     <strong data-attr="hog-chart-tooltip-value">{formatTotal(total)}</strong>
                 </div>
             )}
-            {footer && <div className="mt-1 pt-1 border-t border-current/25 text-xs opacity-60">{footer}</div>}
+            {footer && (
+                <div className="mt-1 pt-1 border-t border-current/25 text-xs opacity-60 text-center">{footer}</div>
+            )}
         </TooltipSurface>
     )
 }
