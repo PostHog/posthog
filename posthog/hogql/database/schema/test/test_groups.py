@@ -73,3 +73,39 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         assert len(results) == 1
         assert results[0][0] == "g11"
         assert "LIMIT 6" not in sql
+
+    def test_distinct_limit_is_not_pushed(self):
+        team = self._team()
+        for i in range(8):
+            create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={})
+
+        # DISTINCT can collapse the limited rows below the requested count (e.g. a key shared across group types),
+        # so the limit must not be pushed into the dedup.
+        sql, results = self._run(team, "SELECT DISTINCT key FROM groups LIMIT 5")
+
+        assert len(results) == 5
+        assert "LIMIT 6" not in sql
+
+    def test_aliased_groups_select_still_pushes_limit(self):
+        team = self._team()
+        for i in range(12):
+            create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={})
+
+        # Aliasing the table must not lose the optimisation -- the OOM this guards against happens for `groups AS g` too.
+        sql, results = self._run(team, "SELECT g.key FROM groups AS g LIMIT 10")
+
+        assert len(results) == 10
+        assert "LIMIT 11" in sql
+
+    def test_lazy_join_field_with_limit_returns_correct_groups(self):
+        team = self._team()
+        for i in range(12):
+            create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={})
+
+        # The revenue_analytics lazy join is attached after the pushdown runs, so the limit is pushed through it.
+        # That stays correct because it's a row-preserving LEFT JOIN: all 10 requested groups still come back.
+        sql, results = self._run(team, "SELECT key, revenue_analytics.revenue FROM groups LIMIT 10")
+
+        assert len(results) == 10
+        assert len({key for key, _ in results}) == 10
+        assert "LIMIT 11" in sql

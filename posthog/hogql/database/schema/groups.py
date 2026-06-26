@@ -66,27 +66,41 @@ def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
     return select
 
 
+def _resolved_table(table_type) -> object | None:
+    # Unwrap alias wrappers (e.g. `FROM groups AS g`) to the underlying table, so an aliased select is still
+    # recognised as a direct groups select.
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    return getattr(table_type, "table", None)
+
+
 def _push_limit_into_groups_dedup(select: SelectQuery, node: SelectQuery) -> None:
     # When directly selecting from `groups` with a LIMIT and nothing that changes which rows survive, copy the limit
     # into the dedup so in-order aggregation can stop after enough groups rather than scanning the whole team. Skip
-    # when there's a WHERE/PREWHERE (a premature inner LIMIT would drop rows the outer filter wanted) or an ORDER BY
-    # (without reproducing the order inside, the limit would keep the wrong groups). Both stay correct without the
-    # pushdown -- optimize_aggregation_in_order already bounds memory, we just lose early termination.
+    # anything that could change which/how many rows survive the limit: a WHERE/PREWHERE (a premature inner LIMIT
+    # would drop rows the outer filter wanted), an ORDER BY (the limit would keep the wrong groups), a DISTINCT or
+    # GROUP BY (could collapse the limited rows below the requested count), LIMIT BY/WITH TIES/PERCENT, or a
+    # non-constant LIMIT/OFFSET. Without the pushdown the query is still correct and still memory-bounded by
+    # optimize_aggregation_in_order; we only forgo early termination.
+    #
+    # `next_join` only catches explicit joins in the FROM -- the `revenue_analytics` lazy join is attached to `node`
+    # after this runs, so the pushdown fires through it. That's correct because it is a row-preserving LEFT JOIN
+    # (it never drops or filters a groups row), so any N groups plus their joined data is still a valid answer. A
+    # future groups lazy join that is INNER or filters the left side would need to be excluded here.
     if (
         node.select_from is None
         or node.select_from.next_join is not None
-        or node.select_from.type is None
-        or not hasattr(node.select_from.type, "table")
-        or not node.select_from.type.table
-        or not isinstance(node.select_from.type.table, GroupsTable)
         or not isinstance(node.limit, ast.Constant)
+        or (node.offset is not None and not isinstance(node.offset, ast.Constant))
         or node.where
         or node.prewhere
         or node.group_by
+        or node.distinct
         or node.order_by
         or node.limit_by
         or node.limit_with_ties
         or node.limit_percent
+        or not isinstance(_resolved_table(node.select_from.type), GroupsTable)
     ):
         return
 
