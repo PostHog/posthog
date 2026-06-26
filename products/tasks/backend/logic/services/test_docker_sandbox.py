@@ -518,6 +518,32 @@ class TestDockerSandboxUnit:
         command = _agent_server_launch_command(mock_execute)
         assert expected_flag in command
 
+    def test_start_agent_server_passes_mcp_tool_approval_metadata(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+                sandbox.start_agent_server(
+                    "posthog/posthog",
+                    "task-123",
+                    "run-456",
+                    "background",
+                    mcp_tool_approvals={"mcp__Linear__search": "needs_approval"},
+                    mcp_tool_installations={"mcp__Linear__search": {"installationId": "inst-1", "toolName": "search"}},
+                )
+
+        command = _agent_server_launch_command(mock_execute)
+        assert "--mcpToolApprovals" in command
+        assert "mcp__Linear__search" in command
+        assert "needs_approval" in command
+        assert "--mcpToolInstallations" in command
+        assert "inst-1" in command
+
     def test_start_agent_server_includes_runtime_environment_variables(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"

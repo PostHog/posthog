@@ -15,3 +15,13 @@ class ActiveInstallationInfo:
     id: str
     name: str
     proxy_path: str
+
+
+@dataclass(frozen=True)
+class ActiveInstallationToolInfo:
+    """Approval metadata for a live tool on an active MCP server installation."""
+
+    installation_id: str
+    installation_name: str
+    tool_name: str
+    approval_state: str

@@ -255,6 +255,8 @@ class SandboxBase(ABC):
         model: str | None = None,
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        mcp_tool_approvals: dict[str, str] | None = None,
+        mcp_tool_installations: dict[str, dict[str, str]] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,

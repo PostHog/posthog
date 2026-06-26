@@ -1,10 +1,12 @@
 from posthog.test.base import BaseTest
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
-from products.mcp_store.backend.facade.api import get_active_installations
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
-from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
+from products.mcp_store.backend.facade.api import get_active_installation_tools, get_active_installations
+from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo, ActiveInstallationToolInfo
+from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool, MCPServerTemplate
 
 
 class TestGetActiveInstallations(BaseTest):
@@ -134,3 +136,57 @@ class TestGetActiveInstallations(BaseTest):
         results = get_active_installations(self.team.id, self.user.id)
 
         assert (len(results) == 1) == expected_included
+
+
+class TestGetActiveInstallationTools(BaseTest):
+    def _create_installation(self, **kwargs) -> MCPServerInstallation:
+        defaults: dict = {
+            "team": self.team,
+            "user": self.user,
+            "display_name": "Linear",
+            "url": "https://mcp.linear.app/mcp",
+            "auth_type": "api_key",
+            "is_enabled": True,
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallation.objects.create(**defaults)
+
+    def _create_tool(self, installation: MCPServerInstallation, **kwargs) -> MCPServerInstallationTool:
+        defaults = {
+            "installation": installation,
+            "tool_name": "search",
+            "approval_state": "needs_approval",
+            "last_seen_at": timezone.now(),
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallationTool.objects.create(**defaults)
+
+    def test_returns_live_tool_approval_metadata_for_active_installations(self) -> None:
+        installation = self._create_installation(display_name="Linear CRM")
+        self._create_tool(installation, tool_name="search", approval_state="needs_approval")
+        self._create_tool(installation, tool_name="create_ticket", approval_state="approved")
+
+        assert get_active_installation_tools(self.team.id, self.user.id) == [
+            ActiveInstallationToolInfo(
+                installation_id=str(installation.id),
+                installation_name="Linear CRM",
+                tool_name="create_ticket",
+                approval_state="approved",
+            ),
+            ActiveInstallationToolInfo(
+                installation_id=str(installation.id),
+                installation_name="Linear CRM",
+                tool_name="search",
+                approval_state="needs_approval",
+            ),
+        ]
+
+    def test_skips_removed_tools_and_inactive_installations(self) -> None:
+        active = self._create_installation(display_name="Active")
+        disabled = self._create_installation(
+            display_name="Disabled", url="https://disabled.example.com", is_enabled=False
+        )
+        self._create_tool(active, removed_at=timezone.now())
+        self._create_tool(disabled, tool_name="disabled_tool")
+
+        assert get_active_installation_tools(self.team.id, self.user.id) == []

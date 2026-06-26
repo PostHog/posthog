@@ -718,6 +718,8 @@ class DockerSandbox(SandboxBase):
         model: str | None = None,
         reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
+        mcp_tool_approvals_arg: str = "",
+        mcp_tool_installations_arg: str = "",
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
@@ -748,7 +750,8 @@ class DockerSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{mcp_tool_approvals_arg}"
+            f"{mcp_tool_installations_arg}{domains_flag}"
         )
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
@@ -795,6 +798,8 @@ class DockerSandbox(SandboxBase):
         model: str | None = None,
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        mcp_tool_approvals: dict[str, str] | None = None,
+        mcp_tool_installations: dict[str, dict[str, str]] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
@@ -828,6 +833,12 @@ class DockerSandbox(SandboxBase):
         if mcp_configs:
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
+        mcp_tool_approvals_arg = ""
+        if mcp_tool_approvals:
+            mcp_tool_approvals_arg = f" --mcpToolApprovals {shlex.quote(json.dumps(mcp_tool_approvals))}"
+        mcp_tool_installations_arg = ""
+        if mcp_tool_installations:
+            mcp_tool_installations_arg = f" --mcpToolInstallations {shlex.quote(json.dumps(mcp_tool_installations))}"
 
         command = self._build_agent_server_command(
             repo_path,
@@ -842,6 +853,8 @@ class DockerSandbox(SandboxBase):
             model,
             reasoning_effort,
             mcp_servers_arg,
+            mcp_tool_approvals_arg,
+            mcp_tool_installations_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,

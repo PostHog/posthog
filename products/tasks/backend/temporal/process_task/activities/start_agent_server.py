@@ -24,6 +24,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
     get_sandbox_ph_mcp_configs,
     get_user_mcp_server_configs,
+    get_user_mcp_tool_approval_metadata,
     mark_mcp_token_issued,
 )
 
@@ -207,6 +208,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             interaction_origin=ctx.interaction_origin,
             task_id=str(ctx.task_id),
         )
+        mcp_tool_approvals: dict[str, str] | None = None
+        mcp_tool_installations: dict[str, dict[str, str]] | None = None
         if task.created_by_id:
             user_mcp_configs = get_user_mcp_server_configs(
                 token=access_token,
@@ -216,6 +219,10 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             )
             if user_mcp_configs:
                 mcp_configs = mcp_configs + user_mcp_configs
+                mcp_tool_metadata = get_user_mcp_tool_approval_metadata(ctx.team_id, task.created_by_id)
+                if mcp_tool_metadata.approvals:
+                    mcp_tool_approvals = mcp_tool_metadata.approvals
+                    mcp_tool_installations = mcp_tool_metadata.installations
 
         if mcp_configs:
             emit_agent_log(
@@ -273,6 +280,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 model=ctx.model,
                 reasoning_effort=ctx.reasoning_effort,
                 mcp_configs=mcp_configs or None,
+                mcp_tool_approvals=mcp_tool_approvals,
+                mcp_tool_installations=mcp_tool_installations,
                 allowed_domains=agentsh_domains,
                 event_ingest_token=event_ingest_token,
                 event_ingest_url=event_ingest_url,

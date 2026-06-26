@@ -1,10 +1,10 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo, ActiveInstallationToolInfo
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import (
     GitHubCredentialSource,
@@ -14,6 +14,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
     get_user_mcp_server_configs,
+    get_user_mcp_tool_approval_metadata,
     is_caller_token_run,
 )
 
@@ -316,6 +317,36 @@ class TestFetchUserMcpServerConfigs(TestCase):
         assert len(configs) == 2
         assert configs[0].name == "Linear"
         assert configs[1].name == "Notion"
+
+
+class TestUserMcpToolApprovalMetadata(SimpleTestCase):
+    @patch("products.tasks.backend.temporal.process_task.utils.get_active_installation_tools")
+    def test_builds_code_tool_keys_and_installation_refs(self, mock_tools) -> None:
+        mock_tools.return_value = [
+            ActiveInstallationToolInfo(
+                installation_id="abc-1",
+                installation_name="Linear CRM",
+                tool_name="search",
+                approval_state="needs_approval",
+            ),
+            ActiveInstallationToolInfo(
+                installation_id="abc-1",
+                installation_name="Linear CRM",
+                tool_name="create_ticket",
+                approval_state="approved",
+            ),
+        ]
+
+        metadata = get_user_mcp_tool_approval_metadata(team_id=42, user_id=7)
+
+        assert metadata.approvals == {
+            "mcp__Linear_CRM__search": "needs_approval",
+            "mcp__Linear_CRM__create_ticket": "approved",
+        }
+        assert metadata.installations == {
+            "mcp__Linear_CRM__search": {"installationId": "abc-1", "toolName": "search"},
+            "mcp__Linear_CRM__create_ticket": {"installationId": "abc-1", "toolName": "create_ticket"},
+        }
 
 
 class TestGetGitIdentityEnvVars(TestCase):

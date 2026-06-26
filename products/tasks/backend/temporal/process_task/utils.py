@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -14,7 +15,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
-from products.mcp_store.backend.facade.api import get_active_installations
+from products.mcp_store.backend.facade.api import get_active_installation_tools, get_active_installations
 from products.tasks.backend.constants import InitialPermissionMode, filter_user_sandbox_env_vars
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -262,6 +263,35 @@ class McpServerConfig:
             "url": self.url,
             "headers": self.headers,
         }
+
+
+@dataclass(frozen=True)
+class McpToolApprovalMetadata:
+    """MCP Store approval metadata keyed by ACP-visible tool name."""
+
+    approvals: dict[str, str] = field(default_factory=dict)
+    installations: dict[str, dict[str, str]] = field(default_factory=dict)
+
+
+def sanitize_mcp_server_name(name: str) -> str:
+    """Match PostHog Code's MCP server name normalization."""
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
+
+
+def get_user_mcp_tool_approval_metadata(team_id: int, user_id: int) -> McpToolApprovalMetadata:
+    approvals: dict[str, str] = {}
+    installations: dict[str, dict[str, str]] = {}
+
+    for tool in get_active_installation_tools(team_id, user_id):
+        server_name = sanitize_mcp_server_name(tool.installation_name)
+        tool_key = f"mcp__{server_name}__{tool.tool_name}"
+        approvals[tool_key] = tool.approval_state
+        installations[tool_key] = {
+            "installationId": tool.installation_id,
+            "toolName": tool.tool_name,
+        }
+
+    return McpToolApprovalMetadata(approvals=approvals, installations=installations)
 
 
 def get_sandbox_api_url() -> str:

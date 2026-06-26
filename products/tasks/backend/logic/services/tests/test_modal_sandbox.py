@@ -420,6 +420,27 @@ class TestModalSandboxAgentServer:
         command = _agent_server_launch_command(mock_sandbox.execute)
         assert expected_flag in command
 
+    def test_start_agent_server_passes_mcp_tool_approval_metadata(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            mcp_tool_approvals={"mcp__Linear__search": "needs_approval"},
+            mcp_tool_installations={"mcp__Linear__search": {"installationId": "inst-1", "toolName": "search"}},
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        assert "--mcpToolApprovals" in command
+        assert "mcp__Linear__search" in command
+        assert "needs_approval" in command
+        assert "--mcpToolInstallations" in command
+        assert "inst-1" in command
+
     def test_start_agent_server_includes_runtime_environment_variables(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
