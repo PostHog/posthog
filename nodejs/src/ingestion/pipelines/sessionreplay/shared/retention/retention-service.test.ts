@@ -19,7 +19,7 @@ jest.mock('~/ingestion/pipelines/sessionreplay/sessions/metrics', () => ({
     },
 }))
 
-jest.mock('~/utils/logger', () => ({
+jest.mock('~/common/utils/logger', () => ({
     logger: {
         warn: jest.fn(),
     },

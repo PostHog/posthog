@@ -1,9 +1,9 @@
 import { LRUCache } from 'lru-cache'
 
+import { logger } from '~/common/utils/logger'
+import { Limiter } from '~/common/utils/token-bucket'
 import { SESSION_FILTER_REDIS_TTL_SECONDS } from '~/ingestion/pipelines/sessionreplay/constants'
 import { RedisPool } from '~/types'
-import { logger } from '~/utils/logger'
-import { Limiter } from '~/utils/token-bucket'
 
 import { SessionBatchMetrics } from './metrics'
 
@@ -82,8 +82,10 @@ export class SessionFilter {
         let client
         try {
             client = await this.redisPool.acquire()
+            const redisPromise = client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
+            redisPromise.catch(() => {})
             await Promise.race([
-                client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS),
+                redisPromise,
                 new Promise<never>((_, reject) =>
                     setTimeout(() => reject(new Error('Redis SET timed out')), this.redisTimeoutMs)
                 ),
@@ -140,8 +142,10 @@ export class SessionFilter {
         let client
         try {
             client = await this.redisPool.acquire()
+            const redisPromise = client.exists(key)
+            redisPromise.catch(() => {})
             const exists = await Promise.race([
-                client.exists(key),
+                redisPromise,
                 new Promise<never>((_, reject) =>
                     setTimeout(() => reject(new Error('Redis EXISTS timed out')), this.redisTimeoutMs)
                 ),

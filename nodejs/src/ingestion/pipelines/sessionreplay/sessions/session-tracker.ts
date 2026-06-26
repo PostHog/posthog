@@ -1,8 +1,8 @@
 import { LRUCache } from 'lru-cache'
 
+import { logger } from '~/common/utils/logger'
 import { SESSION_TRACKER_REDIS_TTL_SECONDS } from '~/ingestion/pipelines/sessionreplay/constants'
 import { RedisPool } from '~/types'
-import { logger } from '~/utils/logger'
 
 import { SessionBatchMetrics } from './metrics'
 
@@ -55,8 +55,10 @@ export class SessionTracker {
 
             // Use SET with NX (only set if not exists) and EX (expiry) for atomic check-and-set
             // Returns 'OK' if key was set (new session), null if already exists
+            const redisPromise = client.set(key, '1', 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS, 'NX')
+            redisPromise.catch(() => {})
             const wasSet = await Promise.race([
-                client.set(key, '1', 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS, 'NX'),
+                redisPromise,
                 new Promise<never>((_, reject) =>
                     setTimeout(() => reject(new Error('Redis SET NX timed out')), this.redisTimeoutMs)
                 ),

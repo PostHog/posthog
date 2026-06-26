@@ -1,3 +1,4 @@
+import { logger } from '~/common/utils/logger'
 import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import {
     RetentionPeriod,
@@ -6,7 +7,6 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { RedisPool, TeamId } from '~/types'
-import { logger } from '~/utils/logger'
 
 import { RetentionServiceMetrics } from './metrics'
 
@@ -89,8 +89,10 @@ export class RetentionService {
         const client = await this.redisPool.acquire()
 
         try {
+            const redisPromise = client.get(redisKey)
+            redisPromise.catch(() => {})
             return await Promise.race([
-                client.get(redisKey),
+                redisPromise,
                 new Promise<never>((_, reject) =>
                     setTimeout(() => reject(new Error('Redis GET timed out')), this.redisTimeoutMs)
                 ),
@@ -105,8 +107,10 @@ export class RetentionService {
         const client = await this.redisPool.acquire()
 
         try {
+            const redisPromise = client.set(redisKey, retentionPeriod, 'EX', 24 * 60 * 60)
+            redisPromise.catch(() => {})
             await Promise.race([
-                client.set(redisKey, retentionPeriod, 'EX', 24 * 60 * 60),
+                redisPromise,
                 new Promise<never>((_, reject) =>
                     setTimeout(() => reject(new Error('Redis SET timed out')), this.redisTimeoutMs)
                 ),
