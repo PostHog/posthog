@@ -33,6 +33,30 @@ class _Mallinfo2(ctypes.Structure):
     _fields_ = [(name, ctypes.c_size_t) for name in _MALLINFO2_FIELDS]
 
 
+def _open_libc() -> "ctypes.CDLL | None":
+    """dlopen glibc once at import (dlopen is the costly part) and configure return types,
+    so the handler doesn't re-resolve it on every probe. None on non-glibc platforms (dev
+    macOS), where the probe degrades to RSS-only rather than erroring."""
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+    except OSError:
+        return None
+    try:
+        libc.malloc_trim.restype = ctypes.c_int
+        libc.malloc_trim.argtypes = (ctypes.c_size_t,)
+    except AttributeError:
+        pass
+    try:
+        libc.mallinfo2.restype = _Mallinfo2
+    except AttributeError:
+        # glibc < 2.33 lacks mallinfo2; the trim delta still works without the breakdown.
+        pass
+    return libc
+
+
+_LIBC = _open_libc()
+
+
 def _read_vmrss_kb() -> int | None:
     """Resident set size of this process in kB, from /proc/self/status. A process can
     always read its own status — no CAP_SYS_PTRACE needed, unlike /proc/<pid>/smaps or
@@ -52,11 +76,11 @@ def _mallinfo2() -> dict[str, int] | None:
     parked on free lists (fordblks) rather than returned. Quantifies reclaimable
     fragmentation directly, in O(1), without a heap walk. None where libc/mallinfo2 is
     unavailable (non-glibc, e.g. dev macOS)."""
+    if _LIBC is None:
+        return None
     try:
-        libc = ctypes.CDLL("libc.so.6")
-        libc.mallinfo2.restype = _Mallinfo2
-        info = libc.mallinfo2()
-    except (OSError, AttributeError):
+        info = _LIBC.mallinfo2()
+    except AttributeError:
         return None
     return {name: getattr(info, name) for name in _MALLINFO2_FIELDS}
 
@@ -67,26 +91,35 @@ def _handle_probe(signum: int, frame: FrameType | None) -> None:
     is safe here; logging's RLock is reentrant for the same thread, so interrupting a log
     call can't self-deadlock.
 
-    Reads RSS at three points — as-is, after gc.collect(), after malloc_trim(0) — which is
-    enough to tell apart the three causes of a high resident set without a GIL-blocking
-    heap walk:
-      after_gc  << before    -> uncollected reference cycles were holding memory (Python-level)
-      after_trim << after_gc -> glibc was sitting on reclaimable freed pages (jemalloc / a trim cron would recover it)
-      all three ~ equal      -> memory is live and referenced (only fetching/retaining less helps)
+    Captures mallinfo2 *before* gc/trim disturb it (malloc_trim hands back exactly the
+    reclaimable free-list pages, so a post-trim fordblks reads what's left, not what was
+    hoarded), then RSS at three points plus malloc_trim's own return value. Read the verdict
+    as — note gc.collect() frees cycles into glibc's free list, NOT back to the OS, so RSS
+    may not move even when collection happened; key the cycle call off the count, not RSS:
+      gc_collected large                 -> reference cycles are a factor (Python-level / gc tuning),
+                                            independent of whether RSS moved
+      (rss_before - rss_after_trim) large -> glibc was holding reclaimable pages (malloc_released == 1);
+        or malloc_released == 1             jemalloc decay or a periodic trim would recover it -> the jemalloc gate
+      both small                         -> memory is genuinely live (only fetching/retaining less helps)
 
+    mallinfo2_before.fordblks vs uordblks is the free-list-vs-live split before trim runs.
     The gc.collect() costs a single pause on the one worker that's signalled, which is why
     this is fired by hand on a chosen pod, never on a schedule."""
     log = structlog.get_logger("posthog.web_memory_probe")
+    mallinfo_before = _mallinfo2()
     rss_before = _read_vmrss_kb()
     gc_counts = gc.get_count()
     collected = gc.collect()
     rss_after_gc = _read_vmrss_kb()
-    trimmed = False
-    try:
-        ctypes.CDLL("libc.so.6").malloc_trim(0)
-        trimmed = True
-    except (OSError, AttributeError):
-        pass
+    # malloc_trim(0) returns 1 if it actually released pages to the OS, 0 if not — a direct
+    # answer that doesn't depend on a quiet-at-the-instant RSS sample (ctypes drops the GIL
+    # during the call, so the sync threadpool can allocate and add noise to rss_after_trim).
+    released: int | None = None
+    if _LIBC is not None:
+        try:
+            released = int(_LIBC.malloc_trim(0))
+        except (OSError, AttributeError):
+            released = None
     rss_after_trim = _read_vmrss_kb()
     log.warning(
         "web_memory_probe",
@@ -98,17 +131,20 @@ def _handle_probe(signum: int, frame: FrameType | None) -> None:
         gc_collected=collected,
         gc_uncollectable=len(gc.garbage),
         gc_counts=gc_counts,
-        malloc_trimmed=trimmed,
-        mallinfo2=_mallinfo2(),
+        malloc_released=released,
+        mallinfo2_before=mallinfo_before,
+        mallinfo2_after=_mallinfo2(),
     )
 
 
 def install_memory_probe_handler() -> None:
     """Register the SIGUSR2 memory-probe handler, gated by WEB_MEMORY_PROBE_ENABLED.
 
-    MUST be called post-fork from inside each worker (see posthog/asgi.py): signal handlers
-    can only be registered from the main thread, and the handler has to live in the worker
-    that serves requests, not the idle Nginx Unit prototype the workers fork from.
+    MUST be called post-fork from inside each worker (see posthog/asgi.py and posthog/wsgi.py):
+    signal handlers can only be registered from the main thread, and the handler has to live
+    in the worker that serves requests, not the idle Nginx Unit prototype the workers fork
+    from. Registering post-fork also means it isn't clobbered by any signal reset Unit does
+    during worker init.
 
     Inert until armed: with the flag unset (default) nothing is registered at all, and even
     when armed the handler does nothing until a SIGUSR2 actually arrives. So the safe way to
