@@ -206,17 +206,19 @@ Every row's **core count is explicit** — comparing a 1-core row to a 4-core ro
 (an earlier version of this table did exactly that and so misleadingly showed parallel FFI
 "beating" single-threaded in-process Rust).
 
-One coherent run (same machine state — compare these rows to each other, not to other runs):
+One coherent run (same machine state — compare these rows to each other, not to other runs;
+re-measured after the async/VMState/byte-compat work, which added only a per-step op counter and a
+predicted-not-taken telemetry branch — the ratios are unchanged):
 
 | mode | cores | boundary | events/s | vs Node (same cores) |
 |---|---|---|---|---|
-| Node (V8) | 1 | — | 10.7k | 1.00× |
-| Rust in-process | 1 | none | 17.7k | **1.6×** |
-| Rust in-process | 4 | none | 66.2k | (3.7× the 1-core Rust) |
-| Rust-from-Node FFI | 1 | JS objects → `serde_json::Value` | 12.9k | ~1.2× (≈ Node) |
-| Rust-from-Node FFI | 4 | JS objects → `serde_json::Value` | 29.0k | ~2.7× |
-| **Rust-from-Node FFI (flat)** | 1 | packed `Float64Array` | **16.9k** | **~1.6× — ≈ in-process** |
-| **Rust-from-Node FFI (flat)** | 4 | packed `Float64Array` | **67.0k** | **~6.2× — ≈ in-process** |
+| Node (V8) | 1 | — | 15.4k | 1.00× |
+| Rust in-process | 1 | none | 24.7k | **1.6×** |
+| Rust in-process | 4 | none | 96.5k | (3.9× the 1-core Rust) |
+| Rust-from-Node FFI | 1 | JS objects → `serde_json::Value` | 17.9k | ~1.2× (≈ Node) |
+| Rust-from-Node FFI | 4 | JS objects → `serde_json::Value` | 39.2k | ~2.6× |
+| **Rust-from-Node FFI (flat)** | 1 | packed `Float64Array` | **23.4k** | **~1.5× — ≈ in-process** |
+| **Rust-from-Node FFI (flat)** | 4 | packed `Float64Array` | **94.9k** | **~6.2× — ≈ in-process** |
 
 **The FFI boundary was the dominant cost — and it's fixable.** With the JS-object boundary the napi
 round-trip (walking 10k events × a 128-element series into `serde_json::Value`, then results back)
