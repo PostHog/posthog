@@ -46,7 +46,10 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
                 })) as HogQLQueryResponse
                 breakpoint()
                 const row = (response?.results?.[0] as unknown[] | undefined) ?? []
-                return { hasInitialize: Boolean(row[0]), hasToolCall: Boolean(row[1]) }
+                // ClickHouse returns the `> 0` comparisons as 0/1; coerce numerically so a
+                // stringified "0" can never read as truthy (Boolean("0") would).
+                const truthy = (value: unknown): boolean => Number(value) > 0
+                return { hasInitialize: truthy(row[0]), hasToolCall: truthy(row[1]) }
             },
         },
     }),
