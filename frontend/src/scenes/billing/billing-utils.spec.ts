@@ -572,7 +572,7 @@ describe('buildUsageLimitApproachingMessage', () => {
             { name: 'Session replay', percentage_usage: 0.9, usage_key: 'recordings' },
         ])
         expect(result.title).toEqual('You will soon hit your usage limit')
-        expect(result.message).toEqual('You have currently used 90% of your recordings allocation.')
+        expect(result.message).toEqual('You have currently used 90% of your Session replay allocation.')
     })
 
     it('should build message for multiple products', () => {
@@ -582,12 +582,24 @@ describe('buildUsageLimitApproachingMessage', () => {
         ])
         expect(result.title).toEqual('You will soon hit your usage limits')
         expect(result.message).toEqual(
-            'You are approaching your usage limits: 90% of your recordings allocation, 87% of your feature_flag_requests allocation.'
+            'You are approaching your usage limits: 90% of your Session replay allocation, 87% of your Feature flags & Experiments allocation.'
         )
     })
 
-    it('should handle missing usage_key', () => {
+    it('should use the product name even when usage_key is missing', () => {
         const result = buildUsageLimitApproachingMessage([{ name: 'Session replay', percentage_usage: 0.9 }])
+        expect(result.message).toContain('Session replay allocation')
+    })
+
+    it('should fall back to usage_key when name is missing', () => {
+        const result = buildUsageLimitApproachingMessage([
+            { name: '', percentage_usage: 0.9, usage_key: 'signals_credits' },
+        ])
+        expect(result.message).toContain('signals_credits allocation')
+    })
+
+    it('should fall back to "usage" when both name and usage_key are missing', () => {
+        const result = buildUsageLimitApproachingMessage([{ name: '', percentage_usage: 0.9 }])
         expect(result.message).toContain('usage allocation')
     })
 
