@@ -21,7 +21,6 @@ import type {
     HogFlowTemplatesListParams,
     HogFlowTemplatesLogsRetrieveParams,
     HogFlowsAssetContentRetrieveParams,
-    HogFlowsAssetPdfRetrieveParams,
     HogFlowsAssetsRetrieveParams,
     HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
@@ -377,38 +376,6 @@ export const hogFlowsAssetContentRetrieve = async (
     options?: RequestInit
 ): Promise<unknown> => {
     return apiMutator<unknown>(getHogFlowsAssetContentRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getHogFlowsAssetPdfRetrieveUrl = (
-    projectId: string,
-    id: string,
-    params: HogFlowsAssetPdfRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/hog_flows/${id}/assets/pdf/?${stringifiedParams}`
-        : `/api/projects/${projectId}/hog_flows/${id}/assets/pdf/`
-}
-
-export const hogFlowsAssetPdfRetrieve = async (
-    projectId: string,
-    id: string,
-    params: HogFlowsAssetPdfRetrieveParams,
-    options?: RequestInit
-): Promise<Blob> => {
-    return apiMutator<Blob>(getHogFlowsAssetPdfRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

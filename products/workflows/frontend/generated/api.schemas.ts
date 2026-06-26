@@ -984,7 +984,6 @@ export type HogFlowsAssetsRetrieveParams = {
     offset?: number
     /**
      * Only return assets for this batch run (HogFlowBatchJob id). Pass an empty string to return only event-triggered (non-batch) assets; omit to return all.
-     * @minLength 1
      */
     parent_run_id?: string
     /**
@@ -995,18 +994,6 @@ export type HogFlowsAssetsRetrieveParams = {
 }
 
 export type HogFlowsAssetContentRetrieveParams = {
-    /**
-     * The email step (action node) that sent the email. Defaults to empty for standalone email sends.
-     */
-    action_id?: string
-    /**
-     * The workflow run the email was sent in.
-     * @minLength 1
-     */
-    invocation_id: string
-}
-
-export type HogFlowsAssetPdfRetrieveParams = {
     /**
      * The email step (action node) that sent the email. Defaults to empty for standalone email sends.
      */
