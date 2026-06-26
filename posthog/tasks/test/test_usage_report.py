@@ -5540,6 +5540,49 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end)
         self.assertEqual(billable_result_after[0][1], baseline_count)
 
+    def test_recording_observed_excluded_from_product_analytics_counts(self) -> None:
+        from posthog.tasks.usage_report import (
+            REPLAY_VISION_OBSERVATION_EVENT,
+            get_teams_with_billable_enhanced_persons_event_count_in_period,
+            get_teams_with_billable_event_count_in_period,
+            get_teams_with_recording_observations_count_in_period,
+        )
+
+        billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        billable_distinct_result_before = get_teams_with_billable_event_count_in_period(
+            self.begin, self.end, count_distinct=True
+        )
+        enhanced_result_before = get_teams_with_billable_enhanced_persons_event_count_in_period(self.begin, self.end)
+
+        baseline_count = billable_result_before[0][1] if billable_result_before else 0
+        baseline_distinct_count = billable_distinct_result_before[0][1] if billable_distinct_result_before else 0
+        baseline_enhanced_count = enhanced_result_before[0][1] if enhanced_result_before else 0
+
+        observation_uuid = uuid4()
+        for offset in range(2):
+            _create_event(
+                event=REPLAY_VISION_OBSERVATION_EVENT,
+                team=self.team,
+                distinct_id="replay_vision_observer",
+                timestamp=self.begin + relativedelta(hours=12, seconds=offset),
+                event_uuid=observation_uuid,
+                person_mode="full",
+            )
+
+        flush_persons_and_events()
+
+        billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        billable_distinct_result_after = get_teams_with_billable_event_count_in_period(
+            self.begin, self.end, count_distinct=True
+        )
+        enhanced_result_after = get_teams_with_billable_enhanced_persons_event_count_in_period(self.begin, self.end)
+        recording_observations_result = get_teams_with_recording_observations_count_in_period(self.begin, self.end)
+
+        self.assertEqual(billable_result_after[0][1], baseline_count)
+        self.assertEqual(billable_distinct_result_after[0][1], baseline_distinct_count)
+        self.assertEqual(enhanced_result_after[0][1], baseline_enhanced_count)
+        self.assertEqual(recording_observations_result, [(self.team.id, 1)])
+
     def test_integration_with_usage_report(self) -> None:
         """Test that the usage report generation still works with the new query splitting."""
         period_start, period_end = get_previous_day(at=self.end)
