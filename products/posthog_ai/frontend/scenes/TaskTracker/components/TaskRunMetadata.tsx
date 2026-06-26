@@ -7,7 +7,7 @@ import { TaskRun } from '../../../types/taskTypes'
 /** Created / completed / duration row shown above the run log for the selected run. */
 export function TaskRunMetadata({ selectedRun }: { selectedRun: TaskRun }): JSX.Element {
     return (
-        <div className="flex items-center gap-4 text-xs text-muted">
+        <div className="items-center gap-4 text-xs text-muted hidden lg:flex">
             <dl className="inline-flex gap-1 items-center">
                 <dt className="m-0">Created:</dt>
                 <dd className="m-0 inline-flex items-center">

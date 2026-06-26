@@ -164,7 +164,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                         />
                     )}
 
-                    <header className="flex flex-col gap-y-2">
+                    <header className="flex flex-col gap-y-2 mt-4">
                         <SceneTitleSection
                             name={task?.title || 'Task'}
                             description={null}
@@ -189,7 +189,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                             selectedRun && <TaskRunMetadata selectedRun={selectedRun} />
                         )}
 
-                        <LemonDivider className="mb-0" />
+                        <LemonDivider className="mb-0 mt-0 lg:mt-4" />
                     </header>
 
                     <TaskRunLog taskId={taskId} />

@@ -41,7 +41,7 @@ export function TaskHeaderActionsSkeleton(): JSX.Element {
 /** Skeleton for the run created/completed/duration metadata row. */
 export function TaskRunMetadataSkeleton(): JSX.Element {
     return (
-        <div className="flex items-center gap-4">
+        <div className="items-center gap-4 hidden lg:flex">
             <LemonSkeleton className="h-4 w-32" />
             <LemonSkeleton className="h-4 w-32" />
         </div>
