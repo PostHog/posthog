@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi import HTTPException
 
@@ -5,6 +7,7 @@ from llm_gateway.cloudflare import (
     CLOUDFLARE_ALLOWED_MODELS,
     _inject_cloudflare_params,
     ensure_cloudflare_model_allowed,
+    make_cloudflare_responses_call,
 )
 from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 
@@ -58,3 +61,47 @@ def test_litellm_anthropic_messages_adapter_contract() -> None:
     )
 
     assert callable(LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler)
+
+
+async def test_make_cloudflare_responses_call_injects_params_and_forces_bridge() -> None:
+    """The CF responses adapter must inject CF creds/model and force litellm's
+    Responses->chat/completions bridge (`use_chat_completions_api=True`), since CF's
+    OpenAI-compatible endpoint has no native /responses route."""
+    llm_call = make_cloudflare_responses_call("https://api.cloudflare.com/test/ai/v1", "secret")
+
+    with patch("llm_gateway.cloudflare.litellm.aresponses", new=AsyncMock(return_value="ok")) as mock_aresponses:
+        await llm_call(model="@cf/zai-org/glm-5.2", input="hi")
+
+    kwargs = mock_aresponses.call_args.kwargs
+    assert kwargs["use_chat_completions_api"] is True
+    assert kwargs["model"] == "openai/@cf/zai-org/glm-5.2"
+    assert kwargs["api_base"] == "https://api.cloudflare.com/test/ai/v1"
+    assert kwargs["api_key"] == "secret"
+    assert kwargs["input"] == "hi"
+
+
+async def test_litellm_responses_completion_bridge_contract() -> None:
+    """Load-bearing: `litellm.aresponses(use_chat_completions_api=True, ...)` must route a CF-style
+    model through the chat/completions bridge (i.e. call litellm.acompletion), not the native
+    Responses API. Fails fast if a litellm bump drops/renames the flag — which would silently send
+    CF responses traffic back to the broken native path."""
+    import litellm
+    from litellm.types.utils import ModelResponse
+
+    fake = ModelResponse()
+    fake.choices[0].message.content = "hi from cf"  # type: ignore[union-attr]
+
+    with patch("litellm.acompletion", new=AsyncMock(return_value=fake)) as mock_acompletion:
+        result = await litellm.aresponses(
+            model="openai/@cf/zai-org/glm-5.2",
+            input="hello",
+            use_chat_completions_api=True,
+            api_base="https://api.cloudflare.com/test/ai/v1",
+            api_key="secret",
+        )
+
+    assert mock_acompletion.called
+    assert mock_acompletion.call_args.kwargs["api_base"] == "https://api.cloudflare.com/test/ai/v1"
+    # The bridge must not leak the gateway-internal flag downstream to acompletion.
+    assert "use_chat_completions_api" not in mock_acompletion.call_args.kwargs
+    assert type(result).__name__ == "ResponsesAPIResponse"

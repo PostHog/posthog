@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import (
     CLOUDFLARE_OPENAI_CONFIG,
+    CLOUDFLARE_OPENAI_RESPONSES_CONFIG,
     OPENAI_CONFIG,
     OPENAI_RESPONSES_CONFIG,
     OPENAI_TRANSCRIPTION_CONFIG,
@@ -16,6 +17,7 @@ from llm_gateway.cloudflare import (
     ensure_cloudflare_configured,
     ensure_cloudflare_model_allowed,
     make_cloudflare_completion_call,
+    make_cloudflare_responses_call,
 )
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import RateLimitedUser
@@ -73,6 +75,23 @@ async def _handle_responses(
     It supports multimodal inputs, reasoning models, and persistent conversations.
     """
     data = body.model_dump(exclude_none=True)
+
+    if _is_cloudflare_model(body.model):
+        # CF-served models (`@cf/...`) can't use the native OpenAI Responses path below: it would
+        # prefix `openai/` and call the real OpenAI Responses API. Route through CF's endpoint via
+        # litellm's Responses->chat/completions bridge instead (see make_cloudflare_responses_call).
+        ensure_cloudflare_model_allowed(body.model)
+        settings = get_settings()
+        api_base, api_key = ensure_cloudflare_configured(settings)
+        return await handle_llm_request(
+            request_data=data,
+            user=user,
+            model=body.model,
+            is_streaming=body.stream or False,
+            provider_config=CLOUDFLARE_OPENAI_RESPONSES_CONFIG,
+            llm_call=make_cloudflare_responses_call(api_base, api_key),
+            product=product,
+        )
 
     original_model = body.model
     normalized_model = normalize_litellm_model_name(original_model, OPENAI_RESPONSES_CONFIG.name)

@@ -88,3 +88,21 @@ def make_cloudflare_completion_call(api_base: str, api_key: str) -> Callable[...
         return await litellm.acompletion(**kwargs)
 
     return llm_call
+
+
+def make_cloudflare_responses_call(api_base: str, api_key: str) -> Callable[..., Awaitable[Any]]:
+    """Build an llm_call that routes OpenAI Responses API requests to Cloudflare.
+
+    CF's OpenAI-compatible endpoint only serves chat/completions, not the Responses API,
+    so we force litellm's Responses->chat/completions bridge (`use_chat_completions_api`)
+    and route the bridged completion through CF's endpoint. Without this, `litellm.aresponses`
+    would hit CF's non-existent `/responses` route. This is the codex/Responses analogue of
+    `make_cloudflare_completion_call` (chat/completions) and `make_cloudflare_anthropic_call`
+    (Anthropic Messages).
+    """
+
+    async def llm_call(**kwargs: Any) -> Any:
+        _inject_cloudflare_params(kwargs, api_base, api_key)
+        return await litellm.aresponses(use_chat_completions_api=True, **kwargs)
+
+    return llm_call
