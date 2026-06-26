@@ -1172,6 +1172,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         if expected_warning_substring is None:
             # Dependency remapped to the target project's parent flag; nothing dropped, copy stays active
+            assert target_parent is not None
             self.assertNotIn("flag_dependency_warnings", success)
             self.assertEqual(remaining[0]["key"], str(target_parent.id))
         else:
