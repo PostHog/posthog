@@ -66,18 +66,14 @@ export class AdmissionService {
             return { kind: 'error', reason: `unknown_authoritative_provider:${authoritativeId}` }
         }
 
-        // 1. Durable binding → already authenticated.
-        const binding = await this.deps.bindings.find(applicationId, transportUser.id)
-        if (binding) {
-            const canonical = await this.deps.identities.getById(binding.canonicalAgentUserId)
-            if (canonical) {
-                return this.admitted(authoritativeId, canonical, transportUser.id, 'binding')
-            }
-            // Dangling binding (canonical vanished) → fall through to re-auth.
-            this.deps.log?.('warn', 'admission.dangling_binding', { binding_id: binding.id })
-        }
-
-        // 2. Per-request bearer the provider can verify inline (HTTP transports).
+        // 1. Per-request bearer the provider can verify inline (HTTP transports).
+        //    A bearer is a PER-REQUEST proof: verify it on every request, BEFORE
+        //    consulting any durable binding. A binding must never substitute for
+        //    a fresh bearer check — otherwise a revoked or expired token keeps
+        //    admitting until the binding is explicitly unbound, silently turning
+        //    a one-time link into a permanent grant. So a present-but-invalid
+        //    bearer goes straight to re-auth and is NOT rescued by step 2's
+        //    binding. (No bearer / no `verifyBearer` → fall to the binding path.)
         if (claim.bearer && provider.verifyBearer) {
             const verified = await provider.verifyBearer(claim.bearer.token)
             if (verified) {
@@ -100,7 +96,22 @@ export class AdmissionService {
                 })
                 return this.admitted(authoritativeId, canonical, transportUser.id, 'bearer')
             }
-            // Bearer present but invalid → fall through to auth_required.
+            this.deps.log?.('warn', 'admission.bearer_invalid', { provider: authoritativeId })
+            // Present-but-invalid → fall through to initiate (re-auth). Do NOT
+            // consult the durable binding — freshness must win over a prior link.
+        } else {
+            // 2. Durable binding → already authenticated. Only when there's no
+            //    verifiable per-request bearer (Slack/Discord, where the proof of
+            //    identity is the prior OAuth link, not a token on this request).
+            const binding = await this.deps.bindings.find(applicationId, transportUser.id)
+            if (binding) {
+                const canonical = await this.deps.identities.getById(binding.canonicalAgentUserId)
+                if (canonical) {
+                    return this.admitted(authoritativeId, canonical, transportUser.id, 'binding')
+                }
+                // Dangling binding (canonical vanished) → fall through to re-auth.
+                this.deps.log?.('warn', 'admission.dangling_binding', { binding_id: binding.id })
+            }
         }
 
         // 3. Not authenticated → initiate a link bound to the transport principal.

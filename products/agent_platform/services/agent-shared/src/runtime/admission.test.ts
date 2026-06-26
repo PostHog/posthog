@@ -422,6 +422,62 @@ describe('AdmissionService', () => {
         }
     })
 
+    it('HTTP: a revoked bearer is NOT rescued by the binding a prior valid bearer wrote', async () => {
+        // The per-request contract: a bearer is re-verified every request, even
+        // after one has already established a binding. A token that later turns
+        // invalid (revoked/expired) must stop admitting — the durable binding
+        // must not substitute for the freshness check.
+        const identities = new MemIdentityStore()
+        const bindings = new MemoryTransportBindingStore()
+        const credentials = new MemCredStore()
+        const provider: IdentityProvider = {
+            id: 'work',
+            credentialTarget: 'work',
+            establishesIdentity: true,
+            binding: 'principal',
+            allowedHosts: () => ['work.example'],
+            // A real OAuth leg so a failed bearer re-auths (auth_required) rather
+            // than erroring — makes the "not admitted" assertion crisp.
+            initiate: async () => ({ authorizeUrl: 'https://work.example/authorize?state=s', stateId: 's' }),
+            exchange: async () => {
+                throw new Error('should_not_exchange')
+            },
+            complete: async () => {
+                throw new Error('should_not_complete')
+            },
+            resolve: async () => null,
+            async verifyBearer(token: string): Promise<BearerVerification | null> {
+                return token === 'good-bearer'
+                    ? { subject: 'alice', stored: { access_token: token }, scopes: ['read'] }
+                    : null
+            },
+        }
+        const admission = new AdmissionService({
+            registry: new MapIdentityProviderRegistry([provider]),
+            identities,
+            bindings,
+            credentials,
+            redirectUriFor: REDIRECT,
+        })
+        const claim = (token: string): TransportClaim => ({
+            transport: 'http',
+            subjectId: 'jwt-sub',
+            bearer: { token },
+        })
+        const ctx = { application: APP, revision: revWith('work') }
+
+        // First request with a valid bearer → admitted + binding written.
+        const ok = await admission.resolve(claim('good-bearer'), ctx)
+        expect(ok.kind).toBe('admitted')
+        const transportUserId = ok.kind === 'admitted' ? ok.identity.transportAgentUserId : ''
+        expect((await bindings.find('app-1', transportUserId))?.canonicalAgentUserId).toBeTruthy()
+
+        // Same transport principal, now a revoked/expired bearer → must re-auth,
+        // NOT admit via the stale binding.
+        const revoked = await admission.resolve(claim('revoked-bearer'), ctx)
+        expect(revoked.kind).toBe('auth_required')
+    })
+
     it('passthrough: no authoritative provider → transport claim is the identity', async () => {
         const h = harness([])
         const res = await h.admission.resolve(
