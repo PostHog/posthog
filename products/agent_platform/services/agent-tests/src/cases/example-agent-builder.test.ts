@@ -121,6 +121,7 @@ describe('example: agent-builder bundle', () => {
             'focus_spec_section',
             'focus_tab',
             'get_context',
+            'set_application_description',
             'set_secret',
             'toast',
         ])

@@ -201,6 +201,25 @@
                 },
                 "required": ["agent_slug", "secret"]
             }
+        },
+        {
+            "kind": "client",
+            "id": "set_application_description",
+            "description": "Write a short, user-facing summary to `AgentApplication.description` — the line the Overview tab and the agent-list cards render. The host PATCHes the application and invalidates the relevant caches, so the new description is visible in the read panel the moment this returns. Args: `agent_slug` (the agent to update — required; do NOT infer from page context) and `description` (a single sentence, ≤280 chars after trim; the host trims whitespace and rejects overflow with `description_too_long: max 280 chars`). One sentence about WHAT the agent does for the user reading the Overview — not how it's wired (triggers / tools / model). On non-PostHog-Code clients this returns `unhandled_client_tool` — fall back to `posthog__agent-applications-partial-update` with `{ description }`, which hits the same Django endpoint without the live cache invalidation.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "agent_slug": {
+                        "type": "string",
+                        "description": "The agent to describe. Required — do not infer from page context."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "One concise sentence (≤280 chars after trim) about what the agent does for the reader of its Overview — not how it's configured."
+                    }
+                },
+                "required": ["agent_slug", "description"]
+            }
         }
     ],
     "mcps": [
