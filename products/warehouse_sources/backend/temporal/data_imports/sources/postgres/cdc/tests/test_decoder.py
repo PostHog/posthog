@@ -1,9 +1,9 @@
 import struct
 from datetime import UTC, datetime
 
-import pyarrow as pa
 import pytest
 
+import pyarrow as pa
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCTransactionTooLargeError
