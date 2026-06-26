@@ -311,7 +311,7 @@ def _call_model(*, client: OpenAI, team_id: int, system_prompt: str, user_prompt
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.1,
+        # No `temperature`: it's deprecated/rejected for claude-opus-4-8 (the model fixes it).
         max_tokens=MAX_OUTPUT_TOKENS,
         response_format={"type": "json_object"},
         user=f"team-{team_id}",
