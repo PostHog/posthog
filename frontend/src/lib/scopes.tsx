@@ -122,6 +122,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
     // `query_performance` is omitted — OAuth-hidden, PAT-grantable only (see `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py).
+    // `wizard_session` is also omitted for the same reason.
     { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
     { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
@@ -317,6 +318,7 @@ export const getScopeDescription = (scope: string): string | undefined => {
     }
 
     if (scope === 'introspection') {
+        // OAuth-internal scope — never shown to users; list call sites .filter(Boolean) it out.
         return undefined
     }
 
@@ -326,12 +328,14 @@ export const getScopeDescription = (scope: string): string | undefined => {
         return scope
     }
 
+    const actionWord = action === 'write' ? 'Write' : 'Read'
+
     const scopeObject = API_SCOPES.find((s) => s.key === object)
     if (!scopeObject) {
-        // Unknown / hidden scope — call sites .filter(Boolean) the result.
-        return undefined
+        // OAuth-hidden scope (e.g. wizard_session, query_performance) — absent from API_SCOPES,
+        // so derive a readable label from the raw key rather than surfacing the raw identifier.
+        return `${actionWord} access to ${object.replace(/_/g, ' ')}`
     }
-    const actionWord = action === 'write' ? 'Write' : 'Read'
 
     return `${actionWord} access to ${scopeObject.objectPlural}`
 }
