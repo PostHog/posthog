@@ -7,7 +7,7 @@ from products.ai_observability.backend.llm.providers.minimax import MINIMAX_BASE
 
 
 class TestMiniMaxValidateKey:
-    @patch("products.ai_observability.backend.llm.providers.minimax.openai.OpenAI")
+    @patch("products.ai_observability.backend.llm.providers.openai_compatible_byok.openai.OpenAI")
     def test_validate_key_valid_returns_ok(self, mock_openai):
         mock_client = MagicMock()
         mock_client.models.list.return_value = []
@@ -18,7 +18,7 @@ class TestMiniMaxValidateKey:
         assert state == "ok"
         assert message is None
 
-    @patch("products.ai_observability.backend.llm.providers.minimax.openai.OpenAI")
+    @patch("products.ai_observability.backend.llm.providers.openai_compatible_byok.openai.OpenAI")
     def test_validate_key_auth_error_returns_invalid(self, mock_openai):
         mock_client = MagicMock()
         mock_client.models.list.side_effect = openai.AuthenticationError(
@@ -33,7 +33,7 @@ class TestMiniMaxValidateKey:
         assert state == "invalid"
         assert message == "Invalid API key"
 
-    @patch("products.ai_observability.backend.llm.providers.minimax.openai.OpenAI")
+    @patch("products.ai_observability.backend.llm.providers.openai_compatible_byok.openai.OpenAI")
     def test_validate_key_connection_error_returns_error(self, mock_openai):
         mock_client = MagicMock()
         mock_client.models.list.side_effect = openai.APIConnectionError(request=MagicMock())
@@ -44,7 +44,7 @@ class TestMiniMaxValidateKey:
         assert state == "error"
         assert message == "Could not connect to MiniMax"
 
-    @patch("products.ai_observability.backend.llm.providers.minimax.openai.OpenAI")
+    @patch("products.ai_observability.backend.llm.providers.openai_compatible_byok.openai.OpenAI")
     def test_validate_key_rate_limit_returns_error(self, mock_openai):
         mock_client = MagicMock()
         mock_client.models.list.side_effect = openai.RateLimitError(
@@ -64,7 +64,7 @@ class TestMiniMaxListModels:
     def test_list_models_without_key_returns_empty(self):
         assert MiniMaxAdapter.list_models(None) == []
 
-    @patch("products.ai_observability.backend.llm.providers.minimax.openai.OpenAI")
+    @patch("products.ai_observability.backend.llm.providers.openai_compatible_byok.openai.OpenAI")
     def test_list_models_with_key_returns_newest_first(self, mock_openai):
         model_older = MagicMock()
         model_older.id = "MiniMax-M2"
@@ -83,13 +83,13 @@ class TestMiniMaxListModels:
         assert models == ["MiniMax-M2.5", "MiniMax-M2"]
 
     @patch(
-        "products.ai_observability.backend.llm.providers.minimax.openai.OpenAI",
+        "products.ai_observability.backend.llm.providers.openai_compatible_byok.openai.OpenAI",
         side_effect=Exception("API error"),
     )
     def test_list_models_error_returns_empty(self, _mock_openai):
         assert MiniMaxAdapter.list_models("minimax-test-key") == []
 
-    @patch("products.ai_observability.backend.llm.providers.minimax.openai.OpenAI")
+    @patch("products.ai_observability.backend.llm.providers.openai_compatible_byok.openai.OpenAI")
     def test_list_models_uses_minimax_base_url(self, mock_openai):
         mock_client = MagicMock()
         mock_client.models.list.return_value = []
