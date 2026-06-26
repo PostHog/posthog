@@ -359,13 +359,15 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             }
         },
         loadAllTeamsSuccess: () => {
+            const teams = values.sortedTeams
             // A team_id hint from the authorize URL (e.g. the wizard's --project-id) wins:
             // pre-select that project and its org so the user just clicks Authorize. We only
-            // honor it if the user actually has access to that team (it's in their loaded
-            // teams); otherwise fall through to the normal default.
-            const teams = values.sortedTeams
+            // honor it if the user has access to that team (it's in their loaded teams), and
+            // consume it once — so it can't override a later manual change or a project the
+            // user creates here (both also re-fire this listener).
             if (values.teamHint && teams && values.requiredAccessLevel === 'team') {
                 const hinted = teams.find((t) => t.id === values.teamHint)
+                actions.setTeamHint(null)
                 if (hinted) {
                     actions.setSelectedOrganization(hinted.organization, hinted.id)
                     return
@@ -374,13 +376,10 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             // After teams load, auto-select first project if org is set but no project selected
             const orgId = values.selectedOrganization
             const currentTeams = values.oauthAuthorization.scoped_teams
-            if (orgId && (!currentTeams || currentTeams.length === 0)) {
-                const teams = values.sortedTeams
-                if (teams) {
-                    const orgTeams = teams.filter((t) => t.organization === orgId)
-                    if (orgTeams.length > 0) {
-                        actions.setOauthAuthorizationValue('scoped_teams', [orgTeams[0].id])
-                    }
+            if (orgId && (!currentTeams || currentTeams.length === 0) && teams) {
+                const orgTeams = teams.filter((t) => t.organization === orgId)
+                if (orgTeams.length > 0) {
+                    actions.setOauthAuthorizationValue('scoped_teams', [orgTeams[0].id])
                 }
             }
         },
