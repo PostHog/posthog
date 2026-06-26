@@ -47,6 +47,8 @@ import {
 import { getNativeTool, hasNativeTool, WEB_SEARCH_TOOL_ID } from '@posthog/agent-tools'
 
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
+import { makeMcpProxyTools } from './mcp-proxy'
+import { decideMcpExposure } from './mcp-tool-budget'
 import { effectiveToolLevel } from './mcp-tool-lookup'
 import { buildToolNameMap } from './provider-safe-names'
 
@@ -190,11 +192,15 @@ export interface BuiltAgentTools {
      * sanitizes names on the wire and uses this map to translate the names a
      * strict provider echoes back to the original before the loop matches. */
     nameToId: Map<string, string>
+    /** `<prefix>__call_tool` name → its client, per proxied connection. The
+     *  driver re-keys the approval gate on the underlying tool from the args. */
+    mcpProxyCallTools: Map<string, OpenedMcp>
 }
 
 export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): Promise<BuiltAgentTools> {
     const tools: AgentTool<TSchema, ToolResultDetails>[] = []
     const seen = new Set<string>()
+    const mcpProxyCallTools = new Map<string, OpenedMcp>()
 
     // `@posthog/load-skill` is auto-included only when the agent has skills —
     // exposing it otherwise just adds a tool that errors on use.
@@ -291,51 +297,61 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             })
         )
         for (const { client, tools: remoteTools } of listings) {
-            // Exposure filter — two models keyed on `default_tool_approval`:
-            //   - New model (set): a tool is hidden iff its EFFECTIVE level is
-            //     `deny` (`tools[].level` override ?? the connection default).
-            //     `default_tool_approval: 'deny'` + per-tool `allow` overrides is
-            //     therefore a strict allowlist. The approval-wrap in `driver.ts`
-            //     gates the `approve`-level ones via `lookupMcpToolApproval`.
-            //   - Legacy model (unset): `tools[]` is an inclusion allowlist —
-            //     bare strings + object entries by NAME; empty/omitted = expose
-            //     every tool. Per-tool `requires_approval` gating still applies.
-            const legacyAllowlist =
-                !client.ref.default_tool_approval && client.ref.tools && client.ref.tools.length > 0
-                    ? new Set(client.ref.tools.map((t) => (typeof t === 'string' ? t : t.name)))
-                    : null
-            for (const remote of remoteTools) {
-                if (client.ref.default_tool_approval) {
-                    if (effectiveToolLevel(client.ref, remote.name) === 'deny') {
-                        continue
-                    }
-                } else if (legacyAllowlist && !legacyAllowlist.has(remote.name)) {
-                    continue
+            const exposed = exposedRemoteTools(client, remoteTools, seen)
+            // Inline below the budget; proxy a rich surface so it can't overflow the model.
+            const decision = decideMcpExposure(exposed)
+            if (decision.mode === 'inline') {
+                for (const remote of exposed) {
+                    tools.push(makeMcpTool(`${client.prefix}__${remote.name}`, client, remote))
                 }
-                // `<prefix>__<remoteName>` is the model-visible identifier; the
-                // model sees the prefix so it can disambiguate (`linear__create_issue`
-                // vs `github__create_issue`). All chars are already
-                // provider-safe — `__` is in the safe set.
-                const exposedName = `${client.prefix}__${remote.name}`
-                if (seen.has(exposedName)) {
-                    // Collisions can happen when a remote tool name accidentally
-                    // matches a native/custom id, or two MCPs export the same
-                    // post-prefix string. Same silent-skip behaviour as
-                    // duplicate spec.tools entries — keeps the model surface
-                    // stable across deploys instead of failing loudly on a
-                    // remote-side rename.
-                    continue
-                }
-                seen.add(exposedName)
-                tools.push(makeMcpTool(exposedName, client, remote))
+                continue
             }
+            deps.log('info', 'mcp.exposure.proxy', {
+                prefix: client.prefix,
+                toolCount: decision.toolCount,
+                serializedChars: decision.serializedChars,
+                reasons: decision.reasons,
+            })
+            const proxy = makeMcpProxyTools(client, exposed)
+            tools.push(...proxy.tools)
+            mcpProxyCallTools.set(proxy.callToolName, client)
         }
     }
 
     // Tools are named with their original ids (the loop matches calls by name).
     // The map keys the provider-safe form back to the original so the driver's
     // streamFn can translate names a strict provider echoed back.
-    return { tools, nameToId: buildToolNameMap(tools.map((t) => t.name)) }
+    return { tools, nameToId: buildToolNameMap(tools.map((t) => t.name)), mcpProxyCallTools }
+}
+
+/**
+ * The catalog a client should expose, shared by the inline and proxy emitters:
+ * deny/allowlist filter (new model — effective level !== 'deny'; legacy —
+ * `ref.tools[]` allowlist, empty/omitted = all) then `<prefix>__<name>`
+ * collision dedupe against `seen` (mutated).
+ */
+function exposedRemoteTools(client: OpenedMcp, remoteTools: RemoteMcpTool[], seen: Set<string>): RemoteMcpTool[] {
+    const legacyAllowlist =
+        !client.ref.default_tool_approval && client.ref.tools && client.ref.tools.length > 0
+            ? new Set(client.ref.tools.map((t) => (typeof t === 'string' ? t : t.name)))
+            : null
+    const exposed: RemoteMcpTool[] = []
+    for (const remote of remoteTools) {
+        if (client.ref.default_tool_approval) {
+            if (effectiveToolLevel(client.ref, remote.name) === 'deny') {
+                continue
+            }
+        } else if (legacyAllowlist && !legacyAllowlist.has(remote.name)) {
+            continue
+        }
+        const exposedName = `${client.prefix}__${remote.name}`
+        if (seen.has(exposedName)) {
+            continue
+        }
+        seen.add(exposedName)
+        exposed.push(remote)
+    }
+    return exposed
 }
 
 function makeControlFlowTool(id: string): AgentTool<TSchema, ToolResultDetails> {
