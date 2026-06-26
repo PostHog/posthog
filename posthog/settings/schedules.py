@@ -1,5 +1,5 @@
 from posthog.settings.base_variables import TEST
-from posthog.settings.utils import get_from_env
+from posthog.settings.utils import get_from_env, str_to_bool
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 
@@ -71,6 +71,15 @@ REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE: float = get_from_env(
     "REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE",
     0.0,
     type_cast=float,
+)
+
+# Kill-switch for skipping the recompute of person-property-only realtime cohorts whose conditions
+# saw no precalculated write since the cohort's last calculation (read from precalc_condition_watermark).
+# Off by default; the skip fails open (recomputes) on any uncertainty.
+REALTIME_COHORT_SKIP_UNCHANGED_ENABLED: bool = get_from_env(
+    "REALTIME_COHORT_SKIP_UNCHANGED_ENABLED",
+    False,
+    type_cast=str_to_bool,
 )
 
 # Realtime cohort calculation schedule intervals (in minutes) based on duration percentiles

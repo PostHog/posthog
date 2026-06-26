@@ -12,8 +12,11 @@ from django.utils import timezone
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
+from prometheus_client import Counter
 from temporalio.common import MetricHistogramFloat
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models.precalculated_person_properties.condition_watermark_sql import PRECALC_CONDITION_WATERMARK_TABLE
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
@@ -27,6 +30,121 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 LOGGER = get_logger(__name__)
+
+REALTIME_COHORT_SKIPPED_UNCHANGED_COUNTER = Counter(
+    "realtime_cohort_skipped_unchanged_total",
+    "Number of person-property-only realtime cohorts skipped because no precalculated write landed "
+    "for their conditions since the cohort's last calculation",
+)
+
+# Cohort property types that reference another cohort (a nested dependency). A nested cohort's
+# membership can change with no precalculated write, so these cohorts are not skippable.
+_NESTED_COHORT_PROPERTY_TYPES = {"cohort", "precalculated-cohort", "static-cohort", "dynamic-cohort"}
+
+
+def classify_cohort_composition(cohort: Cohort) -> str:
+    """Classify a realtime cohort by the kinds of conditions it uses.
+
+    Only "pp_only" cohorts are eligible for the watermark skip: behavioral conditions decay with the
+    clock (a leave is not write-driven) and nested-cohort conditions change without a precalculated
+    write. Pure, in-memory read of the cohort's stored filters (no DB access).
+
+    Returns one of: "pp_only", "behavioral", "nested", "other".
+    """
+    leaves = cohort.properties.flat
+    if not leaves:
+        return "other"
+
+    has_behavioral = False
+    has_nested = False
+    all_person = True
+    for prop in leaves:
+        if prop.type == "behavioral":
+            has_behavioral = True
+            all_person = False
+        elif prop.type in _NESTED_COHORT_PROPERTY_TYPES:
+            has_nested = True
+            all_person = False
+        elif prop.type != "person":
+            all_person = False
+
+    if has_behavioral:
+        return "behavioral"
+    if has_nested:
+        return "nested"
+    if all_person:
+        return "pp_only"
+    return "other"
+
+
+def _filter_unchanged_pp_cohorts(cohort_ids: list[int]) -> list[int]:
+    """Drop person-property-only cohorts whose conditions saw no precalculated write since their last
+    calculation, read from the precalc_condition_watermark table.
+
+    Fails open (keeps the cohort) on any uncertainty: a non-pp_only cohort, a never-calculated cohort,
+    a missing conditionHash, a missing watermark row, or a query error. We only skip on positive
+    evidence — a watermark row showing the latest write predates the last calculation. Because the
+    watermark may lag the precalc table slightly, a just-written change can be missed for one tick and
+    picked up on the next; that is within the realtime cohorts' eventual-consistency budget.
+    """
+    if not cohort_ids:
+        return cohort_ids
+
+    try:
+        # team_id, last_calc, and condition hashes per pp_only candidate with a prior calculation.
+        candidates: dict[int, tuple[int, dt.datetime, list[str]]] = {}
+        teams: set[int] = set()
+        conditions: set[str] = set()
+
+        for cohort in Cohort.objects.filter(id__in=cohort_ids):
+            last_calc = cohort.last_realtime_cohort_calculation_at
+            if last_calc is None or classify_cohort_composition(cohort) != "pp_only":
+                continue
+            hashes: list[str] = []
+            missing_hash = False
+            for prop in cohort.properties.flat:
+                condition_hash = getattr(prop, "conditionHash", None)
+                if not condition_hash:
+                    missing_hash = True  # a leaf without a conditionHash → can't reason about it
+                    break
+                hashes.append(condition_hash)
+            if missing_hash or not hashes:
+                continue
+            candidates[cohort.id] = (cohort.team_id, last_calc, hashes)
+            teams.add(cohort.team_id)
+            conditions.update(hashes)
+
+        if not candidates:
+            return cohort_ids
+
+        rows = sync_execute(
+            f"SELECT team_id, condition, max(last_write_at) FROM {PRECALC_CONDITION_WATERMARK_TABLE} "
+            "WHERE team_id IN %(teams)s AND condition IN %(conditions)s GROUP BY team_id, condition",
+            {"teams": list(teams), "conditions": list(conditions)},
+        )
+        # _timestamp/last_write_at come back as naive UTC datetimes.
+        watermark = {(int(team_id), condition): w.replace(tzinfo=dt.UTC) for team_id, condition, w in rows}
+
+        skipped: set[int] = set()
+        for cohort_id, (team_id, last_calc, hashes) in candidates.items():
+            writes = [watermark[(team_id, h)] for h in hashes if (team_id, h) in watermark]
+            # Skip only when every condition has a watermark row and the latest write is strictly
+            # before the last calculation. Strict `<` because the two timestamps come from different
+            # clocks (ClickHouse write time vs. the Django calculation stamp): an equal value is
+            # ambiguous about whether the calculation saw that write, so we keep (fail open). A
+            # missing row → no positive evidence → keep.
+            if len(writes) == len(hashes) and max(writes) < last_calc:
+                skipped.add(cohort_id)
+
+        if not skipped:
+            return cohort_ids
+
+        REALTIME_COHORT_SKIPPED_UNCHANGED_COUNTER.inc(len(skipped))
+        LOGGER.info("Skipped unchanged realtime cohorts", skipped_count=len(skipped), skipped_ids=sorted(skipped))
+        return [cohort_id for cohort_id in cohort_ids if cohort_id not in skipped]
+    except Exception:
+        LOGGER.warning("Watermark skip filter failed; processing all cohorts", exc_info=True)
+        return cohort_ids
 
 
 def get_coordinator_duration_histogram(percentile_bucket: str) -> MetricHistogramFloat:
@@ -350,6 +468,11 @@ async def get_realtime_cohort_selection_activity(
             if cohort_id not in seen_ids:
                 seen_ids.add(cohort_id)
                 unique_cohort_ids.append(cohort_id)
+
+        # Step 3.5: Skip person-property-only cohorts whose conditions saw no precalculated write
+        # since their last calculation (gated; fails open to recomputing everything).
+        if settings.REALTIME_COHORT_SKIP_UNCHANGED_ENABLED:
+            unique_cohort_ids = _filter_unchanged_pp_cohorts(unique_cohort_ids)
 
         # Step 4: Return with duration-based ordering preserved for effective load balancing
         return unique_cohort_ids

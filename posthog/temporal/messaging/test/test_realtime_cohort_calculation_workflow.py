@@ -1,4 +1,5 @@
 import os
+import datetime as dt
 
 import pytest
 from unittest.mock import Mock, patch
@@ -14,9 +15,13 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator
     QueryPercentileThresholdsInput,
     RealtimeCohortCalculationCoordinatorWorkflowInputs,
     _apply_duration_filtering,
+    _filter_unchanged_pp_cohorts,
+    classify_cohort_composition,
     get_query_percentile_thresholds_activity,
     get_realtime_cohort_selection_activity,
 )
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestFlushKafkaBatch:
@@ -1744,3 +1749,129 @@ class TestFinalQueryMembershipStatuses:
 
         # Unchanged member: present in both → WHERE filters it out entirely
         assert passes_where(pid, pid) is False
+
+
+_COORD = "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator"
+
+
+def _person_leaf(condition_hash=None):
+    leaf = {"key": "promoCodes", "type": "person", "value": ["x"], "operator": "exact"}
+    if condition_hash is not None:
+        leaf["conditionHash"] = condition_hash
+    return leaf
+
+
+def _behavioral_leaf():
+    return {
+        "key": "$pageview",
+        "type": "behavioral",
+        "value": "performed_event",
+        "event_type": "events",
+        "time_value": "30",
+        "time_interval": "day",
+        "conditionHash": "beh1",
+    }
+
+
+def _make_cohort(cohort_id, team_id, last_calc, leaves):
+    return Cohort(
+        id=cohort_id,
+        team_id=team_id,
+        last_realtime_cohort_calculation_at=last_calc,
+        filters={"properties": {"type": "OR", "values": [{"type": "AND", "values": leaves}]}},
+    )
+
+
+_LAST_CALC = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
+_BEFORE = dt.datetime(2026, 5, 1)  # naive UTC, as returned by ClickHouse
+_AFTER = dt.datetime(2026, 6, 15)
+_EQUAL = dt.datetime(2026, 6, 1)  # exactly _LAST_CALC's instant — ambiguous, must not skip
+
+
+class TestClassifyCohortComposition:
+    """A misclassification would let the skip optimization drop a cohort that can silently change
+    (behavioral decay, nested-cohort cascade), so each non-pp_only kind is pinned."""
+
+    @pytest.mark.parametrize(
+        "leaves,expected",
+        [
+            ([_person_leaf("a")], "pp_only"),
+            ([_person_leaf("a"), _person_leaf("b")], "pp_only"),
+            ([_behavioral_leaf()], "behavioral"),
+            ([{"key": "id", "type": "cohort", "value": 7}], "nested"),
+            # Any behavioral leaf disqualifies, even mixed with person/nested leaves.
+            ([_person_leaf("a"), _behavioral_leaf()], "behavioral"),
+            ([_behavioral_leaf(), {"key": "id", "type": "cohort", "value": 7}], "behavioral"),
+            # Nested without behavioral stays "nested" (child membership can change with no write).
+            ([_person_leaf("a"), {"key": "id", "type": "cohort", "value": 7}], "nested"),
+            ([], "other"),
+        ],
+    )
+    def test_classification(self, leaves, expected):
+        assert classify_cohort_composition(_make_cohort(1, 2, _LAST_CALC, leaves)) == expected
+
+
+class TestFilterUnchangedPpCohorts:
+    """The skip predicate must only drop a cohort on positive evidence (a watermark row predating the
+    last calculation) and otherwise fail open, so a stale/empty watermark never silently freezes a
+    cohort's membership."""
+
+    def _run(self, cohorts, watermark_rows, query_raises=False):
+        with patch(f"{_COORD}.Cohort.objects") as mock_objects, patch(f"{_COORD}.sync_execute") as mock_exec:
+            mock_objects.filter.return_value = cohorts
+            mock_exec.side_effect = RuntimeError("boom") if query_raises else None
+            mock_exec.return_value = watermark_rows
+            result = _filter_unchanged_pp_cohorts([c.id for c in cohorts])
+        return result, mock_exec
+
+    def test_skips_pp_cohort_with_no_write_since_last_calc(self):
+        cohorts = [_make_cohort(1, 2, _LAST_CALC, [_person_leaf("a")])]
+        result, _ = self._run(cohorts, [(2, "a", _BEFORE)])
+        assert result == []
+
+    @pytest.mark.parametrize(
+        "watermark_rows,expected",
+        [
+            ([(2, "a", _BEFORE), (2, "b", _BEFORE)], []),  # every condition predates last calc → skip
+            ([(2, "a", _BEFORE), (2, "b", _AFTER)], [1]),  # one condition written after → keep
+            ([(2, "a", _BEFORE), (2, "b", _EQUAL)], [1]),  # a write exactly at last calc is ambiguous → keep
+        ],
+    )
+    def test_multi_condition_skip_requires_all_strictly_before(self, watermark_rows, expected):
+        cohorts = [_make_cohort(1, 2, _LAST_CALC, [_person_leaf("a"), _person_leaf("b")])]
+        assert self._run(cohorts, watermark_rows)[0] == expected
+
+    def test_keeps_when_a_condition_has_no_watermark_row(self):
+        # No positive evidence for condition "b" → fail open, keep.
+        cohorts = [_make_cohort(1, 2, _LAST_CALC, [_person_leaf("a"), _person_leaf("b")])]
+        result, _ = self._run(cohorts, [(2, "a", _BEFORE)])
+        assert result == [1]
+
+    @pytest.mark.parametrize(
+        "leaves,last_calc",
+        [
+            ([_behavioral_leaf()], _LAST_CALC),  # not pp_only (behavioral)
+            ([_person_leaf("a")], None),  # never calculated
+            ([_person_leaf(None)], _LAST_CALC),  # a leaf is missing its conditionHash
+        ],
+    )
+    def test_keeps_ineligible_cohort_without_querying(self, leaves, last_calc):
+        # Each hits a different early-continue guard, so the watermark is never queried.
+        cohorts = [_make_cohort(1, 2, last_calc, leaves)]
+        result, mock_exec = self._run(cohorts, [])
+        assert result == [1]
+        mock_exec.assert_not_called()
+
+    def test_fails_open_on_query_error(self):
+        cohorts = [_make_cohort(1, 2, _LAST_CALC, [_person_leaf("a")])]
+        result, _ = self._run(cohorts, [], query_raises=True)
+        assert result == [1]
+
+    def test_removes_only_skipped_and_preserves_order(self):
+        cohorts = [
+            _make_cohort(1, 2, _LAST_CALC, [_person_leaf("a")]),  # skippable
+            _make_cohort(2, 2, _LAST_CALC, [_behavioral_leaf()]),  # behavioral, kept
+            _make_cohort(3, 2, _LAST_CALC, [_person_leaf("c")]),  # recent write, kept
+        ]
+        result, _ = self._run(cohorts, [(2, "a", _BEFORE), (2, "c", _AFTER)])
+        assert result == [2, 3]
