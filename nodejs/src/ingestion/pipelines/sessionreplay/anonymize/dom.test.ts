@@ -2,7 +2,7 @@ import { defaultAllowLists } from './default-dict'
 import { scrubFullSnapshot, scrubMutation } from './dom'
 
 describe('anonymize/dom', () => {
-    const ctx = { allow: defaultAllowLists(), maxWordsLen: 8 }
+    const ctx = { allow: defaultAllowLists() }
 
     it('scrubs text nodes but leaves script source untouched', () => {
         const event = {
@@ -233,7 +233,7 @@ describe('anonymize/dom', () => {
     })
 
     it('blurs canvas pixels inlined as rr_dataURL in a FullSnapshot', () => {
-        const blurCtx = { allow: defaultAllowLists(), maxWordsLen: 8, blurJobs: [] as any[] }
+        const blurCtx = { allow: defaultAllowLists(), blurJobs: [] as any[] }
         const onePxPng =
             'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg=='
         const canvasAttrs: Record<string, unknown> = { rr_dataURL: onePxPng, width: '300', height: '150' }

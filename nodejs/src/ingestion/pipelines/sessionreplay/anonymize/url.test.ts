@@ -4,7 +4,7 @@ import { scrubUrl } from './url'
 
 describe('anonymize/url', () => {
     const allow = defaultAllowLists()
-    const scrub = (input: string): string => scrubUrl({ allow, maxWordsLen: 8 }, input).value
+    const scrub = (input: string): string => scrubUrl({ allow }, input).value
 
     it('keeps allow-listed segments and redacts identifiers', () => {
         expect(scrub('https://example.com/api/v1/users/42/profile')).toBe(
@@ -38,7 +38,7 @@ describe('anonymize/url', () => {
     })
 
     describe('scrubAuthority (Meta only)', () => {
-        const ctx = { allow: new AllowLists([], ['us', 'api', 'v1', 'users', 'profile']), maxWordsLen: 8 }
+        const ctx = { allow: new AllowLists([], ['us', 'api', 'v1', 'users', 'profile']) }
         const sa = (i: string): string => scrubUrl(ctx, i, { scrubAuthority: true }).value
 
         it('keeps an allow-listed subdomain and rewrites the rest to example.com', () => {

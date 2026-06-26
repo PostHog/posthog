@@ -3,7 +3,7 @@ import { scrubText } from './text'
 
 describe('anonymize/text', () => {
     const allow = defaultAllowLists()
-    const scrub = (input: string, maxWordsLen = 8): string => scrubText({ allow, maxWordsLen }, input).value
+    const scrub = (input: string): string => scrubText({ allow }, input).value
 
     it('keeps allow-listed words', () => {
         expect(scrub('Click submit to continue')).toBe('Click submit to continue')
@@ -17,8 +17,8 @@ describe('anonymize/text', () => {
         expect(scrub('user 42 home 99')).toBe('user ## home ##')
     })
 
-    it('redacts numbers even in force-redact-all mode', () => {
-        expect(scrub('click submit 42 today', 2)).toBe('***** ****** ## *****')
+    it('redacts numeric tokens with #', () => {
+        expect(scrub('submit 4242 Smithson')).toBe('submit #### ********')
     })
 
     it('preserves punctuation', () => {
@@ -26,7 +26,7 @@ describe('anonymize/text', () => {
     })
 
     it('preserves contractions', () => {
-        expect(scrub("I'll click submit but don't save it. Let's continue.", 100)).toBe(
+        expect(scrub("I'll click submit but don't save it. Let's continue.")).toBe(
             "I'll click submit but don't save it. Let's continue."
         )
     })
@@ -39,12 +39,10 @@ describe('anonymize/text', () => {
         expect(scrub("the user's account")).toBe("the user's account")
     })
 
-    it('force-redacts when there are too many words', () => {
-        expect(scrub('click submit save cancel', 3)).toBe('***** ****** **** ******')
-    })
-
-    it('allows allow-listed words under the word-count threshold', () => {
-        expect(scrub('click submit cancel', 5)).toBe('click submit cancel')
+    it('keeps allow-listed words in long (>8 word) text — no full-redact threshold', () => {
+        expect(scrub('click submit cancel click submit cancel click submit cancel Smithson')).toBe(
+            'click submit cancel click submit cancel click submit cancel ********'
+        )
     })
 
     it('preserves code-point length when redacting astral (surrogate-pair) characters', () => {

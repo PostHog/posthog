@@ -2,7 +2,7 @@ import { defaultAllowLists } from './default-dict'
 import { scrubConsolePlugin, scrubGenericField, scrubNetworkPlugin } from './value'
 
 describe('anonymize/value', () => {
-    const ctx = { allow: defaultAllowLists(), maxWordsLen: 8 }
+    const ctx = { allow: defaultAllowLists() }
 
     describe('scrubGenericField', () => {
         it('recurses objects/arrays, scrubs string leaves, leaves keys and non-strings alone', () => {

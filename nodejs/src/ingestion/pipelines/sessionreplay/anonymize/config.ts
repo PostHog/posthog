@@ -4,8 +4,6 @@ import { AllowLists } from './allow-lists'
 export const REDACT_CHAR = '*'
 /** Replacement char for numeric tokens. */
 export const NUMBER_CHAR = '#'
-/** Strings with more than this many words are fully redacted (free-text guard). */
-export const DEFAULT_MAX_WORDS_LEN = 8
 
 /** A deferred image-blur job: an async closure that blurs its image and writes the result back in place. */
 export type BlurJob = () => Promise<void>
@@ -13,7 +11,6 @@ export type BlurJob = () => Promise<void>
 /** Per-scrub context: the active allow lists plus tunables read by the scrubbers. */
 export interface ScrubContext {
     allow: AllowLists
-    maxWordsLen: number
     /** Optional collector for deferred image-blur jobs (see {@link BlurJob}). */
     blurJobs?: BlurJob[]
 }

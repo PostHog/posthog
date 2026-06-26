@@ -12,7 +12,7 @@ const BLANK_PNG_BASE64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
 function makeCtx(): ScrubContext & { blurJobs: BlurJob[] } {
-    return { allow: defaultAllowLists(), maxWordsLen: 8, blurJobs: [] }
+    return { allow: defaultAllowLists(), blurJobs: [] }
 }
 
 describe('anonymize/canvas', () => {

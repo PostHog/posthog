@@ -44,7 +44,7 @@ describe('ml-mirror-pipeline', () => {
     let outputs: jest.Mocked<
         IngestionOutputs<typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT>
     >
-    const scrubContext = { allow: defaultAllowLists(), maxWordsLen: 8 }
+    const scrubContext = { allow: defaultAllowLists() }
     const now = DateTime.now()
 
     const team = (aiTrainingOptedIn: boolean): TeamForReplay => ({
