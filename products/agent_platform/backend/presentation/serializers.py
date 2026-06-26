@@ -8,6 +8,7 @@ deferred to the eventual MCP redesign (see TODO B5 in agent-shared).
 
 from __future__ import annotations
 
+import json
 import string
 import secrets
 from typing import Any
@@ -247,6 +248,21 @@ class AgentSpecField(serializers.JSONField):
     tool, emitted from the canonical zod `AgentSpecSchema`. We deliberately do
     not carry a second hand-maintained JSON Schema here just to annotate the
     field — that mirror was the source of the drift this endpoint removed."""
+
+    def to_internal_value(self, data: Any) -> Any:
+        # The MCP write tools expose `spec` as an opaque arg, so an authoring
+        # model sometimes sends the whole spec as a stringified JSON blob rather
+        # than an object. Stored verbatim it's the characters of a string, which
+        # the janitor rejects (`invalid_request`). Parse it back to an object so
+        # it stores structured; reject a string that isn't a JSON object.
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                raise serializers.ValidationError("spec must be a JSON object, not a string.")
+            if not isinstance(data, dict):
+                raise serializers.ValidationError("spec must be a JSON object.")
+        return super().to_internal_value(data)
 
 
 # Bound the number of skill references on a revision so freeze (one store fetch +
