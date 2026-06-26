@@ -48,9 +48,10 @@ def _calculate(
     recalculation_id: str,
     query_to: str,
     metric_type: str = "primary",
+    is_final_attempt: bool = True,
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
-        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to, metric_type)
+        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -215,18 +216,19 @@ class TestRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
-            # name, end_date_offset_days (None = running experiment), expect query_to clamped to end_date
-            ("running_experiment_uses_now", None, False),
-            ("stopped_experiment_caps_at_end_date", -5, True),
-            ("future_end_date_uses_now", 5, False),
+            # name, end_date_offset_days (None = running experiment), expect query_to == end_date
+            ("running_uses_now", None, False),
+            ("stopped_uses_end_date", -5, True),
+            ("future_end_uses_now", 5, False),
         ]
     )
     @freeze_time("2026-06-23T05:00:00Z")
-    def test_mark_started_caps_query_to_at_end_date(self, name: str, end_date_offset_days, expect_capped: bool):
-        # A stopped experiment's linked flag often keeps firing, so query_to must freeze at end_date — otherwise
-        # each recalc advances it to now and pulls post-end exposures (and their conversions) into the results.
+    def test_mark_started_query_to_is_data_window_end(self, name: str, end_date_offset_days, expect_end_date: bool):
+        # query_to is the data-window end (experiment_window_end), not bare now. For a stopped experiment it
+        # resolves to end_date — a fixed value — so reruns reuse the same result row instead of appending a
+        # redundant post-end timeseries point. Running / future-dated experiments still advance with now.
         now = timezone.now()
-        exp = self._experiment(flag_key=f"cap-{name}")
+        exp = self._experiment(flag_key=f"window-end-{name}")
         if end_date_offset_days is not None:
             exp.end_date = now + timedelta(days=end_date_offset_days)
             exp.save(update_fields=["end_date"])
@@ -244,7 +246,7 @@ class TestRecalculationActivities(BaseTest):
 
         recalc.refresh_from_db()
         assert recalc.query_to is not None
-        if expect_capped:
+        if expect_end_date:
             assert recalc.query_to == now + timedelta(days=end_date_offset_days)
         else:
             assert recalc.query_to == now
@@ -415,13 +417,36 @@ class TestCalculateActivity(BaseTest):
         recalc.refresh_from_db()
         assert "s1" in recalc.metric_errors
 
-    def test_query_to_is_passed_as_override_end_date_to_runner(self):
-        # The run's shared query_to MUST be threaded into the ClickHouse query bounds via
-        # override_end_date, not just stored on the result row. Without override_end_date the runner falls back
-        # to its default ("now-ish"), so every metric in the run queries a slightly different time window —
-        # silently violating the "one query_to for the whole run" guarantee. Stored value would look correct;
-        # actual query bounds would not. Reference: workflow #3's backfill activity does the same thing.
-        exp = self._experiment(flag_key="calc-override-end-date", metrics=[_mean_metric("m1")])
+    def test_transient_failure_is_not_persisted_until_the_final_attempt(self):
+        # A retryable (transient) failure on a non-final attempt re-raises for Temporal to retry but must NOT
+        # persist a FAILED row or a metric_errors entry, so the frontend keeps the metric loading instead of
+        # flashing an error for a failure that may still succeed. The final attempt persists it.
+        exp = self._experiment(flag_key="calc-transient", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = RuntimeError("transient blip")
+
+            # Non-final attempt: re-raises, but nothing is recorded.
+            with pytest.raises(RuntimeError, match="transient blip"):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
+            recalc.refresh_from_db()
+            assert recalc.metric_errors == {}
+            assert not ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").exists()
+
+            # Final attempt: now the failure is persisted for the UI.
+            with pytest.raises(RuntimeError, match="transient blip"):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
+            recalc.refresh_from_db()
+            assert "m1" in recalc.metric_errors
+
+    def test_query_to_is_passed_as_as_of_to_runner(self):
+        # The run's shared query_to MUST be threaded into the ClickHouse query bounds via the runner's
+        # as_of, not just stored on the result row. Without as_of the runner falls back to its own now(),
+        # so every metric in the run queries a slightly different time window — silently violating the
+        # "one query_to for the whole run" guarantee. Stored value would look correct; actual query bounds
+        # would not. Reference: workflow #3's backfill activity does the same thing.
+        exp = self._experiment(flag_key="calc-as-of", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
@@ -430,10 +455,10 @@ class TestCalculateActivity(BaseTest):
 
         mock_runner.assert_called_once()
         kwargs = mock_runner.call_args.kwargs
-        assert kwargs["override_end_date"] == datetime.fromisoformat(_QUERY_TO)
+        assert kwargs["as_of"] == datetime.fromisoformat(_QUERY_TO)
 
     def test_query_from_matches_experiment_start_date_on_result_row(self):
-        # Companion to test_query_to_is_passed_as_override_end_date_to_runner: the lower bound of the run's
+        # Companion to test_query_to_is_passed_as_as_of_to_runner: the lower bound of the run's
         # time window is experiment.start_date, threaded into the runner via the experiment object it
         # constructs and stored on the result row via _store_result(query_from=experiment.start_date).
         # This test pins the stored-row side. If the runner ever changes how it derives query_from, or if a
@@ -452,6 +477,19 @@ class TestCalculateActivity(BaseTest):
         # And the persisted row's query_from matches that same start_date — so reader and writer agree.
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
         assert row.query_from == exp.start_date
+
+    def test_query_id_is_persisted_on_result_row(self):
+        # The deterministic client_query_id is stamped into ClickHouse's query_id and stored on the row so a
+        # metric's executions are greppable in system.query_log by the `{team}_{client_query_id}_` prefix.
+        exp = self._experiment(flag_key="calc-query-id", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+        assert row.query_id == f"experiment_metric_recalc_{recalc.id}_m1"
 
     def test_multiple_failures_accumulate_in_metric_errors(self):
         # Two metrics fail in sequence (not in parallel — that would need threads + a real Postgres). Pins the

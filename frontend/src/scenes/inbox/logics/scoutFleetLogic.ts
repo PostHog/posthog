@@ -9,9 +9,9 @@ import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import { signalsScoutMetadataGet } from 'products/signals/frontend/generated/api'
 import type { ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
-import { OriginProduct } from 'products/tasks/frontend/types'
 
 import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
 import {

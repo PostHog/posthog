@@ -1,8 +1,8 @@
 import { LRUCache } from 'lru-cache'
 
+import { logger } from '~/common/utils/logger'
 import { SESSION_TRACKER_REDIS_TTL_SECONDS } from '~/ingestion/pipelines/sessionreplay/constants'
 import { RedisPool } from '~/types'
-import { logger } from '~/utils/logger'
 
 import { SessionBatchMetrics } from './metrics'
 
@@ -47,6 +47,7 @@ export class SessionTracker {
 
         SessionBatchMetrics.incrementSessionTrackerCacheMiss()
 
+        const startTime = performance.now()
         let client
         try {
             client = await this.redisPool.acquire()
@@ -83,6 +84,7 @@ export class SessionTracker {
             if (client) {
                 await this.redisPool.release(client)
             }
+            SessionBatchMetrics.observeSessionTrackerRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 

@@ -12,6 +12,7 @@ from products.cohorts.backend.models.dependencies import (
     COHORT_BACKFILL_DEBOUNCE_SECONDS,
     COHORT_DEPENDENCY_CACHE_COUNTER,
     DEPENDENCY_CACHE_TIMEOUT,
+    _behavioral_cohort_ids_key,
     _extract_person_property_filters,
     _has_person_property_filters,
     _person_property_filters_changed,
@@ -19,6 +20,7 @@ from products.cohorts.backend.models.dependencies import (
     extract_cohort_dependencies,
     get_cohort_dependencies,
     get_cohort_dependents,
+    get_flag_excluded_behavioral_cohort_ids,
     warm_team_cohort_dependency_cache,
 )
 
@@ -1242,3 +1244,171 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
 
         result = _person_property_filters_changed(cohort)
         self.assertFalse(result)
+
+
+class TestFlagExcludedBehavioralCohortIds(BaseTest):
+    BEHAVIORAL_FILTERS = {
+        "properties": {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "behavioral",
+                    "key": "$pageview",
+                    "value": "performed_event",
+                    "event_type": "events",
+                    "time_value": 30,
+                    "time_interval": "day",
+                }
+            ],
+        }
+    }
+
+    def _person_filters(self) -> dict:
+        return {"properties": {"type": "OR", "values": [{"type": "person", "key": "email", "value": "a@b.com"}]}}
+
+    def _ref_filters(self, cohort_id: int) -> dict:
+        return {"properties": {"type": "OR", "values": [{"type": "cohort", "key": "id", "value": str(cohort_id)}]}}
+
+    def _nested_behavioral_filters(self) -> dict:
+        # Behavioral node buried inside an inner AND group, so detection has to recurse
+        # rather than read the top-level value list.
+        return {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"type": "person", "key": "email", "value": "a@b.com"},
+                            {
+                                "type": "behavioral",
+                                "key": "$pageview",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "time_value": 30,
+                                "time_interval": "day",
+                            },
+                        ],
+                    }
+                ],
+            }
+        }
+
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    @fixture(autouse=True)
+    def mock_transaction(self):
+        with mock.patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+            yield
+
+    def test_excludes_behavioral_and_transitive_referrers_but_not_leaves(self) -> None:
+        behavioral = Cohort.objects.create(team=self.team, name="behavioral", filters=self.BEHAVIORAL_FILTERS)
+        referrer = Cohort.objects.create(team=self.team, name="referrer", filters=self._ref_filters(behavioral.id))
+        leaf = Cohort.objects.create(team=self.team, name="leaf", filters=self._person_filters())
+
+        excluded = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False)
+
+        self.assertEqual(excluded, {behavioral.id, referrer.id})
+        self.assertNotIn(leaf.id, excluded)
+
+    def test_static_cohort_with_behavioral_filters_not_excluded(self) -> None:
+        static_behavioral = Cohort.objects.create(
+            team=self.team, name="static", is_static=True, filters=self.BEHAVIORAL_FILTERS
+        )
+
+        excluded = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False)
+
+        self.assertNotIn(static_behavioral.id, excluded)
+
+    def test_result_is_cached(self) -> None:
+        behavioral = Cohort.objects.create(team=self.team, name="behavioral", filters=self.BEHAVIORAL_FILTERS)
+        cache_key = _behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=False)
+        self.assertIsNone(cache.get(cache_key))
+
+        get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False)
+
+        self.assertEqual(set(cache.get(cache_key)), {behavioral.id})
+
+    def test_none_allow_realtime_backfilled_is_normalized(self) -> None:
+        Cohort.objects.create(team=self.team, name="behavioral", filters=self.BEHAVIORAL_FILTERS)
+
+        # feature_enabled can return None; it must be treated as False without erroring.
+        excluded = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=None)
+
+        self.assertEqual(
+            set(cache.get(_behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=False))), excluded
+        )
+
+    def test_cache_invalidated_when_cohort_changes(self) -> None:
+        cache_key_false = _behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=False)
+        cache_key_true = _behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=True)
+        leaf = Cohort.objects.create(team=self.team, name="leaf", filters=self._person_filters())
+
+        self.assertEqual(get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False), set())
+        self.assertEqual(get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=True), set())
+        self.assertIsNotNone(cache.get(cache_key_false))
+        self.assertIsNotNone(cache.get(cache_key_true))
+
+        # Turning the cohort behavioral must invalidate both cache key variants.
+        leaf.filters = self.BEHAVIORAL_FILTERS
+        leaf.save()
+
+        self.assertIsNone(cache.get(cache_key_false))
+        self.assertIsNone(cache.get(cache_key_true))
+        self.assertEqual(
+            get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False), {leaf.id}
+        )
+
+    def test_backfilled_realtime_cohort_excluded_without_flag_included_with_it(self) -> None:
+        from django.utils import timezone
+
+        # A realtime cohort that has been backfilled (is_flag_compatible=True) should NOT be
+        # excluded when allow_realtime_backfilled=True, but must still be excluded when False.
+        realtime_behavioral = Cohort.objects.create(
+            team=self.team,
+            name="realtime_behavioral",
+            cohort_type=CohortType.REALTIME,
+            filters=self.BEHAVIORAL_FILTERS,
+            last_backfill_person_properties_at=timezone.now(),
+        )
+
+        excluded_without = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False)
+        excluded_with = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=True)
+
+        self.assertIn(realtime_behavioral.id, excluded_without)
+        self.assertNotIn(realtime_behavioral.id, excluded_with)
+
+    def test_detects_behavioral_nested_in_group_and_two_hop_referrers(self) -> None:
+        # Behavioral node nested inside an inner AND group exercises the check_property_values recursion.
+        behavioral = Cohort.objects.create(
+            team=self.team, name="nested_behavioral", filters=self._nested_behavioral_filters()
+        )
+        # Two-hop chain hop2 -> hop1 -> behavioral exercises the reverse-walk traversal, not a single edge.
+        hop1 = Cohort.objects.create(team=self.team, name="hop1", filters=self._ref_filters(behavioral.id))
+        hop2 = Cohort.objects.create(team=self.team, name="hop2", filters=self._ref_filters(hop1.id))
+
+        excluded = get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False)
+
+        self.assertEqual(excluded, {behavioral.id, hop1.id, hop2.id})
+
+    def test_cache_invalidated_when_cohort_deleted(self) -> None:
+        cache_key_false = _behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=False)
+        cache_key_true = _behavioral_cohort_ids_key(self.team.id, allow_realtime_backfilled=True)
+        behavioral = Cohort.objects.create(team=self.team, name="behavioral", filters=self.BEHAVIORAL_FILTERS)
+
+        self.assertEqual(
+            get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=False), {behavioral.id}
+        )
+        self.assertEqual(
+            get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=True), {behavioral.id}
+        )
+        self.assertIsNotNone(cache.get(cache_key_false))
+        self.assertIsNotNone(cache.get(cache_key_true))
+
+        # Deleting the cohort must invalidate both cache key variants.
+        behavioral.delete()
+
+        self.assertIsNone(cache.get(cache_key_false))
+        self.assertIsNone(cache.get(cache_key_true))

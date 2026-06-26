@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
 
-import { parseJSON } from '../../../utils/json-parse'
 import { createExampleInvocation } from '../../_tests/fixtures'
 import { CdpOutput } from '../../cdp-services'
 import {

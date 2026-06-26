@@ -24,7 +24,7 @@ from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
-from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE, CohortViewSet
+from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -39,9 +39,11 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
 )
+from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.dependencies import find_behavioral_cohorts
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
@@ -134,8 +136,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
     ):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"team_id": 5})
-        Person.objects.create(team=self.team, properties={"team_id": 6})
+        create_person(team=self.team, properties={"team_id": 5})
+        create_person(team=self.team, properties={"team_id": 6})
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
@@ -306,8 +308,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
     def test_list_cohorts_is_not_nplus1(self, patch_calculate_cohort, patch_capture):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"team_id": 5})
-        Person.objects.create(team=self.team, properties={"team_id": 6})
+        create_person(team=self.team, properties={"team_id": 5})
+        create_person(team=self.team, properties={"team_id": 6})
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -338,10 +340,10 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         """Test CSV upload end-to-end with actual celery task execution"""
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"email": "email@example.org"})
-        Person.objects.create(team=self.team, distinct_ids=["123"])
-        Person.objects.create(team=self.team, distinct_ids=["456"])
-        Person.objects.create(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
+        create_person(team=self.team, properties={"email": "email@example.org"})
+        create_person(team=self.team, distinct_ids=["123"])
+        create_person(team=self.team, distinct_ids=["456"])
+        create_person(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
 
         csv = SimpleUploadedFile(
             "example.csv",
@@ -839,9 +841,9 @@ email@example.org
         self, distinct_id_column_header, patch_calculate_cohort_from_list
     ):
         """Test multi-column CSV upload with distinct_id column"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
-        person3 = Person.objects.create(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
+        person3 = create_person(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
 
         csv = SimpleUploadedFile(
             "multicolumn.csv",
@@ -912,8 +914,8 @@ Jane Smith,25
         self, person_id_column_header, patch_calculate_cohort_from_list
     ):
         """Test CSV upload with person_id column using async task"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         csv = SimpleUploadedFile(
             f"{person_id_column_header}.csv",
@@ -950,16 +952,16 @@ Jane Smith,{person2.uuid},jane@example.com
     )
     def test_static_cohort_csv_upload_person_id_preference_over_email(self, patch_calculate_cohort_from_list):
         """Test that person_id is preferred over email when both columns are present"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         # Create persons with emails that would match if email was used instead
-        person_with_email1 = Person.objects.create(
+        person_with_email1 = create_person(
             team=self.team,
             distinct_ids=["email_user1"],
             properties={"email": "john@example.com"},
         )
-        person_with_email2 = Person.objects.create(
+        person_with_email2 = create_person(
             team=self.team,
             distinct_ids=["email_user2"],
             properties={"email": "jane@example.com"},
@@ -1004,16 +1006,16 @@ Jane Smith,{person2.uuid},jane@example.com
     )
     def test_static_cohort_csv_upload_distinct_id_preference_over_email(self, patch_calculate_cohort_from_list):
         """Test that distinct_id is preferred over email when both columns are present"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         # Create persons with emails that would match if email was used instead
-        person_with_email1 = Person.objects.create(
+        person_with_email1 = create_person(
             team=self.team,
             distinct_ids=["email_user1"],
             properties={"email": "john@example.com"},
         )
-        person_with_email2 = Person.objects.create(
+        person_with_email2 = create_person(
             team=self.team,
             distinct_ids=["email_user2"],
             properties={"email": "jane@example.com"},
@@ -1053,8 +1055,8 @@ Jane Smith,user456,jane@example.com
         self.assertNotIn(str(person_with_email2.uuid), person_uuids_in_cohort)
 
     def test_static_cohort_with_manually_added_person_ids(self):
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",
@@ -1087,8 +1089,8 @@ Jane Smith,user456,jane@example.com
 
     def test_static_cohort_csv_and_manually_added(self):
         """Test CSV upload with person_id column using async task"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         csv = SimpleUploadedFile(
             f"{person1}.csv",
@@ -1126,8 +1128,8 @@ John Doe,{person1.uuid},john@example.com
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_person_id_preference_over_distinct_id(self, patch_calculate_cohort_from_list):
         """Test that person_id is preferred over distinct_id when both columns are present"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["distinct123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["distinct456"])
+        person1 = create_person(team=self.team, distinct_ids=["distinct123"])
+        person2 = create_person(team=self.team, distinct_ids=["distinct456"])
 
         csv = SimpleUploadedFile(
             "both_columns.csv",
@@ -1159,7 +1161,7 @@ Jane Smith,{person2.uuid},ignore_this_too,jane@example.com
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_with_empty_person_ids(self, patch_calculate_cohort_from_list):
         """Test CSV with person_id column but some empty values"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
 
         csv = SimpleUploadedFile(
             "empty_person_ids.csv",
@@ -1270,7 +1272,7 @@ Jane Smith,25
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_single_column_backwards_compatibility(self, patch_calculate_cohort_from_list):
         """Test that single-column CSV still works (backwards compatibility)"""
-        Person.objects.create(team=self.team, distinct_ids=["legacy_user"])
+        create_person(team=self.team, distinct_ids=["legacy_user"])
 
         csv = SimpleUploadedFile(
             "single_column.csv",
@@ -1301,8 +1303,8 @@ another_user
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_single_column_person_ids(self, patch_calculate_cohort_from_list):
         """Test that single-column CSV with person_id header is treated as person UUIDs"""
-        person1 = Person.objects.create(team=self.team)
-        person2 = Person.objects.create(team=self.team)
+        person1 = create_person(team=self.team)
+        person2 = create_person(team=self.team)
 
         csv = SimpleUploadedFile(
             "person_ids.csv",
@@ -1335,8 +1337,8 @@ another_user
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_whitespace_handling(self, patch_calculate_cohort_from_list):
         """Test that whitespace is properly trimmed from distinct IDs in multi-column CSV"""
-        Person.objects.create(team=self.team, distinct_ids=["user123"])
-        Person.objects.create(team=self.team, distinct_ids=["user456"])
+        create_person(team=self.team, distinct_ids=["user123"])
+        create_person(team=self.team, distinct_ids=["user456"])
 
         csv = SimpleUploadedFile(
             "whitespace.csv",
@@ -1369,8 +1371,8 @@ Jane Smith,	user456	,jane@example.com
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_with_commas_in_distinct_ids(self, patch_calculate_cohort_from_list):
         """Test that CSV quoting/escaping works when distinct IDs contain commas"""
-        Person.objects.create(team=self.team, distinct_ids=["user,123"])
-        Person.objects.create(team=self.team, distinct_ids=["user,456,special"])
+        create_person(team=self.team, distinct_ids=["user,123"])
+        create_person(team=self.team, distinct_ids=["user,456,special"])
 
         csv = SimpleUploadedFile(
             "comma_ids.csv",
@@ -1403,8 +1405,8 @@ Jane Smith,	user456	,jane@example.com
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_with_quotes_in_distinct_ids(self, patch_calculate_cohort_from_list):
         """Test that CSV escaping works when distinct IDs contain quotes"""
-        Person.objects.create(team=self.team, distinct_ids=['user"123'])
-        Person.objects.create(team=self.team, distinct_ids=['user"special"456'])
+        create_person(team=self.team, distinct_ids=['user"123'])
+        create_person(team=self.team, distinct_ids=['user"special"456'])
 
         csv = SimpleUploadedFile(
             "quote_ids.csv",
@@ -1437,8 +1439,8 @@ Jane Smith,	user456	,jane@example.com
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_with_inconsistent_column_count(self, patch_calculate_cohort_from_list):
         """Test that rows with incorrect column count are gracefully skipped in multi-column CSV"""
-        Person.objects.create(team=self.team, distinct_ids=["user123"])
-        Person.objects.create(team=self.team, distinct_ids=["user456"])
+        create_person(team=self.team, distinct_ids=["user123"])
+        create_person(team=self.team, distinct_ids=["user456"])
 
         csv = SimpleUploadedFile(
             "inconsistent_columns.csv",
@@ -1476,7 +1478,7 @@ user789
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_sets_is_calculating(self, patch_calculate_cohort_from_list):
         """Test that is_calculating is set to True immediately when CSV is uploaded"""
-        Person.objects.create(team=self.team, distinct_ids=["user123"])
+        create_person(team=self.team, distinct_ids=["user123"])
 
         csv = SimpleUploadedFile(
             "test.csv",
@@ -1546,9 +1548,9 @@ user456
     ):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"email": "email@example.org"})
-        Person.objects.create(team=self.team, distinct_ids=["123"])
-        Person.objects.create(team=self.team, distinct_ids=["456"])
+        create_person(team=self.team, properties={"email": "email@example.org"})
+        create_person(team=self.team, distinct_ids=["123"])
+        create_person(team=self.team, distinct_ids=["456"])
 
         csv = SimpleUploadedFile(
             "example.csv",
@@ -1587,8 +1589,8 @@ email@example.org,
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
 
-        Person.objects.create(team=self.team, properties={"prop": 5})
-        Person.objects.create(team=self.team, properties={"prop": 6})
+        create_person(team=self.team, properties={"prop": 5})
+        create_person(team=self.team, properties={"prop": 6})
 
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -1611,7 +1613,7 @@ email@example.org,
         self.assertEqual(len(response["results"]), 0)
 
     def test_cohort_list_with_type_filter(self):
-        Person.objects.create(team=self.team, properties={"prop": 5})
+        create_person(team=self.team, properties={"prop": 5})
 
         # Create dynamic cohort
         self.client.post(
@@ -1642,7 +1644,7 @@ email@example.org,
         self.assertFalse(response["results"][0]["is_static"])
 
     def test_cohort_list_with_created_by_filter(self):
-        Person.objects.create(team=self.team, properties={"prop": 5})
+        create_person(team=self.team, properties={"prop": 5})
 
         # Create cohorts by self.user
         self.client.post(
@@ -1689,7 +1691,7 @@ email@example.org,
         self.assertEqual(len(response["results"]), 0)
 
     def test_cohort_list_with_combined_filters(self):
-        Person.objects.create(team=self.team, properties={"prop": 5})
+        create_person(team=self.team, properties={"prop": 5})
 
         # Create dynamic cohort
         self.client.post(
@@ -1805,13 +1807,11 @@ email@example.org,
                 make(7, refs=(1, 5)),
             ]
         }
-        viewset = CohortViewSet()
-
         # Without the realtime exemption, every behavioral cohort and its referrers are excluded.
-        self.assertEqual(viewset._find_behavioral_cohorts(cohorts), {1, 2, 3, 5, 6, 7})
+        self.assertEqual(find_behavioral_cohorts(cohorts), {1, 2, 3, 5, 6, 7})
         # With it, 5 is flag-compatible (not a seed) and 6 only referenced 5, so both stay.
         # 7 still reaches real seed 1, so it remains excluded.
-        self.assertEqual(viewset._find_behavioral_cohorts(cohorts, allow_realtime_backfilled=True), {1, 2, 3, 7})
+        self.assertEqual(find_behavioral_cohorts(cohorts, allow_realtime_backfilled=True), {1, 2, 3, 7})
 
     @patch("posthog.api.cohort.report_user_action")
     def test_basic_list_omits_heavy_fields(self, patch_capture):
@@ -2102,8 +2102,8 @@ email@example.org,
     def test_cohort_activity_log(self, patch_on_commit):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"prop": 5})
-        Person.objects.create(team=self.team, properties={"prop": 6})
+        create_person(team=self.team, properties={"prop": 5})
+        create_person(team=self.team, properties={"prop": 6})
 
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -2227,7 +2227,7 @@ email@example.org,
         num_people = 3
         person_uuids = []
         for i in range(num_people):
-            person = Person.objects.create(
+            person = create_person(
                 team=self.team,
                 distinct_ids=[f"user_{i}"],
                 properties={"email": f"user{i}@example.com"},
@@ -2275,7 +2275,7 @@ email@example.org,
         num_people = 10
         person_uuids = []
         for i in range(num_people):
-            person = Person.objects.create(
+            person = create_person(
                 team=self.team,
                 distinct_ids=[f"user_{i}"],
                 properties={"email": f"user{i}@example.com"},
@@ -2357,17 +2357,17 @@ email@example.org,
 
     def test_csv_export_new(self):
         # Test 100s of distinct_ids, we only want ~10
-        Person.objects.create(
+        create_person(
             distinct_ids=["person3"] + [f"person_{i}" for i in range(4, 100)],
             team_id=self.team.pk,
             properties={"$some_prop": "something"},
         )
-        Person.objects.create(
+        create_person(
             distinct_ids=["person1"],
             team_id=self.team.pk,
             properties={"$some_prop": "something", "email": "test@test.com"},
         )
-        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={})
         cohort = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
@@ -2485,12 +2485,12 @@ email@example.org,
         self.assertEqual(len(response.json()["results"]), 1, response)
 
     def test_filter_by_static_cohort(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["123"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"])
+        create_person(team_id=self.team.pk, distinct_ids=["1"])
+        create_person(team_id=self.team.pk, distinct_ids=["123"])
+        create_person(team_id=self.team.pk, distinct_ids=["2"])
         # Team leakage
         team2 = Team.objects.create(organization=self.organization)
-        Person.objects.create(team=team2, distinct_ids=["1"])
+        create_person(team=team2, distinct_ids=["1"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
         cohort.insert_users_by_list(["1", "123"])
@@ -3133,8 +3133,8 @@ email@example.org,
     def test_creating_update_and_calculating_ignore_bad_filters(self, patch_calculate_cohort, patch_capture):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"team_id": 5})
-        Person.objects.create(team=self.team, properties={"team_id": 6})
+        create_person(team=self.team, properties={"team_id": 5})
+        create_person(team=self.team, properties={"team_id": 6})
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
@@ -6165,12 +6165,12 @@ class TestCohortTypeIntegration(APIBaseTest):
     )
     def test_static_cohort_csv_upload_with_email_column_only(self, patch_calculate_cohort_from_list):
         """Test CSV upload with only email column using async task"""
-        person1 = Person.objects.create(
+        person1 = create_person(
             team=self.team,
             distinct_ids=["user123"],
             properties={"email": "john@example.com"},
         )
-        person2 = Person.objects.create(
+        person2 = create_person(
             team=self.team,
             distinct_ids=["user456"],
             properties={"email": "jane@example.com"},
@@ -6218,16 +6218,16 @@ jane@example.com
     )
     def test_static_cohort_csv_upload_person_id_preference_over_email(self, patch_calculate_cohort_from_list):
         """Test that person_id is preferred over email when both columns are present"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         # Create persons with emails that would match if email was used instead
-        person_with_email1 = Person.objects.create(
+        person_with_email1 = create_person(
             team=self.team,
             distinct_ids=["email_user1"],
             properties={"email": "john@example.com"},
         )
-        person_with_email2 = Person.objects.create(
+        person_with_email2 = create_person(
             team=self.team,
             distinct_ids=["email_user2"],
             properties={"email": "jane@example.com"},
@@ -6272,16 +6272,16 @@ Jane Smith,{person2.uuid},jane@example.com
     )
     def test_static_cohort_csv_upload_distinct_id_preference_over_email(self, patch_calculate_cohort_from_list):
         """Test that distinct_id is preferred over email when both columns are present"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         # Create persons with emails that would match if email was used instead
-        person_with_email1 = Person.objects.create(
+        person_with_email1 = create_person(
             team=self.team,
             distinct_ids=["email_user1"],
             properties={"email": "john@example.com"},
         )
-        person_with_email2 = Person.objects.create(
+        person_with_email2 = create_person(
             team=self.team,
             distinct_ids=["email_user2"],
             properties={"email": "jane@example.com"},
@@ -6326,9 +6326,7 @@ Jane Smith,user456,jane@example.com
         CSV upload with an email column always uses the ClickHouse pmat_email
         materialized column for lookup, regardless of CSV header casing.
         """
-        person = Person.objects.create(
-            team=self.team, distinct_ids=["user_email"], properties={"email": "test@example.com"}
-        )
+        person = create_person(team=self.team, distinct_ids=["user_email"], properties={"email": "test@example.com"})
 
         csv_file = SimpleUploadedFile(
             "emails.csv",

@@ -2,7 +2,8 @@ import { ClickHouseClient } from '@clickhouse/client'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { logger } from '../../utils/logger'
+import { logger } from '~/common/utils/logger'
+
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'

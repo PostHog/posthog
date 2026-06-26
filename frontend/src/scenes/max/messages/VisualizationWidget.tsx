@@ -24,7 +24,7 @@ import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
-import { MessageTemplate } from 'products/posthog_ai/frontend/sandbox/messages/MessageTemplate'
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 import { visualizationTypeToQuery } from '../utils'
 

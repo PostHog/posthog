@@ -28,7 +28,7 @@ Aim each test at a failure mode we actually hit, not a hypothetical.
 The bugs PostHog ships and reverts cluster into a handful of shapes — cataloged with the test that catches each, and the failure modes no unit test should, in [references/mistakes-we-make.md](references/mistakes-we-make.md).
 If your test doesn't map to one of them, be skeptical it's worth keeping.
 
-## Don't write it — the four no's
+## Don't write it — the five no's
 
 Most low-value tests fall into one of these. Recognize and skip them.
 
@@ -49,6 +49,11 @@ Most low-value tests fall into one of these. Recognize and skip them.
 4. **Coverage-chasing.**
    Don't add tests to hit a number; an uncovered line is information, not a defect.
    If the only reason to test a branch is the coverage report, the branch probably doesn't need a test — or the code is dead and should be deleted instead.
+
+5. **Cross-language source-scraping.**
+   Never read or regex-parse one language's source from another language's test — a Python test that `Path(...).read_text()`s a `.ts` file and matches `category: '...'`, a TS test that greps a `.py` file, and so on.
+   It couples two trees through a brittle string match that breaks on edits that change nothing about behavior (a rename, a reformat, a moved file, a comment), and it proves nothing about runtime — the two sides never actually run together in the test.
+   If two sides genuinely must agree on a set of values, give them **one source of truth** — a generated artifact or a checked-in data file both import — and assert against that. Otherwise let the drift surface where the two sides really meet (an API contract test, a rendered output, a round-trip), not by scraping the other language's source for strings.
 
 When the answer is "don't write it," the right move is often to **extend an existing test** (add a parameterized case) or **delete code** rather than test it.
 Both shrink the suite's surface.
@@ -90,6 +95,8 @@ Escalating to the next rung is the last resort, not the default.
 - **No doc comments** in Python tests (house rule).
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
   Don't mock your own internal helpers (that's how change-detector tests are born).
+- **Person/group/cohort data:** use the helpers in `posthog/test/persons.py` (`create_person`, `create_group`, `create_group_type_mapping`, `add_cohort_members`, etc.) — never `Person.objects.create()` or similar ORM calls directly.
+  See [`posthog/test/AGENTS.md`](../../posthog/test/AGENTS.md) for the full API reference and rationale.
 
 ### Frontend (Jest)
 

@@ -8,9 +8,9 @@ from django.utils.timezone import now
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import create_group
-from posthog.models.person import Person
 from posthog.queries.test.test_lifecycle import TestLifecycleBase
 from posthog.queries.trends.trends import Trends
+from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -38,10 +38,10 @@ class TestClickhouseLifecycle(TestLifecycleBase):
         )
 
         with freeze_time("2020-01-11T12:00:00Z"):
-            Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
+            create_person(distinct_ids=["person1"], team_id=self.team.pk)
 
         with freeze_time("2020-01-09T12:00:00Z"):
-            Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk)
+            create_person(distinct_ids=["person2"], team_id=self.team.pk)
 
         journeys_for(
             {
@@ -100,7 +100,7 @@ class TestClickhouseLifecycle(TestLifecycleBase):
     def test_lifecycle_edge_cases(self):
         # This test tests behavior when created_at is different from first matching event and dormant/resurrecting/returning logic
         with freeze_time("2020-01-11T12:00:00Z"):
-            Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
+            create_person(distinct_ids=["person1"], team_id=self.team.pk)
 
         journeys_for(
             {
@@ -263,7 +263,7 @@ class TestClickhouseLifecycle(TestLifecycleBase):
 
     def _setup_returning_lifecycle_data(self, days):
         with freeze_time("2019-01-01T12:00:00Z"):
-            Person.objects.create(
+            create_person(
                 distinct_ids=["person1"],
                 team_id=self.team.pk,
                 properties={"email": "person@test.com"},
