@@ -1,10 +1,15 @@
 /**
  * URL scrub.
  *
- * - Path: replace each non-safe, non-allow-listed segment with `[redacted]`.
- * - Query/fragment: keep only *simple* parts — a query param survives iff its key is url-allow-listed
- *   and both key and value are 100% alphanumeric; a fragment survives iff it is allow-listed and
- *   alphanumeric. Anything else (tokens, encoded values, emails, JSON, …) is dropped.
+ * - Numbers (a bare run of digits) are masked to `$` per digit (length-preserving; `$` rather than `#`
+ *   so it doesn't clash with the fragment separator).
+ * - Path: keep allow-listed segments; a number → `$$`; anything else → `[redacted]`.
+ * - Query: a param survives only if its key or value is an allow-listed alphanumeric token. A number
+ *   counts as denied for survival, so `id=42` is dropped while `page=2` → `page=$`. When a param
+ *   survives, each side renders independently: allow-listed → kept, number → `$$`, denied → `[key]`/`[value]`.
+ * - Fragment: kept only if it is an allow-listed alphanumeric token; numbers and everything else dropped.
+ * - With `{ scrubAuthority: true }` it strips userinfo/port and
+ *   collapses the host to `example.com` (keeping a leading allow-listed subdomain label).
  */
 import { ScrubContext } from './config'
 import { ScrubResult } from './text'
@@ -13,8 +18,21 @@ export interface UrlScrubOptions {
     scrubAuthority?: boolean
 }
 
-// "Simple" = 100% alphanumeric (empty allowed). Disallows tokens, encodings, punctuation, etc.
-const SIMPLE = /^[A-Za-z0-9]*$/
+const SIMPLE = /^[A-Za-z0-9]*$/ // 100% alphanumeric (empty allowed)
+const NUMERIC = /^[0-9]+$/ // a bare number
+
+const maskNumber = (n: string): string => '$'.repeat(n.length) // `$`, not `#` (the fragment separator)
+
+// An allow-listed, alphanumeric, non-number token — the only kind that keeps a query param/fragment
+// alive.
+function isAllowed(ctx: ScrubContext, t: string): boolean {
+    return t.length > 0 && SIMPLE.test(t) && !NUMERIC.test(t) && ctx.allow.urlContains(t)
+}
+
+// Rendered form of a surviving token: a number → `$$`, an allow-listed token → itself, else null.
+function renderToken(ctx: ScrubContext, t: string): string | null {
+    return NUMERIC.test(t) ? maskNumber(t) : isAllowed(ctx, t) ? t : null
+}
 
 export function scrubUrl(ctx: ScrubContext, input: string, opts?: UrlScrubOptions): ScrubResult {
     const tailIdx = input.search(/[?#]/)
@@ -46,7 +64,10 @@ export function scrubUrl(ctx: ScrubContext, input: string, opts?: UrlScrubOption
         if (raw.length === 0) {
             continue
         }
-        if (isSafeSegment(raw) || ctx.allow.urlContains(raw)) {
+        if (NUMERIC.test(raw)) {
+            out += maskNumber(raw) // a bare number → $$
+            changed = true
+        } else if (isSafeSegment(raw) || ctx.allow.urlContains(raw)) {
             out += raw
         } else {
             out += '[redacted]'
@@ -63,7 +84,6 @@ export function scrubUrl(ctx: ScrubContext, input: string, opts?: UrlScrubOption
     return { value: out, changed }
 }
 
-// Keep only allow-listed, alphanumeric query params and an allow-listed alphanumeric fragment.
 function scrubTail(ctx: ScrubContext, tail: string): string {
     if (tail === '') {
         return ''
@@ -86,17 +106,26 @@ function scrubTail(ctx: ScrubContext, tail: string): string {
                 continue
             }
             const eq = pair.indexOf('=')
-            const key = eq === -1 ? pair : pair.slice(0, eq)
-            const value = eq === -1 ? '' : pair.slice(eq + 1)
-            if (key.length > 0 && SIMPLE.test(key) && SIMPLE.test(value) && ctx.allow.urlContains(key)) {
-                kept.push(eq === -1 ? key : `${key}=${value}`)
+            if (eq === -1) {
+                if (isAllowed(ctx, pair)) {
+                    kept.push(pair)
+                }
+                continue
             }
+            const key = pair.slice(0, eq)
+            const value = pair.slice(eq + 1)
+            if (!isAllowed(ctx, key) && !(value !== '' && isAllowed(ctx, value))) {
+                continue
+            }
+            const kr = renderToken(ctx, key) ?? '[key]'
+            const vr = value === '' ? '' : (renderToken(ctx, value) ?? '[value]')
+            kept.push(`${kr}=${vr}`)
         }
         if (kept.length > 0) {
             out += '?' + kept.join('&')
         }
     }
-    if (frag.length > 0 && SIMPLE.test(frag) && ctx.allow.urlContains(frag)) {
+    if (frag.length > 0 && isAllowed(ctx, frag)) {
         out += '#' + frag
     }
     return out
