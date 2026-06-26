@@ -13,7 +13,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("agent_platform", "0010_remove_is_preview_state_only"),
+        ("agent_platform", "0012_agentsession_search_text_turn_count"),
     ]
 
     operations = [
