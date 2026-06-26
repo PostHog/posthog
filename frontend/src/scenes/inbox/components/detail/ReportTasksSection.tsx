@@ -90,7 +90,8 @@ function TaskRow({
                                 taskId={task.id}
                                 runId={runId}
                                 interaction={replayOnly ? 'read-only' : 'live'}
-                                className="px-3 py-2"
+                                threadRowClassName="px-3"
+                                threadListClassName="py-2"
                             />
                         </div>
                     ) : (

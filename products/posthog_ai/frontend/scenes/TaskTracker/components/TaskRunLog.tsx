@@ -55,7 +55,7 @@ export function TaskRunLog({ taskId }: { taskId: string }): JSX.Element | null {
     }
     if (selectedRun) {
         return (
-            <div className="flex-1 min-h-0 overflow-hidden -mr-4 pr-4">
+            <div className="flex-1 min-h-0 overflow-hidden -mr-4 -mt-4 pr-4">
                 <TaskRunChat taskId={taskId} runId={selectedRun.id} />
             </div>
         )
