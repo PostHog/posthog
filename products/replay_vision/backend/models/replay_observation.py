@@ -101,6 +101,8 @@ class ReplayObservation(UUIDModel):
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
             models.Index(fields=["scanner", "status"], name="rlo_scanner_status_idx"),
+            # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
+            models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
             models.Index(
                 fields=["workflow_id"],
                 name="rlo_workflow_id_idx",
