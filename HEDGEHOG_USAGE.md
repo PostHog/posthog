@@ -4,7 +4,6 @@ An inventory of every image in [`frontend/public/hedgehog/`](frontend/public/hed
 
 Most hogs are exposed as named React components from [`frontend/src/lib/components/hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) (the central registry).
 A few are imported directly by a single component. Nothing references hogs by `/static/hedgehog/<name>.png` string path any more.
-The Hogfetti confetti animation ([`Hogfetti/hogs/`](frontend/src/lib/components/Hogfetti/hogs/)) bundles its own hog copies locally rather than referencing the registry — those self-contained copies are tracked in the [Hogfetti pool](#hogfetti-pool-15) section below, not in the table, since they no longer consume `public/hedgehog/` and sit outside this replacement effort.
 
 We want to retire these hedgehogs and replace them with illustrations from [`@posthog/brand`](https://brand.posthog.com/hoggies) (import via `@posthog/brand/hoggies`). The **Replacement** column holds the brand hoggie slug to swap in; it's per usage site, since different surfaces may want different art. A blank cell means the brand library has no suitable equivalent yet — those gaps are enumerated, with briefs for the design team, under [Missing from the brand library](#missing-from-the-brand-library) at the bottom.
 
@@ -168,29 +167,6 @@ Imported into [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) and e
 | `laptop-hog-02.png`         | `LaptopHog2`         | Exported, never consumed                                          |
 | `pop-up-binoculars-hog.png` | `PopUpBinocularsHog` | Exported, never consumed                                          |
 
-## Hogfetti pool (15)
-
-[`Hogfetti.tsx`](frontend/src/lib/components/Hogfetti/Hogfetti.tsx) bundles 15 hogs inline at 64×64 from its own [`hogs/`](frontend/src/lib/components/Hogfetti/hogs/) folder, independent of `public/hedgehog/` and the registry.
-They're listed here rather than in the Used table because they no longer consume `public/hedgehog/` and fall outside the replacement effort.
-
-| Image (in `Hogfetti/hogs/`) | Public original status                                                   |
-| --------------------------- | ------------------------------------------------------------------------ |
-| `surprised-hog.png`         | Still used elsewhere — see [Used](#used-39)                              |
-| `blushing-hog.png`          | Still used elsewhere                                                     |
-| `explorer-hog.png`          | Still used elsewhere                                                     |
-| `running-hog.png`           | Still used elsewhere                                                     |
-| `space-hog.png`             | ⚠ Hogfetti-only — `public/hedgehog/` original now unused, can be deleted |
-| `tron-hog.png`              | ⚠ Hogfetti-only — `public/hedgehog/` original now unused, can be deleted |
-| `heart-hog.png`             | Still used elsewhere                                                     |
-| `star-hog.png`              | Still used elsewhere                                                     |
-| `professor-hog.png`         | Still used elsewhere                                                     |
-| `detective-hog.png`         | Still used elsewhere                                                     |
-| `mail-hog.png`              | Still used elsewhere                                                     |
-| `feature-flag-hog.png`      | Still used elsewhere                                                     |
-| `experiments-hog.png`       | Still used elsewhere                                                     |
-| `waving-hog.png`            | Still used elsewhere                                                     |
-| `microphone-hog.png`        | Still used elsewhere                                                     |
-
 ## Cleanup notes
 
 **Orphaned `police-hog`** — once nothing referenced its `public/hedgehog/` original any more:
@@ -198,10 +174,12 @@ They're listed here rather than in the Used table because they no longer consume
 - **`public/hedgehog/police-hog.png`** was deleted (the `PoliceHog` registry export was never rendered).
 - The **`PoliceHog` registry export** in [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) was removed along with it.
 
-**Hogfetti move** — trimming the Hogfetti pool to 15 inline 64×64 copies left some dead weight in the registry:
+**Orphaned Hogfetti-only hogs** — `space-hog` and `tron-hog` were referenced only by Hogfetti's inline copies:
 
-- **`public/hedgehog/space-hog.png` and `public/hedgehog/tron-hog.png`** are now referenced only by their inline Hogfetti copies — the public originals can be deleted (also flagged in [Hogfetti pool](#hogfetti-pool-15)).
-- **Dead registry exports** in [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) (no remaining consumers): `SpaceHog`, `TronHog`, `HospitalHog`. Plus the six never-consumed exports `ThreeBearsHogs`, `DeskHog`, `DisguiseHog`, `LaptopHog1`, `LaptopHog2`, `PopUpBinocularsHog`.
+- **`public/hedgehog/space-hog.png` and `public/hedgehog/tron-hog.png`** were deleted (Hogfetti keeps its own `Hogfetti/hogs/` copies).
+- The **`SpaceHog` and `TronHog` registry exports** in [`hedgehogs.tsx`](frontend/src/lib/components/hedgehogs.tsx) were removed along with them.
+
+**Dead registry exports** — never consumed, still awaiting removal: `HospitalHog`, `ThreeBearsHogs`, `DeskHog`, `DisguiseHog`, `LaptopHog1`, `LaptopHog2`, `PopUpBinocularsHog` (see [Unused](#unused-7)).
 
 ## Missing from the brand library
 

@@ -37,13 +37,11 @@ import readingHog from 'public/hedgehog/reading-hog.png'
 import robotHog from 'public/hedgehog/robot-hog.png'
 import runningHog from 'public/hedgehog/running-hog.png'
 import sleepingHog from 'public/hedgehog/sleeping-hog.png'
-import spaceHog from 'public/hedgehog/space-hog.png'
 import starHog from 'public/hedgehog/star-hog.png'
 import stopSignHog from 'public/hedgehog/stop-sign-hog.png'
 import supermanHog from 'public/hedgehog/superman-hog.png'
 import supportHeroHog from 'public/hedgehog/support-hero-hog.png'
 import surprisedHog from 'public/hedgehog/surprised-hog.png'
-import tronHog from 'public/hedgehog/tron-hog.png'
 import warningHog from 'public/hedgehog/warning-hog.png'
 import wavingHog from 'public/hedgehog/waving-hog.png'
 import xRayHog from 'public/hedgehog/x-ray-hog.png'
@@ -103,12 +101,6 @@ export const ExplorerHog = (props: HedgehogProps): JSX.Element => {
 }
 export const RunningHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={runningHog} {...props} />
-}
-export const SpaceHog = (props: HedgehogProps): JSX.Element => {
-    return <RectangularHedgehog src={spaceHog} {...props} />
-}
-export const TronHog = (props: HedgehogProps): JSX.Element => {
-    return <SquaredHedgehog src={tronHog} {...props} />
 }
 export const HeartHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={heartHog} {...props} />
