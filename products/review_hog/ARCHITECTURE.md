@@ -1419,6 +1419,54 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
 
 ---
 
+### 🔁 Stage 5b — iterate on the same PR (post-trigger validation; the bridge to the Stage 4 loop)
+
+> **Status: not built — this is the explicit validation step _after_ Stage 5 ships.** Once the label trigger
+> posts a real review, the next thing to exercise is **re-running ReviewHog on the _same_ PR, turn after turn**,
+> to watch it **consume its own already-posted comments** instead of re-posting them. This is the empirical
+> proof that the single-turn pipeline is loop-ready, and it directly feeds Stage 4 (the loop) + cross-turn
+> finding lifecycle.
+
+**Goal.** Re-trigger the same PR (re-apply the `reviewhog` label, or re-`curl` the endpoint, or
+`manage.py run_review --publish` on the same URL) repeatedly and confirm each subsequent turn **does not
+duplicate findings it already posted** — it only surfaces genuinely new ones (new commits / newly changed
+lines) and lets the rest fall away.
+
+**What it exercises (already coded — this just validates it end-to-end with publishing on):**
+
+- **Cross-turn positional dedup (step 14).** `deduplicate_issues` drops any finding that collides (same file +
+  overlapping lines) with **any prior inline comment**, every reviewer treated uniformly — **including
+  ReviewHog's own** comments from the previous turn. So turn _N+1_ should re-fetch turn _N_'s inline comments
+  (via `PRFetcher.fetch_pr_comments` → `get_review_comments()`, author on `PRComment.user`) and dedup against
+  them. Each turn should get **quieter**, not noisier.
+- **Deterministic per-PR workflow id + `ALLOW_DUPLICATE` reuse policy** (`review_pr_workflow_id`,
+  `client.py`): a re-trigger collapses onto the same id; a new turn starts once the prior finishes (a living
+  report re-review), a second _concurrent_ run of the same PR is rejected.
+- **`head_sha`-scoped resume** (the `chunk_set` / `chunk_analysis` / `perspective_result` artefacts): a re-run
+  at the **same** head reuses the expensive sandbox rows and only re-derives dedup + validation against the
+  now-larger prior-comment set; a re-run at a **new** head re-snapshots and re-reviews.
+
+**What to watch for / known gaps this step will surface (candidate fixes that become Stage 4 work):**
+
+- **The standalone "ReviewHog Alpha 🦔" feedback comment is a plain `create_issue_comment`, not an inline
+  review comment** (`publish_review.py:218`) — it is **not** positional, so the dedup gate won't catch it and
+  it **will re-post every turn**. Fix before looping: post it once per report (guard on a watermark) or drop it
+  for the loop.
+- **Finding _lifecycle_ is still missing** — dedup only _suppresses_ a re-find; it does not **resolve / update**
+  our own prior comment when the underlying code changed or the issue was fixed. That (matching against the DB
+  `issue_finding` rows by semantic identity, not comment text) is the **Stage 4 prerequisite** called out in
+  Stage 4's "finding-identity prereq" and remains deferred.
+- **Confirm the fetch actually returns our own comments** — dedup can only see prior comments that come back in
+  `fetch_pr_comments` (test files / filtered paths are dropped; line-less chatter is excluded by `_comment_line`).
+  Verify ReviewHog's own inline comments survive that filter so the loop converges.
+
+**How to run the validation:** pick a stable non-fork PR, run with publishing on (`--publish` or the endpoint),
+read the posted review; then run **again** unchanged and assert the second review posts **strictly fewer (ideally
+zero) new** inline comments for the same head, and that pushing a new commit produces a fresh review only for the
+new lines. Log the turn-over-turn finding counts in `eval/RUN_LOG.md`.
+
+---
+
 ## Pipeline
 
 The orchestration lives in `backend/reviewer/run.py` (`async def main(pr_url, *, team_id, user_id)`), a flat
