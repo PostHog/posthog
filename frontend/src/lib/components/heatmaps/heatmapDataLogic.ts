@@ -244,6 +244,17 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                         toolbarConfigLogic.actions.authenticate()
                     }
 
+                    // Unauthenticated or expired-token fetches (401) are an expected state, not an
+                    // error: re-trigger auth in the toolbar and otherwise fail quietly with an empty
+                    // result, so this doesn't surface as a captured exception or an error toast.
+                    if (response.status === 401) {
+                        if (props.context === 'toolbar') {
+                            toolbarConfigLogic.actions.authenticate()
+                        }
+                        actions.setIsReady(true)
+                        return { results: [] }
+                    }
+
                     if (response.status !== 200) {
                         throw new Error(await parseHeatmapErrorMessage(response))
                     }
