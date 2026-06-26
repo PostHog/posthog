@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -32,6 +32,16 @@ class TestBuildWizardCommand(SimpleTestCase):
         assert WIZARD_PACKAGE in command
         assert "--install-dir ." in command
         assert "--project-id 123" in command
+
+    @parameterized.expand([(True,), (False,)])
+    def test_base_url_pins_local_instance_only_in_debug(self, debug: bool) -> None:
+        # Local dev pins --base-url to the sandbox-reachable POSTHOG_API_URL so the wizard hits the
+        # local instance instead of failing cloud region detection on a locally-minted token. Prod
+        # must keep inferring the region from the token, so the flag must not leak when DEBUG is off.
+        with override_settings(DEBUG=debug):
+            command = _build_wizard_command("/tmp/workspace/repos/a/b", 1, WIZARD_PACKAGE)
+
+        assert ('--base-url "$POSTHOG_API_URL"' in command) is debug
 
     @parameterized.expand([("EU", "eu"), ("US", "us"), (None, "us")])
     def test_region_maps_from_instance_region(self, instance_region: str | None, expected: str) -> None:

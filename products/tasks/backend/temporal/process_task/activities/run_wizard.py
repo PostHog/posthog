@@ -2,6 +2,8 @@ import shlex
 import logging
 from dataclasses import dataclass
 
+from django.conf import settings
+
 from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
@@ -60,18 +62,28 @@ def _build_wizard_command(repo_path: str, project_id: int, package: str) -> str:
     # The wizard reads its access token from the POSTHOG_WIZARD_API_KEY env var injected into the
     # sandbox (see provision_sandbox), so the token never appears on the command line.
     # --headless-DONOTUSE-EXPERIMENTAL runs the published wizard non-interactively.
-    return " ".join(
-        [
-            f"cd {shlex.quote(repo_path)} &&",
-            # Wrap in `timeout` so an over-budget run exits WIZARD_TIMEOUT_EXIT_CODE (124) we can
-            # detect, with partial output preserved. -k 30 escalates to SIGKILL 30s after SIGTERM.
-            f"timeout -k 30 {WIZARD_RUN_TIMEOUT_SECONDS} npx --yes {shlex.quote(package)}",
-            "--headless-DONOTUSE-EXPERIMENTAL",
-            "--install-dir .",
-            f"--region {shlex.quote(_wizard_region())}",
-            f"--project-id {shlex.quote(str(project_id))}",
-        ]
-    )
+    parts = [
+        f"cd {shlex.quote(repo_path)} &&",
+        # Wrap in `timeout` so an over-budget run exits WIZARD_TIMEOUT_EXIT_CODE (124) we can
+        # detect, with partial output preserved. -k 30 escalates to SIGKILL 30s after SIGTERM.
+        f"timeout -k 30 {WIZARD_RUN_TIMEOUT_SECONDS}",
+        f"npx --yes {shlex.quote(package)}",
+        "--headless-DONOTUSE-EXPERIMENTAL",
+        "--install-dir .",
+        f"--region {shlex.quote(_wizard_region())}",
+        f"--project-id {shlex.quote(str(project_id))}",
+    ]
+
+    if settings.DEBUG:
+        # Local dev: pin the wizard to the same PostHog instance the sandbox itself reaches, instead
+        # of letting it infer a cloud region from the access token (which fails for a locally-minted
+        # token). POSTHOG_API_URL is injected into the sandbox env and already carries the provider's
+        # in-container rewrite (e.g. http://host.docker.internal:8000 for the Docker sandbox, since
+        # localhost/:8010 are unreachable from inside it), so expand it inside the container rather
+        # than baking a host-side URL into the command.
+        parts.append('--base-url "$POSTHOG_API_URL"')
+
+    return " ".join(parts)
 
 
 @activity.defn
