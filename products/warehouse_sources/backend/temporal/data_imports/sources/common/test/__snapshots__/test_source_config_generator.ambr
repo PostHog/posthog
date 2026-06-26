@@ -408,6 +408,7 @@
           ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
           ExternalDataSourceType.NEWSDATA: NewsDataSourceConfig,
           ExternalDataSourceType.NEXIOPAY: NexiopaySourceConfig,
+          ExternalDataSourceType.NEXTDOORADS: NextdoorAdsSourceConfig,
           ExternalDataSourceType.NINJAONERMM: NinjaOneRMMSourceConfig,
           ExternalDataSourceType.NOCRM: NoCRMSourceConfig,
           ExternalDataSourceType.NORTHPASSLMS: NorthpassLMSSourceConfig,

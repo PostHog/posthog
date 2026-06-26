@@ -6303,6 +6303,34 @@
             "readOnlyHint": false
         }
     },
+    "signals-scout-edit-report": {
+        "description": "The report channel's edit half: rewrite a report's `title`/`summary` and/or append a note. Can target ANY of the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Edit an existing report for a run",
+        "title": "Edit an existing report for a run",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-emit-report": {
+        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list` to find a prior report and `signals-scout-edit-report` to update it instead. For a concrete, fixable issue you can also open a draft PR automatically by passing `repository` + `priority` + `suggested_reviewers` (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Author a full report for a run",
+        "title": "Author a full report for a run",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-emit-signal": {
         "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit. Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.",
         "category": "Signals",

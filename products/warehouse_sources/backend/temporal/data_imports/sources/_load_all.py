@@ -372,6 +372,7 @@ from .new_york_times.source import NewYorkTimesSource
 from .news_api.source import NewsApiSource
 from .newsdata.source import NewsDataSource
 from .nexiopay.source import NexiopaySource
+from .nextdoor_ads.source import NextdoorAdsSource
 from .ninjaone_rmm.source import NinjaOneRMMSource
 from .nocrm.source import NoCRMSource
 from .northpass_lms.source import NorthpassLMSSource

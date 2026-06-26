@@ -2061,6 +2061,11 @@ class NexiopaySourceConfig(config.Config):
 
 
 @config.config
+class NextdoorAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class NinjaOneRMMSourceConfig(config.Config):
     pass
 
@@ -3933,6 +3938,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
         ExternalDataSourceType.NEWSDATA: NewsDataSourceConfig,
         ExternalDataSourceType.NEXIOPAY: NexiopaySourceConfig,
+        ExternalDataSourceType.NEXTDOORADS: NextdoorAdsSourceConfig,
         ExternalDataSourceType.NINJAONERMM: NinjaOneRMMSourceConfig,
         ExternalDataSourceType.NOCRM: NoCRMSourceConfig,
         ExternalDataSourceType.NORTHPASSLMS: NorthpassLMSSourceConfig,

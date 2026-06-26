@@ -70,7 +70,7 @@ import {
     INITIAL_PERMISSION_MODE,
     runStreamLogic,
 } from 'products/posthog_ai/frontend'
-import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
+import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
