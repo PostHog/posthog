@@ -202,8 +202,15 @@ def _django_live_server(_sandboxed_eval_database_access):
     """
     from pytest_django.live_server_helper import LiveServer
 
-    server = LiveServer(f"localhost:{DJANGO_LIVE_PORT}")
-    logger.info("Django live server started at %s", server.url)
+    # Bind on all interfaces so the sandbox Docker container can reach the server
+    # via ``host.docker.internal`` (the docker bridge gateway). The socket binds
+    # at thread start using this host; we then re-point ``thread.host`` at
+    # localhost purely so ``server.url`` advertises a loopback address to
+    # host-side clients (MCP server, LLM gateway) — the already-bound 0.0.0.0
+    # socket still accepts both loopback and bridge connections.
+    server = LiveServer(f"0.0.0.0:{DJANGO_LIVE_PORT}")
+    server.thread.host = "127.0.0.1"
+    logger.info("Django live server started at %s (bound on 0.0.0.0)", server.url)
 
     yield server
 
@@ -298,6 +305,10 @@ def _sandbox_settings(
     with (
         override_settings(
             DEBUG=True,  # Required for sandbox URL validation to allow http://localhost
+            # The sandbox container reaches the Django live server with a
+            # ``Host: host.docker.internal`` header; allow it (test-only) so the
+            # agent's event-ingest stream isn't rejected with an invalid-host 400.
+            ALLOWED_HOSTS=["*"],
             SANDBOX_PROVIDER="docker",
             SANDBOX_API_URL=docker_api_url,
             SANDBOX_LLM_GATEWAY_URL=docker_llm_gateway_url,
