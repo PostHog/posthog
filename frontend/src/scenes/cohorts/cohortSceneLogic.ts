@@ -1,23 +1,25 @@
-import { kea, path, props, selectors } from 'kea'
+import { connect, kea, path, props, selectors } from 'kea'
 
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { cohortsModel } from '~/models/cohortsModel'
-import { ActivityScope, Breadcrumb, ProjectTreeRef } from '~/types'
+import { ActivityScope, Breadcrumb, CohortType, ProjectTreeRef } from '~/types'
 
-import { CohortLogicProps } from './cohortEditLogic'
+import { CohortLogicProps, cohortEditLogic } from './cohortEditLogic'
 import type { cohortSceneLogicType } from './cohortSceneLogicType'
 
 export const cohortSceneLogic = kea<cohortSceneLogicType>([
     props({} as CohortLogicProps),
     path(['scenes', 'cohorts', 'cohortLogic']),
+    connect((props: CohortLogicProps) => ({
+        values: [cohortEditLogic(props), ['cohort']],
+    })),
 
     selectors({
         breadcrumbs: [
-            () => [cohortsModel.selectors.cohortsById, (_, props) => props.id as CohortLogicProps['id']],
-            (cohortsById, cohortId): Breadcrumb[] => {
+            (s) => [s.cohort, (_, props) => props.id as CohortLogicProps['id']],
+            (cohort: CohortType, cohortId): Breadcrumb[] => {
                 return [
                     {
                         key: 'cohorts',
@@ -27,7 +29,7 @@ export const cohortSceneLogic = kea<cohortSceneLogicType>([
                     },
                     {
                         key: [Scene.Cohort, cohortId || 'loading'],
-                        name: cohortId && cohortId !== 'new' ? cohortsById[cohortId]?.name || 'Untitled' : 'Untitled',
+                        name: cohortId && cohortId !== 'new' ? cohort?.name || 'Untitled' : 'Untitled',
                         iconType: 'cohort',
                     },
                 ]
