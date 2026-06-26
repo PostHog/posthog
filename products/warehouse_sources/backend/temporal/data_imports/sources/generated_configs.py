@@ -275,6 +275,11 @@ class ApolloSourceConfig(config.Config):
 
 
 @config.config
+class AppLovinSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AppcuesSourceConfig(config.Config):
     pass
 
@@ -3603,6 +3608,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AMPLITUDE: AmplitudeSourceConfig,
         ExternalDataSourceType.APIFYDATASET: ApifyDatasetSourceConfig,
         ExternalDataSourceType.APOLLO: ApolloSourceConfig,
+        ExternalDataSourceType.APPLOVIN: AppLovinSourceConfig,
         ExternalDataSourceType.APPCUES: AppcuesSourceConfig,
         ExternalDataSourceType.APPFIGURES: AppfiguresSourceConfig,
         ExternalDataSourceType.APPFOLLOW: AppfollowSourceConfig,

@@ -41,6 +41,7 @@ from .appcues.source import AppcuesSource
 from .appfigures.source import AppfiguresSource
 from .appfollow.source import AppfollowSource
 from .apple_search_ads.source import AppleSearchAdsSource
+from .applovin.source import AppLovinSource
 from .appsflyer.source import AppsFlyerSource
 from .appstack.source import AppstackSource
 from .apptivo.source import ApptivoSource
