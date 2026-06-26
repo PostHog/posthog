@@ -54,6 +54,14 @@ _NEW_SDK_SOURCE = "posthog_mcp_analytics"
 _EFFECTIVE_TOOL = (
     "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))"
 )
+# The description of the *effective* tool: for single-exec calls the inner tool's
+# $mcp_exec_tool_call_description, else the directly-registered $mcp_tool_description.
+# Without this, an inner tool's Descriptions table would show the exec wrapper's text
+# (another tool's description) — a tool-level disclosure.
+_EFFECTIVE_DESCRIPTION = (
+    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_description), ''), "
+    "toString(properties.$mcp_tool_description))"
+)
 
 # A per-row distinct-and-sorted list of resolved harness labels, collected from the
 # token computed in the inner subquery. groupArray evaluates the label per row, so the
@@ -431,12 +439,14 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
         where = _tool_call_where(
             self.query.toolName,
             self.query_date_range,
-            extra=[parse_expr("notEmpty(toString(properties.$mcp_tool_description))")],
+            extra=[
+                parse_expr("notEmpty({description})", placeholders={"description": parse_expr(_EFFECTIVE_DESCRIPTION)})
+            ],
         )
         return parse_select(
             """
             SELECT
-                toString(properties.$mcp_tool_description) AS description,
+                {_EFFECTIVE_DESCRIPTION} AS description,
                 toString(max(timestamp)) AS last_seen
             FROM events
             WHERE {where}
@@ -444,7 +454,7 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
             ORDER BY last_seen DESC
             LIMIT 5
             """,
-            placeholders={"where": where},
+            placeholders={"_EFFECTIVE_DESCRIPTION": parse_expr(_EFFECTIVE_DESCRIPTION), "where": where},
         )
 
     def _calculate(self) -> MCPToolDescriptionsQueryResponse:
