@@ -129,6 +129,13 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
                             previousPeriodTimeSeries={previousPeriodTimeSeries}
                             color={metric.color}
                             colorIfZero={getColorVar('muted')}
+                            footer={
+                                summaryMetric === 'converted' &&
+                                !conversionStatsLoading &&
+                                conversionStats.conversions > 0 ? (
+                                    <Link to={convertedUsersUrl}>View converted users</Link>
+                                ) : null
+                            }
                         />
                     )
                 })}

@@ -19,6 +19,8 @@ export type AppMetricSummaryProps = {
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
     loading?: boolean
     hideIfZero?: boolean
+    /** Optional content rendered at the bottom of the card, e.g. a deep-link to the underlying data. */
+    footer?: JSX.Element | null
 }
 
 export function AppMetricSummary({
@@ -30,6 +32,7 @@ export function AppMetricSummary({
     colorIfZero,
     loading,
     hideIfZero = false,
+    footer,
 }: AppMetricSummaryProps): JSX.Element | null {
     const total = useMemo(() => {
         if (!timeSeries) {
@@ -123,6 +126,7 @@ export function AppMetricSummary({
                     )}
                 </div>
             </div>
+            {footer ? <div className="mt-2 text-xs text-center">{footer}</div> : null}
         </div>
     )
 }
