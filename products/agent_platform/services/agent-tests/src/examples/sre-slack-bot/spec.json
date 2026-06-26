@@ -184,5 +184,23 @@
         "max_wall_seconds": 600
     },
     "reasoning": "high",
-    "mcps": []
+    "mcps": [
+        {
+            "id": "incident-io",
+            "url": "https://mcp.incident.io/mcp",
+            "connection": "00000000-0000-0000-0000-000000000000",
+            "default_tool_approval": "approve"
+        },
+        {
+            "id": "posthog",
+            "url": "http://localhost:8787/mcp",
+            "auth": { "provider": "posthog" }
+        }
+    ],
+    "identity_providers": [
+        {
+            "kind": "posthog",
+            "scopes": ["openid", "profile", "email", "user:read", "query:read", "insight:read", "error_tracking:read"]
+        }
+    ]
 }

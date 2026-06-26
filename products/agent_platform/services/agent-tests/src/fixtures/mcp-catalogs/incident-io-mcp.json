@@ -1,0 +1,1467 @@
+[
+  {
+    "description": "Detach an alert from an incident, marking it as unrelated.\n\nUse this when an alert was routed to the wrong incident and needs to be removed. The alert\nis not deleted \u2014 it is marked as unrelated to this incident.\n\nUse alert_show to find an alert's ID and its linked incidents, then pass the alert_id and\nincident_id here. The incident_id accepts a ULID, numeric external ID, or reference like\nINC-123.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "alert_id": {
+          "description": "alert ID (ULID)",
+          "type": "string"
+        },
+        "incident_id": {
+          "description": "incident to detach from (ID, external ID, or reference like INC-123)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "alert_id",
+        "incident_id"
+      ],
+      "type": "object"
+    },
+    "name": "alert_detach"
+  },
+  {
+    "description": "List alerts with optional filters and pagination. Use alert_show for full details on a specific alert.\n\nEach result includes: title, status, alert source (with type), priority, deduplication key, and links.\n\nFilters (all optional):\n- query: search alert titles and descriptions\n- status: one or more of firing, resolved\n- alert_source: one or more alert source config IDs (use alert_source_list to discover these)\n- priority: one or more priority IDs (see config://organisation resource for IDs)\n- deduplication_key: exact match on a deduplication key\n- attributes: filter by alert attribute values (object mapping attribute ID to array of values, see config://organisation for attribute IDs)\n- created_after / created_before: dates to bound the time range (yyyy-mm-dd or RFC 3339)\n- has_related_incident: true for alerts attached to an incident, false for unattached\n\nBy default, results are limited to alerts created in the last 30 days. Set created_after to look further back, but prefer a narrow time range alongside other filters \u2014 wide ranges on large orgs are slower and more likely to time out.\n\nBy default, alerts caught by maintenance windows are excluded from results.\n\nPagination: results are ordered newest first. Use page_size (default 15, max 50) and pass \"next_cursor\" as \"after\" to fetch subsequent pages. Stopping before \"has_more\" is false means you have incomplete results.\n\nTip: if you need counts, trends, or noise analysis, use alert_stats first \u2014 it's much more efficient than paginating through alert_list. Use alert_list when you need to browse specific alerts or inspect their details.\n\nUnderstanding alert attributes: alerts carry structured attributes (e.g. team, service, environment, feature) that describe what they relate to. Read config://organisation to see what attributes are configured, then use the attributes filter to slice alerts by these dimensions. For example, filtering by service helps answer \"which alerts fire for the payments service?\" or by team for \"what's the alert load for the platform team?\"",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "cursor from a previous page to fetch the next one",
+          "type": "string"
+        },
+        "alert_source": {
+          "description": "filter by alert source config IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "filter by alert attribute values: keys are attribute IDs, values are arrays of accepted values",
+          "type": "object"
+        },
+        "created_after": {
+          "description": "only alerts created after this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "created_before": {
+          "description": "only alerts created before this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "deduplication_key": {
+          "description": "exact match on deduplication key",
+          "type": "string"
+        },
+        "has_related_incident": {
+          "description": "if true, only alerts attached to an incident; if false, only unattached alerts",
+          "type": "boolean"
+        },
+        "page_size": {
+          "description": "results per page (default 15, max 50)",
+          "type": "integer"
+        },
+        "priority": {
+          "description": "filter by priority IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "query": {
+          "description": "search alert titles and descriptions",
+          "type": "string"
+        },
+        "status": {
+          "description": "filter by status: firing, resolved",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "name": "alert_list"
+  },
+  {
+    "description": "Look up an alert by ID and return its details.\n\nReturns: title, description, status, deduplication key, alert source (with type), priority, links (source, dashboard, silence), and any linked incidents.\n\nUse 'include' to request additional sections:\n- payload: the raw JSON payload from the alert source (only available for firing alerts)\n\nThe response includes linked incident IDs. Pass these to incident_show with include: [\"investigation\"] to see the full investigation for each linked incident.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "alert ID (ULID)",
+          "type": "string"
+        },
+        "include": {
+          "description": "optional sections to include: payload",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "alert_show"
+  },
+  {
+    "description": "List configured alert sources for this organisation.\n\nReturns the ID, name, and source type (e.g. datadog, sentry, grafana, http) for each alert source. Use alert source IDs to filter alert_list results by source.\n\nThis is not paginated \u2014 alert source lists are typically small.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "description": "search alert source names",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "alert_source_list"
+  },
+  {
+    "description": "Count alerts grouped by one or more dimensions, returning aggregate statistics.\n\nUse this tool instead of paginating through alert_list when you need counts, breakdowns, or trend data across many alerts \u2014 for example \"how many alerts by source this week?\" or \"what proportion of alerts result in incidents?\"\n\nDimensions (combine freely in the group_by array):\n- status: group by status (firing, resolved)\n- priority: group by alert priority (e.g. Critical, Urgent, In-hours)\n- source: group by alert source name (e.g. Sentry, Grafana, Datadog)\n- has_incident: group by whether the alert is attached to an incident (true/false)\n- team: group by the org's configured team. Resolves the team alert attribute, so its counts agree with filtering alerts by team. Multi-value: alerts tagged with several teams are counted under each; untagged alerts show as \"None\".\n\nScoping to a team: use the team filter for exact teams, or team_part_of to include a parent team and all its sub-teams in the hierarchy (e.g. a \"Go To Market\" parent covering Sales, Marketing, etc.). Combine team_part_of with group_by [\"team\"] to break a parent down into its sub-teams.\n- attribute:<attribute_id>: group by any alert attribute's value (e.g. team, service, environment). Read config://organisation to find attribute IDs. Array attributes are flattened so each value is counted individually; catalog-typed attributes are resolved to names.\n- week: group by ISO week (e.g. 2026-W03)\n- month: group by calendar month (e.g. 2026-01)\n- quarter: group by calendar quarter (e.g. 2026-Q1)\n\nEach group includes a count, a workload breakdown (responder time from linked incidents, split by working hours, late evening, and overnight), and sample alert IDs that you can pass to alert_show for detail. This lets you answer \"which alert sources generate the most on-call work?\" directly.\n\nNote on workload scope: workload is summed from all incidents linked to the alerts in each group, regardless of when those incidents were created. This means an alert created in December linked to an incident from November will include November's workload. This is intentional \u2014 it measures the total impact generated by the alert \u2014 but means alert workload totals may differ from incident_stats workload for the same date range.\n\nBy default, alerts caught by maintenance windows are excluded.\n\nThe tool processes at most 25,000 alerts. If more match, the response sets \"truncated\": true \u2014 narrow the date range for accurate results.\n\nConversion rate: to calculate what proportion of alerts become incidents, group by [\"source\", \"has_incident\"]. For each source, conversion rate = count(has_incident=true) / total count. Sources with low conversion rates are noise candidates.\n\nCross-reference: use incident_stats(group_by: [\"alert_source\"]) to see how alert sources map to incident volume and workload over time. This traces the full path from alert noise through to responder cost. Note that alert counts will be higher than incident counts for the same source, since multiple alerts can link to the same incident.\n\nDeeper analysis: many organisations have a small number of alert sources (e.g. one Datadog integration) but rich alert attributes (team, service, environment, feature). Group by attribute:<attribute_id> to break volume, conversion and workload down by these \u2014 for example group_by [\"attribute:<service_id>\", \"has_incident\"] to find the noisiest services, or group_by [\"team\"] for per-team alert load. Read config://organisation to discover attribute IDs. Use alert_list when you need to browse the individual alerts behind a number.\n\nStructured analysis: for a comprehensive report with playbooks, themes, and recommendations, call analysis_start first \u2014 it provides step-by-step methodology and a branded report template. Use this tool directly only for quick, focused queries.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "alert_source": {
+          "description": "filter by alert source config IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "created_after": {
+          "description": "only alerts created after this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "created_before": {
+          "description": "only alerts created before this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "group_by": {
+          "description": "dimensions to group by. Categorical: status (firing/resolved), priority, source. Team: team (the org's configured team alert attribute). Attribute: attribute:<attribute_id> for any alert attribute (e.g. team, service, environment). Time buckets: week, month, quarter. Boolean: has_incident (whether alert is attached to an incident). If empty, returns a single total count.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_alert_ids_per_group": {
+          "description": "how many alert IDs to return per group (default 10, max 250). Set to 0 to omit IDs entirely.",
+          "type": "integer"
+        },
+        "max_groups": {
+          "description": "limit the number of groups returned (e.g. top 10). Check total_groups in the response to see how many existed before truncation. All groups are returned if omitted.",
+          "type": "integer"
+        },
+        "priority": {
+          "description": "filter by priority IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sort_groups_by": {
+          "description": "order groups by: alphabetical (the default \u2014 by dimension key, so week/month/quarter come back chronological), count (highest first), or workload (highest total responder-minutes first). max_groups keeps the first N groups in the current order, so to get a true top-N (e.g. noisiest sources) pass count or workload \u2014 otherwise you get an alphabetical slice that can omit the largest groups.",
+          "type": "string"
+        },
+        "status": {
+          "description": "filter by status: firing, resolved",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "team": {
+          "description": "filter to alerts tagged with these team IDs (exact match), resolved against the org's team alert attribute. Mutually exclusive with team_part_of. Use team_list to discover team IDs.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "team_part_of": {
+          "description": "filter to alerts tagged with these team IDs including all sub-teams in the hierarchy. Use this to scope to a parent team and everything beneath it. Mutually exclusive with team.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "name": "alert_stats"
+  },
+  {
+    "description": "Start an operational analysis session. Returns a download URL for a tar.gz archive containing everything needed to run analysis: playbooks with step-by-step methodology, your organisation's configuration (severity IDs, custom fields, roles), reference materials, and a branded HTML report template.\n\nDownload and extract the archive, then follow the playbook steps using the MCP data tools (incident_stats, alert_stats, escalation_stats, etc.).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "playbook": {
+          "description": "optional,which analysis playbook to follow: operational-review, alert-noise, on-call-burden, team-health, response-effectiveness. If omitted, includes the index and all playbooks so you can pick the right one.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "analysis_start"
+  },
+  {
+    "description": "Ask the incident.io AI agent a question about your organisation's incidents, on-call schedules, alert routes, and operational setup.\n\nUse this tool for conversational questions that need reasoning, entity resolution, or multi-step investigation \u2014 for example \"what happened on my last on-call shift?\", \"summarise recent incidents for the payments team\", or \"who is on call for the backend service?\". The agent can query schedules (including past shifts and overrides), search incidents, look up catalog data, and manage schedule overrides.\n\nFor structured data needs (counts, filtering, pagination), prefer the direct tools: incident_stats for analytics, incident_list for browsing, incident_show for details. The ask tool adds latency and cost from the inner LLM call, so only use it when you need the agent's reasoning.\n\nWhen an incident_id is provided, the agent automatically switches to incident mode with full investigation data and management tools.\n\nPass session_id from a previous response to continue a multi-turn conversation.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "datasource_ids": {
+          "description": "restrict telemetry queries to specific datasource IDs; when omitted all enabled datasources are queried",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "incident_id": {
+          "description": "scope the conversation to a specific incident (ID, external ID, or reference e.g. INC-123)",
+          "type": "string"
+        },
+        "question": {
+          "description": "the question to ask the agent",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "resume a previous conversation by passing the session_id from a prior response",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "type": "object"
+    },
+    "name": "ask"
+  },
+  {
+    "description": "Ask the incident-focused AI agent a question. This agent has access to investigation data, incident management tools, and can take actions like updating status or severity.\n\nUse this for complex incident questions that need reasoning across multiple data sources \u2014 for example \"what caused this incident?\", \"draft a status update for stakeholders\", or \"are there similar past incidents?\". The agent can update incidents, manage custom fields, create follow-ups, escalate to people, draft communications, and access the full conversation history.\n\nFor simple reads or updates, prefer the direct tools: incident_show with include: [\"investigation\", \"postmortem\"] for details, incident_update for field changes. The ask_incident tool adds latency and cost but provides reasoning the direct tools cannot.\n\nRequires an incident_id to scope the conversation. Pass session_id from a previous response to continue a multi-turn conversation.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "datasource_ids": {
+          "description": "restrict telemetry queries to specific datasource IDs; when omitted all enabled datasources are queried",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "incident_id": {
+          "description": "scope the conversation to a specific incident (ID, external ID, or reference e.g. INC-123)",
+          "type": "string"
+        },
+        "question": {
+          "description": "the question to ask the agent",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "resume a previous conversation by passing the session_id from a prior response",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "type": "object"
+    },
+    "name": "ask_incident"
+  },
+  {
+    "description": "Ask the telemetry-focused AI agent a question. This agent queries logs, metrics, traces, and dashboards across your connected observability platforms (Datadog, Grafana, Splunk, Honeycomb, etc.).\n\nUse this when you need to correlate incident data with observability signals \u2014 for example \"what do the error rates look like for the payments service?\", \"show me the logs around the time of INC-123\", or \"query the CPU dashboard for the last hour\". Read the telemetry://datasources resource to see which platforms are connected.\n\nPass session_id from a previous response to continue a multi-turn conversation.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "datasource_ids": {
+          "description": "restrict telemetry queries to specific datasource IDs; when omitted all enabled datasources are queried",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "incident_id": {
+          "description": "scope the conversation to a specific incident (ID, external ID, or reference e.g. INC-123)",
+          "type": "string"
+        },
+        "question": {
+          "description": "the question to ask the agent",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "resume a previous conversation by passing the session_id from a prior response",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "type": "object"
+    },
+    "name": "ask_telemetry"
+  },
+  {
+    "description": "List entries in a catalog type with optional search and pagination.\n\nCatalog entries are instances of a type \u2014 for example, entries in a \"Service\" type might include \"Payments API\" or \"User Auth\". Each entry has attribute values defined by the type's schema, and may have aliases (alternative identifiers like EP011 for escalation paths or owner/repo for GitHub repos).\n\nRequired: catalog_type_id (the ID or type_name of the catalog type \u2014 use catalog_type_list to discover available types).\n\nThe response includes the type's attribute schema alongside entries. Attribute values use attribute names as keys. Reference attributes (those pointing to other catalog types) are formatted as \"Name (ID)\" so you can read the name directly and use the ID to look up the referenced entry via catalog_entry_show if needed.\n\nPagination: entries are ordered by name (or rank for ranked types). Use page_size (default 25, max 250) and pass \"next_cursor\" as \"after\" to fetch subsequent pages. Stopping before \"has_more\" is false means you have incomplete results.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "cursor from a previous page to fetch the next one",
+          "type": "string"
+        },
+        "catalog_type_id": {
+          "description": "catalog type ID or type_name (use catalog_type_list to discover types)",
+          "type": "string"
+        },
+        "page_size": {
+          "description": "results per page (default 25, max 250)",
+          "type": "integer"
+        },
+        "search": {
+          "description": "search entry names and identifiers",
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalog_type_id"
+      ],
+      "type": "object"
+    },
+    "name": "catalog_entry_list"
+  },
+  {
+    "description": "Look up a catalog entry by ID and return its full details.\n\nReturns the entry with all attribute values and aliases \u2014 unlike catalog_entry_list, array attributes are not truncated. The response includes the type's attribute schema for context. Aliases are alternative identifiers for the entry (e.g. EP011 for escalation paths, owner/repo for GitHub repos).\n\nUse this when you need the complete set of values for a specific entry, e.g. all members of a team or all dependencies of a service.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "catalog entry ID (ULID)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "catalog_entry_show"
+  },
+  {
+    "description": "List catalog types configured in this organisation.\n\nThe catalog is a connected map of your organisation's data \u2014 it contains types like Service, Team, Feature, Customer, and anything else relevant to your organisation. Each type has a schema of attributes that define what data its entries hold.\n\nUse this tool to discover what types exist, then use catalog_entry_list to browse entries of a specific type.\n\nReturns: name, type_name, description, and the attribute schema for each type (excluding derived attributes like backlinks and paths).\n\nThis is not paginated \u2014 organisations typically have a manageable number of catalog types.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "description": "search type names",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "catalog_type_list"
+  },
+  {
+    "description": "List escalations (also known as \"pages\") with optional filters and pagination. When a user asks about pages, paging, or who is being paged, use this tool. Use escalation_show for full details on a specific escalation.\n\nEach result includes: title, status, priority, escalation path, linked incident/alert IDs.\n\nFilters (all optional):\n- query: search escalation titles\n- status: one or more of pending, triggered, acked, resolved, expired, cancelled, snoozed, pending_repeat\n- escalation_path: one or more escalation path IDs\n- priority: one or more priority IDs (see config://organisation for IDs)\n- user: one or more user IDs to find escalations targeting specific people (e.g. \"who is being paged\" \u2014 filter by the user's own ID from the config resource)\n- incident: one or more incident IDs to find escalations linked to specific incidents\n- alert: one or more alert IDs to find escalations linked to specific alerts\n- created_after / created_before: RFC 3339 timestamps to bound the time range\n\nPagination: results are ordered newest first. Use page_size (default 15, max 50) and pass \"next_cursor\" as \"after\" to fetch subsequent pages. Stopping before \"has_more\" is false means you have incomplete results.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "cursor from a previous page to fetch the next one",
+          "type": "string"
+        },
+        "alert": {
+          "description": "filter by linked alert IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "created_after": {
+          "description": "only escalations created after this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "created_before": {
+          "description": "only escalations created before this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "escalation_path": {
+          "description": "filter by escalation path IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "incident": {
+          "description": "filter by linked incident IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "page_size": {
+          "description": "results per page (default 15, max 50)",
+          "type": "integer"
+        },
+        "priority": {
+          "description": "filter by priority IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "query": {
+          "description": "search escalation titles",
+          "type": "string"
+        },
+        "status": {
+          "description": "filter by state: pending, triggered, acked, resolved, expired, cancelled, snoozed, pending_repeat",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "user": {
+          "description": "filter by target user IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "name": "escalation_list"
+  },
+  {
+    "description": "List escalation paths configured in this organisation.\n\nEscalation paths define who gets paged and in what order when an alert fires or someone manually escalates. Each path has levels \u2014 level 1 is paged first, then level 2 if nobody acknowledges, and so on. Each path has a short_id (e.g. EP011) that serves as a human-readable alias.\n\nUse escalation_path_show to see the full ladder with who is currently on call at each level. You can search by name or short_id.\n\nPagination: results are ordered by name. Use page_size (default 15, max 50) and pass \"next_cursor\" as \"after\" to fetch subsequent pages. Stopping before \"has_more\" is false means you have incomplete results.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "cursor from a previous page to fetch the next one",
+          "type": "string"
+        },
+        "page_size": {
+          "description": "results per page (default 15, max 50)",
+          "type": "integer"
+        },
+        "query": {
+          "description": "search escalation path names or short IDs (e.g. EP011)",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "escalation_path_list"
+  },
+  {
+    "description": "Look up an escalation path and show who would be paged at each level.\n\nShows the full escalation ladder, resolving schedules to their current on-call users. When the path has conditional branches (e.g. different paths for different priorities or working hours), all branches are shown with the currently active branch marked.\n\nLevel 1 is paged first \u2014 if nobody acknowledges within the time-to-ack window, level 2 is paged, and so on.\n\nUse this to answer questions like \"who would get paged if this alert fires?\", \"what does the backend escalation look like?\", or \"who's first-line on-call for this path?\"\n\nUse schedule_show to see the full rotation details for any schedule referenced in the path. Use escalation_stats(group_by: [\"path\"]) to see paging volume and ack rates for this path over time.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "escalation path ID (ULID)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "escalation_path_show"
+  },
+  {
+    "description": "Respond to an active escalation (page) on behalf of the authenticated user.\n\nUse escalation_list to find active escalations, then respond with:\n- ack: acknowledge the page \u2014 stops it from climbing the escalation path. Use when you or an agent are handling the issue.\n- nack: decline the page \u2014 the escalation continues to the next level. Use when you cannot handle it.\n\nReturns the updated escalation with its new status.\n\nRequires user authentication (e.g. OAuth) rather than an API key, because the response is attributed to a specific user.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "escalation ID (ULID)",
+          "type": "string"
+        },
+        "response": {
+          "description": "how to respond: ack (acknowledge \u2014 stop paging, you are handling it) or nack (decline \u2014 you cannot handle this, continue escalating)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "response"
+      ],
+      "type": "object"
+    },
+    "name": "escalation_respond"
+  },
+  {
+    "description": "Look up an escalation (page) by ID and return its details.\n\nAn escalation is what happens when someone gets paged \u2014 it tracks who is being notified, whether they've acknowledged, and the full history of the page.\n\nReturns: title, description, status, priority, escalation path, creator, linked incident and alert IDs, who is being paged (targets with urgency), and the full state transition history.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "escalation ID (ULID)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "escalation_show"
+  },
+  {
+    "description": "Count escalations (pages) grouped by one or more dimensions, returning aggregate statistics with workload from linked incidents.\n\nUse this tool instead of paginating through escalation_list when you need counts or trend data \u2014 for example \"how many pages per escalation path this week?\" or \"what's our ack rate?\"\n\nDimensions (combine freely in the group_by array):\n- status: group by outcome (pending, triggered, acked, resolved, expired, cancelled, snoozed). \"Cancelled\" means the page was automatically cancelled because the underlying alert resolved or was attached to an incident \u2014 it is system-initiated, not user-initiated. Exclude cancelled from ack rate calculations.\n- priority: group by priority (e.g. Critical, Urgent, In-hours)\n- path: group by escalation path name (e.g. \"Engineering\", \"SRE On-call\")\n- team: group by the team that owns the escalation path. Resolves through escalation path ownership, so its counts agree with filtering escalations by team. A path owned by several teams is counted under each; escalations on a path with no team owner show as \"None\".\n- user: group by the user(s) who were paged. Shows user names. An escalation can target multiple users across different levels, so the same escalation may appear under multiple users. Useful for assessing individual on-call burden.\n- time_of_day: group by when the escalation was created in UTC \u2014 working_hours (09:00-18:00 Mon-Fri), late_evening (18:00-23:00 any day + weekend daytime 09:00-18:00), or overnight (23:00-09:00)\n- week: group by ISO week (e.g. 2026-W03)\n- month: group by calendar month (e.g. 2026-01)\n- quarter: group by calendar quarter (e.g. 2026-Q1)\n\nScoping to a team: use the team filter for exact teams, or team_part_of to include a parent team and all its sub-teams in the hierarchy. Both resolve through escalation path ownership. Combine team_part_of with group_by [\"team\"] to break a parent down into its sub-teams.\n\nKey metrics to derive from the results:\n- Ack rate: to calculate, group by [\"path\", \"status\"] then compute resolved / (resolved + expired) per path. Low rates indicate paging fatigue or coverage gaps.\n- Out-of-hours load: group by time_of_day to see working_hours vs late_evening vs overnight split. Overnight pages with low ack rates are the highest priority to fix.\n- Path comparison: group by path to see which teams are paged most\n- Workload per group: each group includes responder-hours from linked incidents, split by working hours, late evening, and overnight\n\nEach group includes a count, workload breakdown, and sample escalation IDs that you can pass to escalation_show for detail.\n\nThe tool processes at most 25,000 escalations. If more match, the response sets \"truncated\": true \u2014 narrow the date range for accurate results.\n\nCross-reference: use alert_stats(group_by: [\"source\"]) to see which alert sources drive the most pages, and incident_stats(group_by: [\"severity\", \"month\"]) to see how paging load correlates with incident volume. Together the three stats tools give a full picture: alerts \u2192 pages \u2192 incidents \u2192 workload.\n\nStructured analysis: for a comprehensive report with playbooks, themes, and recommendations, call analysis_start first \u2014 it provides step-by-step methodology and a branded report template. Use this tool directly only for quick, focused queries.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "created_after": {
+          "description": "only escalations created after this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "created_before": {
+          "description": "only escalations created before this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "escalation_path": {
+          "description": "filter by escalation path IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "group_by": {
+          "description": "dimensions to group by. Categorical: status (pending/triggered/acked/resolved/expired/cancelled/snoozed/pending_repeat), priority, path (escalation path name), user (paged user), team (the team that owns the escalation path), time_of_day (working_hours/late_evening/overnight in UTC). Time buckets: week, month, quarter. If empty, returns a single total count.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_escalation_ids_per_group": {
+          "description": "how many escalation IDs to return per group (default 10, max 250). Set to 0 to omit IDs entirely.",
+          "type": "integer"
+        },
+        "max_groups": {
+          "description": "limit the number of groups returned (e.g. top 10). Check total_groups in the response to see how many existed before truncation. All groups are returned if omitted.",
+          "type": "integer"
+        },
+        "priority": {
+          "description": "filter by priority IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sort_groups_by": {
+          "description": "order groups by: alphabetical (the default \u2014 by dimension key, so week/month/quarter come back chronological), count (highest first), or workload (highest total responder-minutes first). max_groups keeps the first N groups in the current order, so to get a true top-N (e.g. most-paged paths) pass count or workload \u2014 otherwise you get an alphabetical slice that can omit the largest groups.",
+          "type": "string"
+        },
+        "status": {
+          "description": "filter by state: pending, triggered, acked, resolved, expired, cancelled, snoozed, pending_repeat",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "team": {
+          "description": "filter to escalations on paths owned by these team IDs (exact match). Mutually exclusive with team_part_of. Use team_list to discover team IDs.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "team_part_of": {
+          "description": "filter to escalations on paths owned by these team IDs including all sub-teams in the hierarchy. Use this to scope to a parent team and everything beneath it. Mutually exclusive with team.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "name": "escalation_stats"
+  },
+  {
+    "description": "Submit feedback about the incident.io MCP tools to help us improve them.\n\nAfter completing a task using the MCP tools, reflect on whether the experience could have been better. Consider:\n- Was there data you needed but couldn't get, or had to piece together from multiple calls?\n- Did a tool return too much or too little information for your use case?\n- Was there a question you couldn't answer without paginating through many results?\n- Did you have to work around a limitation (e.g. manually counting, converting units, cross-referencing IDs)?\n- Would a different grouping dimension, filter, or sort option have saved significant effort?\n\nExamples of valuable feedback:\n- \"I wanted to find the top 5 noisiest alert sources but had to call alert_stats then manually rank by workload \u2014 a built-in ranking would help\"\n- \"incident_show doesn't include the Slack channel name, only the URL \u2014 I needed the name to cross-reference with another system\"\n- \"I couldn't filter escalation_stats by the user who was paged \u2014 I wanted to show a specific person's paging load\"\n- \"The workload data was in minutes but I always convert to hours \u2014 returning both would save a step\"\n\nIMPORTANT: Always ask the user for permission before submitting feedback. Draft your feedback, present it to the user, and only call this tool after they approve. The user may want to refine, add context, or decline to send.\n\nThe feedback goes directly to the team building these tools and is stored for analysis. Even small friction points are valuable.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "description": "what were you trying to do? Describe the goal or task that led to this feedback.",
+          "type": "string"
+        },
+        "ideal_functionality": {
+          "description": "what would make this great? Describe the feature, data, or improvement that would have solved the problem.",
+          "type": "string"
+        },
+        "what_was_tried": {
+          "description": "what did you try, and what was missing or didn't work? Describe the tools you used and where you hit friction.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "context",
+        "what_was_tried",
+        "ideal_functionality"
+      ],
+      "type": "object"
+    },
+    "name": "feedback"
+  },
+  {
+    "description": "Create a follow-up on an incident, either from scratch or by importing an existing external ticket.\n\nFollow-ups are post-incident tasks \u2014 work that needs to happen after an incident is resolved, like \"add monitoring for X\", \"update runbook\", or \"fix the root cause\". They are distinct from in-flight actions which are checklist items used during active response. Follow-ups persist, can be assigned, prioritised, labelled, and exported to external issue trackers.\n\nThere are two modes:\n\n1. **Create from scratch**: provide incident_id and title (required), plus optional description, assignee_id, priority_id, labels. The follow-up is created with status \"outstanding\".\n\n2. **Import from external ticket**: provide incident_id and url (a link to an existing Linear, Jira, GitHub, GitLab, Asana, ClickUp, or Shortcut issue). The title, description, status, and assignee are imported from the ticket automatically. The follow-up is linked to the external issue for ongoing sync.\n\nIf the org requires a priority or assignee, those fields become required and the tool will return a validation error if they're missing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "assignee_id": {
+          "description": "user ID to assign the follow-up to",
+          "type": "string"
+        },
+        "description": {
+          "description": "additional context or details",
+          "type": "string"
+        },
+        "incident_id": {
+          "description": "incident to create the follow-up on (ID, external ID, or reference like INC-123)",
+          "type": "string"
+        },
+        "labels": {
+          "description": "labels to attach (max 50 chars each, created automatically if new)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "priority_id": {
+          "description": "follow-up priority ID (see config://organisation for IDs)",
+          "type": "string"
+        },
+        "title": {
+          "description": "follow-up title describing the action needed (required unless url is provided)",
+          "type": "string"
+        },
+        "url": {
+          "description": "URL of an existing issue in an external tracker (Linear, Jira, GitHub, etc.) to import as a follow-up \u2014 when provided, title and description are fetched from the ticket automatically",
+          "type": "string"
+        }
+      },
+      "required": [
+        "incident_id"
+      ],
+      "type": "object"
+    },
+    "name": "follow_up_create"
+  },
+  {
+    "description": "List follow-ups with optional filters and pagination.\n\nFollow-ups are post-incident tasks that track work needed after an incident is resolved \u2014 things like \"add monitoring for X\", \"update runbook\", or \"fix the root cause\". They are distinct from in-flight actions (checklist items used during active response). Follow-ups can have priorities, assignees, labels, and can be exported to external issue trackers like Jira or Linear.\n\nEach result includes: title, status, priority, assignee (user), assignee team, creator, labels, linked external issue, and timestamps.\n\nFilters (all optional):\n- incident_id: filter to a specific incident (accepts ID, external ID, or reference like INC-123)\n- assignee_id: filter by assignee user ID (use your own ID from config://organisation to find \"my follow-ups\")\n- status: one or more of outstanding, completed, not_doing\n- created_after / created_before: date range for when the follow-up was created (yyyy-mm-dd or RFC 3339). Useful for scoping to recent follow-ups rather than returning historical items.\n\nPagination: results are ordered oldest first. Use page_size (default 10, max 50) and pass \"next_cursor\" as \"after\" to fetch subsequent pages. Stopping before \"has_more\" is false means you have incomplete results.\n\nFor aggregate counts and breakdowns (e.g. \"how many outstanding follow-ups by priority?\"), use follow_up_stats instead of paginating through this list.\n\nFor post-incident review workflows, combine with incident_show to understand the incident context behind each follow-up. Use follow_up_create to add new follow-ups discovered during analysis.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "cursor from a previous page to fetch the next one",
+          "type": "string"
+        },
+        "assignee_id": {
+          "description": "filter by assignee user ID",
+          "type": "string"
+        },
+        "created_after": {
+          "description": "only follow-ups created after this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "created_before": {
+          "description": "only follow-ups created before this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "incident_id": {
+          "description": "filter to a specific incident (ID, external ID, or reference like INC-123)",
+          "type": "string"
+        },
+        "page_size": {
+          "description": "results per page (default 10, max 50)",
+          "type": "integer"
+        },
+        "status": {
+          "description": "filter by status: outstanding, completed, not_doing",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "name": "follow_up_list"
+  },
+  {
+    "description": "Count follow-ups grouped by one or more dimensions, returning aggregate statistics.\n\nUse this tool when you need counts or breakdowns across many follow-ups \u2014 for example \"how many outstanding follow-ups by priority?\" or \"follow-up completion rate by incident severity\". Use follow_up_list to browse individual follow-ups.\n\nDimensions (combine freely in the group_by array):\n- status: group by follow-up status (outstanding, completed, not_doing)\n- priority: group by follow-up priority (e.g. P0, P1, P2). Shows \"No priority\" for unset.\n- assignee: group by assigned user. Shows \"Unassigned\" for follow-ups without an assignee.\n- has_external_issue: group by whether the follow-up has been exported to an external tracker like Jira or Linear (true/false)\n- incident_severity: group by the severity of the parent incident (e.g. Critical, Major, Minor). Useful for answering \"are we completing follow-ups from our most critical incidents?\"\n- week: group by ISO week (e.g. 2026-W03)\n- month: group by calendar month (e.g. 2026-01)\n- quarter: group by calendar quarter (e.g. 2026-Q1)\n\nEach group includes a count, sample incident references (e.g. INC-123) for drill-down, and an age summary for outstanding items showing how long they've been open.\n\nBy default, deleted and archived follow-ups are excluded.\n\nThe tool processes at most 25,000 follow-ups. If more match, the response sets \"truncated\": true \u2014 narrow the date range for accurate results.\n\nDrill-down: each group includes incident references. Pass these to follow_up_list(incident_id: \"INC-123\") to see the individual follow-ups, or to incident_show for incident context.\n\nCross-reference: use incident_stats to understand the incidents that generated these follow-ups, and follow_up_list to browse and update individual items.\n\nStructured analysis: for a comprehensive report with playbooks and recommendations, call analysis_start first.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "assignee_id": {
+          "description": "filter by assignee user ID",
+          "type": "string"
+        },
+        "created_after": {
+          "description": "only follow-ups created after this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "created_before": {
+          "description": "only follow-ups created before this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "group_by": {
+          "description": "dimensions to group by. Categorical: status (outstanding/completed/not_doing), priority, assignee, has_external_issue (exported to Jira/Linear/etc). Parent incident: incident_severity. Time buckets: week, month, quarter. If empty, returns a single total count.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "incident_id": {
+          "description": "filter to a specific incident (ID, external ID, or reference like INC-123)",
+          "type": "string"
+        },
+        "max_groups": {
+          "description": "limit the number of groups returned (e.g. top 10). Check total_groups in the response to see how many existed before truncation.",
+          "type": "integer"
+        },
+        "max_sample_ids_per_group": {
+          "description": "how many incident references (e.g. INC-123) to return per group (default 10, max 250). Set to 0 to omit IDs entirely.",
+          "type": "integer"
+        },
+        "priority": {
+          "description": "filter by follow-up priority option IDs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sort_groups_by": {
+          "description": "order groups by: alphabetical (the default \u2014 by dimension key, so week/month/quarter come back chronological) or count (highest first). max_groups keeps the first N groups in the current order, so to get a true top-N (e.g. assignees with the most outstanding follow-ups) pass count \u2014 otherwise you get an alphabetical slice that can omit the largest groups.",
+          "type": "string"
+        },
+        "status": {
+          "description": "filter by follow-up status: outstanding, completed, not_doing",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "name": "follow_up_stats"
+  },
+  {
+    "description": "Update an existing follow-up. Only the fields you provide will be changed \u2014 omitted fields are left as-is.\n\nUse follow_up_list to find follow-up IDs. Use follow_up_create to add new follow-ups.\n\nUpdatable fields:\n- title: rename the follow-up\n- description: set or clear the description (empty string clears)\n- assignee_id: assign to a user (empty string unassigns)\n- priority_id: set priority (empty string clears, see config://organisation for IDs)\n- status: change to outstanding, completed, or not_doing\n- labels: replace all labels (omit to leave unchanged)\n\nIf the follow-up has been exported to an external issue tracker (Jira, Linear, etc.), only priority_id (when priority sync is disabled) can be changed here \u2014 title, description, status, and assignee sync from the external system.\n\nReturns the updated follow-up.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "assignee_id": {
+          "description": "user ID to assign (pass empty string to unassign)",
+          "type": "string"
+        },
+        "description": {
+          "description": "new description (pass empty string to clear)",
+          "type": "string"
+        },
+        "id": {
+          "description": "follow-up ID to update",
+          "type": "string"
+        },
+        "labels": {
+          "description": "replace all labels (max 50 chars each, omit to leave unchanged)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "priority_id": {
+          "description": "follow-up priority ID (pass empty string to clear, see config://organisation for IDs)",
+          "type": "string"
+        },
+        "status": {
+          "description": "new status: outstanding, completed, or not_doing",
+          "type": "string"
+        },
+        "title": {
+          "description": "new title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "follow_up_update"
+  },
+  {
+    "description": "Create a new incident.\n\nUse this tool when you know what incident to create (e.g. from an alert, a customer report, or a detected issue). For interactive incident declaration with AI assistance, use the ask agent's declare_incident tool instead.\n\nRequired: name (a short, descriptive title).\n\nThe incident is created in triage by default \u2014 this means no severity is required and the team can assess before accepting. To create an already-accepted incident, provide both severity_id and an active incident_status_id.\n\n**Never invent a severity.** Only pass severity_id if the user has explicitly stated one (e.g. \"create a sev2\", \"this is critical\"). If they haven't, leave severity_id empty so the incident starts in triage and a responder can set it later.\n\nSome organisations have disabled manual triage incidents \u2014 those require severity_id at creation time. The organisation's declare form may also require custom fields on every incident, including triage. Calls missing any required field return a \"missing_required_fields\" validation error that lists each field by name and includes a link to the declare form, prefilled with what you supplied. Share that link with the user so they can complete the remaining required fields there \u2014 don't try to resolve catalog IDs and re-call yourself.\n\nDefaults applied when fields are omitted:\n- visibility: public\n- incident_type_id: the organisation's default incident type\n- incident_status_id: triage (only if the organisation allows manual triage incidents)\n- severity_id: none (allowed in triage; required if status is active or if the org has disabled manual triage)\n- slack_team_id: only meaningful on Slack Enterprise Grid with multiple workspaces \u2014 defaults to the workspace the authenticated user is a member of (when unambiguous), otherwise the organisation's primary workspace\n\nRead the config://organisation resource to discover severity IDs, status IDs, incident type IDs, custom field IDs, and role IDs.\n\nReturns the created incident summary. Use incident_show for full details.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "custom_field_entries": {
+          "description": "custom field values to set on the new incident",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "custom_field_id": {
+                "description": "ID of the custom field",
+                "type": "string"
+              },
+              "values": {
+                "description": "values to set. Use an empty array to clear the field.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "value_catalog_entry_id": {
+                      "description": "for catalog-type fields: the catalog entry ID",
+                      "type": "string"
+                    },
+                    "value_link": {
+                      "description": "for link-type fields: the URL",
+                      "type": "string"
+                    },
+                    "value_numeric": {
+                      "description": "for numeric-type fields: the numeric value as a string",
+                      "type": "string"
+                    },
+                    "value_option_id": {
+                      "description": "for option-type fields: the option ID",
+                      "type": "string"
+                    },
+                    "value_text": {
+                      "description": "for text-type fields: the text value",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "custom_field_id",
+              "values"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "incident_status_id": {
+          "description": "status ID to start in (see config://organisation). Defaults to triage. If you set an active status, severity_id is required.",
+          "type": "string"
+        },
+        "incident_type_id": {
+          "description": "incident type ID (see config://organisation). Defaults to the organisation's default type.",
+          "type": "string"
+        },
+        "name": {
+          "description": "short, descriptive incident name (e.g. 'Database connection pool exhausted')",
+          "type": "string"
+        },
+        "role_assignments": {
+          "description": "role assignments for the new incident (see config://organisation for role IDs)",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "incident_role_id": {
+                "description": "ID of the incident role (see config://organisation)",
+                "type": "string"
+              },
+              "user_id": {
+                "description": "user ID to assign. Omit to unassign the current holder.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "incident_role_id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "severity_id": {
+          "description": "severity ID (see config://organisation). If omitted, the incident starts in triage with no severity \u2014 set severity when you accept it.",
+          "type": "string"
+        },
+        "slack_team_id": {
+          "description": "Slack workspace (team) ID to create the incident channel in, e.g. T012AB3CD4. Only relevant for Slack Enterprise Grid organisations with multiple workspaces \u2014 see the Slack workspaces section of config://organisation. Omit otherwise.",
+          "type": "string"
+        },
+        "summary": {
+          "description": "initial summary describing what is happening (markdown)",
+          "type": "string"
+        },
+        "visibility": {
+          "description": "public (default, visible to all) or private (restricted access)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "name": "incident_create"
+  },
+  {
+    "description": "Search and list incidents, returning a summary per result. Use incident_show to get full details for a specific incident.\n\nEach result includes: reference (e.g. INC-123), name, status (with category), severity, mode, reported_at, updated_at, and a permalink. A merged incident (status category \"merged\") also includes \"merged_into\", identifying the incident it was merged into.\n\nUse the include parameter to enrich results with additional fields, avoiding the need to call incident_show for each incident:\n- summary: short incident summary (~200 chars, AI-generated or human-written) \u2014 useful for understanding what each incident was about without fetching full details\n- roles: include role assignments (e.g. incident lead) with user names and IDs\n- custom_fields: include custom field values\n- timestamps: named timestamps (e.g. reported at, resolved at) \u2014 useful for timeline and trend analysis\n- durations: duration metrics (e.g. time to resolve, in seconds) \u2014 useful for comparing incident response times\n- escalation_urgency: include AI assessment of whether each incident needed immediate response (urgency level and tags). Only available for orgs with AI investigations enabled. Use incident_show for the full reasoning text.\n\nThis is especially useful for analytical queries like \"who has been incident lead the most?\" \u2014 include roles and paginate through the results rather than calling incident_show for each one. For trend analysis, include summary, timestamps, and durations to get context without extra API calls.\n\nBy default only standard and retrospective incidents are returned, and declined/canceled/merged incidents are excluded. Provide explicit filters to override these defaults.\n\nFilters (all optional):\n- query: free-text search across incident names\n- status_category: one or more of triage, active, post-incident, closed, paused, declined, merged, canceled\n- severity: one or more severity IDs\n- incident_type: one or more incident type IDs (e.g. filter to \"Default\" only, or exclude \"Internal\" and \"Maintenance\")\n- mode: one or more of standard, retrospective, test, tutorial\n- team: one or more team IDs (exact match \u2014 incidents tagged with any of these teams)\n- team_part_of: one or more team IDs including all sub-teams in the hierarchy (e.g. \"Platform\" returns incidents for Platform and all its child teams). Mutually exclusive with team.\n- custom_fields: filter by custom field values (object mapping field ID to array of value IDs)\n- created_after / created_before: dates to bound the time range (yyyy-mm-dd or RFC 3339)\n- assigned_to: one or more user IDs (or the literal \"me\" for the calling user). Returns incidents where any listed user is a participant (responder/collaborator/observer) or has any incident role assignment (e.g. lead). Use this to triage your own workload without wading through everyone else's, e.g. {\"assigned_to\": [\"me\"], \"status_category\": [\"triage\", \"active\"]}. \"me\" only works for OAuth tokens, not API keys.\n\nTo discover severity IDs, incident type IDs, custom field IDs, and custom field value IDs, read the config://organisation resource first.\n\nSorting: results are ordered newest first by default. Set sort_by to \"workload\" to order by total responder-minutes (highest first), which is useful for finding the most costly incidents. Workload data is synced hourly from our insights pipeline.\n\nPagination: use page_size to control the page (default 10, max 50). When the response has \"has_more\": true, pass the \"next_cursor\" value as \"after\" to fetch the next page. Stopping before \"has_more\" is false means you have incomplete results.\n\nTip: if you need counts or trend data, use incident_stats first \u2014 it's much more efficient than paginating through incident_list and counting manually. Use incident_list when you need to browse individual records or need the detail that includes provide.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "cursor from a previous page to fetch the next one",
+          "type": "string"
+        },
+        "assigned_to": {
+          "description": "filter to incidents where any of these users is involved \u2014 either as a participant (responder, collaborator, observer) or assigned to any incident role (lead, etc.). The literal string \"me\" resolves to the calling user (only available for OAuth tokens, not API keys). Useful for triaging your own workload \u2014 e.g. {\"assigned_to\": [\"me\"], \"status_category\": [\"triage\", \"active\"]} returns your open incidents. Use the \"You\" section of config://organisation to find your own user ID, or team_list / team_show to find other users' IDs.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "created_after": {
+          "description": "only incidents created after this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "created_before": {
+          "description": "only incidents created before this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "custom_fields": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "filter by custom field values: keys are custom field IDs, values are arrays of accepted value IDs (read the config://organisation resource to discover field and value IDs)",
+          "type": "object"
+        },
+        "incident_type": {
+          "description": "filter by incident type ID (read config://organisation to discover type IDs)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include": {
+          "description": "optional fields to enrich each result with: summary (short incident summary, ~200 chars), roles (role assignments), custom_fields (custom field values), timestamps (named timestamps like reported at, resolved at), durations (duration metrics like time to resolve), escalation_urgency (AI assessment of whether immediate response was needed \u2014 urgency and tags only, use incident_show for full reasoning). Use these to avoid calling incident_show for every result.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "description": "filter by mode: standard, retrospective, test, tutorial",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "page_size": {
+          "description": "results per page (default 10, max 50)",
+          "type": "integer"
+        },
+        "query": {
+          "description": "search incident names",
+          "type": "string"
+        },
+        "severity": {
+          "description": "filter by severity ID",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sort_by": {
+          "description": "sort order: created_at (default, newest first) or workload (highest total responder-minutes first, uses insights data synced hourly)",
+          "type": "string"
+        },
+        "status_category": {
+          "description": "filter by status category: triage, active, post-incident, closed, paused, declined, merged, canceled",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "team": {
+          "description": "filter by team IDs (exact match). Mutually exclusive with team_part_of. Use team_list to discover team IDs.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "team_part_of": {
+          "description": "filter by team IDs including all sub-teams in the hierarchy. Use this when you want incidents for a team and all its descendant teams. Mutually exclusive with team. Use team_list to discover team IDs.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "name": "incident_list"
+  },
+  {
+    "description": "Look up an incident by ID or reference (e.g. INC-123, 123, or a full ID) and return its details.\n\nReturns: name, status, severity, roles, participants, custom fields, timestamps, durations, workload (responder time split by working/late/overnight hours), summaries, channel URLs, and the 5 most recent status updates. For a merged incident, \"merged_into\" identifies the incident it was merged into.\n\nUse 'include' to request additional sections:\n- investigation: AI investigation findings and extended summary. Always request this when investigating root causes or triaging \u2014 it contains the analysis our AI has already performed.\n- postmortem: the post-mortem document content. Request this when reviewing what happened or preparing reports \u2014 it contains the team's written analysis.\n- updates: all status updates (default returns most recent 5 only). Request this when you need the full timeline of how the incident progressed.\n- escalation_urgency: AI assessment of whether the incident truly needed immediate response (immediate, deferrable, or unsure) with classification tags and reasoning. Useful for on-call burden analysis and alert noise reviews. Only available for orgs with AI investigations enabled.\n\nFor investigation or root cause analysis, request include: [\"investigation\", \"postmortem\"] \u2014 the default response without these only gives you the basic metadata, not the deeper analysis.\n\nFor the full investigation content (all findings, checks, conversation history, and incident context as a file tree), use the investigation_sync tool instead \u2014 it returns a downloadable tar.gz archive of the complete investigation filesystem.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "incident ID, external ID, or reference (e.g. INC-123, 123, or a ULID)",
+          "type": "string"
+        },
+        "include": {
+          "description": "optional sections to include: postmortem, investigation, updates, escalation_urgency",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "incident_show"
+  },
+  {
+    "description": "Count incidents grouped by one or more dimensions, returning aggregate statistics.\n\nUse this tool when you need counts, breakdowns, or trend data across many incidents \u2014 for example \"how many P1s this quarter?\" or \"incident volume by team by month\". Use incident_list when you need to browse or search individual incidents, and incident_show to get full details for a specific incident.\n\nDimensions (combine freely in the group_by array):\n- severity: group by severity level (e.g. Critical, Major, Minor)\n- status: group by status category (e.g. triage, active, closed)\n- type: group by incident type\n- mode: group by mode (standard, retrospective)\n- alert_source: group by the alert source that triggered the incident (e.g. Datadog, Sentry). Shows \"No alert\" for manually created incidents. Multi-value: incidents with alerts from multiple sources are counted under each source individually.\n- escalation_urgency: group by AI-assessed urgency (immediate, deferrable, unsure, or \"Not assessed\" for incidents without analysis). Useful for quantifying alert noise and on-call burden \u2014 combine with month for trend analysis.\n- team: group by the org's configured team (e.g. Engineering, Platform). Prefer this over grouping by a team-shaped custom field (custom_field:<id>) \u2014 \"team\" resolves the org's configured team field, so its counts agree with filtering by team. Multi-value: incidents tagged with several teams are counted under each; incidents with no team show as \"None\". Combine with month/severity for per-team trends and workload.\n- custom_field:<field_id>: group by a custom field's values (read config://organisation to find field IDs). Multi-value: multi-select fields are flattened so each value is counted individually.\n- role:<role_id>: group by who is assigned a specific role (e.g. Incident Lead). Shows user names, or \"Unassigned\" for incidents without that role.\n- week: group by ISO week (e.g. 2026-W03)\n- month: group by calendar month (e.g. 2026-01)\n- quarter: group by calendar quarter (e.g. 2026-Q1)\n\nEach group includes a count, a workload breakdown (total responder-minutes split by working hours, late evening, and overnight), and the most recent incident references (e.g. INC-123) which you can pass directly to incident_show to drill into. Workload data is synced hourly from our insights pipeline and may be absent for very recent incidents.\n\nBy default, test and tutorial incidents are excluded and declined/canceled/merged incidents are excluded. Provide explicit status_category or mode filters to override these defaults.\n\nThe tool processes at most 25,000 incidents. If more match, the response sets \"truncated\": true \u2014 narrow the date range for accurate results.\n\nDrill-down: each group includes incident references (e.g. INC-123). Pass these to incident_show with include: [\"investigation\", \"postmortem\"] to understand root causes behind the numbers.\n\nCross-reference: compare with alert_stats(group_by: [\"source\"]) to see how alert volume and noise translate to the incident workload shown here.\n\nStructured analysis: for a comprehensive report with playbooks, themes, and recommendations, call analysis_start first \u2014 it provides step-by-step methodology and a branded report template. Use this tool directly only for quick, focused queries.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "created_after": {
+          "description": "only incidents created after this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "created_before": {
+          "description": "only incidents created before this date (yyyy-mm-dd or RFC 3339)",
+          "type": "string"
+        },
+        "custom_fields": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "filter by custom field values: keys are custom field IDs, values are arrays of accepted value IDs",
+          "type": "object"
+        },
+        "group_by": {
+          "description": "dimensions to group by, e.g. [\"severity\", \"month\"]. Categorical: severity, status, type, mode, escalation_urgency, team. Custom field: custom_field:<field_id>. Time buckets: week, month, quarter. If empty, returns a single total count.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "incident_type": {
+          "description": "filter by incident type ID (read config://organisation to discover type IDs)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_groups": {
+          "description": "limit the number of groups returned (e.g. top 10). Check total_groups in the response to see how many existed before truncation. All groups are returned if omitted.",
+          "type": "integer"
+        },
+        "max_incident_ids_per_group": {
+          "description": "how many incident references (e.g. INC-123) to return per group (default 10, max 250). Set to 0 to omit IDs entirely.",
+          "type": "integer"
+        },
+        "mode": {
+          "description": "filter by mode: standard, retrospective, test, tutorial",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "severity": {
+          "description": "filter by severity ID",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sort_groups_by": {
+          "description": "order groups by: alphabetical (the default \u2014 by dimension key, so week/month/quarter come back chronological), count (highest first), or workload (highest total responder-minutes first). max_groups keeps the first N groups in the current order, so to get a true top-N (e.g. busiest teams) pass count or workload \u2014 otherwise you get an alphabetical slice that can omit the largest groups.",
+          "type": "string"
+        },
+        "status_category": {
+          "description": "filter by status category: triage, active, post-incident, closed, paused, declined, merged, canceled",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "team": {
+          "description": "filter by team IDs (exact match). Mutually exclusive with team_part_of. Use team_list to discover team IDs.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "team_part_of": {
+          "description": "filter by team IDs including all sub-teams in the hierarchy. Mutually exclusive with team. Use team_list to discover team IDs.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "name": "incident_stats"
+  },
+  {
+    "description": "Update an incident. Only the fields you provide will be changed \u2014 omitted fields are left as-is.\n\nOptionally include a message to post to the incident channel alongside the change. Use a message when the update deserves an explanation visible to the team (e.g. \"Escalating to Critical \u2014 customer reports are increasing\") or to record a progress note on the timeline. If you're just changing fields without context to share, you can omit the message.\n\nFor help deciding what to update or drafting a message, use ask_incident instead.\n\nFields:\n- severity_id: change severity level\n- incident_status_id: change status (respects lifecycle rules \u2014 see below)\n- incident_type_id: change the incident type (only allowed while in triage)\n- name: rename the incident\n- summary: set or replace the incident summary (markdown)\n- custom_field_entries: set custom field values (replaces all values for that field)\n- role_assignments: assign or unassign incident roles\n- merged_into_incident_id: merge this incident into another (see below)\n- message: a status update posted to the incident channel (markdown). This is a point-in-time message visible to the team, distinct from the summary which is the persistent incident description.\n\nStatus transitions follow lifecycle rules:\n- From triage: can move to any active status (accepting the incident)\n- From active: can move to other active statuses, or to post-incident (resolving)\n- From post-incident: can move to closed\n- Cannot reopen closed, declined, merged, or canceled incidents\n\nAccepting an incident requires an incident type: when moving out of triage, the\nincident must have an incident type set. Incidents declared from alerts often have\nnone. If the incident has no type yet, pass incident_type_id alongside\nincident_status_id in the same call (incident_type_id can only be set while still in\ntriage) \u2014 otherwise the update is rejected and no changes are applied.\n\nTo merge one incident into another, set incident_status_id to the merged status (see\nconfig://organisation) and merged_into_incident_id to the target incident. The incident\nbeing merged must be in triage, active, or paused. To merge several incidents into one,\ncall this tool once per source incident, each pointing at the same target.\n\nRead the config://organisation resource to discover severity IDs, status IDs, custom field IDs, and role IDs.\n\nAfter resolving an incident, use follow_up_create to capture post-incident tasks.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "custom_field_entries": {
+          "description": "custom field values to set. Each entry replaces all values for that field \u2014 pass an empty values array to clear.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "custom_field_id": {
+                "description": "ID of the custom field",
+                "type": "string"
+              },
+              "values": {
+                "description": "values to set. Use an empty array to clear the field.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "value_catalog_entry_id": {
+                      "description": "for catalog-type fields: the catalog entry ID",
+                      "type": "string"
+                    },
+                    "value_link": {
+                      "description": "for link-type fields: the URL",
+                      "type": "string"
+                    },
+                    "value_numeric": {
+                      "description": "for numeric-type fields: the numeric value as a string",
+                      "type": "string"
+                    },
+                    "value_option_id": {
+                      "description": "for option-type fields: the option ID",
+                      "type": "string"
+                    },
+                    "value_text": {
+                      "description": "for text-type fields: the text value",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "custom_field_id",
+              "values"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "incident to update (ID, external ID, or reference like INC-123)",
+          "type": "string"
+        },
+        "incident_status_id": {
+          "description": "new status ID (see config://organisation). Moving to a closed status will opt out of the post-incident flow. Moving to a post-incident status will resolve the incident.",
+          "type": "string"
+        },
+        "incident_type_id": {
+          "description": "new incident type ID (see config://organisation). Can only be set while the incident is in triage. Accepting an incident (moving it out of triage) requires an incident type \u2014 if the incident doesn't already have one, set it in the same call as incident_status_id.",
+          "type": "string"
+        },
+        "merged_into_incident_id": {
+          "description": "the incident to merge this one into (ID, external ID, or reference like INC-123). Required when incident_status_id is set to a merged status. The incident being merged must be in triage, active, or paused.",
+          "type": "string"
+        },
+        "message": {
+          "description": "status update message posted to the incident channel (markdown). Use this to communicate progress, findings, or decisions to the team.",
+          "type": "string"
+        },
+        "name": {
+          "description": "new incident name",
+          "type": "string"
+        },
+        "role_assignments": {
+          "description": "role assignments to set. Pass an assignee to assign, or omit to unassign.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "incident_role_id": {
+                "description": "ID of the incident role (see config://organisation)",
+                "type": "string"
+              },
+              "user_id": {
+                "description": "user ID to assign. Omit to unassign the current holder.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "incident_role_id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "severity_id": {
+          "description": "new severity ID (see config://organisation)",
+          "type": "string"
+        },
+        "summary": {
+          "description": "new incident summary (markdown)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "incident_update"
+  },
+  {
+    "description": "List status updates for an incident, most recent first.\n\nEach update shows the message, any status or severity change, and when it was posted. The update that merged the incident also includes \"merged_into\", the incident it was merged into. The incident_show tool returns the 5 most recent updates by default \u2014 use this tool when you need the full history.\n\nPagination: use page_size (default 10, max 50) and pass \"next_cursor\" as \"after\" to fetch subsequent pages. Stopping before \"has_more\" is false means you have incomplete results.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "cursor from a previous page to fetch the next one",
+          "type": "string"
+        },
+        "incident_id": {
+          "description": "incident ID, external ID, or reference (e.g. INC-123, 123, or a ULID)",
+          "type": "string"
+        },
+        "page_size": {
+          "description": "results per page (default 10, max 50)",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "incident_id"
+      ],
+      "type": "object"
+    },
+    "name": "incident_update_list"
+  },
+  {
+    "description": "Feed information into an in-progress investigation so it re-assesses its hypothesis.\n\nUse this when you know something the investigation doesn't \u2014 for example, the responder has identified the real cause, telemetry shows a different explanation, or the investigation is going down the wrong path.\n\nProvide either incident_id (ID, external ID, or reference like INC-123) or investigation_id. When using incident_id, the latest investigation is selected.\n\nThe directive should explain what the investigation should focus on and why its current hypothesis may be wrong. Good directives reference the current hypothesis and explain the correction:\n- \"The investigation is focused on Postgres connection pooling, but Redis connections are exhausted (100% since 14:32) \u2014 focus on Redis instead\"\n- \"The error started immediately after the 14:30 deploy of payment-service v2.3.1 \u2014 the investigation should look at that deploy\"\n- \"Ignore the Sentry errors \u2014 they're a known false positive from last week, not related to this incident\"\n\nInclude evidence (telemetry results, log excerpts, etc.) and telemetry_query_ids when available \u2014 the investigation unpacks query IDs into rich artifacts with query expressions, datasource details, and explore URLs.\n\nAfter steering, the investigation re-assesses its hypothesis within a few minutes (checks are debounced to coalesce rapid updates).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "directive": {
+          "description": "what the investigation should focus on and why, referencing the current hypothesis where possible. Example: 'The investigation is focused on Postgres but Redis connections are exhausted since 14:32 \u2014 focus on Redis instead'",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "supporting data as markdown \u2014 telemetry results, log excerpts, conversation context, or anything that backs up the directive",
+          "type": "string"
+        },
+        "incident_id": {
+          "description": "incident ID, external ID, or reference (e.g. INC-123). Resolves to the latest investigation.",
+          "type": "string"
+        },
+        "investigation_id": {
+          "description": "specific investigation ID. Use this if you already know the investigation ID.",
+          "type": "string"
+        },
+        "telemetry_query_ids": {
+          "description": "IDs of telemetry queries from ask_telemetry calls. These are unpacked into artifacts with query expressions, datasource info, and explore URLs.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "directive"
+      ],
+      "type": "object"
+    },
+    "name": "investigation_steer"
+  },
+  {
+    "description": "Download an investigation as a tar.gz archive containing the full investigation filesystem.\n\nProvide either incident_id (ID, external ID, or reference like INC-123) or investigation_id. When using incident_id, the latest investigation is selected.\n\nThe archive contains markdown files describing the investigation: findings, checks, incident context, conversation history, and more.\n\nOptionally pass since (a timestamp) to include a preamble showing what changed since that time \u2014 useful for polling an in-progress investigation.\n\nReturns a signed URL valid for 15 minutes.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "incident_id": {
+          "description": "incident ID, external ID, or reference (e.g. INC-123). Resolves to the latest investigation for this incident.",
+          "type": "string"
+        },
+        "investigation_id": {
+          "description": "specific investigation ID to download. Use this if you already know the investigation ID.",
+          "type": "string"
+        },
+        "since": {
+          "description": "if provided, includes a preamble showing what changed since this time (RFC 3339 or any common date format)",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "investigation_sync"
+  },
+  {
+    "description": "List all available resources. Resources provide context that helps you use the other tools effectively \u2014 organisation config, analysis playbooks, telemetry datasources, and more. Use resource_show to read a specific resource by name.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "name": "resource_list"
+  },
+  {
+    "description": "Read a resource by name. Resources provide context that helps you use the other tools effectively. This tool returns the same content as the MCP resources, for clients that don't support the resources protocol.\n\nUse resource_list to see all available resources, or pass one of these names:\n- alert_noise_playbook: Playbook for deep alert noise analysis. Identifies noisy sources, quantifies noise cost in responder time, and produces specific tuning recommendations.\n- analysis_playbook: Index of all analysis playbooks. Describes which playbook to use for different questions (operational review, alert noise, on-call burden, team health, response effectiveness). Read this first to pick the right playbook.\n- metrics_glossary: Glossary of derived metrics used across playbooks: workload ratios, alert quality scores, escalation rates, and lifecycle timings. Includes formulas, interpretation guidance, and source tools.\n- on_call_burden_playbook: Playbook for assessing on-call sustainability. Analyses paging volume, ack rates, overnight burden, and workload distribution across people and teams.\n- onboarding_context: datasource summaries and recent successful telemetry queries\n- operational_review_playbook: Playbook for periodic operational reviews (weekly/monthly/quarterly). Covers incident volume, alert noise, paging load, responder burden, and follow-up health in one comprehensive analysis.\n- organisation: incident statuses, severities, roles, types, custom fields, alert priorities \u2014 discover IDs for filtering\n- presenting_results_guide: Guide for structuring and formatting analysis findings. Covers output structure, formatting conventions, and the branded HTML report template.\n- response_effectiveness_playbook: Playbook for measuring response effectiveness: detection speed, resolution time, escalation response, and post-incident learning outcomes.\n- scope_playbook: How to establish analysis scope with the user before running a playbook. Covers goal, time window, team/org scope, comparison periods, audience, and output format. Run this first.\n- team_health_playbook: Playbook for per-team or cross-team operational health assessment. Combines incident, alert, and escalation data scoped to a team.\n- telemetry_datasources: connected observability platforms and their capabilities",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "resource": {
+          "description": "which resource to read \u2014 use resource_list to see all available resources",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "type": "object"
+    },
+    "name": "resource_show"
+  },
+  {
+    "description": "List on-call schedules with optional search and pagination.\n\nSchedules define who is on call and when. Each result shows who is currently on call, when the next handover occurs, and how many rotations the schedule has.\n\nUse schedule_show for full details including rotation configuration and upcoming shifts.\n\nPagination: results are ordered by name. Use page_size (default 15, max 50) and pass \"next_cursor\" as \"after\" to fetch subsequent pages. Stopping before \"has_more\" is false means you have incomplete results.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "cursor from a previous page to fetch the next one",
+          "type": "string"
+        },
+        "page_size": {
+          "description": "results per page (default 15, max 50)",
+          "type": "integer"
+        },
+        "query": {
+          "description": "search schedule names",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "schedule_list"
+  },
+  {
+    "description": "Look up an on-call schedule by ID and return its full details.\n\nReturns: name, timezone, rotation configurations (who rotates, handover frequency, working hours), who is currently on call, the next handover shift, and all upcoming shifts for the next 7 days with start/end times and assigned users.\n\nUse this to answer questions like \"who's on call for the backend schedule?\", \"what does the rotation look like?\", \"when does the next handover happen?\", or \"who is on-call next week?\"\n\nTo see who would actually get paged when an alert fires, use escalation_path_show \u2014 it resolves schedules to current on-call users at each escalation level.\n\nNote: this tool shows current and upcoming shifts for the next 7 days. For past shift history or on-call shift summaries (e.g. \"what happened during my last shift?\"), use the ask tool \u2014 it can query shift history and combine it with incident and alert data.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "schedule ID (ULID)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "schedule_show"
+  },
+  {
+    "description": "List teams with optional name search.\n\nTeams are catalog entries of the organisation's configured team type. Each team owns resources like escalation paths, alert sources, and schedules \u2014 use team_show to see a specific team's owned resources.\n\nUse this tool to discover teams when scoping analysis (e.g. \"which teams exist?\") or to find a team by name. Pass a query to filter by name substring.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "cursor from a previous page to fetch the next one",
+          "type": "string"
+        },
+        "page_size": {
+          "description": "results per page (default 25, max 50)",
+          "type": "integer"
+        },
+        "query": {
+          "description": "search team names (case-insensitive substring match)",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "team_list"
+  },
+  {
+    "description": "Look up a team by ID and return its details with all owned resources.\n\nReturns the team name and its owned escalation paths, alert sources, schedules, and alert routes. Use these resource IDs as filters when scoping analysis to a specific team:\n- Escalation path IDs \u2192 escalation_stats(escalation_path: [...])\n- Alert source IDs \u2192 alert_stats(alert_source: [...])\n\nUse team_list to find team IDs, or check config://organisation for your own team.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "team ID (the catalog entry ID for the team)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "team_show"
+  },
+  {
+    "description": "List users in the organisation. Use this to find user IDs for filtering (e.g. incident_list assigned_to), assigning follow-ups, or looking someone up by name or email.\n\nFilters (all optional):\n- query: name or email substring (case-insensitive). Matched against email if the value contains \"@\", otherwise against display name and real name. e.g. \"hannah\", \"hannah@incident.io\".\n- email: exact email match. Use when you have the full address.\n- seat_type: on_call, responder, on_call_responder, viewer.\n- include_inactive: include deactivated or not-yet-active users (default false). Useful when looking up someone mentioned in an older incident who has since left.\n\nTo resolve \"me\" to your own user ID, read config://organisation \u2014 the \"You\" section contains your ID. user_list is for discovering other users.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "cursor from a previous page to fetch the next one",
+          "type": "string"
+        },
+        "email": {
+          "description": "exact email match (case-insensitive). Use this when you know the full address; use query for substring search.",
+          "type": "string"
+        },
+        "include_inactive": {
+          "description": "include deactivated or not-yet-active users (default false). Useful for finding users mentioned in older incidents who have since left.",
+          "type": "boolean"
+        },
+        "page_size": {
+          "description": "results per page (default 25, max 50)",
+          "type": "integer"
+        },
+        "query": {
+          "description": "search by name or email (case-insensitive substring). If the value contains @, matched against email; otherwise against display name and real name.",
+          "type": "string"
+        },
+        "seat_type": {
+          "description": "filter by seat: on_call, responder, on_call_responder, viewer",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "user_list"
+  }
+]

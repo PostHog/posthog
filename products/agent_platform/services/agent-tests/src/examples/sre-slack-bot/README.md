@@ -15,24 +15,26 @@ doesn't exist yet; see [Gaps](#gaps-that-constrain-this-version) below.
 
 ## What it does
 
-| Capability                                 | How                                                                                                                               |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Auto-triggered by incident.io webhooks** | `webhook` trigger at `/agents/<slug>/webhook` — point incident.io's webhook config here for hands-off alert response.             |
-| Triggered by Grafana / alertmanager        | Same `webhook` endpoint, different payload shape — auto-detected by the agent.                                                    |
-| Triggered by Slack `@mention`              | `slack` trigger, `mention_only: true`                                                                                             |
-| **DM the bot directly**                    | `slack` trigger, `allow_direct_messages: true` — on-call asks it privately; one rolling session per DM, idle-reset by the sweep   |
-| Chattable from the agent console           | `chat` trigger — open the agent in the console and use the playground dock                                                        |
-| Calls the Slack Web API directly           | `@posthog/http-request` + `SLACK_BOT_TOKEN` secret (bring-your-own bot, no integration)                                           |
-| **Reads + writes incident.io directly**    | `@posthog/http-request` + `INCIDENT_IO_TOKEN` secret — lists active incidents, posts triage updates onto the timeline.            |
-| Queries PostHog event data **and logs**    | `@posthog/query` (HogQL against `events` + the `logs` table — schema documented in `agent.md`)                                    |
-| Fetches runbook URLs                       | `@posthog/http-request`                                                                                                           |
-| Remembers prior incident outcomes          | `@posthog/table-query`, `@posthog/table-append` on the `incidents` table (now with optional `incident_io_id` column)              |
-| **Consults a runbook corpus on triage**    | `@posthog/memory-search` / `-read` over `runbooks/` (alert / system / procedure runbooks) — see [Runbook memory](#runbook-memory) |
-| **Proposes runbook updates for users**     | `@posthog/memory-write` / `-update`, **approval-gated** — queues the change and links the user to approve it                      |
-| Follows a structured triage flow           | `skills/triage-playbook/SKILL.md`                                                                                                 |
-| Follows a consistent Slack message format  | `skills/slack-thread-protocol/SKILL.md`                                                                                           |
-| Follows a consistent incident.io flow      | `skills/incident-io-playbook/SKILL.md`                                                                                            |
-| Knows how to build good memory             | `skills/runbook-memory/SKILL.md`                                                                                                  |
+| Capability                                 | How                                                                                                                                                                                                                                             |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Auto-triggered by incident.io webhooks** | `webhook` trigger at `/agents/<slug>/webhook` — point incident.io's webhook config here for hands-off alert response.                                                                                                                           |
+| Triggered by Grafana / alertmanager        | Same `webhook` endpoint, different payload shape — auto-detected by the agent.                                                                                                                                                                  |
+| Triggered by Slack `@mention`              | `slack` trigger, `mention_only: true`                                                                                                                                                                                                           |
+| **DM the bot directly**                    | `slack` trigger, `allow_direct_messages: true` — on-call asks it privately; one rolling session per DM, idle-reset by the sweep                                                                                                                 |
+| Chattable from the agent console           | `chat` trigger — open the agent in the console and use the playground dock                                                                                                                                                                      |
+| Calls the Slack Web API directly           | `@posthog/http-request` + `SLACK_BOT_TOKEN` secret (bring-your-own bot, no integration)                                                                                                                                                         |
+| **Reads + writes incident.io directly**    | `@posthog/http-request` + `INCIDENT_IO_TOKEN` secret — lists active incidents, posts triage updates onto the timeline.                                                                                                                          |
+| Queries PostHog event data **and logs**    | `@posthog/query` (HogQL against `events` + the `logs` table — schema documented in `agent.md`)                                                                                                                                                  |
+| Fetches runbook URLs                       | `@posthog/http-request`                                                                                                                                                                                                                         |
+| Remembers prior incident outcomes          | `@posthog/table-query`, `@posthog/table-append` on the `incidents` table (now with optional `incident_io_id` column)                                                                                                                            |
+| **Consults a runbook corpus on triage**    | `@posthog/memory-search` / `-read` over `runbooks/` (alert / system / procedure runbooks) — see [Runbook memory](#runbook-memory)                                                                                                               |
+| **Proposes runbook updates for users**     | `@posthog/memory-write` / `-update`, **approval-gated** — queues the change and links the user to approve it                                                                                                                                    |
+| Follows a structured triage flow           | `skills/triage-playbook/SKILL.md`                                                                                                                                                                                                               |
+| Follows a consistent Slack message format  | `skills/slack-thread-protocol/SKILL.md`                                                                                                                                                                                                         |
+| Follows a consistent incident.io flow      | `skills/incident-io-playbook/SKILL.md`                                                                                                                                                                                                          |
+| Knows how to build good memory             | `skills/runbook-memory/SKILL.md`                                                                                                                                                                                                                |
+| **incident.io as an agent-level MCP**      | `mcps[incident-io]` with `connection` — one shared incident.io credential the owner links once; every asker reuses it. Per-tool approval set per agent (`default_tool_approval` + overrides). See [MCP servers](#mcp-servers--two-auth-models). |
+| **PostHog as a per-asker MCP**             | `mcps[posthog]` with `auth.provider: posthog` — each asker links their own PostHog identity and the agent acts AS them. See [MCP servers](#mcp-servers--two-auth-models).                                                                       |
 
 ## What it cannot do
 
@@ -84,6 +86,60 @@ approves (and optionally edits) it. The bot curates runbooks **on
 behalf of** the team — a person signs off on what enters the corpus.
 This is the same gate the [agent-approval-demo](../agent-approval-demo/)
 bundle showcases, applied to a real curation loop.
+
+## MCP servers — two auth models
+
+The bundle declares two MCP servers under `spec.mcps[]`, one of each auth
+model, so this bot doubles as the reference for **how an agent reaches an MCP**.
+Open them in the agent config UI (`mcps` → `incident-io` / `posthog`); each
+renders differently and the in-UI descriptions spell out the setup.
+
+### `incident-io` — agent-level (one shared connection)
+
+```jsonc
+{
+  "id": "incident-io",
+  "url": "https://mcp.incident.io/mcp",
+  "connection": "00000000-…",
+  "default_tool_approval": "approve",
+}
+```
+
+The owner connects incident.io **once** (OAuth incl. dynamic client
+registration, or an API key) and stores it as a native MCP connection;
+**every asker reuses that one credential** and never signs in. The agent acts
+as a single team/service identity.
+
+- **Set it up:** open the `incident-io` MCP in the config UI → pick (or
+  "Connect new") a connection. The shipped spec points at a placeholder
+  connection id, so a fresh project shows _"Referenced connection isn't in this
+  project — reconnect it or pick another."_ Connect incident.io once and select
+  it; from then on it's shared.
+- **Tool permissions are per agent, right here:** a connection-wide default
+  (`default_tool_approval`, here `approve` = ask before every call) plus
+  per-tool overrides (allow / approve / deny). The runner loads the shared
+  bearer from the connection row and applies these. This realises the
+  "incident.io as a typed runtime MCP" gap that older versions deferred — the
+  raw `@posthog/http-request` + `INCIDENT_IO_TOKEN` path is the v0 fallback.
+
+### `posthog` — principal-level (per-asker identity)
+
+```jsonc
+{ "id": "posthog", "url": "http://localhost:8787/mcp", "auth": { "provider": "posthog" } }
+```
+
+References the `posthog` entry in `identity_providers[]`. There is **no shared
+credential** — **each asker authenticates as themselves** the first time they
+hit a tool that needs it (an auth-required link is surfaced; they complete the
+OAuth and the agent then acts AS that user). Use it when the agent must act as
+the person asking — querying PostHog as the requesting user.
+
+|             | `incident-io` (agent-level)                | `posthog` (principal-level)                   |
+| ----------- | ------------------------------------------ | --------------------------------------------- |
+| Credential  | one shared, owner connects once            | per-asker, each links their own               |
+| Acts as     | a team/service identity                    | the individual asking                         |
+| Setup       | owner picks a connection in the UI         | declare a provider; askers OAuth on first use |
+| Tool gating | `default_tool_approval` + per-tool `level` | (per the tool's own approval)                 |
 
 ## Prerequisites for deploying
 
@@ -239,14 +295,13 @@ pnpm --filter @posthog/agent-tests test cases/example-sre-bot
 Each one is a follow-up that would make the bot meaningfully more
 useful:
 
-- **incident.io as a typed runtime MCP** rather than raw HTTP calls.
-  incident.io ships an MCP server; we'd swap `@posthog/http-request`
-  for a `kind: 'external'` McpRef once
-  runtime MCP auth discovery
-  lands and the per-tool approval gating it adds lets us mark
-  "open new incident" as `requires_approval: true` directly on the
-  tool ref. v0 here keeps the playbook narrow enough that raw HTTP
-  is fine.
+- ~~**incident.io as a typed runtime MCP** rather than raw HTTP calls.~~
+  **Now wired** — see [MCP servers](#mcp-servers--two-auth-models). The
+  `incident-io` MCP is an agent-level shared connection with per-tool
+  approval (`default_tool_approval` + overrides), so "open new incident" can
+  be marked `approve` (or `deny`) right on the agent. The raw
+  `@posthog/http-request` + `INCIDENT_IO_TOKEN` path remains the v0 fallback
+  for orgs that haven't connected the MCP yet.
 - **Private-network MCP support (Grafana / k8s).** Public MCPs work
   today via the `kind: 'external'` McpRef;
   Grafana and Kubernetes typically aren't publicly reachable.
