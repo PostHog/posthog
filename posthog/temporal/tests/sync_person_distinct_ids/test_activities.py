@@ -32,6 +32,8 @@ from posthog.temporal.tests.sync_person_distinct_ids.conftest import (
     insert_person_to_ch,
 )
 
+pytestmark = pytest.mark.persons_db_direct
+
 
 @pytest.mark.django_db
 class TestFindOrphanedPersons:

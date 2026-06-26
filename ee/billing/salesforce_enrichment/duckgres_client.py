@@ -1,10 +1,9 @@
 """Postgres client for the duckgres DWH (ducklake proxy)."""
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import cast
-
-from django.conf import settings
 
 import psycopg
 from psycopg import sql
@@ -25,11 +24,12 @@ def duckgres_cursor() -> Iterator[psycopg.Cursor[DictRow]]:
     A per-session statement timeout is set so a runaway analytics query cannot
     pin the worker — the caller is expected to paginate large result sets.
     """
-    if not settings.DUCKGRES_PG_URL:
+    pg_url = os.environ.get("DUCKGRES_PG_URL")
+    if not pg_url:
         raise DuckgresNotConfiguredError("DUCKGRES_PG_URL is not set")
 
     with psycopg.connect(
-        settings.DUCKGRES_PG_URL,
+        pg_url,
         connect_timeout=_CONNECT_TIMEOUT_SECONDS,
         row_factory=dict_row,
     ) as conn:

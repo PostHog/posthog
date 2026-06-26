@@ -448,7 +448,12 @@ class GitHubIntegrationBase:
     # --- Authenticated API helpers ---
 
     def _installation_authenticated_get(
-        self, url: str, *, endpoint: str, timeout: int = 10
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        params: dict[str, str | int] | None = None,
+        timeout: int = 10,
     ) -> requests.Response | None:
         """GET with installation token; refreshes on expiry or 401."""
         try:
@@ -467,6 +472,7 @@ class GitHubIntegrationBase:
                     "Authorization": f"Bearer {access_token}",
                     "X-GitHub-Api-Version": "2022-11-28",
                 },
+                params=params,
                 timeout=timeout,
             )
 
@@ -699,11 +705,64 @@ class GitHubIntegrationBase:
         owner, repo, pr_number = parsed
         return self.get_pull_request(f"{owner}/{repo}", pr_number)
 
+    def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
+        """Return the HTML URLs of open or closed PRs whose head is ``branch`` in ``repository``.
+
+        ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Results come
+        from the installation token's own API call, so they are inherently trusted — not
+        user-supplied like ``output.pr_url``. Best-effort: returns [] on a bad repo, non-200, or error.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        owner = repo_path.split("/", 1)[0]
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/pulls",
+            endpoint="/repos/{owner}/{repo}/pulls",
+            params={"head": f"{owner}:{branch}", "state": "all", "per_page": 10},
+        )
+        if response is None or response.status_code != 200:
+            return []
+        try:
+            pulls = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: find_pull_request_urls_for_branch non-JSON response", repository=repo_path
+            )
+            return []
+        if not isinstance(pulls, list):
+            return []
+        return [pr["html_url"] for pr in pulls if isinstance(pr, dict) and isinstance(pr.get("html_url"), str)]
+
+    def get_open_pr_base_for_head(self, repository: str, branch: str) -> str | None:
+        """Return the base branch of an OPEN pull request whose head is ``branch``, if one exists.
+
+        ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Distinguishes
+        a branch that *heads* an open PR (work continues on it) from a branch used as a PR *base*.
+        Best-effort: returns None on a bad repo, non-200, no open PR, or any error.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        owner = repo_path.split("/", 1)[0]
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/pulls",
+            endpoint="/repos/{owner}/{repo}/pulls",
+            params={"head": f"{owner}:{branch}", "state": "open", "per_page": 1},
+        )
+        if response is None or response.status_code != 200:
+            return None
+        try:
+            pulls = response.json()
+        except Exception:
+            logger.warning("GitHubIntegration: get_open_pr_base_for_head non-JSON response", repository=repo_path)
+            return None
+        if not isinstance(pulls, list) or not pulls or not isinstance(pulls[0], dict):
+            return None
+        base = (pulls[0].get("base") or {}).get("ref")
+        return base if isinstance(base, str) and base else None
+
     _PR_SNAPSHOT_QUERY = """
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $number) {
-          number title url state isDraft mergeable updatedAt
+          number title url state isDraft mergeable updatedAt headRefName
           author { login }
           reviewDecision
           reviewRequests(first: 50) {
@@ -857,6 +916,7 @@ class GitHubIntegrationBase:
             "unresolved_threads": unresolved_threads,
             "mergeable": self._map_mergeable(pr.get("mergeable")),
             "author_login": author,
+            "head_branch": pr.get("headRefName"),
             "requested_reviewer_logins": reviewer_logins,
             "updated_at": pr.get("updatedAt"),
         }

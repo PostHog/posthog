@@ -1,7 +1,13 @@
 /**
  * Detection of stale tool/skill references in help texts — phrases like "use the X tool"
- * or "load the X skill" must point at an existing tool/skill. Name-level only: this cannot
- * validate documented schemas or tool behavior.
+ * or "load the X skill" that resemble a real tool/skill name but don't resolve. Name-level
+ * only: this cannot validate documented schemas or tool behavior.
+ *
+ * The check is heuristic and advisory (callers surface findings, they never block): a candidate
+ * is only flagged when it *resembles* a real name — within NEAR_MISS_MAX_EDITS of one, or an exact
+ * casing miss. Backticks are not treated as intent (prose uses them for emphasis and field names
+ * too), so anything that doesn't resemble a real name is ignored and no name-level allowlist is
+ * needed.
  *
  * Used by scripts/lint-tool-names.ts. The skills lint (products/posthog_ai/scripts/
  * build_skills.py) implements the same rules for skill markdown, plus one deliberately
@@ -10,33 +16,20 @@
  * examples in tool descriptions.
  */
 
+// Tool-name validation (length/pattern) findings — kept blocking by the caller.
 export type Violation = { source: string; tool: string; reason: string }
+
+// A heuristic, advisory reference finding, located on the offending line so the caller can render
+// it as an inline annotation.
+export type ReferenceFinding = { source: string; line: number; col: number; name: string; message: string }
 
 // The kinds produced by the phrase regex alternation `(tools?|skills?)`.
 type ReferenceKind = 'tool' | 'tools' | 'skill' | 'skills'
 
-// Hyphenated/underscored prose that reads like a tool/skill reference but isn't one.
-const REFERENCE_ALLOWLIST = new Set([
-    'per-file', // "a per-file tool"
-    'follow-up', // "a follow-up tool"
-    'pre-approved', // "list of pre-approved tools"
-    'built-in', // "a built-in tool"
-    'heavily-used', // "a heavily-used tool"
-    'harness-level', // "a harness-level tool"
-    'product-specific', // "a product-specific tool"
-    'time-to-merge', // "there is no aggregate time-to-merge tool"
-    'web-search', // LLM web search, not a PostHog MCP tool
-    'comma-separated',
-    'skills-store', // the Skills store feature ("the skills-store tools")
-    'llma-alerts', // skills-store skill, not in this repo
-    'text-embedding-3-small-1536', // embedding model name
-    'deep-dive', // "a deep-dive skill"
-    'team-shared',
-    'per-team',
-    'per-session', // adjective in "per-session tool calls", not a tool name
-    'multi-file',
-    'document-window', // shorthand for the business-knowledge-document-window-retrieve tool
-])
+// A candidate is only treated as a (stale) reference when it is within this many edits of a real
+// name. Real renames/typos sit at distance 1-2 from the intended tool; ordinary hyphenated prose
+// ("highest-error", "per-file") is far from every name and so is ignored.
+const NEAR_MISS_MAX_EDITS = 2
 
 // "use the X tool", "load the `X` skill" — kebab or snake candidate followed by tool/skill.
 const PHRASE_REFERENCE = /(?<![A-Za-z0-9_`-])`?([a-z0-9]+(?:[_-][a-z0-9]+)+)`?\s+(tools?|skills?)\b/g
@@ -48,33 +41,13 @@ const ENTITY_NOUN_AFTER = /^\s+(?:feature|flag|event|property|properties|column|
 // Backticked snake_case whose kebab form is a real tool — wrong casing.
 const SNAKE_CASE_REFERENCE = /`([a-z0-9]+(?:_[a-z0-9]+)+)`/g
 
-type PhraseReference = { name: string; kind: ReferenceKind }
-
-function findPhraseReferences(text: string): PhraseReference[] {
-    return [...text.matchAll(PHRASE_REFERENCE)].map((match) => ({
-        name: match[1]!, // both groups always capture on a match
-        kind: match[2] as ReferenceKind, // guaranteed by the `(tools?|skills?)` alternation
-    }))
-}
-
-function findInvocationReferences(text: string): string[] {
-    const names: string[] = []
-    for (const match of text.matchAll(INVOCATION_REFERENCE)) {
-        if (!ENTITY_NOUN_AFTER.test(text.slice(match.index + match[0].length))) {
-            names.push(match[1]!)
-        }
-    }
-    return names
-}
-
-function findBacktickedSnakeCase(text: string): string[] {
-    return [...text.matchAll(SNAKE_CASE_REFERENCE)].map((match) => match[1]!)
+function lineCol(text: string, offset: number): { line: number; col: number } {
+    const before = text.slice(0, offset)
+    const lastNewline = before.lastIndexOf('\n')
+    return { line: (before.match(/\n/g)?.length ?? 0) + 1, col: offset - lastNewline }
 }
 
 function isValidReference(name: string, kind: ReferenceKind, toolNames: Set<string>, skillNames: Set<string>): boolean {
-    if (REFERENCE_ALLOWLIST.has(name)) {
-        return true
-    }
     const registry = kind === 'skill' || kind === 'skills' ? skillNames : toolNames
     if (registry.has(name)) {
         return true
@@ -96,10 +69,34 @@ function isValidReference(name: string, kind: ReferenceKind, toolNames: Set<stri
     return false
 }
 
-function didYouMean(name: string, toolNames: Set<string>): string {
+function editDistance(a: string, b: string): number {
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i)
+    for (let i = 1; i <= a.length; i++) {
+        const cur = [i]
+        for (let j = 1; j <= b.length; j++) {
+            cur.push(Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1)))
+        }
+        prev = cur
+    }
+    return prev[b.length]!
+}
+
+// Real names this candidate plausibly meant: exact/suffix matches, else near-misses by edit distance.
+function referenceSuggestions(name: string, registry: Set<string>): string[] {
     const kebab = name.replace(/_/g, '-')
-    const matches = [...toolNames].filter((t) => t === kebab || t.endsWith(`-${kebab}`))
-    return matches.length > 0 ? ` — did you mean ${matches.join(' or ')}?` : ''
+    const suffix = [...registry].filter((t) => t === kebab || t.endsWith(`-${kebab}`)).sort()
+    if (suffix.length > 0) {
+        return suffix
+    }
+    return [...registry]
+        .map((known) => ({ known, distance: editDistance(kebab, known) }))
+        .filter(({ distance }) => distance <= NEAR_MISS_MAX_EDITS)
+        .sort((a, b) => a.distance - b.distance || a.known.localeCompare(b.known))
+        .map(({ known }) => known)
+}
+
+function didYouMean(suggestions: string[]): string {
+    return suggestions.length > 0 ? ` — did you mean ${suggestions.join(' or ')}?` : ''
 }
 
 export function checkReferencesInText(
@@ -108,34 +105,62 @@ export function checkReferencesInText(
     toolNames: Set<string>,
     skillNames: Set<string>,
     seen: Set<string>,
-    violations: Violation[]
+    findings: ReferenceFinding[]
 ): void {
     // Dedupe by name across all scanned texts: the generated JSONs and snapshots repeat the YAML
     // and serializer texts, and one name tripping two rules (e.g. wrong casing inside a phrase)
-    // is one mistake. First report wins, so callers scan hand-editable sources first.
-    const report = (name: string, reason: string): void => {
+    // is one finding. First report wins, so callers scan hand-editable sources first.
+    const report = (offset: number, name: string, message: string): void => {
         if (seen.has(name)) {
             return
         }
         seen.add(name)
-        violations.push({ source, tool: name, reason })
+        const { line, col } = lineCol(text, offset)
+        findings.push({ source, line, col, name, message })
     }
 
-    for (const { name, kind } of findPhraseReferences(text)) {
-        if (!isValidReference(name, kind, toolNames, skillNames)) {
-            report(name, `references nonexistent ${kind.replace(/s$/, '')}${didYouMean(name, toolNames)}`)
+    // "X tool/skill". Resemblance to a real name is the only signal we trust — backticks in prose
+    // mean emphasis or a field name as often as a reference, so they are not treated as intent.
+    for (const match of text.matchAll(PHRASE_REFERENCE)) {
+        const name = match[1]!
+        const kind = match[2] as ReferenceKind
+        if (isValidReference(name, kind, toolNames, skillNames)) {
+            continue
+        }
+        const registry = kind === 'skill' || kind === 'skills' ? skillNames : toolNames
+        const suggestions = referenceSuggestions(name, registry)
+        if (suggestions.length > 0) {
+            // The match begins at the optional leading backtick, then the name.
+            const offset = match.index + (match[0].startsWith('`') ? 1 : 0)
+            report(
+                offset,
+                name,
+                `'${name}' looks like a ${kind.replace(/s$/, '')} but none exists${didYouMean(suggestions)}`
+            )
         }
     }
-    // "via `X`" names one concrete thing but not whether it's a tool or skill: check tools with
-    // singular kind (a family prefix like `feature-flag` is not invocable), plus exact skill names.
-    for (const name of findInvocationReferences(text)) {
-        if (!isValidReference(name, 'tool', toolNames, skillNames) && !skillNames.has(name)) {
-            report(name, `references nonexistent tool${didYouMean(name, toolNames)}`)
+    // "via `X`": one concrete thing, but not whether tool or skill — check tools (a family prefix
+    // like `feature-flag` is not invocable) plus exact skill names.
+    for (const match of text.matchAll(INVOCATION_REFERENCE)) {
+        if (ENTITY_NOUN_AFTER.test(text.slice(match.index + match[0].length))) {
+            continue
+        }
+        const name = match[1]!
+        if (isValidReference(name, 'tool', toolNames, skillNames) || skillNames.has(name)) {
+            continue
+        }
+        const suggestions = referenceSuggestions(name, toolNames)
+        if (suggestions.length > 0) {
+            // The name sits just after the first backtick in the match.
+            const offset = match.index + match[0].indexOf('`') + 1
+            report(offset, name, `'${name}' looks like a tool but none exists${didYouMean(suggestions)}`)
         }
     }
-    for (const name of findBacktickedSnakeCase(text)) {
+    for (const match of text.matchAll(SNAKE_CASE_REFERENCE)) {
+        const name = match[1]!
         if (!toolNames.has(name) && toolNames.has(name.replace(/_/g, '-'))) {
-            report(name, `wrong casing — the tool is named ${name.replace(/_/g, '-')}`)
+            const offset = match.index + 1 // skip the opening backtick
+            report(offset, name, `'${name}' has wrong casing — the tool is named ${name.replace(/_/g, '-')}`)
         }
     }
 }

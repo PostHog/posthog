@@ -58,8 +58,8 @@ describe('cohortsModel', () => {
                 '/api/projects/:team/cohorts/:id/': { success: true },
             },
             patch: {
-                '/api/projects/:team/cohorts/:id/': (req) => {
-                    const data = req.body as Record<string, any>
+                '/api/projects/:team/cohorts/:id/': async ({ request }) => {
+                    const data = (await request.json()) as Record<string, any>
                     return { ...MOCK_COHORTS.results[0], ...data }
                 },
             },
@@ -132,6 +132,36 @@ describe('cohortsModel', () => {
                             name: 'Updated name',
                         }),
                     ]),
+                }),
+            })
+        })
+
+        it('adds a directly-opened cohort to cohortsById when not already loaded', async () => {
+            // Mirrors cohortEditLogic.fetchCohort dispatching updateCohort for a cohort that
+            // isn't in the loaded list (e.g. opened directly by URL) — its name must reach
+            // cohortsById so the breadcrumb / browser tab title shows it instead of "Untitled".
+            await expectLogic(logic).toDispatchActions(['loadAllCohortsSuccess'])
+
+            const openedCohort: CohortType = {
+                id: 99,
+                name: 'Directly opened cohort',
+                count: 0,
+                groups: [],
+                filters: {
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [],
+                    },
+                },
+                is_calculating: false,
+                is_static: false,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCohort(openedCohort)
+            }).toMatchValues({
+                cohortsById: expect.objectContaining({
+                    99: expect.objectContaining({ id: 99, name: 'Directly opened cohort' }),
                 }),
             })
         })

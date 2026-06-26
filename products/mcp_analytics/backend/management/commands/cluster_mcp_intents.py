@@ -79,7 +79,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  n_clusters produced: {meta.get('n_clusters', 0)}")
 
         if not clusters:
-            self.stdout.write(self.style.WARNING("\nNo clusters — likely no mcp_tool_call events with $mcp_intent."))
+            self.stdout.write(self.style.WARNING("\nNo clusters — likely no $mcp_tool_call events with $mcp_intent."))
             self.stdout.write("Try: ./manage.py seed_mcp_sessions --team-id N")
             return
 

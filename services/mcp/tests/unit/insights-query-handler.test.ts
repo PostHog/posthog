@@ -27,6 +27,8 @@ interface MockHandles {
 interface QueryResult {
     query: unknown
     results: unknown
+    insight: { url: string }
+    _posthogUrl: string
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }
 
@@ -133,6 +135,49 @@ describe('queryHandler — overrides forwarding', () => {
     })
 })
 
+describe('queryHandler — link reflects overrides', () => {
+    it('links to the bare saved insight when no overrides are passed', async () => {
+        const { context } = createContext()
+
+        const result = (await queryHandler(context, { insightId: '42', output_format: 'json' })) as QueryResult
+
+        expect(result._posthogUrl).toBe('https://us.posthog.com/project/1/insights/abc12345')
+        expect(result.insight.url).toBe('https://us.posthog.com/project/1/insights/abc12345')
+    })
+
+    it('encodes filters_override into the link query string', async () => {
+        const { context } = createContext()
+
+        const result = (await queryHandler(context, {
+            insightId: '42',
+            output_format: 'json',
+            filters_override: filtersOverrideObject as unknown as string,
+        })) as QueryResult
+
+        const expected = `https://us.posthog.com/project/1/insights/abc12345?filters_override=${encodeURIComponent(
+            JSON.stringify(filtersOverrideObject)
+        )}`
+        expect(result._posthogUrl).toBe(expected)
+        expect(result.insight.url).toBe(expected)
+    })
+
+    it('encodes both variables_override and filters_override into the link', async () => {
+        const { context } = createContext()
+
+        const result = (await queryHandler(context, {
+            insightId: '42',
+            output_format: 'json',
+            variables_override: variablesOverrideObject as unknown as string,
+            filters_override: JSON.stringify(filtersOverrideObject),
+        })) as QueryResult
+
+        const expected = `https://us.posthog.com/project/1/insights/abc12345?variables_override=${encodeURIComponent(
+            JSON.stringify(variablesOverrideObject)
+        )}&filters_override=${encodeURIComponent(JSON.stringify(filtersOverrideObject))}`
+        expect(result._posthogUrl).toBe(expected)
+    })
+})
+
 describe('queryHandler — result shape for UI rendering', () => {
     const formatted = 'c\n1'
 
@@ -192,5 +237,28 @@ describe('queryHandler — result shape for UI rendering', () => {
         expect(result.results).toBe(trendsResults)
         expect(result.query).toEqual({ kind: 'TrendsQuery' })
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(formatted)
+    })
+
+    it.each([
+        ['RetentionQuery', [{ date: '2024-01-01', label: 'Day 0', values: [{ count: 10 }] }]],
+        ['LifecycleQuery', [{ status: 'new', data: [1, 2], days: ['a', 'b'] }]],
+        ['StickinessQuery', [{ count: 5, data: [1, 2], labels: ['1 day', '2 days'] }]],
+        ['PathsQuery', [{ source: '0_a', target: '1_b', value: 3 }]],
+    ])('passes the raw results array through for %s insights', async (kind, chartResults) => {
+        const { context } = createContext({
+            getData: {
+                id: 42,
+                short_id: 'abc12345',
+                query: { kind: 'InsightVizNode', source: { kind } },
+            },
+            queryData: { results: chartResults },
+        })
+
+        const result = (await queryHandler(context, { insightId: '42', output_format: 'json' })) as QueryResult
+
+        // Chart visualizers read the raw array; wrapping it in { columns, results } makes the
+        // structural guards fall through to the table renderer and show an empty table.
+        expect(result.results).toBe(chartResults)
+        expect(result.query).toEqual({ kind })
     })
 })

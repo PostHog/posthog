@@ -13,7 +13,8 @@ import {
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
+import { allOperatorsMapping } from 'lib/utils/operators'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'

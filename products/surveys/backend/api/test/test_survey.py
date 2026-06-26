@@ -1,9 +1,8 @@
 import re
 import json
-import time
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import pytest
 from freezegun.api import freeze_time
@@ -14,7 +13,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import override_settings
 
@@ -24,8 +23,9 @@ from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
-from posthog.models import Person, Team
+from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -140,6 +140,49 @@ class TestSurvey(APIBaseTest):
         assert questions[0]["translations"]["es"]["question"] == "¿Qué tan satisfecho estás?"
         assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
         assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
+
+    @parameterized.expand(
+        [
+            ("empty_string", "", False),
+            ("absent", None, False),
+            ("valid_url", "https://posthog.com/docs", True),
+        ]
+    )
+    def test_link_question_translation_allows_empty_link(
+        self, _name: str, translation_link: Optional[str], expect_link_present: bool
+    ) -> None:
+        translation: dict[str, Any] = {"question": "Mira nuestra documentación"}
+        if translation_link is not None:
+            translation["link"] = translation_link
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Link survey with translations",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "link",
+                        "question": "Check out our docs",
+                        "link": "https://posthog.com",
+                        "translations": {
+                            "es": translation,
+                        },
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        questions = cast(list[dict[str, Any]], survey.questions)
+
+        es_translation = questions[0]["translations"]["es"]
+        assert es_translation["question"] == "Mira nuestra documentación"
+        if expect_link_present:
+            assert es_translation.get("link") == translation_link
+        else:
+            assert "link" not in es_translation
 
     def test_translation_language_codes_are_normalized(self) -> None:
         """BCP-47-ish codes are normalized to lowercase + hyphenated on save."""
@@ -1339,7 +1382,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -5313,8 +5356,8 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             archived=True,
         )
 
-        user_1 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
-        user_2 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_1 = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_2 = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
 
         # Insert events for both surveys
         events = [
@@ -5365,9 +5408,9 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         )
         sub_id_1 = str(uuid.uuid4())
         sub_id_2 = str(uuid.uuid4())
-        user_1 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
-        user_2 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
-        user_3 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_1 = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_2 = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_3 = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
 
         # Events:
         # user_1: shown -> sent (legacy) -> sent (partial 1, ts1) -> sent (partial 1, ts2)
@@ -5485,7 +5528,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             type="popover",
             questions=[{"type": "open", "question": "How are you?"}],
         )
-        user = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
 
         _create_event(
             team=self.team,
@@ -5522,7 +5565,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         )
 
         response_uuid = str(uuid.uuid4())
-        user = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
 
         _create_event(
             team=self.team,
@@ -6260,24 +6303,26 @@ class TestSurveyBulkDuplication(APIBaseTest):
 
     def test_bulk_duplicate_multiple_times_to_same_team(self):
         """Test that multiple duplications to the same team create surveys with different timestamps"""
-        # Create first duplicate
-        response1 = self.client.post(
-            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
-            data={"target_team_ids": [self.team2.id]},
-            format="json",
-        )
-        assert response1.status_code == status.HTTP_201_CREATED
+        with freeze_time("2024-01-01 00:00:00") as frozen_time:
+            # Create first duplicate
+            response1 = self.client.post(
+                f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+                data={"target_team_ids": [self.team2.id]},
+                format="json",
+            )
+            assert response1.status_code == status.HTTP_201_CREATED
 
-        # Wait a second to ensure different timestamp
-        time.sleep(1)
+            # Advance the clock so the second duplicate's name timestamp differs (the
+            # duplicate name embeds datetime.now() at second precision)
+            frozen_time.tick(timedelta(seconds=1))
 
-        # Try to create another duplicate (should succeed because timestamp is different)
-        response2 = self.client.post(
-            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
-            data={"target_team_ids": [self.team2.id]},
-            format="json",
-        )
-        assert response2.status_code == status.HTTP_201_CREATED
+            # Try to create another duplicate (should succeed because timestamp is different)
+            response2 = self.client.post(
+                f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+                data={"target_team_ids": [self.team2.id]},
+                format="json",
+            )
+            assert response2.status_code == status.HTTP_201_CREATED
 
         # Verify two surveys exist with different names
         team2_surveys = Survey.objects.filter(team=self.team2).order_by("created_at")
@@ -6626,7 +6671,7 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data["offset"], 0)
 
     def test_returns_rows_with_resolved_question_text(self):
-        person = Person.objects.create(team=self.team, distinct_ids=["user-1"])
+        person = create_person(team=self.team, distinct_ids=["user-1"])
         self._create_response_event("user-1", "2024-06-10 09:05:00", "9", "Loved the UX")
         flush_persons_and_events()
 
@@ -6652,8 +6697,8 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         assert person  # silence unused
 
     def test_score_lte_filters_detractors(self):
-        Person.objects.create(team=self.team, distinct_ids=["detractor"])
-        Person.objects.create(team=self.team, distinct_ids=["promoter"])
+        create_person(team=self.team, distinct_ids=["detractor"])
+        create_person(team=self.team, distinct_ids=["promoter"])
         self._create_response_event("detractor", "2024-06-10 09:05:00", "3", "Frustrating")
         self._create_response_event("promoter", "2024-06-10 09:06:00", "10", "Amazing")
         flush_persons_and_events()
@@ -6672,9 +6717,9 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_pagination_has_more(self):
-        Person.objects.create(team=self.team, distinct_ids=["u-1"])
-        Person.objects.create(team=self.team, distinct_ids=["u-2"])
-        Person.objects.create(team=self.team, distinct_ids=["u-3"])
+        create_person(team=self.team, distinct_ids=["u-1"])
+        create_person(team=self.team, distinct_ids=["u-2"])
+        create_person(team=self.team, distinct_ids=["u-3"])
         self._create_response_event("u-1", "2024-06-10 09:01:00", "8", "a")
         self._create_response_event("u-2", "2024-06-10 09:02:00", "8", "b")
         self._create_response_event("u-3", "2024-06-10 09:03:00", "8", "c")
@@ -6692,8 +6737,8 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(data2["has_more"])
 
     def test_since_filter(self):
-        Person.objects.create(team=self.team, distinct_ids=["old"])
-        Person.objects.create(team=self.team, distinct_ids=["new"])
+        create_person(team=self.team, distinct_ids=["old"])
+        create_person(team=self.team, distinct_ids=["new"])
         self._create_response_event("old", "2024-06-01 09:00:00", "8", "old")
         self._create_response_event("new", "2024-06-15 09:00:00", "8", "new")
         flush_persons_and_events()
@@ -6704,8 +6749,8 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data["results"][0]["distinct_id"], "new")
 
     def test_exclude_archived(self):
-        Person.objects.create(team=self.team, distinct_ids=["kept"])
-        Person.objects.create(team=self.team, distinct_ids=["archived"])
+        create_person(team=self.team, distinct_ids=["kept"])
+        create_person(team=self.team, distinct_ids=["archived"])
         archived_uuid = str(uuid.uuid4())
         self._create_response_event("kept", "2024-06-10 09:05:00", "8", "kept")
         self._create_response_event("archived", "2024-06-10 09:06:00", "3", "archived", event_uuid=archived_uuid)
@@ -6740,6 +6785,52 @@ class TestSurveySummarizeDispatchesToHeadline(APIBaseTest):
         self.assertEqual(data["headline"], "Users love it")
         self.assertEqual(data["responses_sampled"], 12)
         mock_headline.assert_called_once()
+
+
+class TestSurveySummarizeByQuestionId(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.survey = Survey.objects.create(
+            team=self.team,
+            name="Test",
+            type="popover",
+            questions=[
+                {"id": "q0", "type": "rating", "question": "How likely are you to recommend us?"},
+                {"id": "q1", "type": "open", "question": "Why?"},
+            ],
+        )
+        self.team.organization.is_ai_data_processing_approved = True
+        self.team.organization.save()
+
+    @parameterized.expand(
+        [
+            # index 0 is falsy — guard against `if not question_index` style regressions
+            ("first_question", "q0", 0),
+            ("second_question", "q1", 1),
+        ]
+    )
+    @override_settings(GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.is_cloud", return_value=True)
+    @patch("products.surveys.backend.api.survey.get_archived_response_uuids", return_value=set())
+    @patch("products.surveys.backend.api.survey.format_as_markdown", return_value="summary")
+    @patch("products.surveys.backend.api.survey.summarize_responses")
+    @patch("products.surveys.backend.api.survey.fetch_responses", return_value=["because it's great"])
+    def test_summarize_by_question_id_backfills_index(
+        self, _name, question_id, expected_index, mock_fetch, mock_summarize, _mock_format, _mock_archived, _mock_cloud
+    ):
+        mock_summarize.return_value = MagicMock(summary="summary", trace_id="trace-123")
+
+        # Request a per-question summary by question_id only (no question_index) — the path that
+        # previously passed question_index=None into getSurveyResponse() and 500'd.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/?question_id={question_id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The index must be resolved from the question_id so the index-based response key fallback
+        # works and the HogQL function receives a valid integer.
+        self.assertEqual(mock_fetch.call_args.kwargs["question_index"], expected_index)
+        self.assertEqual(mock_fetch.call_args.kwargs["question_id"], question_id)
 
 
 class TestSurveyLifecycleActions(APIBaseTest):
@@ -6821,6 +6912,26 @@ class TestSurveyListTypeFilter(APIBaseTest):
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["name"], "widget survey")
 
+    def test_filter_by_ids(self):
+        first = Survey.objects.create(team=self.team, name="first", type="popover", questions=[])
+        second = Survey.objects.create(team=self.team, name="second", type="popover", questions=[])
+        Survey.objects.create(team=self.team, name="third", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?ids={first.id},{second.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual({s["name"] for s in data["results"]}, {"first", "second"})
+
+    def test_filter_by_ids_silently_omits_unknown_ids(self):
+        survey = Survey.objects.create(team=self.team, name="exists", type="popover", questions=[])
+        missing_id = uuid.uuid4()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?ids={survey.id},{missing_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], str(survey.id))
+
 
 class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
@@ -6852,11 +6963,11 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("per_question_stats", response.json())
 
     def test_per_question_stats_when_requested(self):
-        Person.objects.create(team=self.team, distinct_ids=["u-1"])
-        Person.objects.create(team=self.team, distinct_ids=["u-2"])
-        Person.objects.create(team=self.team, distinct_ids=["u-3"])
+        create_person(team=self.team, distinct_ids=["u-1"])
+        create_person(team=self.team, distinct_ids=["u-2"])
+        create_person(team=self.team, distinct_ids=["u-3"])
         # u-4 picks the open-choice "Other" with free text — must be redacted to <other>.
-        Person.objects.create(team=self.team, distinct_ids=["u-4"])
+        create_person(team=self.team, distinct_ids=["u-4"])
         for distinct_id, rating, choice, text in [
             ("u-1", "9", "yes", "Loved it"),
             ("u-2", "7", "yes", "Good"),
@@ -6907,6 +7018,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         "type": "popover",
         "questions": [{"type": "open", "question": "Q?"}],
     }
+    TARGETING_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 50}]}
 
     def setUp(self):
         super().setUp()
@@ -6929,9 +7041,9 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
             headers=self.auth_headers,
         )
 
-    def test_create_with_survey_write_only_logs_warning(self):
+    def test_create_with_targeting_flag_filters_and_survey_write_only_logs_warning(self):
         with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
-            response = self._create_survey()
+            response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         events = self._warning_events(mock_logger)
         assert len(events) == 1
@@ -6943,11 +7055,19 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         assert extra["auth_id"] == self.key.id
         assert extra["user_id"] == self.user.id
 
+    def test_create_without_targeting_flag_filters_does_not_log(self):
+        # The auto-managed internal targeting flag is not a user-facing flag, so a plain
+        # survey create must not warn (or, once enforced, be blocked).
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self._create_survey()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert self._warning_events(mock_logger) == []
+
     def test_create_with_feature_flag_write_does_not_log(self):
         self.key.scopes = ["survey:write", "feature_flag:write"]
         self.key.save()
         with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
-            response = self._create_survey()
+            response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
 
@@ -6955,7 +7075,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["*"]
         self.key.save()
         with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
-            response = self._create_survey()
+            response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
 
@@ -7039,7 +7159,9 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         assert len(events) == 1
         assert events[0].kwargs["action"] == "survey.destroy"
 
-    def test_destroy_with_only_internal_targeting_flag_logs_warning(self):
+    def test_destroy_with_only_internal_targeting_flag_does_not_log(self):
+        # The internal targeting flag is PostHog-managed, so deleting a survey that only has
+        # one must not warn (or be blocked once enforced).
         survey_id = self._create_survey().json()["id"]
         survey = Survey.objects.get(pk=survey_id)
         assert survey.targeting_flag_id is None
@@ -7051,10 +7173,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
                 headers=self.auth_headers,
             )
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        events = self._warning_events(mock_logger)
-        assert len(events) == 1
-        assert events[0].kwargs["action"] == "survey.destroy"
-        assert events[0].kwargs["feature_flag_id"] == survey.internal_targeting_flag_id
+        assert self._warning_events(mock_logger) == []
 
     def test_destroy_without_any_flag_does_not_log(self):
         survey = Survey.objects.create(
@@ -7081,3 +7200,142 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
             )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
+
+
+class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest):
+    # Enforcement (raise 403) is gated behind a rollout flag; force it on for this class.
+    SURVEY_PAYLOAD = {
+        "name": "Scope enforcement survey",
+        "type": "popover",
+        "questions": [{"type": "open", "question": "Q?"}],
+    }
+    TARGETING_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 50}]}
+
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+        self.auth_headers = {"authorization": f"Bearer {self.value}"}
+        enforce_patcher = patch(
+            "products.feature_flags.backend.api.feature_flag._is_enforce_feature_flag_write_scope_enabled",
+            return_value=True,
+        )
+        enforce_patcher.start()
+        self.addCleanup(enforce_patcher.stop)
+
+    def _create_survey(self, **extra):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={**self.SURVEY_PAYLOAD, **extra},
+            format="json",
+            headers=self.auth_headers,
+        )
+
+    def _create_survey_with_targeting_flag_as_admin(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        survey_id = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS).json()["id"]
+        assert Survey.objects.get(pk=survey_id).targeting_flag_id is not None
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+        return survey_id
+
+    @parameterized.expand(
+        [
+            ("survey_write_only", ["survey:write"], status.HTTP_403_FORBIDDEN),
+            ("with_feature_flag_write", ["survey:write", "feature_flag:write"], status.HTTP_201_CREATED),
+            ("wildcard", ["*"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_with_targeting_flag_filters_scope_matrix(self, _name, scopes, expected_status):
+        self.key.scopes = scopes
+        self.key.save()
+        response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "feature_flag:write" in response.json()["detail"]
+            assert Survey.objects.filter(name=self.SURVEY_PAYLOAD["name"]).count() == 0
+
+    def test_create_without_targeting_flag_filters_is_allowed(self):
+        # Regression guard: plain survey create only touches the internal flag, which stays ungated.
+        response = self._create_survey()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_create_attaching_existing_targeting_flag_is_denied(self):
+        # Pointing a survey at an arbitrary existing flag (which the lifecycle sync can toggle)
+        # must require feature_flag:write.
+        flag = FeatureFlag.objects.create(team=self.team, key="survey-attach-existing", created_by=self.user)
+        response = self._create_survey(targeting_flag_id=flag.id)
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "feature_flag:write" in response.json()["detail"]
+
+    def test_update_attaching_existing_targeting_flag_is_denied(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="survey-attach-existing-2", created_by=self.user)
+        survey_id = self._create_survey().json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"targeting_flag_id": flag.id},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_update_targeting_flag_filters_is_denied(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 75}]}},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_update_remove_targeting_flag_is_denied(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"remove_targeting_flag": True},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert Survey.objects.get(pk=survey_id).targeting_flag_id is not None
+
+    def test_update_payload_only_is_allowed(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"name": "renamed"},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_destroy_with_targeting_flag_is_denied(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert Survey.objects.filter(pk=survey_id).exists()
+
+    def test_destroy_with_only_internal_targeting_flag_is_allowed(self):
+        survey_id = self._create_survey().json()["id"]
+        survey = Survey.objects.get(pk=survey_id)
+        assert survey.targeting_flag_id is None
+        assert survey.internal_targeting_flag_id is not None
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_session_auth_is_allowed(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={**self.SURVEY_PAYLOAD, "targeting_flag_filters": self.TARGETING_FILTERS},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()

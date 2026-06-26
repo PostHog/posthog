@@ -1,11 +1,6 @@
-from datetime import UTC, datetime
-
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
-
-from parameterized import parameterized
 
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
@@ -13,11 +8,13 @@ from posthog.models.group_type_mapping import (
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     GroupTypeMapping,
     GroupTypesUnavailable,
+    _dict_to_group_type_mapping_model,
     _fetch_group_types_for_projects_via_personhog,
     _record_group_types_fetch_failure,
     clear_dashboard_from_group_type_mapping,
     count_group_type_mappings_per_team,
     delete_group_type_mapping,
+    get_group_type_mapping_instance,
     get_group_types_for_project,
     get_group_types_for_projects,
     get_group_types_for_team,
@@ -25,11 +22,7 @@ from posthog.models.group_type_mapping import (
     project_has_group_types_authoritatively,
     update_group_type_mapping_fields,
 )
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-from posthog.personhog_client.fake_client import FakePersonHogClient
 from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
-
-from products.dashboards.backend.models.dashboard import Dashboard
 
 
 def _clear_cache(project_id: int) -> None:
@@ -58,23 +51,10 @@ PERSONHOG_SUCCESS_DATA = [
     },
 ]
 
-ORM_DATA = [
-    {
-        "group_type": "team",
-        "group_type_index": 0,
-        "name_singular": None,
-        "name_plural": None,
-        "detail_dashboard": None,
-        "default_columns": None,
-        "created_at": None,
-    },
-]
-
-
 _CLIENT_PATCH = "posthog.personhog_client.client.get_personhog_client"
 
 
-class TestGetGroupTypesForProjectRouting(SimpleTestCase):
+class TestGetGroupTypesForProject(SimpleTestCase):
     def setUp(self):
         self.project_id = 999
         _clear_cache(self.project_id)
@@ -87,12 +67,8 @@ class TestGetGroupTypesForProjectRouting(SimpleTestCase):
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
     def test_personhog_success_returns_data_and_caches(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
         mock_objects,
     ):
@@ -102,35 +78,17 @@ class TestGetGroupTypesForProjectRouting(SimpleTestCase):
 
         assert len(result) == 2
         mock_objects.filter.assert_not_called()
-        mock_routing_counter.labels.assert_called_with(
-            operation="get_group_types_for_project", source="personhog", client_name="posthog-django"
-        )
-        mock_errors_counter.labels.assert_not_called()
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_personhog_failure_falls_back_to_orm(
+    def test_personhog_failure_without_stale_returns_empty(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
-        mock_objects,
     ):
         mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
 
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = ORM_DATA
-        mock_objects.filter.return_value = mock_qs
-
         result = get_group_types_for_project(self.project_id)
 
-        assert result == ORM_DATA
-        mock_routing_counter.labels.assert_called_with(
-            operation="get_group_types_for_project", source="django_orm", client_name="posthog-django"
-        )
-        mock_errors_counter.labels.assert_called_once()
+        assert result == []
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     def test_cache_hit_skips_both_paths(self, mock_objects):
@@ -144,19 +102,11 @@ class TestGetGroupTypesForProjectRouting(SimpleTestCase):
         assert result == cached_data
         mock_objects.filter.assert_not_called()
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_both_paths_fail_returns_stale_cache(
+    def test_personhog_failure_returns_stale_cache(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
-        mock_objects,
     ):
-        from django.db import DatabaseError
-
         from posthog.utils import safe_cache_set
 
         stale_data = [{"group_type": "stale", "group_type_index": 0}]
@@ -164,51 +114,12 @@ class TestGetGroupTypesForProjectRouting(SimpleTestCase):
 
         mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
 
-        # The code calls list(qs.filter(...).order_by(...).values(...))
-        # so we need __iter__ on the values() result to raise DatabaseError
-        def _raise_db_error():
-            raise DatabaseError("db is down")
-
-        mock_values_qs = MagicMock()
-        mock_values_qs.__iter__ = MagicMock(side_effect=_raise_db_error)
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = mock_values_qs
-        mock_objects.filter.return_value = mock_qs
-
         result = get_group_types_for_project(self.project_id)
 
         assert result == stale_data
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_both_paths_fail_no_stale_returns_empty_list(
-        self,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_fetch_personhog,
-        mock_objects,
-    ):
-        from django.db import DatabaseError
 
-        mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
-
-        def _raise_db_error():
-            raise DatabaseError("db is down")
-
-        mock_values_qs = MagicMock()
-        mock_values_qs.__iter__ = MagicMock(side_effect=_raise_db_error)
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = mock_values_qs
-        mock_objects.filter.return_value = mock_qs
-
-        result = get_group_types_for_project(self.project_id)
-
-        assert result == []
-
-
-class TestGetGroupTypesForTeamRouting(SimpleTestCase):
+class TestGetGroupTypesForTeam(SimpleTestCase):
     def setUp(self):
         self.team_id = 42
         self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
@@ -219,12 +130,8 @@ class TestGetGroupTypesForTeamRouting(SimpleTestCase):
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_team_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
     def test_personhog_success_returns_data_without_orm(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
         mock_objects,
     ):
@@ -234,91 +141,20 @@ class TestGetGroupTypesForTeamRouting(SimpleTestCase):
 
         assert result == PERSONHOG_SUCCESS_DATA
         mock_objects.filter.assert_not_called()
-        mock_routing_counter.labels.assert_called_with(
-            operation="get_group_types_for_team", source="personhog", client_name="posthog-django"
-        )
-        mock_errors_counter.labels.assert_not_called()
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_team_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_personhog_failure_falls_back_to_orm(
+    def test_personhog_failure_returns_empty(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
-        mock_objects,
     ):
         mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
-
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = ORM_DATA
-        mock_objects.filter.return_value = mock_qs
 
         result = get_group_types_for_team(self.team_id)
 
-        assert result == ORM_DATA
-        mock_errors_counter.labels.assert_called_once_with(
-            operation="get_group_types_for_team",
-            source="personhog",
-            error_type="grpc_error",
-            client_name="posthog-django",
-        )
-
-    @parameterized.expand(
-        [
-            ("grpc_error", RuntimeError("grpc timeout")),
-            ("connection_error", ConnectionError("connection refused")),
-            ("generic_error", Exception("unexpected")),
-        ]
-    )
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping._fetch_group_types_for_team_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_error_types_always_increment_error_metric(
-        self,
-        _name,
-        exception,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_fetch_personhog,
-        mock_objects,
-    ):
-        mock_fetch_personhog.side_effect = exception
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = ORM_DATA
-        mock_objects.filter.return_value = mock_qs
-
-        get_group_types_for_team(self.team_id)
-
-        mock_errors_counter.labels.assert_called_once()
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping._fetch_group_types_for_team_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_orm_fallback_increments_django_orm_metric(
-        self,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_fetch_personhog,
-        mock_objects,
-    ):
-        mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
-
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = ORM_DATA
-        mock_objects.filter.return_value = mock_qs
-
-        get_group_types_for_team(self.team_id)
-
-        calls = [str(c) for c in mock_routing_counter.labels.call_args_list]
-        assert any("django_orm" in c for c in calls), f"Expected django_orm routing label, got: {calls}"
+        assert result == []
 
 
-class TestGetGroupTypesForProjectsRouting(SimpleTestCase):
+class TestGetGroupTypesForProjects(SimpleTestCase):
     def setUp(self):
         self.project_ids = [1, 2, 3]
         self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
@@ -346,12 +182,8 @@ class TestGetGroupTypesForProjectsRouting(SimpleTestCase):
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
     def test_personhog_success_returns_grouped_data_without_orm(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
         mock_objects,
     ):
@@ -366,70 +198,24 @@ class TestGetGroupTypesForProjectsRouting(SimpleTestCase):
 
         assert result == personhog_result
         mock_objects.filter.assert_not_called()
-        mock_routing_counter.labels.assert_called_with(
-            operation="get_group_types_for_projects", source="personhog", client_name="posthog-django"
-        )
-        mock_errors_counter.labels.assert_not_called()
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_personhog_failure_falls_back_to_orm(
+    def test_personhog_failure_without_stale_raises_unavailable(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
-        mock_objects,
     ):
+        for pid in self.project_ids:
+            _clear_cache(pid)
         mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
 
-        orm_rows = [
-            {
-                "project_id": 1,
-                "group_type": "organization",
-                "group_type_index": 0,
-                "name_singular": None,
-                "name_plural": None,
-                "detail_dashboard": None,
-                "default_columns": None,
-                "created_at": None,
-            },
-            {
-                "project_id": 2,
-                "group_type": "company",
-                "group_type_index": 0,
-                "name_singular": None,
-                "name_plural": None,
-                "detail_dashboard": None,
-                "default_columns": None,
-                "created_at": None,
-            },
-        ]
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = [dict(r) for r in orm_rows]
-        mock_objects.filter.return_value = mock_qs
+        with self.assertRaises(GroupTypesUnavailable) as ctx:
+            get_group_types_for_projects(self.project_ids)
 
-        result = get_group_types_for_projects(self.project_ids)
-
-        assert 1 in result
-        assert 2 in result
-        assert 3 in result
-        assert result[3] == []
-        mock_errors_counter.labels.assert_called_once_with(
-            operation="get_group_types_for_projects",
-            source="personhog",
-            error_type="grpc_error",
-            client_name="posthog-django",
-        )
+        assert set(ctx.exception.project_ids) == set(self.project_ids)
 
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
     def test_empty_project_ids_returns_empty_dict_via_personhog(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
     ):
         mock_fetch_personhog.return_value = {}
@@ -437,36 +223,10 @@ class TestGetGroupTypesForProjectsRouting(SimpleTestCase):
         result = get_group_types_for_projects([])
 
         assert result == {}
-        mock_errors_counter.labels.assert_not_called()
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_orm_fallback_initializes_all_project_ids_to_empty_list(
-        self,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_fetch_personhog,
-        mock_objects,
-    ):
-        mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
-
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = []
-        mock_objects.filter.return_value = mock_qs
-
-        result = get_group_types_for_projects([10, 20, 30])
-
-        assert result == {10: [], 20: [], 30: []}
 
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
     def test_personhog_success_backfills_missing_project_ids_with_empty_lists(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
     ):
         mock_fetch_personhog.return_value = {
@@ -495,12 +255,8 @@ class TestGetGroupTypesForProjectCacheBehavior(SimpleTestCase):
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
     def test_empty_list_result_is_cached(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
         mock_objects,
     ):
@@ -515,12 +271,8 @@ class TestGetGroupTypesForProjectCacheBehavior(SimpleTestCase):
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
     def test_personhog_success_populates_stale_cache(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
         mock_objects,
     ):
@@ -536,12 +288,8 @@ class TestGetGroupTypesForProjectCacheBehavior(SimpleTestCase):
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
     def test_empty_success_does_not_clobber_populated_stale(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
         mock_objects,
     ):
@@ -572,12 +320,8 @@ class TestGetGroupTypesForTeamEdgeCases(SimpleTestCase):
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_team_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
     def test_personhog_returns_empty_list(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_fetch_personhog,
         mock_objects,
     ):
@@ -587,78 +331,6 @@ class TestGetGroupTypesForTeamEdgeCases(SimpleTestCase):
 
         assert result == []
         mock_objects.filter.assert_not_called()
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping._fetch_group_types_for_team_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_orm_database_error_returns_empty_list(
-        self,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_fetch_personhog,
-        mock_objects,
-    ):
-        from django.db import DatabaseError
-
-        mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
-
-        def _raise_db_error():
-            raise DatabaseError("db is down")
-
-        mock_values_qs = MagicMock()
-        mock_values_qs.__iter__ = MagicMock(side_effect=_raise_db_error)
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = mock_values_qs
-        mock_objects.filter.return_value = mock_qs
-
-        result = get_group_types_for_team(42)
-
-        assert result == []
-
-
-class TestGetGroupTypesForProjectsEdgeCases(SimpleTestCase):
-    def setUp(self):
-        for pid in (10, 20):
-            _clear_cache(pid)
-        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
-        self._client_patcher.start()
-
-    def tearDown(self):
-        self._client_patcher.stop()
-        for pid in (10, 20):
-            _clear_cache(pid)
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_orm_database_error_without_stale_fails_closed(
-        self,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_fetch_personhog,
-        mock_objects,
-    ):
-        from django.db import DatabaseError
-
-        mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
-
-        def _raise_db_error():
-            raise DatabaseError("db is down")
-
-        mock_values_qs = MagicMock()
-        mock_values_qs.__iter__ = MagicMock(side_effect=_raise_db_error)
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = mock_values_qs
-        mock_objects.filter.return_value = mock_qs
-
-        # With no last-known-good, the batch fetch fails closed rather than
-        # returning an all-empty mapping that would silently disable group flags.
-        with self.assertRaises(GroupTypesUnavailable) as ctx:
-            get_group_types_for_projects([10, 20])
-
-        assert set(ctx.exception.project_ids) == {10, 20}
 
 
 class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
@@ -671,12 +343,8 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
         self._client_patcher.stop()
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
     def test_personhog_success_returns_converted_counts(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
         mock_objects,
     ):
         mock_count_1 = MagicMock()
@@ -694,84 +362,11 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
 
         assert result == [{"team_id": 1, "total": 3}, {"team_id": 2, "total": 5}]
         mock_objects.values.assert_not_called()
-        mock_routing_counter.labels.assert_called_with(
-            operation="count_group_type_mappings_per_team", source="personhog", client_name="posthog-django"
-        )
-        mock_errors_counter.labels.assert_not_called()
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_personhog_failure_falls_back_to_orm(
+    def test_personhog_failure_returns_empty(
         self,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_objects,
     ):
         self._mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
-
-        orm_data = [{"team_id": 1, "total": 3}]
-        mock_qs = MagicMock()
-        mock_qs.annotate.return_value.order_by.return_value = orm_data
-        mock_objects.values.return_value = mock_qs
-
-        result = count_group_type_mappings_per_team()
-
-        assert result == orm_data
-        mock_errors_counter.labels.assert_called_once_with(
-            operation="count_group_type_mappings_per_team",
-            source="personhog",
-            error_type="grpc_error",
-            client_name="posthog-django",
-        )
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_no_client_uses_orm_directly(
-        self,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_objects,
-    ):
-        self._client_patcher.stop()
-        no_client_patcher = patch(_CLIENT_PATCH, return_value=None)
-        no_client_patcher.start()
-
-        orm_data = [{"team_id": 10, "total": 2}]
-        mock_qs = MagicMock()
-        mock_qs.annotate.return_value.order_by.return_value = orm_data
-        mock_objects.values.return_value = mock_qs
-
-        result = count_group_type_mappings_per_team()
-
-        assert result == orm_data
-        mock_routing_counter.labels.assert_called_with(
-            operation="count_group_type_mappings_per_team", source="django_orm", client_name="posthog-django"
-        )
-        mock_errors_counter.labels.assert_not_called()
-
-        no_client_patcher.stop()
-        self._mock_client = MagicMock()
-        self._client_patcher = patch(_CLIENT_PATCH, return_value=self._mock_client)
-        self._client_patcher.start()
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_both_paths_fail_returns_empty_list(
-        self,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_objects,
-    ):
-        from django.db import DatabaseError
-
-        self._mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
-
-        mock_qs = MagicMock()
-        mock_qs.annotate.return_value.order_by.side_effect = DatabaseError("db is down")
-        mock_objects.values.return_value = mock_qs
 
         result = count_group_type_mappings_per_team()
 
@@ -788,12 +383,20 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
         instance.group_type_index = 0
         return instance
 
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    def _mock_objects_filter(self):
+        """Patch GroupTypeMapping.objects so a stray ORM call can't hit a real DB."""
+        patcher = patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+        mock_objects = patcher.start()
+        self.addCleanup(patcher.stop)
+        return mock_objects
+
     @patch(_CLIENT_PATCH)
-    def test_personhog_success_does_not_call_orm_save(self, mock_get_client, mock_routing_counter):
+    def test_personhog_success_does_not_call_orm(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.update_group_type_mapping.return_value = MagicMock()
         mock_get_client.return_value = mock_client
+
+        mock_objects = self._mock_objects_filter()
 
         instance = self._make_instance()
         update_group_type_mapping_fields(instance, fields={"name_singular": "Org", "name_plural": "Orgs"})
@@ -805,66 +408,10 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
         assert set(req.update_mask) == {"name_singular", "name_plural"}
         assert req.name_singular == "Org"
         assert req.name_plural == "Orgs"
-        instance.save.assert_not_called()
-        mock_routing_counter.labels.assert_called_with(
-            operation="group_type_update", source="personhog", client_name="posthog-django"
-        )
+        mock_objects.filter.assert_not_called()
 
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch(_CLIENT_PATCH)
-    def test_client_none_falls_back_to_orm_save(self, mock_get_client, mock_routing_counter):
-        mock_get_client.return_value = None
-
-        instance = self._make_instance()
-        update_group_type_mapping_fields(instance, fields={"name_singular": "Org"})
-
-        instance.save.assert_called_once()
-        mock_routing_counter.labels.assert_called_with(
-            operation="group_type_update", source="django_orm", client_name="posthog-django"
-        )
-
-    @parameterized.expand(
-        [
-            ("grpc_timeout", RuntimeError("grpc timeout")),
-            ("connection_error", ConnectionError("connection refused")),
-        ]
-    )
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch(_CLIENT_PATCH)
-    def test_personhog_exception_falls_back_to_orm(
-        self, _name, exception, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
-        mock_client = MagicMock()
-        mock_client.update_group_type_mapping.side_effect = exception
-        mock_get_client.return_value = mock_client
-
-        instance = self._make_instance()
-        update_group_type_mapping_fields(instance, fields={"name_singular": "Org"})
-
-        instance.save.assert_called_once()
-        mock_errors_counter.labels.assert_called_once_with(
-            operation="group_type_update",
-            source="personhog",
-            error_type="grpc_error",
-            client_name="posthog-django",
-        )
-
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch(_CLIENT_PATCH)
-    def test_orm_fallback_sets_fields_on_instance(self, mock_get_client, mock_routing_counter):
-        mock_get_client.return_value = None
-
-        instance = self._make_instance()
-        update_group_type_mapping_fields(instance, fields={"name_singular": "Team", "default_columns": ["name"]})
-
-        assert instance.name_singular == "Team"
-        assert instance.default_columns == ["name"]
-        instance.save.assert_called_once()
-
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch(_CLIENT_PATCH)
-    def test_detail_dashboard_id_sent_correctly(self, mock_get_client, mock_routing_counter):
+    def test_detail_dashboard_id_sent_correctly(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.update_group_type_mapping.return_value = MagicMock()
         mock_get_client.return_value = mock_client
@@ -876,9 +423,8 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
         assert req.detail_dashboard_id == 42
         assert "detail_dashboard_id" in req.update_mask
 
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch(_CLIENT_PATCH)
-    def test_detail_dashboard_id_none_leaves_field_unset(self, mock_get_client, mock_routing_counter):
+    def test_detail_dashboard_id_none_leaves_field_unset(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.update_group_type_mapping.return_value = MagicMock()
         mock_get_client.return_value = mock_client
@@ -890,9 +436,8 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
         assert "detail_dashboard_id" in req.update_mask
         assert req.detail_dashboard_id == 0
 
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch(_CLIENT_PATCH)
-    def test_default_columns_json_encoded(self, mock_get_client, mock_routing_counter):
+    def test_default_columns_json_encoded(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.update_group_type_mapping.return_value = MagicMock()
         mock_get_client.return_value = mock_client
@@ -912,9 +457,8 @@ class TestDeleteGroupTypeMapping(SimpleTestCase):
         instance.group_type_index = 0
         return instance
 
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch(_CLIENT_PATCH)
-    def test_personhog_success_does_not_call_orm_delete(self, mock_get_client, mock_routing_counter):
+    def test_personhog_success_does_not_call_orm_delete(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.delete_group_type_mapping.return_value = MagicMock()
         mock_get_client.return_value = mock_client
@@ -927,45 +471,12 @@ class TestDeleteGroupTypeMapping(SimpleTestCase):
         assert req.project_id == 1
         assert req.group_type_index == 0
         instance.delete.assert_not_called()
-        mock_routing_counter.labels.assert_called_with(
-            operation="delete_group_type_mapping", source="personhog", client_name="posthog-django"
-        )
-
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch(_CLIENT_PATCH)
-    def test_client_none_falls_back_to_orm_delete(self, mock_get_client, mock_routing_counter):
-        mock_get_client.return_value = None
-
-        instance = self._make_instance()
-        delete_group_type_mapping(instance)
-
-        instance.delete.assert_called_once()
-        mock_routing_counter.labels.assert_called_with(
-            operation="delete_group_type_mapping", source="django_orm", client_name="posthog-django"
-        )
-
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch(_CLIENT_PATCH)
-    def test_personhog_exception_falls_back_to_orm_delete(
-        self, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
-        mock_client = MagicMock()
-        mock_client.delete_group_type_mapping.side_effect = RuntimeError("grpc timeout")
-        mock_get_client.return_value = mock_client
-
-        instance = self._make_instance()
-        delete_group_type_mapping(instance)
-
-        instance.delete.assert_called_once()
-        mock_errors_counter.labels.assert_called_once()
 
 
 class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
     @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch(_CLIENT_PATCH)
-    def test_personhog_success_reads_then_updates(self, mock_get_client, mock_routing_counter, mock_invalidate):
+    def test_personhog_success_reads_then_updates(self, mock_get_client, mock_invalidate):
         mock_mapping = MagicMock()
         mock_mapping.project_id = 1
         mock_mapping.group_type_index = 0
@@ -989,11 +500,34 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
         mock_invalidate.assert_called_once_with(1)
 
     @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch(_CLIENT_PATCH)
-    def test_personhog_no_matching_mapping_skips_update(self, mock_get_client, mock_routing_counter, mock_invalidate):
+    def test_personhog_group_type_index_zero_still_clears(self, mock_get_client, mock_invalidate):
+        """group_type_index=0 is falsy but valid — HasField must not skip it."""
+        mock_mapping = MagicMock(spec=["project_id", "group_type_index"])
+        mock_mapping.project_id = 1
+        mock_mapping.group_type_index = 0
+
         mock_resp = MagicMock()
-        mock_resp.mapping = None
+        mock_resp.HasField.return_value = True
+        mock_resp.mapping = mock_mapping
+
+        mock_client = MagicMock()
+        mock_client.get_group_type_mapping_by_dashboard_id.return_value = mock_resp
+        mock_client.update_group_type_mapping.return_value = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42)
+
+        mock_client.update_group_type_mapping.assert_called_once()
+        update_req = mock_client.update_group_type_mapping.call_args[0][0]
+        assert update_req.group_type_index == 0
+        mock_invalidate.assert_called_once_with(1)
+
+    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_no_matching_mapping_skips_update(self, mock_get_client, mock_invalidate):
+        mock_resp = MagicMock()
+        mock_resp.HasField.return_value = False
 
         mock_client = MagicMock()
         mock_client.get_group_type_mapping_by_dashboard_id.return_value = mock_resp
@@ -1004,118 +538,56 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
         mock_client.update_group_type_mapping.assert_not_called()
         mock_invalidate.assert_not_called()
 
-    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch(_CLIENT_PATCH)
-    def test_client_none_falls_back_to_orm(self, mock_get_client, mock_routing_counter, mock_objects, mock_invalidate):
-        mock_get_client.return_value = None
-
-        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42, project_id=1)
-
-        mock_objects.using.assert_called_once()
-        mock_invalidate.assert_called_once_with(1)
-        mock_routing_counter.labels.assert_called_with(
-            operation="clear_dashboard_from_group_type_mapping", source="django_orm", client_name="posthog-django"
-        )
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
-    @patch(_CLIENT_PATCH)
-    def test_personhog_exception_falls_back_to_orm(
-        self, mock_get_client, mock_routing_counter, mock_errors_counter, mock_objects
-    ):
-        mock_client = MagicMock()
-        mock_client.get_group_type_mapping_by_dashboard_id.side_effect = RuntimeError("grpc timeout")
-        mock_get_client.return_value = mock_client
-
-        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42, project_id=1)
-
-        mock_objects.using.assert_called_once()
-        mock_errors_counter.labels.assert_called_once()
-
 
 # ── Terminal-failure hardening tests ──────────────────────────────────
-
-
-def _make_db_error_objects() -> MagicMock:
-    # GroupTypeMapping.objects mock whose .filter(...).order_by(...).values()
-    # raises DatabaseError when iterated.
-    from django.db import DatabaseError
-
-    def _raise_db_error():
-        raise DatabaseError("db is down")
-
-    mock_values_qs = MagicMock()
-    mock_values_qs.__iter__ = MagicMock(side_effect=_raise_db_error)
-    mock_qs = MagicMock()
-    mock_qs.order_by.return_value.values.return_value = mock_values_qs
-    mock_objects = MagicMock()
-    mock_objects.filter.return_value = mock_qs
-    return mock_objects
 
 
 class TestTerminalFetchFailureMetric(SimpleTestCase):
     def setUp(self):
         self.project_id = 7777
         _clear_cache(self.project_id)
-        # client None skips the personhog leg, isolating the ORM failure
-        self._client_patcher = patch(_CLIENT_PATCH, return_value=None)
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
         self._client_patcher.start()
 
     def tearDown(self):
         self._client_patcher.stop()
         _clear_cache(self.project_id)
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping.GROUP_TYPES_FETCH_FAILURES")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_single_project_db_error_increments_fetch_failures_not_personhog(
-        self, mock_personhog_errors, mock_fetch_failures, mock_objects
-    ):
-        mock_objects.filter.side_effect = _make_db_error_objects().filter
-
+    @patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog", side_effect=RuntimeError("grpc fail"))
+    def test_single_project_failure_increments_fetch_failures(self, _mock_fetch, mock_fetch_failures):
         result = get_group_types_for_project(self.project_id)
 
         assert result == []
         mock_fetch_failures.labels.assert_called_once_with(
-            operation="get_group_types_for_project", source="django_orm", error_type="db_error"
+            operation="get_group_types_for_project", source="personhog", error_type="db_error"
         )
-        mock_personhog_errors.labels.assert_not_called()
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping.GROUP_TYPES_FETCH_FAILURES")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_team_db_error_increments_fetch_failures_not_personhog(
-        self, mock_personhog_errors, mock_fetch_failures, mock_objects
-    ):
-        mock_objects.filter.side_effect = _make_db_error_objects().filter
-
+    @patch(
+        "posthog.models.group_type_mapping._fetch_group_types_for_team_via_personhog",
+        side_effect=RuntimeError("grpc fail"),
+    )
+    def test_team_failure_increments_fetch_failures(self, _mock_fetch, mock_fetch_failures):
         result = get_group_types_for_team(4242)
 
         assert result == []
         mock_fetch_failures.labels.assert_called_once_with(
-            operation="get_group_types_for_team", source="django_orm", error_type="db_error"
+            operation="get_group_types_for_team", source="personhog", error_type="db_error"
         )
-        mock_personhog_errors.labels.assert_not_called()
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping.GROUP_TYPES_FETCH_FAILURES")
-    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_projects_db_error_increments_fetch_failures_not_personhog(
-        self, mock_personhog_errors, mock_fetch_failures, mock_objects
-    ):
-        mock_objects.filter.side_effect = _make_db_error_objects().filter
-
-        # No stale, so it fails closed, but the counter still fires first
+    @patch(
+        "posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog",
+        side_effect=RuntimeError("grpc fail"),
+    )
+    def test_projects_failure_increments_fetch_failures(self, _mock_fetch, mock_fetch_failures):
         with self.assertRaises(GroupTypesUnavailable):
             get_group_types_for_projects([self.project_id])
 
         mock_fetch_failures.labels.assert_called_once_with(
-            operation="get_group_types_for_projects", source="django_orm", error_type="db_error"
+            operation="get_group_types_for_projects", source="personhog", error_type="db_error"
         )
-        mock_personhog_errors.labels.assert_not_called()
 
 
 class TestGetGroupTypesForProjectsFailClosed(SimpleTestCase):
@@ -1123,18 +595,21 @@ class TestGetGroupTypesForProjectsFailClosed(SimpleTestCase):
         self.project_ids = [101, 102]
         for pid in self.project_ids:
             _clear_cache(pid)
-        self._client_patcher = patch(_CLIENT_PATCH, return_value=None)
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
         self._client_patcher.start()
+        self._fetch_patcher = patch(
+            "posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog",
+            side_effect=RuntimeError("grpc fail"),
+        )
+        self._fetch_patcher.start()
 
     def tearDown(self):
+        self._fetch_patcher.stop()
         self._client_patcher.stop()
         for pid in self.project_ids:
             _clear_cache(pid)
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_db_error_recovers_each_project_from_stale(self, mock_objects):
-        mock_objects.filter.side_effect = _make_db_error_objects().filter
-
+    def test_recovers_each_project_from_stale(self):
         stale_101 = [{"group_type": "org", "group_type_index": 0}]
         stale_102 = [{"group_type": "company", "group_type_index": 0}]
         safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}101", stale_101, 3600)
@@ -1144,20 +619,13 @@ class TestGetGroupTypesForProjectsFailClosed(SimpleTestCase):
 
         assert result == {101: stale_101, 102: stale_102}
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_db_error_raises_group_types_unavailable_when_no_stale(self, mock_objects):
-        mock_objects.filter.side_effect = _make_db_error_objects().filter
-
+    def test_raises_group_types_unavailable_when_no_stale(self):
         with self.assertRaises(GroupTypesUnavailable) as ctx:
             get_group_types_for_projects(self.project_ids)
 
         assert set(ctx.exception.project_ids) == {101, 102}
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_db_error_raises_when_any_project_lacks_stale(self, mock_objects):
-        mock_objects.filter.side_effect = _make_db_error_objects().filter
-
-        # Only 101 has a last-known-good; 102 is unrecoverable, so it fails closed
+    def test_raises_when_any_project_lacks_stale(self):
         safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}101", [{"group_type": "org", "group_type_index": 0}], 3600)
 
         with self.assertRaises(GroupTypesUnavailable) as ctx:
@@ -1165,68 +633,13 @@ class TestGetGroupTypesForProjectsFailClosed(SimpleTestCase):
 
         assert ctx.exception.project_ids == [102]
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_empty_stale_counts_as_recovered(self, mock_objects):
-        # A cached empty list is a known value, so it recovers rather than failing closed
-        mock_objects.filter.side_effect = _make_db_error_objects().filter
-
+    def test_empty_stale_counts_as_recovered(self):
         safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}101", [], 3600)
         safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}102", [], 3600)
 
         result = get_group_types_for_projects(self.project_ids)
 
         assert result == {101: [], 102: []}
-
-
-class TestProjectsStaleCachePopulation(SimpleTestCase):
-    def setUp(self):
-        self.project_ids = [201, 202]
-        for pid in self.project_ids:
-            _clear_cache(pid)
-        self._client_patcher = patch(_CLIENT_PATCH, return_value=None)
-        self._client_patcher.start()
-
-    def tearDown(self):
-        self._client_patcher.stop()
-        for pid in self.project_ids:
-            _clear_cache(pid)
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_orm_success_writes_non_empty_to_stale_only(self, mock_objects):
-        from posthog.utils import get_safe_cache
-
-        orm_rows = [
-            {"project_id": 201, "group_type": "organization", "group_type_index": 0},
-        ]
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = [dict(r) for r in orm_rows]
-        mock_objects.filter.return_value = mock_qs
-
-        result = get_group_types_for_projects(self.project_ids)
-
-        # 201 had a mapping → persisted to stale; 202 was empty → stale left absent
-        assert result[201] == [{"group_type": "organization", "group_type_index": 0}]
-        assert result[202] == []
-        assert get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}201") == [
-            {"group_type": "organization", "group_type_index": 0}
-        ]
-        assert get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}202") is None
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_empty_success_does_not_overwrite_existing_stale(self, mock_objects):
-        from posthog.utils import get_safe_cache
-
-        prior = [{"group_type": "organization", "group_type_index": 0}]
-        safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}201", prior, 3600)
-
-        mock_qs = MagicMock()
-        mock_qs.order_by.return_value.values.return_value = []  # empty success
-        mock_objects.filter.return_value = mock_qs
-
-        get_group_types_for_projects([201])
-
-        # Empty result must not clobber the populated last-known-good
-        assert get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}201") == prior
 
 
 class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
@@ -1266,6 +679,16 @@ class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
 
 class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
     _PROJECT_IDS = (123, 777, 888)
+    _DIRECT_PATCH = "posthog.models.group_type_mapping._fetch_group_types_for_project_direct"
+    _SAMPLE_ROW = {
+        "group_type": "organization",
+        "group_type_index": 0,
+        "name_singular": None,
+        "name_plural": None,
+        "detail_dashboard": None,
+        "default_columns": None,
+        "created_at": None,
+    }
 
     def setUp(self):
         self._clear_markers()
@@ -1277,50 +700,42 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
         for project_id in self._PROJECT_IDS:
             safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{project_id}")
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_returns_true_when_rows_exist(self, mock_objects):
-        mock_objects.using.return_value.filter.return_value.exists.return_value = True
+    @patch(_DIRECT_PATCH)
+    def test_returns_true_when_rows_exist(self, mock_fetch):
+        mock_fetch.return_value = [self._SAMPLE_ROW]
 
         assert project_has_group_types_authoritatively(123) is True
-        # Reads the primary, not a replica, so a lagging read cannot fake a deletion.
-        mock_objects.using.assert_called_once_with(PERSONS_DB_FOR_WRITE)
-        mock_objects.using.return_value.filter.assert_called_once_with(project_id=123)
+        mock_fetch.assert_called_once_with(123, "strong", caller_tag="flags/has-group-types")
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_returns_false_when_no_rows(self, mock_objects):
-        mock_objects.using.return_value.filter.return_value.exists.return_value = False
+    @patch(_DIRECT_PATCH)
+    def test_returns_false_when_no_rows(self, mock_fetch):
+        mock_fetch.return_value = []
 
         assert project_has_group_types_authoritatively(123) is False
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_fails_closed_on_db_error(self, mock_objects):
+    @patch(_DIRECT_PATCH)
+    def test_fails_closed_on_db_error(self, mock_fetch):
         from django.db import DatabaseError
 
-        mock_objects.using.return_value.filter.return_value.exists.side_effect = DatabaseError("db down")
+        mock_fetch.side_effect = DatabaseError("db down")
 
-        # Cannot confirm absence → assume present so the caller keeps the existing entry.
         assert project_has_group_types_authoritatively(123) is True
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_confirmed_empty_marker_short_circuits_second_call(self, mock_objects):
-        exists_mock = mock_objects.using.return_value.filter.return_value.exists
-        exists_mock.return_value = False
+    @patch(_DIRECT_PATCH)
+    def test_confirmed_empty_marker_short_circuits_second_call(self, mock_fetch):
+        mock_fetch.return_value = []
 
-        # First call confirms empty against the DB and caches the marker.
         assert project_has_group_types_authoritatively(777) is False
-        # Second call reads the marker instead of probing the writer DB again.
         assert project_has_group_types_authoritatively(777) is False
-        exists_mock.assert_called_once()
+        mock_fetch.assert_called_once()
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_present_result_is_not_cached(self, mock_objects):
-        exists_mock = mock_objects.using.return_value.filter.return_value.exists
-        exists_mock.return_value = True
+    @patch(_DIRECT_PATCH)
+    def test_present_result_is_not_cached(self, mock_fetch):
+        mock_fetch.return_value = [self._SAMPLE_ROW]
 
-        # A True is never cached, so a later deletion is seen on the next call.
         assert project_has_group_types_authoritatively(777) is True
         assert project_has_group_types_authoritatively(777) is True
-        assert exists_mock.call_count == 2
+        assert mock_fetch.call_count == 2
 
     def test_invalidate_group_types_cache_clears_confirmed_empty_marker(self):
         marker_key = f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}888"
@@ -1328,73 +743,147 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
 
         invalidate_group_types_cache(888)
 
-        # A team adding its first group type must stop short-circuiting to False at once.
         assert get_safe_cache(marker_key) is None
 
 
-class TestGroupTypesForProjectPathParity(BaseTest):
-    """The personhog and ORM paths of get_group_types_for_project must return identical rows.
+class TestDictToGroupTypeMappingModel(SimpleTestCase):
+    def test_builds_model_from_full_dict(self):
+        row = {
+            "group_type": "organization",
+            "group_type_index": 0,
+            "name_singular": "Organization",
+            "name_plural": "Organizations",
+            "detail_dashboard": 42,
+            "default_columns": ["name"],
+            "created_at": None,
+        }
+        obj = _dict_to_group_type_mapping_model(row, project_id=99)
 
-    The ORM path only runs as the fallback when personhog errors, so a shape or
-    value divergence would surface during incidents — compare the paths against
-    each other on the same data instead of against hand-written expectations.
-    Delete this test together with the ORM fallback.
-    """
+        assert obj.project_id == 99
+        assert obj.group_type == "organization"
+        assert obj.group_type_index == 0
+        assert obj.name_singular == "Organization"
+        assert obj.name_plural == "Organizations"
+        assert obj.detail_dashboard_id == 42
+        assert obj.default_columns == ["name"]
+        assert obj._state.adding is False
 
-    def test_personhog_and_orm_paths_return_identical_rows(self):
-        # Exact-millisecond timestamp: the proto carries epoch ms, so a sub-ms
-        # value would diverge from the ORM no matter what the code does.
-        created_at = datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
-        dashboard = Dashboard.objects.create(team=self.team, name="orgs")
+    def test_builds_model_from_minimal_dict(self):
+        row = {"group_type": "company", "group_type_index": 1}
+        obj = _dict_to_group_type_mapping_model(row, project_id=99)
 
-        GroupTypeMapping.objects.create(  # nosemgrep: no-direct-persons-db-orm
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-            name_singular="Organization",
-            name_plural="Organizations",
-            default_columns=["name"],
-            detail_dashboard=dashboard,
-            created_at=created_at,
-        )
-        minimal = GroupTypeMapping.objects.create(  # nosemgrep: no-direct-persons-db-orm
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="company",
-            group_type_index=1,
-        )
-        # save() auto-fills created_at; NULL it to exercise the None case on both paths
-        GroupTypeMapping.objects.filter(pk=minimal.pk).update(created_at=None)  # nosemgrep: no-direct-persons-db-orm
+        assert obj.group_type == "company"
+        assert obj.group_type_index == 1
+        assert obj.name_singular is None
+        assert obj.name_plural is None
+        assert obj.detail_dashboard_id is None
+        assert obj.default_columns is None
+        assert obj._state.adding is False
 
-        fake = FakePersonHogClient()
-        fake.add_group_type_mapping(
-            project_id=self.team.project_id,
-            team_id=self.team.id,
-            group_type="organization",
-            group_type_index=0,
-            name_singular="Organization",
-            name_plural="Organizations",
-            default_columns=["name"],
-            detail_dashboard_id=dashboard.id,
-            created_at=int(created_at.timestamp() * 1000),
-        )
-        fake.add_group_type_mapping(
-            project_id=self.team.project_id,
-            team_id=self.team.id,
-            group_type="company",
-            group_type_index=1,
-        )
+    def test_accepts_detail_dashboard_id_key(self):
+        row = {"group_type": "org", "group_type_index": 0, "detail_dashboard_id": 7}
+        obj = _dict_to_group_type_mapping_model(row, project_id=99)
 
-        with patch(_CLIENT_PATCH, return_value=fake):
-            _clear_cache(self.team.project_id)
-            personhog_rows = get_group_types_for_project(self.team.project_id)
+        assert obj.detail_dashboard_id == 7
 
-        with patch(_CLIENT_PATCH, return_value=None):
-            _clear_cache(self.team.project_id)
-            orm_rows = get_group_types_for_project(self.team.project_id)
+    def test_team_none_by_default(self):
+        row = {"group_type": "org", "group_type_index": 0}
+        obj = _dict_to_group_type_mapping_model(row, project_id=99)
 
-        # Guard against vacuous equality before comparing the paths
-        assert len(orm_rows) == 2
-        assert orm_rows[0]["detail_dashboard"] == dashboard.id
-        assert personhog_rows == orm_rows
+        assert obj.team_id is None
+
+
+class TestGetGroupTypeMappingInstance(SimpleTestCase):
+    def setUp(self):
+        self.project_id = 777
+        _clear_cache(self.project_id)
+
+    def tearDown(self):
+        _clear_cache(self.project_id)
+
+    @patch("posthog.models.group_type_mapping.get_group_types_for_project")
+    def test_returns_matching_instance(self, mock_get):
+        mock_get.return_value = PERSONHOG_SUCCESS_DATA
+
+        result = get_group_type_mapping_instance(self.project_id, 0)
+
+        assert isinstance(result, GroupTypeMapping)
+        assert result.group_type == "organization"
+        assert result.group_type_index == 0
+        assert result.project_id == self.project_id
+        mock_get.assert_called_once_with(self.project_id, caller_tag=None)
+
+    @patch("posthog.models.group_type_mapping.get_group_types_for_project")
+    def test_returns_second_index(self, mock_get):
+        mock_get.return_value = PERSONHOG_SUCCESS_DATA
+
+        result = get_group_type_mapping_instance(self.project_id, 1)
+
+        assert result.group_type == "company"
+        assert result.group_type_index == 1
+
+    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
+    @patch("posthog.models.group_type_mapping.get_group_types_for_project")
+    def test_cache_bust_retry_finds_mapping(self, mock_get, mock_invalidate):
+        fresh_data = [
+            *PERSONHOG_SUCCESS_DATA,
+            {
+                "group_type": "workspace",
+                "group_type_index": 2,
+                "name_singular": "Workspace",
+                "name_plural": "Workspaces",
+                "detail_dashboard": None,
+                "default_columns": None,
+                "created_at": None,
+            },
+        ]
+        mock_get.side_effect = [PERSONHOG_SUCCESS_DATA, fresh_data]
+
+        result = get_group_type_mapping_instance(self.project_id, 2)
+
+        assert result.group_type == "workspace"
+        assert result.group_type_index == 2
+        mock_invalidate.assert_called_once_with(self.project_id)
+        assert mock_get.call_count == 2
+
+    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
+    @patch("posthog.models.group_type_mapping.get_group_types_for_project")
+    def test_raises_does_not_exist_after_retry(self, mock_get, mock_invalidate):
+        mock_get.return_value = PERSONHOG_SUCCESS_DATA
+
+        with self.assertRaises(GroupTypeMapping.DoesNotExist):
+            get_group_type_mapping_instance(self.project_id, 99)
+
+        mock_invalidate.assert_called_once_with(self.project_id)
+        assert mock_get.call_count == 2
+
+    @patch("posthog.models.group_type_mapping._dict_to_group_type_mapping_model")
+    @patch("posthog.models.group_type_mapping.get_group_types_for_project")
+    def test_passes_team_to_model_builder(self, mock_get, mock_builder):
+        mock_get.return_value = PERSONHOG_SUCCESS_DATA
+        mock_builder.return_value = MagicMock(spec=GroupTypeMapping)
+        team = MagicMock()
+
+        get_group_type_mapping_instance(self.project_id, 0, team=team)
+
+        mock_builder.assert_called_once_with(PERSONHOG_SUCCESS_DATA[0], project_id=self.project_id, team=team)
+
+    @patch("posthog.models.group_type_mapping._fetch_group_types_for_project_direct")
+    def test_consistency_strong_bypasses_cache(self, mock_fetch):
+        mock_fetch.return_value = PERSONHOG_SUCCESS_DATA
+        mock_builder_result = MagicMock(spec=GroupTypeMapping)
+
+        with patch(
+            "posthog.models.group_type_mapping._dict_to_group_type_mapping_model", return_value=mock_builder_result
+        ):
+            result = get_group_type_mapping_instance(self.project_id, 0, consistency="strong")
+
+        assert result is mock_builder_result
+        mock_fetch.assert_called_once()
+
+    @patch("posthog.models.group_type_mapping._fetch_group_types_for_project_direct")
+    def test_consistency_strong_raises_does_not_exist(self, mock_fetch):
+        mock_fetch.return_value = PERSONHOG_SUCCESS_DATA
+
+        with self.assertRaises(GroupTypeMapping.DoesNotExist):
+            get_group_type_mapping_instance(self.project_id, 99, consistency="strong")

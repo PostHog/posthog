@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import {

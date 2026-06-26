@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import time
 import threading
-from typing import Optional
+from collections.abc import Callable
+from typing import Optional, TypeVar
 
 from django.conf import settings
 
@@ -35,6 +36,10 @@ from posthog.personhog_client.proto import (
     DeleteGroupTypeMappingResponse,
     DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse,
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
@@ -73,6 +78,10 @@ from posthog.personhog_client.proto import (
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
+    SetPersonDistinctIdVersionFloorRequest,
+    SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest,
+    SetPersonVersionFloorResponse,
     SplitPersonRequest,
     SplitPersonResponse,
     UpdateGroupRequest,
@@ -209,10 +218,27 @@ class PersonHogClient:
     ) -> DeletePersonsBatchForTeamResponse:
         return self._stub.DeletePersonsBatchForTeam(request, timeout=timeout or self._timeout)
 
+    def delete_personless_distinct_ids_batch_for_team(
+        self, request: DeletePersonlessDistinctIdsBatchForTeamRequest, timeout: float | None = None
+    ) -> DeletePersonlessDistinctIdsBatchForTeamResponse:
+        return self._stub.DeletePersonlessDistinctIdsBatchForTeam(request, timeout=timeout or self._timeout)
+
     # -- Person split --
 
     def split_person(self, request: SplitPersonRequest, timeout: float | None = None) -> SplitPersonResponse:
         return self._stub.SplitPerson(request, timeout=timeout or self._timeout)
+
+    # -- Undelete repair --
+
+    def set_person_distinct_id_version_floor(
+        self, request: SetPersonDistinctIdVersionFloorRequest, timeout: float | None = None
+    ) -> SetPersonDistinctIdVersionFloorResponse:
+        return self._stub.SetPersonDistinctIdVersionFloor(request, timeout=timeout or self._timeout)
+
+    def set_person_version_floor(
+        self, request: SetPersonVersionFloorRequest, timeout: float | None = None
+    ) -> SetPersonVersionFloorResponse:
+        return self._stub.SetPersonVersionFloor(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 
@@ -340,6 +366,15 @@ class PersonHogClient:
     ) -> DeleteGroupTypeMappingsBatchForTeamResponse:
         return self._stub.DeleteGroupTypeMappingsBatchForTeam(request, timeout=timeout or self._timeout)
 
+    # -- Feature flag hash key overrides --
+
+    def delete_hash_key_overrides_by_teams(
+        self, request: DeleteHashKeyOverridesByTeamsRequest, timeout: float | None = None
+    ) -> DeleteHashKeyOverridesByTeamsResponse:
+        return self._stub.DeleteHashKeyOverridesByTeams(request, timeout=timeout or self._timeout)
+
+
+_T = TypeVar("_T")
 
 _client: Optional[PersonHogClient] = None
 _lock = threading.Lock()
@@ -376,3 +411,52 @@ def get_personhog_client() -> Optional[PersonHogClient]:
                 logger.info("personhog_client_initialized", addr=addr, timeout_ms=timeout_ms)
 
     return _client
+
+
+def require_personhog_client() -> PersonHogClient:
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+    return client
+
+
+def personhog_call(
+    operation: str,
+    fn: Callable[[], _T],
+    *,
+    caller_tag: str | None = None,
+    reraise_as: type[Exception] | None = None,
+) -> _T:
+    """Execute a personhog operation with metrics and optional error wrapping.
+
+    ``caller_tag`` sets the personhog caller-tag context for observability.
+    ``reraise_as`` wraps the exception in the given type before re-raising.
+    Error metrics and a warning log are always recorded on failure regardless
+    of ``reraise_as``.
+    """
+    from posthog.personhog_client.caller_tag import personhog_caller_tag
+    from posthog.personhog_client.metrics import (
+        PERSONHOG_ROUTING_ERRORS_TOTAL,
+        PERSONHOG_ROUTING_TOTAL,
+        get_client_name,
+    )
+
+    tag_ctx = personhog_caller_tag(caller_tag) if caller_tag else None
+
+    try:
+        if tag_ctx:
+            with tag_ctx:
+                result = fn()
+        else:
+            result = fn()
+    except Exception as exc:
+        PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+            operation=operation, source="personhog", error_type="grpc_error", client_name=get_client_name()
+        ).inc()
+        logger.warning("personhog_%s_failure", operation, exc_info=True)
+        if reraise_as is not None:
+            raise reraise_as(f"personhog {operation} failed") from exc
+        raise
+
+    PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
+    return result

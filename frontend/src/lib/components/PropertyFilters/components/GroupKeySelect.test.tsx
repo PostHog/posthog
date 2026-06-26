@@ -49,8 +49,8 @@ describe('GroupKeySelect', () => {
                     results: MOCK_GROUPS,
                     next: null,
                 },
-                '/api/environments/:team/groups/find': (req: any) => {
-                    const groupKey = req.url.searchParams.get('group_key')
+                '/api/environments/:team/groups/find': ({ request }) => {
+                    const groupKey = new URL(request.url).searchParams.get('group_key')
                     const group = [...MOCK_GROUPS, FIND_ONLY_GROUP].find((g) => g.group_key === groupKey)
                     return group ? [200, group] : [404, { detail: 'Not found' }]
                 },
@@ -226,8 +226,16 @@ describe('GroupKeySelect', () => {
             const snack = await screen.findByText(snackLabel)
             await userEvent.hover(snack)
 
-            expect(await screen.findByText(expectedKeyInCard)).toBeInTheDocument()
-            expect(await screen.findByText(/First seen:/)).toBeInTheDocument()
+            // Wrap in a single waitFor so both assertions pass atomically — the
+            // tooltip can briefly remount when the groups list finishes loading
+            // (300ms debounce) and swaps GroupKeyFilterTooltip for GroupInfoCard.
+            await waitFor(
+                () => {
+                    expect(screen.getByText(expectedKeyInCard)).toBeInTheDocument()
+                    expect(screen.getByText(/First seen:/)).toBeInTheDocument()
+                },
+                { timeout: 3000 }
+            )
         }
     )
 
@@ -249,7 +257,12 @@ describe('GroupKeySelect', () => {
         const option = await screen.findByText('Bitfusion PR LLC')
         await userEvent.hover(option)
 
-        expect(await screen.findByText('uuid-002')).toBeInTheDocument()
-        expect(await screen.findByText(/First seen:/)).toBeInTheDocument()
+        await waitFor(
+            () => {
+                expect(screen.getByText('uuid-002')).toBeInTheDocument()
+                expect(screen.getByText(/First seen:/)).toBeInTheDocument()
+            },
+            { timeout: 3000 }
+        )
     })
 })

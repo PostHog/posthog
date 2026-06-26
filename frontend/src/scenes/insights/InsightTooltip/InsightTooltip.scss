@@ -109,6 +109,22 @@
             min-width: 0;
         }
 
+        .insights-label__math {
+            flex-shrink: 0;
+            overflow: hidden;
+
+            .LemonTag {
+                flex-shrink: 0;
+            }
+
+            .PropertyKeyInfo__text {
+                max-width: 6rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+        }
+
         // InsightLabel nests its text in fit-content flex wrappers that ignore
         // the label's max-width, so long names overflow and hard-clip at the
         // tooltip edge. Cap the wrappers at the label width so the label's
