@@ -122,6 +122,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setReadOnlyMode: (readOnly: boolean) => ({ readOnly }),
         toggleDeniedScope: (scopeObject: string) => ({ scopeObject }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
+        setTeamHint: (teamId: number | null) => ({ teamId }),
         setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
         setIsMcpResource: (isMcpResource: boolean) => ({ isMcpResource }),
         loadResourceScopes: (resourceUrl: string) => ({ resourceUrl }),
@@ -313,6 +314,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setSelectedOrganization: (_, { organizationId }) => organizationId,
             },
         ],
+        teamHint: [
+            null as number | null,
+            {
+                setTeamHint: (_, { teamId }) => teamId,
+            },
+        ],
         showCreateProject: [
             false,
             {
@@ -352,6 +359,18 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             }
         },
         loadAllTeamsSuccess: () => {
+            // A team_id hint from the authorize URL (e.g. the wizard's --project-id) wins:
+            // pre-select that project and its org so the user just clicks Authorize. We only
+            // honor it if the user actually has access to that team (it's in their loaded
+            // teams); otherwise fall through to the normal default.
+            const teams = values.sortedTeams
+            if (values.teamHint && teams && values.requiredAccessLevel === 'team') {
+                const hinted = teams.find((t) => t.id === values.teamHint)
+                if (hinted) {
+                    actions.setSelectedOrganization(hinted.organization, hinted.id)
+                    return
+                }
+            }
             // After teams load, auto-select first project if org is set but no project selected
             const orgId = values.selectedOrganization
             const currentTeams = values.oauthAuthorization.scoped_teams
@@ -665,8 +684,14 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
             const requiredAccessLevel = rawRequiredAccessLevel === 'project' ? 'team' : rawRequiredAccessLevel
 
+            // Optional project to pre-select on the consent screen (e.g. the wizard's
+            // `--project-id`). Honored only when the user has access to it; otherwise ignored.
+            const teamIdParam = Number(searchParams['team_id'])
+            const teamHint = Number.isInteger(teamIdParam) && teamIdParam > 0 ? teamIdParam : null
+
             actions.setScopesWereDefaulted(scopesWereDefaulted)
             actions.setIsMcpResource(isMcpResource)
+            actions.setTeamHint(teamHint)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()
             actions.loadAllTeams()
