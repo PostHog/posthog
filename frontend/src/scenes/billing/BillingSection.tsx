@@ -2,9 +2,9 @@ import './Billing.scss'
 
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,11 +12,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Billing } from './Billing'
-import { BillingAlerts } from './BillingAlerts'
 import { billingLogic } from './billingLogic'
 import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
 import { BillingSectionId } from './types'
+
+const BillingAlerts = lazy(() => import('./BillingAlerts').then((m) => ({ default: m.BillingAlerts })))
 
 export const scene: SceneExport = {
     component: BillingSection,
@@ -84,7 +85,11 @@ export function BillingSection(): JSX.Element {
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}
             {section === 'spend' && <BillingSpendView />}
-            {section === 'alerts' && <BillingAlerts />}
+            {section === 'alerts' && (
+                <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
+                    <BillingAlerts />
+                </Suspense>
+            )}
         </div>
     )
 }

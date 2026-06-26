@@ -141,7 +141,6 @@ def evaluate_and_record_billing_alert(
     query_duration_ms: int | None = None,
 ) -> BillingAlertEvent:
     now = now or timezone.now()
-    state_before = alert.state
 
     try:
         evaluation = evaluate_billing_alert(
@@ -150,21 +149,23 @@ def evaluate_and_record_billing_alert(
             billing_response=billing_response,
             query_duration_ms=query_duration_ms,
         )
-        next_state = _state_after(alert, evaluation, now)
-        event_kind = _event_kind(alert, evaluation, next_state, now)
 
         with transaction.atomic():
+            locked_alert = BillingAlertConfiguration.objects.unscoped().select_for_update().get(pk=alert.pk)
+            state_before = locked_alert.state
+            next_state = _state_after(locked_alert, evaluation, now)
+            event_kind = _event_kind(locked_alert, evaluation, next_state, now)
             event_defaults = {
                 "period_start": evaluation.period_start,
                 "period_end": evaluation.period_end,
-                "metric": alert.metric,
+                "metric": locked_alert.metric,
                 "current_value": evaluation.current_value,
                 "baseline_value": evaluation.baseline_value,
                 "absolute_delta": evaluation.absolute_delta,
                 "relative_delta_percentage": evaluation.relative_delta_percentage,
-                "threshold_value_snapshot": alert.threshold_value,
-                "threshold_percentage_snapshot": alert.threshold_percentage,
-                "minimum_value_snapshot": alert.minimum_value,
+                "threshold_value_snapshot": locked_alert.threshold_value,
+                "threshold_percentage_snapshot": locked_alert.threshold_percentage,
+                "minimum_value_snapshot": locked_alert.minimum_value,
                 "threshold_breached": evaluation.threshold_breached,
                 "state_before": state_before,
                 "state_after": next_state,
@@ -177,24 +178,24 @@ def evaluate_and_record_billing_alert(
             }
             if event_kind == BillingAlertEvent.Kind.CHECK:
                 event, _ = BillingAlertEvent.objects.unscoped().update_or_create(
-                    alert=alert,
+                    alert=locked_alert,
                     kind=event_kind,
                     evaluation_date=evaluation.evaluation_date,
-                    defaults={**event_defaults, "team_id": alert.team_id},
+                    defaults={**event_defaults, "team_id": locked_alert.team_id},
                 )
             else:
                 event = BillingAlertEvent.objects.unscoped().create(
-                    alert=alert,
-                    team_id=alert.team_id,
+                    alert=locked_alert,
+                    team_id=locked_alert.team_id,
                     kind=event_kind,
                     evaluation_date=evaluation.evaluation_date,
                     **event_defaults,
                 )
-            alert.state = next_state
-            alert.last_checked_at = now
-            alert.next_check_at = now + timedelta(hours=alert.check_interval_hours)
-            alert.consecutive_failures = 0
-            alert.save(
+            locked_alert.state = next_state
+            locked_alert.last_checked_at = now
+            locked_alert.next_check_at = now + timedelta(hours=locked_alert.check_interval_hours)
+            locked_alert.consecutive_failures = 0
+            locked_alert.save(
                 update_fields=[
                     "state",
                     "last_checked_at",
@@ -203,6 +204,10 @@ def evaluate_and_record_billing_alert(
                     "updated_at",
                 ]
             )
+            alert.state = locked_alert.state
+            alert.last_checked_at = locked_alert.last_checked_at
+            alert.next_check_at = locked_alert.next_check_at
+            alert.consecutive_failures = locked_alert.consecutive_failures
             return event
     except Exception as e:
         capture_exception(e, {"alert_id": str(alert.id), "feature": "billing_alerts"})
