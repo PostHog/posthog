@@ -294,6 +294,8 @@ export interface SourceWizardLogicProps {
     availableSources: Record<string, SourceConfig>
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
+    /** Onboarding: pre-select every syncable table with smart defaults for a one-click sync */
+    autoConfigureTables?: boolean
 }
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
@@ -1469,6 +1471,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         } else {
                             schema.sync_type = 'full_refresh'
                         }
+                    }
+
+                    // Onboarding one-click setup: opt every syncable table in (permission errors
+                    // already continued above), so the user can sync the whole source in one click.
+                    if (props.autoConfigureTables) {
+                        schema.should_sync = true
                     }
                 }
 
