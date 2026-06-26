@@ -218,7 +218,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         setLastNewFolder: (folder: string | null) => ({ folder }),
 
-        addShortcutItem: (item: FileSystemEntry) => ({ item }),
+        addShortcutItem: (item: FileSystemEntry, source?: string) => ({ item, source }),
         deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
         loadShortcuts: true,
         reorderShortcuts: (orderedIds: NonNullable<FileSystemEntry['id']>[]) => ({ orderedIds }),
@@ -485,7 +485,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     )
                     return response.results
                 },
-                addShortcutItem: async ({ item }) => {
+                addShortcutItem: async ({ item, source }) => {
                     const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
 
                     const shortcutItem =
@@ -502,7 +502,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type ?? 'unknown', shortcutPath)
+                    eventUsageLogic.actions.reportNavbarStarredItemAdded(
+                        shortcutItem.type ?? 'unknown',
+                        shortcutPath,
+                        source
+                    )
                     lemonToast.success('Added to starred', {
                         button: {
                             label: 'View',

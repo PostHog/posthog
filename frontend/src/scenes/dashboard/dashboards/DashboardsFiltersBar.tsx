@@ -1,10 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX } from '@posthog/icons'
+import {
+    IconChevronDown,
+    IconFolder,
+    IconPin,
+    IconPinFilled,
+    IconShare,
+    IconStar,
+    IconStarFilled,
+    IconX,
+} from '@posthog/icons'
 import { LemonInput, Popover } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
@@ -15,6 +25,7 @@ interface DashboardsFiltersBarProps {
 export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps): JSX.Element {
     const { filters, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
     const { setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
+    const showStarring = useFeatureFlag('DASHBOARDS_LIST_STARRING', 'test')
 
     const createdByIds = filters.createdBy === 'All users' ? [] : filters.createdBy
 
@@ -56,6 +67,19 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                                 icon={filters.pinned ? <IconPinFilled /> : <IconPin />}
                             >
                                 Pinned
+                            </LemonButton>
+                        </div>
+                    )}
+                    {showStarring && (
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                active={filters.starred}
+                                type="secondary"
+                                size="small"
+                                onClick={() => setFilters({ starred: !filters.starred })}
+                                icon={filters.starred ? <IconStarFilled /> : <IconStar />}
+                            >
+                                Starred
                             </LemonButton>
                         </div>
                     )}

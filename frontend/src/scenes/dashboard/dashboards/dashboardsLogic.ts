@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'
@@ -30,6 +31,7 @@ export interface DashboardsFilters {
     search: string
     createdBy: number[] | 'All users'
     pinned: boolean
+    starred: boolean
     shared: boolean
     tags?: string[]
     /** Folder path to filter to, e.g. 'Unfiled/Dashboards' (empty string = project root). null means no folder filter. */
@@ -40,6 +42,7 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     search: '',
     createdBy: 'All users',
     pinned: false,
+    starred: false,
     shared: false,
     tags: [],
     folder: null,
@@ -177,6 +180,18 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 return (tags || []).filter((tag) => tag.toLowerCase().includes(search.toLowerCase()))
             },
         ],
+        // Starring reuses the file-system "shortcuts" feature: a starred dashboard has a
+        // FileSystemShortcut row (per-user) whose `ref` is the dashboard id. Build the set of
+        // starred dashboard ids so both the list filter and per-row toggle can read it.
+        starredDashboardRefs: [
+            () => [projectTreeDataLogic.selectors.shortcutData],
+            (shortcutData): Set<string> =>
+                new Set(
+                    shortcutData
+                        .filter((shortcut) => shortcut.type === 'dashboard' && shortcut.ref)
+                        .map((shortcut) => shortcut.ref as string)
+                ),
+        ],
         dashboards: [
             (s) => [
                 dashboardsModel.selectors.nameSortedDashboards,
@@ -185,8 +200,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 s.filters,
                 s.currentTab,
                 s.user,
+                s.starredDashboardRefs,
             ],
-            (allDashboards, rawDashboards, searchedDashboards, filters, currentTab, user) => {
+            (allDashboards, rawDashboards, searchedDashboards, filters, currentTab, user, starredDashboardRefs) => {
                 // When a search term is active we trust the server's trigram word similarity
                 // ranking; otherwise we use the model's alphabetised list. This keeps the exact
                 // match at the top.
@@ -204,6 +220,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 }
                 if (filters.pinned) {
                     haystack = haystack.filter((d) => d.pinned)
+                }
+                if (filters.starred) {
+                    haystack = haystack.filter((d) => starredDashboardRefs.has(String(d.id)))
                 }
                 if (filters.shared) {
                     haystack = haystack.filter((d) => d.is_shared)
@@ -274,7 +293,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
         setFilters: () => {
-            const { createdBy, pinned, shared, tags } = values.filters
+            const { createdBy, pinned, starred, shared, tags } = values.filters
             const searchParams: Record<string, any> = { ...router.values.searchParams }
 
             if (createdBy !== DEFAULT_FILTERS.createdBy) {
@@ -286,6 +305,11 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 searchParams['pinned'] = true
             } else {
                 delete searchParams['pinned']
+            }
+            if (starred) {
+                searchParams['starred'] = true
+            } else {
+                delete searchParams['starred']
             }
             if (shared) {
                 searchParams['shared'] = true
@@ -334,6 +358,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             const nextFilters = {
                 createdBy: createdByIds.length > 0 ? createdByIds : DEFAULT_FILTERS.createdBy,
                 pinned: searchParams['pinned'] === true || searchParams['pinned'] === 'true',
+                starred: searchParams['starred'] === true || searchParams['starred'] === 'true',
                 shared: searchParams['shared'] === true || searchParams['shared'] === 'true',
                 tags: Array.isArray(searchParams['tags']) ? searchParams['tags'] : DEFAULT_FILTERS.tags,
                 folder: 'folder' in searchParams ? urlSearchParamToString(searchParams['folder']) : null,
@@ -342,6 +367,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             if (
                 !objectsEqual(current.createdBy, nextFilters.createdBy) ||
                 current.pinned !== nextFilters.pinned ||
+                current.starred !== nextFilters.starred ||
                 current.shared !== nextFilters.shared ||
                 !objectsEqual(current.tags ?? [], nextFilters.tags ?? []) ||
                 (current.folder ?? null) !== nextFilters.folder

@@ -1,11 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import {
+    IconFolder,
+    IconHome,
+    IconLock,
+    IconPin,
+    IconPinFilled,
+    IconShare,
+    IconStar,
+    IconStarFilled,
+} from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -26,6 +36,7 @@ import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -60,7 +71,8 @@ export function DashboardsTable({
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { tableSortingChanged, setFilters } = useActions(dashboardsLogic)
-    const { tableSorting, filters } = useValues(dashboardsLogic)
+    const { tableSorting, filters, starredDashboardRefs } = useValues(dashboardsLogic)
+    const { addShortcutItem, deleteShortcut } = useActions(projectTreeDataLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
     // would push the exact match below partial matches. Suppress the persisted column sort
     // while the user has an active search term.
@@ -69,7 +81,45 @@ export function DashboardsTable({
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
     const { openMoveToModal } = useActions(moveToLogic)
-    const { itemsByRef } = useValues(projectTreeDataLogic)
+    const { itemsByRef, shortcutData } = useValues(projectTreeDataLogic)
+    const showStarring = useFeatureFlag('DASHBOARDS_LIST_STARRING', 'test')
+
+    const starColumn: LemonTableColumn<DashboardType, keyof DashboardType | undefined> = {
+        width: 0,
+        render: function Render(_, { id, name }) {
+            const isStarred = starredDashboardRefs.has(String(id))
+            return (
+                <LemonButton
+                    size="small"
+                    onClick={
+                        isStarred
+                            ? () => {
+                                  const shortcut = shortcutData.find(
+                                      (s) => s.type === 'dashboard' && s.ref === String(id)
+                                  )
+                                  if (shortcut) {
+                                      deleteShortcut(shortcut.id)
+                                  }
+                              }
+                            : () => {
+                                  // Reuse the file-system "shortcuts" feature for starring. Prefer the real
+                                  // tree entry when it's loaded; otherwise build a minimal one from the row.
+                                  const entry: FileSystemEntry = itemsByRef[`dashboard::${id}`] ?? {
+                                      id: `dashboard::${id}`,
+                                      path: name || 'Untitled',
+                                      type: 'dashboard',
+                                      ref: String(id),
+                                      href: urls.dashboard(id),
+                                  }
+                                  addShortcutItem(entry, 'dashboards_list')
+                              }
+                    }
+                    tooltip={isStarred ? 'Remove from starred' : 'Add to starred'}
+                    icon={isStarred ? <IconStarFilled /> : <IconStar />}
+                />
+            )
+        },
+    }
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -90,6 +140,7 @@ export function DashboardsTable({
                 )
             },
         },
+        ...(showStarring ? [starColumn] : []),
         {
             title: 'Name',
             dataIndex: 'name',
