@@ -2456,9 +2456,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             schemas = source.get_schemas(source_config, self.team_id)
         except Exception as e:
-            # Don't capture errors the source already classifies as expected (e.g. a missing
-            # BigQuery dataset, rejected credentials) — they're actionable user-config problems
-            # surfaced to the wizard, not bugs, and capturing them just spams error tracking.
             _, is_expected_source_error = _classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
                 capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
