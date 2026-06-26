@@ -1,8 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useCallback, useState } from 'react'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { IconPullRequest, IconTerminal } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 
 import { OnboardingStepKey, type SDK } from '~/types'
 
@@ -11,8 +14,10 @@ import { AdblockWarning, RealtimeCheckIndicator } from '../../RealtimeCheckIndic
 import { SDKGrid } from '../SDKGrid'
 import { SDKInstructionsModal } from '../SDKInstructionsModal'
 import { VariantProps } from '../types'
+import { WizardCloudRunBlock } from '../WizardCloudRunBlock'
 import { WizardCommandBlock } from '../WizardCommandBlock'
 import { wizardInstallStepLogic } from '../wizardInstallStepLogic'
+import { WizardFrameworkBadges } from '../WizardModeShell'
 import { WizardProgressTracker, useWizardTakeoverActive } from '../WizardProgressTracker'
 import { WizardInstallIntro } from './WizardInstallIntro'
 
@@ -35,60 +40,77 @@ export function WizardInstallStep(props: VariantProps): JSX.Element {
 }
 
 function WizardInstallStepStatic(props: VariantProps): JSX.Element {
-    const continueDisabledReason = props.installationComplete ? undefined : 'Installation is not complete'
-    return (
-        <WizardInstallShell
-            continueDisabledReason={continueDisabledReason}
-            showSkip={!props.installationComplete}
-            props={props}
-        >
-            <WizardInstallIntro />
-            <div className="max-w-xl mx-auto">
-                <WizardCommandBlock />
-            </div>
-        </WizardInstallShell>
-    )
+    return <WizardInstallShell takeoverActive={false} props={props} />
 }
 
 function WizardInstallStepWithSync(props: VariantProps): JSX.Element {
-    const isTakeoverActive = useWizardTakeoverActive()
-    // Once the wizard is in flight, trust it — installation events aren't required
-    // to unblock Continue.
-    const continueDisabledReason =
-        isTakeoverActive || props.installationComplete ? undefined : 'Installation is not complete'
+    // Mounts wizardProgressTrackerLogic (and its SSE) only in the sync arm.
+    const takeoverActive = useWizardTakeoverActive()
+    return <WizardInstallShell takeoverActive={takeoverActive} props={props} />
+}
+
+type InstallMode = 'cloud' | 'local'
+
+/**
+ * Intro + the wizard itself. It's one wizard with two ways to run it: have us run
+ * it and open a PR (the primary, self-driving path), or run the CLI yourself. A
+ * segmented control switches between them rather than stacking two separate
+ * blocks. The cloud path only exists behind `ONBOARDING_WIZARD_CLOUD_RUN=test` on
+ * cloud/dev; everywhere else this collapses to just the local command.
+ */
+function WizardInstallOptions({ onCloudRunQueued }: { onCloudRunQueued: () => void }): JSX.Element {
+    const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
+    const { isCloudOrDev } = useWizardCommand()
+    const [mode, setMode] = useState<InstallMode>('cloud')
+
+    const offerCloud = cloudRunEnabled && isCloudOrDev
+
     return (
-        <WizardInstallShell
-            continueDisabledReason={continueDisabledReason}
-            showSkip={!props.installationComplete && !isTakeoverActive}
-            props={props}
-        >
-            {isTakeoverActive ? (
-                <WizardProgressTracker />
-            ) : (
-                <>
-                    <WizardInstallIntro />
-                    <div className="max-w-xl mx-auto">
-                        <WizardCommandBlock />
-                    </div>
-                </>
-            )}
-        </WizardInstallShell>
+        <>
+            <WizardInstallIntro unified={offerCloud} />
+            <div className="max-w-2xl mx-auto flex flex-col gap-5">
+                {/* The wizard supports the same frameworks whichever way it runs, so the
+                    badges live here — shared, above the mode selector — not inside a tab. */}
+                {isCloudOrDev && <WizardFrameworkBadges />}
+                {offerCloud && (
+                    <LemonSegmentedButton
+                        fullWidth
+                        value={mode}
+                        onChange={(value) => setMode(value)}
+                        options={[
+                            {
+                                value: 'cloud',
+                                label: 'Open a pull request',
+                                icon: <IconPullRequest />,
+                                'data-attr': 'wizard-install-mode-cloud',
+                            },
+                            {
+                                value: 'local',
+                                label: 'Run it yourself',
+                                icon: <IconTerminal />,
+                                'data-attr': 'wizard-install-mode-local',
+                            },
+                        ]}
+                    />
+                )}
+                {offerCloud && mode === 'cloud' ? (
+                    <WizardCloudRunBlock onQueued={onCloudRunQueued} />
+                ) : (
+                    <WizardCommandBlock />
+                )}
+            </div>
+        </>
     )
 }
 
-function WizardInstallShell({
-    children,
-    continueDisabledReason,
-    showSkip,
-    props,
-}: {
-    children: React.ReactNode
-    continueDisabledReason: string | undefined
-    showSkip: boolean
-    props: VariantProps
-}): JSX.Element {
+function WizardInstallShell({ takeoverActive, props }: { takeoverActive: boolean; props: VariantProps }): JSX.Element {
     const { manualModalOpen, sdkInstructionsOpen } = useValues(wizardInstallStepLogic)
     const { setManualModalOpen, setSdkInstructionsOpen } = useActions(wizardInstallStepLogic)
+    // Set once the user queues a cloud run. Lifted here (rather than read off the
+    // logic) so wizardCloudRunLogic only mounts inside the flag-gated block.
+    const [cloudRunQueued, setCloudRunQueued] = useState(false)
+    const onCloudRunQueued = useCallback(() => setCloudRunQueued(true), [])
+
     const {
         sdkGridProps,
         sdkInstructionMap,
@@ -99,6 +121,13 @@ function WizardInstallShell({
         selectedSDK,
         header,
     } = props
+
+    // Once the work is handed off — the local wizard took over, or a cloud run is
+    // queued — trust it: installation events aren't required to unblock Continue,
+    // and Skip is redundant.
+    const handedOff = takeoverActive || cloudRunQueued
+    const continueDisabledReason = handedOff || installationComplete ? undefined : 'Installation is not complete'
+    const showSkip = !installationComplete && !handedOff
 
     const handleManualSDKClick = (sdk: SDK): void => {
         sdkGridProps.onSDKClick(sdk)
@@ -124,7 +153,11 @@ function WizardInstallShell({
             {header}
             {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="mt-6 space-y-8">
-                {children}
+                {takeoverActive ? (
+                    <WizardProgressTracker />
+                ) : (
+                    <WizardInstallOptions onCloudRunQueued={onCloudRunQueued} />
+                )}
                 <div className="text-center">
                     <LemonButton
                         type="tertiary"
