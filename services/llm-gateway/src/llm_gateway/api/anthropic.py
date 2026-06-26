@@ -287,6 +287,39 @@ async def _maybe_bypass_anthropic(
     return decision.bypass
 
 
+# Substrings that identify Anthropic's billing / spend-limit refusals within a 400 error message.
+# Anthropic returns these as HTTP 400 invalid_request_error — the same status+type as a genuinely
+# malformed request — so the status code can't tell them apart and the message is the only signal.
+# Matched case-insensitively. Keep this a tight allowlist: broadening it to all 400s would fail
+# real bad requests (prompt-too-long, bad image, role ordering) over to Bedrock, which rejects them
+# identically and just adds a wasted round-trip.
+_ANTHROPIC_BILLING_SIGNATURES: tuple[str, ...] = (
+    "credit balance",  # "Your credit balance is too low to access the Anthropic API"
+    "usage limit",  # "You have reached your specified workspace API usage limits"
+    "regain access",  # "...You will regain access on <date>"
+    "plans & billing",  # "...go to Plans & Billing to upgrade or purchase credits"
+)
+
+
+def _is_anthropic_billing_block(exc: HTTPException) -> bool:
+    """True when Anthropic refused the request for billing / spend-limit reasons.
+
+    These surface as HTTP 400 invalid_request_error (e.g. a workspace usage-limit block or an
+    exhausted prepaid balance), not 5xx/429 — so they are genuinely provider-down but look like a
+    caller error. We match the upstream message carried in `detail["error"]["message"]`.
+    """
+    if exc.status_code != 400:
+        return False
+    detail = exc.detail
+    if not isinstance(detail, dict):
+        return False
+    error = detail.get("error")
+    if not isinstance(error, dict):
+        return False
+    message = str(error.get("message", "")).lower()
+    return any(signature in message for signature in _ANTHROPIC_BILLING_SIGNATURES)
+
+
 def _is_breaker_success(status_code: int) -> bool:
     """4xx are caller-side errors and don't reflect Anthropic health, except 429 — that's
     Anthropic-side throttling and is exactly the kind of degradation the breaker exists for.
@@ -374,12 +407,20 @@ async def _handle_anthropic_messages(
             product=product,
         )
     except HTTPException as exc:
-        await _record_anthropic_outcome(breaker, success=_is_breaker_success(exc.status_code))
-        # Fall back to Bedrock for any provider-attributable failure (5xx + 429 throttling).
-        if not use_bedrock_fallback or _is_breaker_success(exc.status_code):
+        # Provider-attributable failures we fail over for: 5xx, 429 throttling, and billing/spend-limit
+        # blocks (which arrive as 400 invalid_request_error). All three are recorded as breaker
+        # failures so the breaker can open; ordinary caller-side 4xx stay a breaker success.
+        billing_block = _is_anthropic_billing_block(exc)
+        fallback_eligible = billing_block or not _is_breaker_success(exc.status_code)
+        await _record_anthropic_outcome(breaker, success=not fallback_eligible)
+        if not use_bedrock_fallback or not fallback_eligible:
             raise
 
-        error_type = exc.detail.get("error", {}).get("type", "unknown") if isinstance(exc.detail, dict) else "unknown"
+        error_type = (
+            "billing_block"
+            if billing_block
+            else (exc.detail.get("error", {}).get("type", "unknown") if isinstance(exc.detail, dict) else "unknown")
+        )
         logger.warning(
             "Anthropic request failed, attempting Bedrock fallback",
             model=body.model,
