@@ -1,0 +1,98 @@
+#!/usr/bin/env python
+# ruff: noqa: T201 — console output is the point of this bootstrap script
+"""Idempotent local-dev bootstrap.
+
+Runs on every `hogli start` (see bin/mprocs.yaml) and from `hogli dev:reset`. Every step must be
+idempotent and safe to re-run. Callers ensure the database and required tables are ready before
+invoking this: the mprocs unit waits via bin/wait-for-postgres-tables, and dev:reset runs it after
+migrations — so this script does no waiting of its own.
+"""
+
+import os
+import sys
+
+import django
+
+# This script lives in bin/, so the repo root isn't on sys.path the way it is for manage.py.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+django.setup()
+
+from django.conf import settings  # noqa: E402
+from django.core.management import call_command  # noqa: E402
+
+from posthog.models import OAuthApplication  # noqa: E402
+
+# What the wizard's agent step needs (mirrors @posthog/wizard's WIZARD_PROVISIONING_SCOPES). Local-dev
+# convenience only — no need to track the published wizard forever.
+WIZARD_SCOPES = [
+    "user:read",
+    "project:read",
+    "llm_gateway:read",
+    "dashboard:write",
+    "insight:write",
+    "query:read",
+    "notebook:write",
+]
+
+
+def ensure_wizard_oauth_app() -> None:
+    """Create the wizard cloud-run OAuth app the backend mints tokens under.
+
+    Inlined rather than given its own management command — it only ever runs from here. The client_id
+    is a committed, local-only id (WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID), not @posthog/wizard's dev/QA id.
+    """
+    if not settings.DEBUG or settings.CLOUD_DEPLOYMENT:
+        print("  not a local dev environment - skipping wizard OAuth app")
+        return
+
+    client_id = settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID
+    if not client_id:
+        print("  WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID not set - skipping wizard OAuth app")
+        return
+
+    # The wizard's OAuth login flow uses a loopback callback on an ephemeral port (unused by the
+    # headless cloud run). A portless localhost URI matches any port — see validate_redirect_uri in
+    # posthog/api/oauth/views.py, which extends RFC 8252 §7.3 loopback flexibility to localhost.
+    redirect_uris = "http://localhost/callback"
+    app, created = OAuthApplication.objects.get_or_create(
+        client_id=client_id,
+        defaults={
+            "name": "PostHog Wizard (local dev)",
+            "client_type": OAuthApplication.CLIENT_PUBLIC,
+            "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            "redirect_uris": redirect_uris,
+            "algorithm": "RS256",
+            "scopes": WIZARD_SCOPES,
+        },
+    )
+    if not created and sorted(app.scopes) != sorted(WIZARD_SCOPES):
+        app.scopes = WIZARD_SCOPES
+        app.save(update_fields=["scopes"])
+        status = "updated scopes for"
+    else:
+        status = "created" if created else "already have"
+    print(f"  {status} wizard OAuth app (client_id={client_id})")
+
+
+# Logs which step it is running so the output clearly shows what got set up. A failing step warns and
+# the rest still run — local setup must never abort the dev stack.
+STEPS = [
+    ("dev personal API key", lambda: call_command("setup_local_api_key")),
+    ("wizard cloud-run OAuth app", ensure_wizard_oauth_app),
+]
+
+
+def main() -> None:
+    print("=== ensure-local-setup: local-dev bootstrap ===")
+    for label, fn in STEPS:
+        print(f"\n→ {label}")
+        try:
+            fn()
+        except Exception as e:
+            print(f"  WARNING: '{label}' failed: {e}")
+    print("Local setup complete")
+
+
+if __name__ == "__main__":
+    main()
