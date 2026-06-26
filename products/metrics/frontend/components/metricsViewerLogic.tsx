@@ -8,7 +8,11 @@ import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
-import type { _MetricAnomalyReportApi, _MetricSeriesApi } from 'products/metrics/frontend/generated/api.schemas'
+import type {
+    _MetricAnomalyReportApi,
+    _MetricSeriesApi,
+    MetricAnomalyDirectionEnumApi,
+} from 'products/metrics/frontend/generated/api.schemas'
 
 import { formatSeriesName, seriesColor } from './metricsSeries'
 import type { metricsViewerLogicType } from './metricsViewerLogicType'
@@ -19,6 +23,15 @@ export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95'
 export type MetricsViewMode = 'chart' | 'stat'
 
 export type MetricsViewerSeries = _MetricSeriesApi
+
+// Display shape for the stat card's "vs baseline" anomaly badge (null = no anomaly / flat metric).
+export interface MetricsAnomalyBadge {
+    direction: MetricAnomalyDirectionEnumApi
+    percent: number
+    baselineMean: number
+    anomalyMean: number
+    onsetTime: string | null
+}
 
 const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
 const DEFAULT_DATE_FROM = '-1h'
@@ -194,7 +207,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // Display shape for the anomaly badge — null when there's no report or the metric is flat.
         anomalyBadge: [
             (s) => [s.anomalyReport],
-            (report: _MetricAnomalyReportApi | null) =>
+            (report: _MetricAnomalyReportApi | null): MetricsAnomalyBadge | null =>
                 report && report.direction !== 'flat'
                     ? {
                           direction: report.direction,
