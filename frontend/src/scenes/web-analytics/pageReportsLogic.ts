@@ -223,6 +223,18 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 kind: NodeKind.WebStatsTableQuery,
                                 breakdownBy: WebStatsBreakdown.Page,
                                 includeHost: true,
+                                // Serve the unfiltered URL list from the paths lazy-precompute
+                                // instead of a multi-second live scan. The precompute eligibility
+                                // gate requires includeBounceRate, so request it even though the
+                                // picker only reads the path column (the URL set/order is unchanged).
+                                // A search term adds a pathname filter, which the gate rejects, so
+                                // those queries stay on the live path.
+                                includeBounceRate: true,
+                                useWebAnalyticsPrecompute: values.featureFlags[
+                                    FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE
+                                ]
+                                    ? true
+                                    : undefined,
                                 dateRange,
                                 properties: searchTerm
                                     ? [
