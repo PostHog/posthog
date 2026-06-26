@@ -3316,7 +3316,6 @@ name = "embedding-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
  "axum 0.7.9",
