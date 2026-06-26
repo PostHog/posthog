@@ -22,11 +22,6 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { addTilePickerModalLogic, DashboardAddTileType } from './addTilePickerModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
-/**
- * The shared "Add tile" menu items (Insight / Text card / Button / Widget), used by both the
- * top-right Add button and the inline grid insertion popover. `onBeforeSelect` runs before the
- * underlying add action — the inline popover uses it to record the target insertion row.
- */
 export function getAddTileMenuItems({
     dashboardId,
     dashboardWidgetsEnabled,
