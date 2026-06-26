@@ -1235,9 +1235,10 @@ class BigQueryStorageConsumer(Consumer):
                 try:
                     # Reset the stream for the next attempt
                     stream.close()
-                    self.stream = None
                 except Exception:
                     pass
+                finally:
+                    self.stream = None
 
                 time.sleep(backoff)
 
