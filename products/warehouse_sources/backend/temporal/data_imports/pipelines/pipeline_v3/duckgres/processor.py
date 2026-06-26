@@ -541,13 +541,17 @@ def _merge_batch(
         for key in (version_keys or [])
         if (normalized := NamingConvention.normalize_identifier(key)) in columns
     ]
-    if version_keys and not normalized_version_keys:
-        # Declared but none present — a renamed/dropped column would silently disable the
-        # no-rollback guard, so make the regression observable instead of mysterious.
+    missing_version_keys = [
+        key for key in (version_keys or []) if NamingConvention.normalize_identifier(key) not in columns
+    ]
+    if missing_version_keys:
+        # Any missing declared key weakens the no-rollback guard (and if all are gone, disables it).
+        # A column rename would otherwise drift silently, so surface exactly which keys dropped.
         logger.warning(
             "duckgres_merge_version_keys_absent",
             duckgres_schema=duckgres_schema,
             duckgres_table=duckgres_table,
+            missing_version_keys=missing_version_keys,
             declared_version_keys=version_keys,
         )
 
@@ -564,6 +568,8 @@ def _merge_batch(
     insert_columns = sql.SQL(", ").join(sql.Identifier(column) for column in columns)
     insert_values = sql.SQL(", ").join(sql.SQL("source.{}").format(sql.Identifier(column)) for column in columns)
 
+    source_relation: sql.Composable
+    matched_clause: sql.Composable
     if normalized_version_keys:
         # Event-streamed sources (e.g. GitHub webhook runs/jobs) emit several rows per key —
         # queued, then in_progress, then completed. Two guards make the latest state win

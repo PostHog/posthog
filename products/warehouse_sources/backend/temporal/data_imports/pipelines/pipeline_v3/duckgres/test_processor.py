@@ -1,6 +1,6 @@
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, Mock, patch
@@ -473,11 +473,11 @@ _JOB_VERSION_KEYS = ["completed_at", "started_at", "created_at"]
 # string merge — the real warehouse rows store these GitHub timestamps as strings.
 _JOB_ARROW_SCHEMA = pa.schema(
     [
-        ("id", pa.int64()),
-        ("status", pa.string()),
-        ("completed_at", pa.string()),
-        ("started_at", pa.string()),
-        ("created_at", pa.string()),
+        pa.field("id", pa.int64()),
+        pa.field("status", pa.string()),
+        pa.field("completed_at", pa.string()),
+        pa.field("started_at", pa.string()),
+        pa.field("created_at", pa.string()),
     ]
 )
 
@@ -515,9 +515,11 @@ def _run_merge_on_duckdb(
         duck.execute(f"CREATE TABLE main.jobs AS SELECT * FROM read_parquet('{target_parquet}')")
 
         capturing = _QueryCapturingConn()
-        _merge_batch(capturing, "main", "jobs", str(source_parquet), _JOB_COLUMNS, ["id"], version_keys)
-        # `_merge_batch` leaves the parquet path as a `%s` bind param; inline it to run on DuckDB.
-        rendered = capturing.query.as_string(None).replace("%s", f"'{source_parquet}'")
+        _merge_batch(cast(Any, capturing), "main", "jobs", str(source_parquet), _JOB_COLUMNS, ["id"], version_keys)
+        # `_merge_batch` leaves the parquet path as a `%s` bind param; inline it (single-quote-escaped)
+        # to run on DuckDB directly.
+        escaped_path = str(source_parquet).replace("'", "''")
+        rendered = capturing.query.as_string(None).replace("%s", f"'{escaped_path}'")
         duck.execute(rendered)
 
         rows = duck.execute(f"SELECT {', '.join(_JOB_COLUMNS)} FROM main.jobs").fetchall()
