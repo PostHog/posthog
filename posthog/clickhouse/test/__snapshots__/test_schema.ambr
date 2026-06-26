@@ -549,6 +549,18 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_precalc_condition_watermark]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_precalc_condition_watermark
+  (
+      team_id Int64,
+      condition String
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_precalculated_person_properties', kafka_group_name = 'clickhouse_precalc_condition_watermark', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_precalculated_events]
   '''
   
@@ -2409,6 +2421,18 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_precalc_condition_watermark]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_precalc_condition_watermark
+  (
+      team_id Int64,
+      condition String
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_precalculated_person_properties', kafka_group_name = 'clickhouse_precalc_condition_watermark', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_precalculated_events]
   '''
   
@@ -4020,6 +4044,30 @@
       uniq_exact_state AggregateFunction(uniqExact, UUID)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_preaggregation_results', sipHash64(job_id))
   
+  '''
+# ---
+# name: test_create_table_query[precalc_condition_watermark]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS precalc_condition_watermark
+  (
+      team_id Int64,
+      condition String,
+      last_write_at DateTime64(6)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_precalc_condition_watermark', sipHash64(condition))
+  
+  '''
+# ---
+# name: test_create_table_query[precalc_condition_watermark_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS precalc_condition_watermark_mv TO writable_precalc_condition_watermark
+  AS SELECT
+      team_id,
+      condition,
+      _timestamp AS last_write_at
+  FROM kafka_precalc_condition_watermark
+      
   '''
 # ---
 # name: test_create_table_query[precalculated_events_mv]
@@ -6209,6 +6257,19 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_precalc_condition_watermark]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_precalc_condition_watermark
+  (
+      team_id Int64,
+      condition String,
+      last_write_at DateTime64(6)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_precalc_condition_watermark', '{replica}', last_write_at)
+  ORDER BY (team_id, condition)
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_precalculated_events]
   '''
   
@@ -8107,6 +8168,18 @@
   , _partition UInt64
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_precalc_condition_watermark]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_precalc_condition_watermark
+  (
+      team_id Int64,
+      condition String,
+      last_write_at DateTime64(6)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_precalc_condition_watermark', sipHash64(condition))
   
   '''
 # ---
@@ -10502,6 +10575,19 @@
   ORDER BY (team_id, job_id, time_window_start, breakdown_value)
   TTL expires_at
   SETTINGS index_granularity=8192
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_precalc_condition_watermark]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_precalc_condition_watermark
+  (
+      team_id Int64,
+      condition String,
+      last_write_at DateTime64(6)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_precalc_condition_watermark', '{replica}', last_write_at)
+  ORDER BY (team_id, condition)
   
   '''
 # ---

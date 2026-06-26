@@ -23,6 +23,9 @@ CONSUMER_GROUP_PRECALCULATED_EVENTS = "clickhouse_precalculated_events2" if _US 
 CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES = (
     "clickhouse_precalculated_person_properties2" if _US else "clickhouse_precalculated_person_properties"
 )
+# Independent consumer group: taps the precalc person-properties topic to maintain the condition
+# watermark without competing with the ingestion consumers above.
+CONSUMER_GROUP_PRECALC_CONDITION_WATERMARK = "clickhouse_precalc_condition_watermark"
 CONSUMER_GROUP_DISTINCT_ID_USAGE = "clickhouse_distinct_id_usage"
 CONSUMER_GROUP_TOPHOG = "clickhouse_tophog"
 CONSUMER_GROUP_AI_EVENTS = "clickhouse_ai_events" if _US else "group1"
@@ -34,6 +37,7 @@ CONSUMER_GROUP_APP_METRICS2_WS = "clickhouse_app_metrics2_ws"
 CONSUMER_GROUP_TOPHOG_WS = "clickhouse_tophog_ws"
 CONSUMER_GROUP_PRECALCULATED_EVENTS_WS = "clickhouse_precalculated_events_ws"
 CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES_WS = "clickhouse_precalculated_person_properties_ws"
+CONSUMER_GROUP_PRECALC_CONDITION_WATERMARK_WS = "clickhouse_precalc_condition_watermark_ws"
 CONSUMER_GROUP_EVENTS_JSON_WS = "clickhouse_events_json_ws"
 CONSUMER_GROUP_GROUPS_WS = "clickhouse_groups_ws"
 CONSUMER_GROUP_PERSON_WS = "clickhouse_person_ws"
