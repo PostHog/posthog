@@ -79,11 +79,13 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -659,6 +661,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_recording_bytes_in_period": 6,
                     "mobile_recording_count_in_period": 1,
                     "mobile_billable_recording_count_in_period": 0,
+                    "recording_observations_count_in_period": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -734,6 +737,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
+                            "recording_observations_count_in_period": 0,
                             "group_types_total": 2,
                             "dashboard_count": 2,
                             "dashboard_template_count": 0,
@@ -803,6 +807,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 6,
                             "mobile_recording_count_in_period": 1,
                             "mobile_billable_recording_count_in_period": 0,
+                            "recording_observations_count_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -895,6 +900,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_recording_bytes_in_period": 0,
                     "mobile_recording_count_in_period": 0,
                     "mobile_billable_recording_count_in_period": 0,
+                    "recording_observations_count_in_period": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
                     "dashboard_template_count": 0,
@@ -970,6 +976,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
+                            "recording_observations_count_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,

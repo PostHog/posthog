@@ -13,6 +13,7 @@ from tenacity import Future, RetryCallState
 
 from posthog.models.integration import GitHubRateLimitError
 
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
     GithubAuthMethodConfig,
     GithubSourceConfig,
@@ -41,7 +42,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_response(status: int = 200, body: Any = None, link: str = "") -> mock.Mock:

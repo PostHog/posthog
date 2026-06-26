@@ -501,7 +501,18 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const LlmAnalyticsClusteringConfigSetEventFiltersCreateBody = /* @__PURE__ */ zod.object({
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .describe(
+            'PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters.'
+        ),
+})
+
+/**
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsCreateBodyNameMax = 100
 
@@ -515,7 +526,7 @@ export const LlmAnalyticsClusteringJobsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsUpdateBodyNameMax = 100
 
@@ -529,7 +540,7 @@ export const LlmAnalyticsClusteringJobsUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsPartialUpdateBodyNameMax = 100
 

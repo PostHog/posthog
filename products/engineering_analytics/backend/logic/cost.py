@@ -17,6 +17,7 @@ source-agnostic so they are unit-tested today and wired to the ``github_workflow
 warehouse source once it lands (see SPEC section 6/9).
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -116,6 +117,24 @@ def billing_multiplier(tier: RunnerTier) -> int:
     return _MULTIPLIER_BY_VCPU.get(tier.vcpu, max(1, tier.vcpu // 2))
 
 
+def runner_descriptor(labels: list[str]) -> tuple[str, str]:
+    """Provider + human tier label for a job's runner, for display badges.
+
+    Returns ``(provider, label)`` where provider is ``'github_hosted'`` (free for open source),
+    ``'self_hosted'`` (billable — currently Depot), or ``'unknown'``. Provider-neutral on purpose so
+    other CI providers slot in. The label is the tier: ``'16-core'`` for self-hosted Linux, the raw
+    ``runs-on`` (e.g. ``'ubuntu-latest'``) for GitHub-hosted, or the OS for non-Linux self-hosted.
+    """
+    tier = classify_runner(labels)
+    if tier is None:
+        return "unknown", (labels[0] if labels else "")
+    if tier.provider is RunnerProvider.GITHUB_HOSTED:
+        return "github_hosted", (labels[0] if labels else tier.os.value)
+    if tier.os is RunnerOS.LINUX:
+        return "self_hosted", f"{tier.vcpu}-core"
+    return "self_hosted", tier.os.value
+
+
 def estimate_job_cost_usd(labels: list[str], elapsed_seconds: float | None) -> float | None:
     """Estimated Depot dollar cost for one job, or ``None`` when no honest figure exists.
 
@@ -135,3 +154,53 @@ def estimate_job_cost_usd(labels: list[str], elapsed_seconds: float | None) -> f
     if elapsed_seconds <= 0:
         return 0.0
     return (elapsed_seconds / 60) * REFERENCE_RATE_USD_PER_MIN * billing_multiplier(tier)
+
+
+@dataclass(frozen=True)
+class PRCostAggregate:
+    """One PR's job costs rolled up — billable (self-hosted Linux) runners only.
+
+    ``billable_seconds`` and ``estimated_cost_usd`` cover only the costed jobs (billable Linux,
+    finished). ``unsettled_jobs`` are billable Linux jobs with no elapsed time (still queued/running)
+    — excluded from cost so a not-yet-finished job is never shown as ``$0.00``. ``excluded_jobs`` ran
+    on provider-hosted (GitHub-hosted, free) or non-Linux runners, which carry no billable figure here.
+    ``estimated_cost_usd`` is ``None`` when no job was costable, distinguishing "nothing to cost" from
+    a real ``$0.00``.
+    """
+
+    billable_seconds: float
+    estimated_cost_usd: float | None
+    costed_jobs: int
+    unsettled_jobs: int
+    excluded_jobs: int
+
+
+def aggregate_pr_cost(jobs: Iterable[tuple[list[str], float | None]]) -> PRCostAggregate:
+    """Sum per-job cost over a PR's jobs, partitioning each job by why it does (or doesn't) count.
+
+    Each input is one job's ``(labels, elapsed_seconds)``. A job counts toward cost only when its
+    runner classifies as a billable self-hosted Linux tier AND it has elapsed time; everything else
+    lands in ``unsettled_jobs`` (self-hosted Linux, no elapsed) or ``excluded_jobs`` (provider-hosted /
+    non-Linux). The billable classification is currently Depot-shaped (the only modeled provider).
+    """
+    billable_seconds = 0.0
+    total_cost = 0.0
+    costed = unsettled = excluded = 0
+    for labels, elapsed_seconds in jobs:
+        tier = classify_runner(labels)
+        if tier is None or tier.provider is not RunnerProvider.DEPOT or tier.os is not RunnerOS.LINUX:
+            excluded += 1
+            continue
+        if elapsed_seconds is None:
+            unsettled += 1
+            continue
+        billable_seconds += max(0.0, elapsed_seconds)
+        total_cost += estimate_job_cost_usd(labels, elapsed_seconds) or 0.0
+        costed += 1
+    return PRCostAggregate(
+        billable_seconds=billable_seconds,
+        estimated_cost_usd=total_cost if costed else None,
+        costed_jobs=costed,
+        unsettled_jobs=unsettled,
+        excluded_jobs=excluded,
+    )
