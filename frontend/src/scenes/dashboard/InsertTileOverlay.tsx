@@ -22,8 +22,8 @@ interface InsertTileOverlayProps {
     isMobileView: boolean
     /** Hide while a drag/resize gesture is in progress. */
     disabled?: boolean
-    /** Builds the add-tile menu for an insertion at the given grid column + row. */
-    getMenuItems: (targetX: number, targetY: number) => LemonMenuItem[]
+    /** Builds the add-tile menu for an insertion at the given grid column + row, optionally full-width. */
+    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItem[]
 }
 
 /** A visible run of the boundary line (px), between the tiles a row cuts across. */
@@ -41,9 +41,9 @@ interface TileRect {
 }
 
 /**
- * A column span where dropping a tile actually lands it at the line: either above a tile whose top is
- * at the line (push that tile down) or below a tile whose bottom is at the line (append under it). Only
- * these spots are offered — anywhere else, vertical compaction would float the new tile above the line.
+ * A column span where dropping a tile lands it at the line: above a tile whose top is on the line
+ * (push that tile down) or below a tile whose bottom is on the line (append under it). Over these,
+ * insertion stays column-aware; elsewhere in the gap it falls back to a full-width tile at the line.
  */
 interface InsertZone {
     left: number
@@ -52,9 +52,10 @@ interface InsertZone {
     targetY: number
 }
 
-/** A place to insert: the line's pixel Y, the gaps the line shows in, and the valid drop zones. */
+/** A place to insert: the line's pixel Y, its grid row, the gaps it shows in, and the column drop zones. */
 interface InsertBoundary {
     lineY: number
+    gridRow: number
     segments: LineSegment[]
     zones: InsertZone[]
 }
@@ -97,9 +98,9 @@ function computeSegments(lineY: number, tileRects: TileRect[], gridWidth: number
     return segments
 }
 
-// Drop zones for a line: a tile whose top sits on the line (insert above it, pushing it down) or whose
-// bottom sits on the line (append directly below it). targetY comes from the measured px / row unit,
-// which is exact since react-grid-layout positions tiles at row*unit. Deduped per column + row.
+// Column drop zones for a line: a tile whose top sits on the line (insert above it, pushing it down)
+// or whose bottom sits on the line (append directly below). targetY comes from the measured px / row
+// unit, exact since react-grid-layout positions tiles at row*unit. Deduped per column + row.
 function computeZones(
     lineY: number,
     tileRects: TileRect[],
@@ -132,9 +133,9 @@ function computeZones(
 
 /**
  * Overlays an insert affordance in the gaps between dashboard tiles. Hovering a gap reveals a line
- * (drawn behind the cards) and a "+" that opens the same add-tile menu as the header. Positions come
- * from the rendered tile boxes, and the "+" only appears over a tile that borders the line, so the new
- * tile always lands at the line (never floated above it by compaction). View and edit mode, edit access.
+ * (drawn behind the cards) and a "+" that opens the same add-tile menu as the header. Over a tile that
+ * borders the line, the insert is column-aware; over empty space in the gap, it falls back to a
+ * full-width tile so it still lands at the line (compaction can't float it above). Edit access only.
  */
 export function InsertTileOverlay({
     layout,
@@ -207,7 +208,7 @@ export function InsertTileOverlay({
 
     // Insert boundaries derived from the rendered tiles: a line above each distinct tile-top (the gap
     // before it) plus one below the lowest tile. The very top edge is skipped — no inserting above the
-    // board. Each line carries its drop zones so the "+" only shows where the tile lands at the line.
+    // board. Each line carries its grid row, the gaps to draw in, and the column drop zones.
     const boundaries = useMemo((): InsertBoundary[] => {
         if (!tileRects.length) {
             return []
@@ -226,16 +227,17 @@ export function InsertTileOverlay({
             edges.set(Math.round(rect.top / 4) * 4, rect.top)
         }
 
-        const build = (lineY: number): InsertBoundary => ({
+        const build = (lineY: number, gridRow: number): InsertBoundary => ({
             lineY,
+            gridRow,
             segments: computeSegments(lineY, tileRects, gridWidth, marginX),
             zones: computeZones(lineY, tileRects, unit, colUnit, marginY),
         })
 
         const result = Array.from(edges.values())
             .sort((a, b) => a - b)
-            .map((edge) => build(edge - marginY / 2))
-        result.push(build(maxBottom + marginY / 2))
+            .map((edge) => build(edge - marginY / 2, Math.round(edge / unit)))
+        result.push(build(maxBottom + marginY / 2, Math.round(maxBottom / unit)))
         return result
     }, [tileRects, gridWidth, cols, marginX, marginY, rowHeight])
 
@@ -250,7 +252,9 @@ export function InsertTileOverlay({
                 <InsertionStrip
                     key={Math.round(boundary.lineY)}
                     lineY={boundary.lineY}
+                    gridRow={boundary.gridRow}
                     gridWidth={gridWidth}
+                    cols={cols}
                     segments={boundary.segments}
                     zones={boundary.zones}
                     getMenuItems={getMenuItems}
@@ -267,24 +271,35 @@ const HOVER_HIT_HEIGHT = 28
 // Keep the "+" fully on the strip when the cursor is near either end.
 const BUTTON_EDGE_PADDING = 16
 
+/** Where the next insert will go: a grid column + row, and a width (full-width fallback sets it). */
+interface InsertTarget {
+    targetX: number
+    targetY: number
+    targetW?: number
+}
+
 function InsertionStrip({
     lineY,
+    gridRow,
     gridWidth,
+    cols,
     segments,
     zones,
     getMenuItems,
 }: {
     lineY: number
+    gridRow: number
     gridWidth: number
+    cols: number
     segments: LineSegment[]
     zones: InsertZone[]
-    getMenuItems: (targetX: number, targetY: number) => LemonMenuItem[]
+    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItem[]
 }): JSX.Element {
     const stripRef = useRef<HTMLDivElement>(null)
     const buttonRef = useRef<HTMLDivElement>(null)
-    // The drop zone under the cursor, frozen with the button while the menu is open so the insert lands
-    // where the user opened the menu.
-    const targetRef = useRef<InsertZone | null>(null)
+    // Where the insert will land, frozen with the button while the menu is open so it matches the spot
+    // the user opened the menu over.
+    const targetRef = useRef<InsertTarget | null>(null)
     // Freeze the follow while the pointer is pressed: a click emits tiny mousemoves between mousedown
     // and mouseup, and repositioning the button mid-press moves it out from under the stationary cursor
     // so mouseup lands elsewhere and the browser never fires `click` — that's the lost first click.
@@ -303,25 +318,32 @@ function InsertionStrip({
         const rect = stripRef.current?.getBoundingClientRect()
         if (rect) {
             const x = Math.min(Math.max(clientX - rect.left, BUTTON_EDGE_PADDING), gridWidth - BUTTON_EDGE_PADDING)
-            // Only show the "+" over a drop zone — a tile bordering the line. Elsewhere, inserting would
-            // land the new tile above the line (compaction floats it up), so there's no valid spot.
-            const zone = zones.find((z) => x >= z.left && x <= z.right)
-            buttonRef.current.style.display = zone ? '' : 'none'
-            if (!zone) {
+            // Only show the "+" in a real gap (not on top of a tile). Over a tile bordering the line we
+            // insert into that column; over empty gap space we insert full-width so it still lands at the
+            // line (compaction would otherwise float a column-width tile up above it).
+            const inGap = segments.some((segment) => x >= segment.left && x <= segment.left + segment.width)
+            buttonRef.current.style.display = inGap ? '' : 'none'
+            if (!inGap) {
                 return
             }
+            const zone = zones.find((z) => x >= z.left && x <= z.right)
             targetRef.current = zone
+                ? { targetX: zone.targetX, targetY: zone.targetY }
+                : { targetX: 0, targetY: gridRow, targetW: cols }
             // Our Tailwind config sets `important: true`, so the `left-4` class is `left !important` and
             // would beat a plain inline `left`. Write with priority so the follow position actually wins.
             buttonRef.current.style.setProperty('left', `${x}px`, 'important')
         }
     }
 
-    // Build items when the menu opens, from the frozen drop zone. Stable otherwise so the dropdown
-    // overlay isn't rebuilt under the pointer on unrelated re-renders.
+    // Build items when the menu opens, from the frozen target. Stable otherwise so the dropdown overlay
+    // isn't rebuilt under the pointer on unrelated re-renders.
     const menuItems = useMemo(
-        () => (targetRef.current ? getMenuItems(targetRef.current.targetX, targetRef.current.targetY) : []),
-        // menuOpen forces a rebuild on open so targetRef (frozen there) picks the zone under the cursor.
+        () => {
+            const target = targetRef.current
+            return target ? getMenuItems(target.targetX, target.targetY, target.targetW) : []
+        },
+        // menuOpen forces a rebuild on open so targetRef (frozen there) picks the spot under the cursor.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [getMenuItems, menuOpen]
     )

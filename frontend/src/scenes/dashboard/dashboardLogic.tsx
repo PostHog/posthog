@@ -380,10 +380,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
-        /** Record the grid slot (row + column) where the next added tile should be inserted (inline "+" affordance). */
-        setPendingInsertionY: (pendingInsertionY: number | null, pendingInsertionX: number = 0) => ({
+        /**
+         * Record the grid slot (row + column) where the next added tile should be inserted (inline "+"
+         * affordance). `pendingInsertionW` overrides the tile's width — used for the full-width fallback
+         * when the hovered column can't anchor the tile at the line.
+         */
+        setPendingInsertionY: (
+            pendingInsertionY: number | null,
+            pendingInsertionX: number = 0,
+            pendingInsertionW: number | null = null
+        ) => ({
             pendingInsertionY,
             pendingInsertionX,
+            pendingInsertionW,
         }),
         /** Reposition a freshly-added tile to the pending insertion row, pushing tiles below it down. */
         applyPendingInsertion: true,
@@ -1132,6 +1141,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             0 as number,
             {
                 setPendingInsertionY: (_, { pendingInsertionX }) => pendingInsertionX,
+            },
+        ],
+        // Optional width override for the pending insert (full-width fallback); null means use the tile's own.
+        pendingInsertionW: [
+            null as number | null,
+            {
+                setPendingInsertionY: (_, { pendingInsertionW }) => pendingInsertionW,
             },
         ],
         urlSearchParamsAtEditModeEntry: [
@@ -2146,8 +2162,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         applyPendingInsertion: async () => {
             const targetY = values.pendingInsertionY
-            // Capture before setPendingInsertionY(null) below resets it to the default column.
+            // Capture before setPendingInsertionY(null) below resets these to defaults.
             const targetX = values.pendingInsertionX
+            const overrideW = values.pendingInsertionW
             const previousTileIds = cache.tileIdsBeforeInsertion as Set<number> | undefined
             if (targetY == null || !previousTileIds) {
                 return
@@ -2167,7 +2184,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const smLayout = values.layouts?.sm
             const newTileLayoutEntry = smLayout?.find((l) => String(l.i) === String(newTile.id))
-            const w = newTileLayoutEntry?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
+            const w = overrideW ?? newTileLayoutEntry?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
             const h = newTileLayoutEntry?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
 
             const { newTileLayout, tilesToUpdate } = calculateInsertionLayout(
@@ -2732,6 +2749,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
                 const insertAtY = widgets.length === 1 ? values.pendingInsertionY : null
                 const insertAtX = values.pendingInsertionX
+                const overrideW = values.pendingInsertionW
                 const widgetsPayload = widgets.map(({ widgetType, config }) => {
                     if (insertAtY == null) {
                         return { widget_type: widgetType, config }
@@ -2740,7 +2758,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         widgetType in DASHBOARD_WIDGET_CATALOG
                             ? getDashboardWidgetCatalogEntry(widgetType).defaultLayout
                             : undefined
-                    const w = defaultLayout?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
+                    const w = overrideW ?? defaultLayout?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
                     const h = defaultLayout?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
                     return { widget_type: widgetType, config, layouts: { sm: { x: insertAtX, y: insertAtY, w, h } } }
                 })
