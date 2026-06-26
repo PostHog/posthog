@@ -110,19 +110,26 @@ def test_property_group_promotes_mixed_property_and_group_lists():
 
     groups = filter.property_groups
     assert groups.type == "AND"
-    assert all(isinstance(value, PropertyGroup) for value in groups.values)
 
-    assert groups.values[0].type == "OR"
-    assert groups.values[0].values[0].key == "attr"
+    nested_or, promoted_1, promoted_2, empty = groups.values
+    assert isinstance(nested_or, PropertyGroup)
+    assert isinstance(promoted_1, PropertyGroup)
+    assert isinstance(promoted_2, PropertyGroup)
+    assert isinstance(empty, PropertyGroup)
+
+    assert nested_or.type == "OR"
+    assert isinstance(nested_or.values[0], Property)
+    assert nested_or.values[0].key == "attr"
 
     # bare properties promoted into single-element AND groups
-    assert groups.values[1].type == "AND"
-    assert isinstance(groups.values[1].values[0], Property)
-    assert groups.values[1].values[0].key == "attr"
-    assert groups.values[2].values[0].key == "attr_2"
+    assert promoted_1.type == "AND"
+    assert isinstance(promoted_1.values[0], Property)
+    assert promoted_1.values[0].key == "attr"
+    assert isinstance(promoted_2.values[0], Property)
+    assert promoted_2.values[0].key == "attr_2"
 
     # empty nested group preserved (carries no criteria)
-    assert groups.values[3].values == []
+    assert empty.values == []
 
 
 def test_property_multi_level_to_dict():
