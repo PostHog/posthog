@@ -35,6 +35,7 @@ import {
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
     INSERTED_COMPONENT_PANEL_VISIBILITY,
     getComponentPanelVisibility,
+    getInsertedComponentPanelVisibility,
     shouldPersistComponentPanelProps,
     withPersistedComponentPanelProps,
 } from './componentPanels'
@@ -2315,7 +2316,7 @@ export function MarkdownNotebook({
     const replaceNodeWithInsertedComponent = useCallback(
         (nodeId: string, nextNode: NotebookComponentBlockNode): void => {
             const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, nextNode.tagName)
-            const insertedPanels = getComponentPanelVisibility(nextNode, INSERTED_COMPONENT_PANEL_VISIBILITY)
+            const insertedPanels = getInsertedComponentPanelVisibility(nextNode)
             const insertedNode = withPersistedComponentPanelProps(nextNode, definition, insertedPanels)
             markNotebookNodeFreshlyInserted(nextNode.id)
             focusNodeRef.current = nextNode.id

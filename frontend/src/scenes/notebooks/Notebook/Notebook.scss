@@ -484,8 +484,7 @@
     }
 
     &--compact:not(.Notebook--canvas) {
-        .NotebookEditor,
-        .Notebook__markdown-v2 {
+        .NotebookEditor {
             max-width: 50rem;
         }
 
