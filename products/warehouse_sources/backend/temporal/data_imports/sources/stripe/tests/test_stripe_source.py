@@ -25,7 +25,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeResource,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
+    _is_truncated_stripe_list_response,
+    _RateLimitRetryingRequestsClient,
     get_rows,
+)
+
+_COMPLETE_LIST_BODY = b'{\n  "object": "list",\n  "data": [],\n  "has_more": false\n}'
+# A list page cut off mid-string — what Stripe later fails to decode as "Invalid response body".
+_TRUNCATED_LIST_BODY = (
+    b'{\n  "object": "list",\n  "data": [\n    {\n      "id": "in_1",\n      "description": "a value that got cut'
+)
+# Webhook write responses are single objects, not lists — must never trigger the read-only retry.
+_TRUNCATED_WEBHOOK_BODY = b'{\n  "object": "webhook_endpoint",\n  "id": "we_1",\n  "url": "https://example.com/cut'
+# A truncated single object whose head contains the tokens "object" and "list" without being a
+# list response (here `"type": "list.updated"`) — must not be mistaken for a truncated list.
+_TRUNCATED_NON_LIST_WITH_LIST_TOKEN = (
+    b'{\n  "object": "event",\n  "type": "list.updated",\n  "data": {\n    "id": "evt_1'
 )
 
 
@@ -170,6 +185,44 @@ class TestStripeSource:
         assert message is not None
         assert pasted_secret not in message
         assert message.startswith("Stripe rejected the API key.")
+
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            (_TRUNCATED_LIST_BODY, True),
+            (_TRUNCATED_LIST_BODY.decode(), True),  # str bodies behave the same as bytes
+            (_COMPLETE_LIST_BODY, False),  # complete responses always close with "}"
+            (_TRUNCATED_WEBHOOK_BODY, False),  # truncated, but a single object — not a list read
+            # truncated non-list whose head still contains the "object" and "list" tokens
+            (_TRUNCATED_NON_LIST_WITH_LIST_TOKEN, False),
+            (b'{\n  "object": "webhook_endpoint",\n  "id": "we_1"\n}', False),
+            (b"", False),
+            (None, False),
+        ],
+    )
+    def test_is_truncated_stripe_list_response(self, body, expected):
+        assert _is_truncated_stripe_list_response(body) is expected
+
+    @pytest.mark.parametrize(
+        "response,num_retries,expected",
+        [
+            # 2xx with a truncated list body is retried while budget remains...
+            ((_TRUNCATED_LIST_BODY, 200, {}), 0, True),
+            # ...but not once the network-retry budget is exhausted.
+            ((_TRUNCATED_LIST_BODY, 200, {}), 2, False),
+            # A complete 2xx list body is not retried.
+            ((_COMPLETE_LIST_BODY, 200, {}), 0, False),
+            # A truncated single-object (webhook write) body is not retried.
+            ((_TRUNCATED_WEBHOOK_BODY, 200, {}), 0, False),
+            # A truncated non-list body that merely mentions "list" is not retried.
+            ((_TRUNCATED_NON_LIST_WITH_LIST_TOKEN, 200, {}), 0, False),
+            # 429s stay retryable (regression guard for the existing rate-limit handling).
+            ((b'{\n  "error": {}\n}', 429, {}), 0, True),
+        ],
+    )
+    def test_rate_limit_client_should_retry(self, response, num_retries, expected):
+        client = _RateLimitRetryingRequestsClient()
+        assert client._should_retry(response, None, num_retries=num_retries, max_network_retries=2) is expected
 
 
 def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None):

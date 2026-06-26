@@ -10,19 +10,23 @@ describe('DefinitionPopover operator helpers', () => {
             [PropertyOperator.LessThanOrEqual, 'less than or equal'],
             [PropertyOperator.GreaterThan, 'greater than'],
             [PropertyOperator.IContains, 'contains'],
+            // Semver operators live outside the generic map and must still resolve, not fall back to "equals"
+            [PropertyOperator.SemverGte, 'greater than or equal (semver)'],
         ])('maps a typed property with operator %s to "%s"', (operator, expected) => {
             const property = { type: PropertyFilterType.Event, key: 'amount', value: 5, operator } as AnyPropertyFilter
             expect(genericOperatorToHumanName(property)).toBe(expected)
         })
 
-        it('reads the operator from a legacy action step property that has no type', () => {
+        it.each([
+            [PropertyOperator.GreaterThanOrEqual, 'greater than or equal'],
+            // Semver filters on e.g. $os_version (no `type` on the legacy step) — the reported bug
+            [PropertyOperator.SemverGte, 'greater than or equal (semver)'],
+            [PropertyOperator.SemverLte, 'less than or equal (semver)'],
+            [PropertyOperator.SemverEq, 'equals (semver)'],
+        ])('reads operator %s from a legacy action step property that has no type', (operator, expected) => {
             // Legacy action step properties are stored without a `type` field
-            const property = {
-                key: 'amount',
-                value: 5,
-                operator: PropertyOperator.GreaterThanOrEqual,
-            } as AnyPropertyFilter
-            expect(genericOperatorToHumanName(property)).toBe('greater than or equal')
+            const property = { key: '$os_version', value: '14.4.1', operator } as AnyPropertyFilter
+            expect(genericOperatorToHumanName(property)).toBe(expected)
         })
 
         it.each([null, undefined, {} as AnyPropertyFilter])('falls back to "equals" for %s', (property) => {

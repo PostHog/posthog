@@ -581,6 +581,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'data_pipeline',
     },
     [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.CodeCanvasLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
@@ -905,6 +906,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
     [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
+    [urls.codeCanvasLink(':channelId', ':dashboardId')]: [Scene.CodeCanvasLink, 'codeCanvasLink'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.integration(':slug')]: [Scene.IntegrationsLanding, 'integrationsLanding'],
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],

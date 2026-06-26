@@ -580,8 +580,24 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         cache.disposables.disposeAll()
         impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
-    beforeUnload(({ values }) => ({
-        enabled: () => values.hasPendingWork,
+    beforeUnload(({ values, actions }) => ({
+        enabled: (newLocation) => {
+            if (!values.hasPendingWork) {
+                return false
+            }
+            // Ignore in-page navigations (e.g. opening a side panel) that keep the same path
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
         message: 'You have unsaved changes. Are you sure you want to leave?',
+        onConfirm: () => {
+            // Re-sync local form reducers to the last-known server ticket so hasUnsavedChanges
+            // recomputes to false and the prompt does not re-fire on the next navigation.
+            if (values.ticket) {
+                actions.setTicket(values.ticket)
+            }
+        },
     })),
 ])
