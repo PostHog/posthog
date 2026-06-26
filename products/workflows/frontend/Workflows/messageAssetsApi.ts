@@ -43,8 +43,8 @@ export async function getMessageAssets(
     return await new ApiRequest().hogFlow(hogFlowId).withAction('assets').withQueryString(params).get()
 }
 
-// Same-origin URL for an asset's rendered HTML (the endpoint redirects to a presigned URL).
-// Used directly as an <iframe src>; the browser carries session auth and follows the redirect.
+// Same-origin URL for an asset's rendered HTML. Used directly as an <iframe src>; the
+// browser carries session auth, the endpoint serves text/html bytes inline from ClickHouse.
 export function getMessageAssetContentUrl(hogFlowId: HogFlow['id'], invocationId: string, actionId: string): string {
     return new ApiRequest()
         .hogFlow(hogFlowId)

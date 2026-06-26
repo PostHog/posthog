@@ -4,7 +4,12 @@ import { SendMailOptions } from 'nodemailer'
 import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
+import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    IntegrationType,
+    MessageAssetRow,
+} from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
@@ -145,6 +150,7 @@ export class EmailService {
 
         let success: boolean = false
         let throttled: boolean = false
+        let assetRow: MessageAssetRow | null = null
 
         try {
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
@@ -173,7 +179,21 @@ export class EmailService {
                     throw new Error('Email delivery mode not supported')
             }
 
-            addLog('info', `Email sent to ${params.to.email}`)
+            // Build the asset row eagerly so the success log can carry an inline
+            // `[Email:<invocation_id>:<action_id>]` token — `renderWorkflowLogMessage`
+            // substitutes that with a "View email" chip that opens the rendered HTML in
+            // a modal in place (no navigation off the logs tab). Both ids are needed
+            // because the assets/content endpoint takes the (invocation_id, action_id)
+            // tuple — they together identify the unique email a step sent.
+            //
+            // Emitting the token only when an asset will actually be captured (skipping
+            // kill-switch off / text-only / standalone-send / test) keeps the chip from
+            // 404-ing on click. `assetRow` is hoisted above the try block.
+            if (!isTest && this.messageAssetsService) {
+                assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
+            }
+            const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
+            addLog('info', `Email sent to ${params.to.email}${viewEmailToken}`)
             success = true
         } catch (error) {
             if (error instanceof SESThrottleError) {
@@ -216,17 +236,13 @@ export class EmailService {
                 count: 1,
             })
 
-            // Snapshot the rendered email so it shows up in the workflow Assets tab.
-            // We append the row to `result.emailAssets` and let `MessageAssetsService`
-            // drain the per-result lists into a single bulk produce at the batch
-            // boundary — one Kafka round-trip per partition for the whole batch
-            // instead of one per email. `buildRowForEmail` handles the skip cases
-            // internally (capture disabled, text-only email, no action id).
-            if (success && this.messageAssetsService) {
-                const assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
-                if (assetRow) {
-                    result.emailAssets.push(assetRow)
-                }
+            // Push the asset row built above onto result.emailAssets — MessageAssetsService
+            // drains the per-result lists into a single bulk produce at the batch boundary
+            // (one Kafka round-trip per partition for the whole batch instead of one per
+            // email). assetRow is null when capture is disabled / text-only / standalone,
+            // in which case the success log line also skipped the inline View-email chip.
+            if (success && assetRow) {
+                result.emailAssets.push(assetRow)
             }
         }
 
