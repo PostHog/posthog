@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import uuid as uuid_lib
 import dataclasses
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
@@ -37,18 +38,23 @@ def insert_seed_person(
     properties: dict[str, Any],
     is_identified: bool = False,
     uuid: str | uuid_lib.UUID | None = None,
+    version: int | None = None,
+    created_at: datetime | None = None,
+    last_seen_at: datetime | None = None,
 ) -> int:
     """Insert one person row and return its database id.
 
     Pass ``uuid`` when the caller needs to reference the person downstream (e.g. to
-    mirror it into ClickHouse); otherwise a fresh ``UUIDT`` is generated.
+    mirror it into ClickHouse); otherwise a fresh ``UUIDT`` is generated. ``created_at``
+    defaults to ``now()`` (matching the model's ``auto_now_add``); ``version`` and
+    ``last_seen_at`` default to NULL, mirroring ``Person.objects.create`` with no override.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             f"INSERT INTO {settings.PERSON_TABLE_NAME} "
-            "(created_at, properties, is_identified, uuid, team_id) "
-            "VALUES (now(), %s, %s, %s, %s) RETURNING id",
-            (Jsonb(properties), is_identified, uuid or UUIDT(), team_id),
+            "(created_at, properties, is_identified, uuid, team_id, version, last_seen_at) "
+            "VALUES (COALESCE(%s, now()), %s, %s, %s, %s, %s, %s) RETURNING id",
+            (created_at, Jsonb(properties), is_identified, uuid or UUIDT(), team_id, version, last_seen_at),
         )
         row = cursor.fetchone()
         assert row is not None  # RETURNING always yields a row on a successful insert
@@ -61,12 +67,13 @@ def insert_seed_distinct_id(
     team_id: int,
     person_id: int,
     distinct_id: str,
+    version: int = 0,
 ) -> None:
     """Insert one distinct-id row linking ``distinct_id`` to ``person_id``."""
     with conn.cursor() as cursor:
         cursor.execute(
-            f"INSERT INTO {PERSON_DISTINCT_ID_TABLE} (distinct_id, person_id, team_id) VALUES (%s, %s, %s)",
-            (distinct_id, person_id, team_id),
+            f"INSERT INTO {PERSON_DISTINCT_ID_TABLE} (distinct_id, person_id, team_id, version) VALUES (%s, %s, %s, %s)",
+            (distinct_id, person_id, team_id, version),
         )
 
 

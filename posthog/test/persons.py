@@ -29,6 +29,8 @@ from posthog.models.person.util import (
 )
 from posthog.models.utils import UUIDT
 from posthog.person_db_router import persons_orm_blocked
+from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person
 
 if TYPE_CHECKING:
     import uuid
@@ -286,7 +288,7 @@ def create_person(*, team: Team | None = None, distinct_ids: list[str] | None = 
     dids = [str(d) for d in (distinct_ids or [])]
 
     if not persons_orm_blocked():
-        return _create_person_in_orm(create_kwargs, dids)
+        return _create_person_in_persons_db(create_kwargs, dids)
 
     person = _build_person(create_kwargs)
     person._distinct_ids = list(dids)
@@ -295,13 +297,33 @@ def create_person(*, team: Team | None = None, distinct_ids: list[str] | None = 
     return person
 
 
-def _create_person_in_orm(create_kwargs: dict[str, Any], dids: list[str]) -> Person:
-    """Write a real persons-DB person + distinct ids (for fake-off / excluded tests)."""
-    if not create_kwargs.get("uuid"):
-        create_kwargs["uuid"] = UUIDT()
-    person = Person.objects.create(**create_kwargs)
-    for distinct_id in dids:
-        PersonDistinctId.objects.create(team_id=person.team_id, person=person, distinct_id=distinct_id, version=0)
+def _create_person_in_persons_db(create_kwargs: dict[str, Any], dids: list[str]) -> Person:
+    """Write a real persons-DB person + distinct ids via off-Django psycopg (fake-off / excluded tests).
+
+    Builds the Person instance to resolve the same field defaults Person.objects.create would
+    (uuid, created_at, version), then inserts directly so this path needs no Django persons connection.
+    """
+    person = Person(**create_kwargs)
+    if not person.uuid:
+        person.uuid = UUIDT()
+    if person.created_at is None:
+        person.created_at = now()
+
+    with persons_db_connection(writer=True, autocommit=True) as conn:
+        person.id = insert_seed_person(
+            conn,
+            team_id=person.team_id,
+            properties=person.properties or {},
+            is_identified=person.is_identified,
+            uuid=person.uuid,
+            version=person.version,
+            created_at=person.created_at,
+            last_seen_at=person.last_seen_at,
+        )
+        for distinct_id in dids:
+            insert_seed_distinct_id(conn, team_id=person.team_id, person_id=person.id, distinct_id=distinct_id)
+
+    person._state.adding = False
     person._distinct_ids = list(dids)
     _ch_sync_person(person, dids)
     return person
@@ -360,9 +382,11 @@ def add_distinct_id(*, person: Person, distinct_id: str, version: int = 0) -> Pe
         existing_distinct_ids.append(distinct_id)
 
     if not persons_orm_blocked():
-        return PersonDistinctId.objects.create(
-            team_id=person.team_id, person=person, distinct_id=str(distinct_id), version=version
-        )
+        with persons_db_connection(writer=True, autocommit=True) as conn:
+            insert_seed_distinct_id(
+                conn, team_id=person.team_id, person_id=person.pk, distinct_id=str(distinct_id), version=version
+            )
+        return PersonDistinctId(team_id=person.team_id, person=person, distinct_id=str(distinct_id), version=version)
 
     _seed_distinct_id_into_fake(person.team_id, person.pk, distinct_id, version=version)
     return PersonDistinctId(team_id=person.team_id, person=person, distinct_id=distinct_id, version=version)
