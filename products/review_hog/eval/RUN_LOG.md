@@ -22,6 +22,22 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
 
 ---
 
+## 2026-06-26 · #66456 publish — surfaced two publish-path gaps
+
+- **Run:** `run_review --pr-url …/66456 --team-id 1 --user-id 1 --publish`, exit 0, report `019f0581-646e-…`.
+  Pipeline ran fully (7 chunks → 7 post-dedup findings + 7 verdicts; **2 valid `SHOULD_FIX`** on `posthog/email.py`).
+- **Symptom:** nothing posted to the PR; `published_head_sha` was `None`.
+- **Root cause #1 (publish flag dropped):** the Temporal history for `review-pr:1:PostHog/posthog:66456` has **one**
+  execution whose **start input was `publish=False`** (`publish_review_activity` scheduled 0×). A **no-publish** run
+  was already in flight; the `--publish` invocation joined it via `id_conflict_policy=USE_EXISTING` and blocked on
+  it, so `publish=True` never reached a workflow. USE_EXISTING is correct for the prod label trigger, a CLI footgun
+  here. Not a code defect — `_publish` posts fine (published the report directly afterward: body + 1 inline comment
+  - once-per-report promo, `published_head_sha` then set).
+- **Root cause #2 (off-diff valid finding dropped):** of the 2 valid findings, `email.py:276` had **no resolvable
+  diff position** → skipped; only `email.py:104` posted inline. If **all** valid findings were off-diff,
+  `publish_review` would return `False` and post **nothing** (not even the body). Both gaps written up as next
+  steps in `ARCHITECTURE.md` → Stage 5b → _Publish-path gaps_.
+
 ## 2026-06-26 · Stage 5 — production label trigger (BUILT, not e2e'd)
 
 - **What landed (Phases 1–4):** non-blocking `start_review_pr_workflow` + per-run `publish` flag (retired

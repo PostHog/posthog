@@ -1502,6 +1502,40 @@ twice. Assert turn 2 produces **strictly fewer surviving post-dedup findings** t
 ones are deduped against the PR comments), and log turn-over-turn counts in `eval/RUN_LOG.md`. Restart the worker
 first so the latest fixes are loaded.
 
+**⏭️ Publish-path gaps found 2026-06-26 (next steps):**
+
+- **Don't silently drop valid findings that have no diff position — surface them anyway.** `_build_inline_comments`
+  skips any valid finding whose line isn't inside the PR diff hunk (`_find_valid_comment_position` → `None`, logs
+  "No valid diff position … skipping"); and if **every** valid finding is off-diff, `publish_review` returns
+  `False` and posts **nothing at all** — not even the review body. Observed on #66456: of 2 valid `SHOULD_FIX`
+  findings, `posthog/email.py:276` had no resolvable diff position and was dropped, only `email.py:104` posted
+  inline. A valid finding should never be lost just because its line isn't in a diff hunk (it can be valid yet
+  reference a line just outside the changed range, or the line map can be imperfect). **Fix idea:** keep the inline
+  path as primary, but for any valid finding that can't be positioned, fall back to surfacing it — either (a) an
+  **"Other findings (off-diff)"** section appended to the review body listing title + `file:line` + suggestion, or
+  (b) a general PR issue comment. Optionally snap to the **nearest** in-diff line when one exists before falling
+  back to body-side. Either way `publish_review` must post the body whenever there are valid findings, even if
+  zero inline comments resolved.
+  - **OPEN QUESTION (unresolved — keep visible until designed): how do we make off-diff surfacing reliable for
+    _every_ valid finding that doesn't fit the diff, not just patch one case?** GitHub only accepts inline review
+    comments on lines present in the diff, so a valid finding can legitimately reference code outside the changed
+    hunk (context lines, a caller/callee, a line the model mis-numbered, or an imperfect diff-line map). The design
+    must decide, generically: when does a finding go inline vs. body-side vs. general comment; how to attach it
+    to the nearest meaningful location; how off-diff findings participate in cross-turn dedup (they have no inline
+    comment to dedup against — see the finding-identity work); and how to keep them from being noisy. On #66456
+    one such finding (`email.py:276`, duplicate-emails bug) was posted **manually as a one-off general comment** —
+    that is a stop-gap, not the answer. No implementation now; this question must stay on the roadmap.
+- **CLI `--publish` is silently ignored when a run for the same PR is already in flight.**
+  `execute_review_pr_workflow` uses a deterministic per-PR workflow id + `id_conflict_policy=USE_EXISTING`. If a
+  **no-publish** run is mid-flight and you invoke again with `--publish`, `execute_workflow` **joins** the running
+  `publish=False` execution and blocks on it — the new `publish=True` never reaches a workflow (confirmed on
+  #66456: the single execution's start input was `publish=False` and `publish_review_activity` was scheduled 0×;
+  the `--publish` invocation attached to the already-running no-publish run). USE*EXISTING is \_correct* for the
+  production label trigger (where `publish` is always True and a `synchronize` push must not 500 or double-run).
+  **For the CLI** this is a footgun: either detect an in-flight run for the PR and warn that `--publish` won't take
+  effect until it closes (re-run after it finishes — `ALLOW_DUPLICATE` then starts a fresh turn that honors the
+  flag), or simply don't overlap runs. Not a code defect — the publish path itself works.
+
 ---
 
 ### 🔮 Future directions (product, post-Stage-5 — not scheduled)
