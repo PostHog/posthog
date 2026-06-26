@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
-import { taskTrackerSceneLogic } from '../logics/taskTrackerSceneLogic'
+import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
 export function TaskComposer(): JSX.Element {

@@ -7,7 +7,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { tasksLogic } from '../logics/tasksLogic'
+import { tasksLogic } from '../../../logics/tasksLogic'
 import { TaskListItem } from './TaskListItem'
 
 interface TasksListColumnProps {

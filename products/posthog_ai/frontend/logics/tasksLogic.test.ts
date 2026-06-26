@@ -1,6 +1,6 @@
 import { initKeaTests } from '~/test/init'
 
-import { OriginProduct, Task } from '../types'
+import { OriginProduct, Task } from '../types/taskTypes'
 import { tasksLogic } from './tasksLogic'
 
 const createMockTask = (id: string): Task => ({

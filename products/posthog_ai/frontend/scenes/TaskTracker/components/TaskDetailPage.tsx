@@ -28,8 +28,8 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 
-import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
-import { TaskRun } from '../types'
+import { TaskRun } from '../../../types/taskTypes'
+import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { TaskRunChat } from './TaskRunChat'
 
 export interface TaskDetailPageProps {

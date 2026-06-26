@@ -1,7 +1,7 @@
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { TASK_STATUS_CONFIG } from '../lib/task-status'
-import { TaskRun } from '../types'
+import { TASK_STATUS_CONFIG } from '../../../lib/task-status'
+import { TaskRun } from '../../../types/taskTypes'
 
 const STATUS_TO_TAG_TYPE: Record<string, 'primary' | 'success' | 'danger' | 'warning' | 'default'> = {
     primary: 'primary',

@@ -4,7 +4,7 @@ import { ApiError } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
-import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../types'
+import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import { taskLogic } from './taskLogic'
 import { tasksLogic } from './tasksLogic'
 

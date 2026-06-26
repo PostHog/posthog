@@ -5,11 +5,11 @@ import { router } from 'kea-router'
 import api, { ApiError } from 'lib/api'
 import { isUUIDLike } from 'lib/utils/guards'
 
-import { phDebugQueryParams } from '../lib/ph-debug'
-import { TaskRun } from '../types'
+import { phDebugQueryParams } from '../../lib/ph-debug'
+import { TaskLogicProps, taskLogic } from '../../logics/taskLogic'
+import { tasksLogic } from '../../logics/tasksLogic'
+import { TaskRun } from '../../types/taskTypes'
 import type { taskDetailSceneLogicType } from './taskDetailSceneLogicType'
-import { TaskLogicProps, taskLogic } from './taskLogic'
-import { tasksLogic } from './tasksLogic'
 
 export type TaskDetailSceneLogicProps = TaskLogicProps
 
@@ -31,7 +31,7 @@ function loadErrorMessage(error: string, errorObject: unknown): string {
 }
 
 export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
-    path(['products', 'tasks', 'taskDetailSceneLogic']),
+    path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskDetailSceneLogic']),
     props({} as TaskDetailSceneLogicProps),
     key((props) => props.taskId),
 

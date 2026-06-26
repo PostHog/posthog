@@ -6,7 +6,7 @@ import { App } from 'scenes/App'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from './types'
+import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 
 const taskTrackerUrl = (): string => '/tasks'
 const taskNewUrl = (): string => '/tasks/new'
