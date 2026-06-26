@@ -63,14 +63,16 @@ export function InsertTileOverlay({
 
     const active = canEditDashboard && !isMobileView && !disabled
 
-    // Row boundaries: the top (0), the start of every tile, and the bottom of the grid. We offer a line
-    // at any row that lines up with a tile edge — even one that runs through a taller tile in another
-    // column — so insertion is available next to every row on the board, not just clean full-width cuts.
+    // Row boundaries: the start of every tile and the bottom of the grid. We offer a line at any row
+    // that lines up with a tile edge so insertion is available next to every row on the board. The very
+    // top gap (above the first row) is intentionally dropped — there's no inserting above the board.
     const boundaryRows = useMemo(() => {
-        const rows = new Set<number>([0])
+        const rows = new Set<number>()
         let maxBottom = 0
         for (const item of layout || []) {
-            rows.add(item.y)
+            if (item.y > 0) {
+                rows.add(item.y)
+            }
             maxBottom = Math.max(maxBottom, item.y + item.h)
         }
         rows.add(maxBottom)
@@ -111,11 +113,25 @@ export function InsertTileOverlay({
             setTileRects(rects)
         }
         measure()
-        const observer = new ResizeObserver(measure)
-        observer.observe(containerRef.current!.parentElement!)
+        const parent = containerRef.current!.parentElement!
+        const resizeObserver = new ResizeObserver(measure)
+        resizeObserver.observe(parent)
+        // react-grid-layout repositions tiles via CSS transform without changing the container size, so
+        // a ResizeObserver alone goes stale. Watch the grid's style/child mutations to re-measure on move.
+        const gridEl = parent.querySelector('.react-grid-layout')
+        const mutationObserver = new MutationObserver(measure)
+        if (gridEl) {
+            mutationObserver.observe(gridEl, {
+                attributes: true,
+                attributeFilter: ['style'],
+                subtree: true,
+                childList: true,
+            })
+        }
         window.addEventListener('resize', measure)
         return () => {
-            observer.disconnect()
+            resizeObserver.disconnect()
+            mutationObserver.disconnect()
             window.removeEventListener('resize', measure)
         }
     }, [active, layout, gridWidth, rowHeight, marginY])
@@ -164,24 +180,26 @@ export function InsertTileOverlay({
         return byRow
     }, [boundaryRows, tileRects, gridWidth, marginX, rowTopPx])
 
-    // Resolve which grid column the cursor (px from the grid's left edge) sits over at a given row, so
-    // the inserted tile lands under the "+" rather than always full-left. Prefer the column of the tile
-    // the cursor is over near the row; fall back to snapping the cursor to the nearest column.
+    // Resolve which grid column the cursor sits over at a given row, so the inserted tile lands under
+    // the "+" rather than always full-left. Align to the column of the rendered tile bordering the gap
+    // at the cursor; fall back to snapping the cursor to the nearest column.
     const resolveTargetX = useCallback(
         (targetY: number, pxX: number): number => {
-            const colWidth = (gridWidth - marginX * (cols - 1)) / cols
-            for (const item of layout || []) {
-                const left = item.x * (colWidth + marginX)
-                const right = left + item.w * colWidth + (item.w - 1) * marginX
-                const touchesRow = item.y <= targetY && item.y + item.h >= targetY
-                if (touchesRow && pxX >= left && pxX <= right) {
-                    return item.x
+            const colUnit = (gridWidth - marginX * (cols - 1)) / cols + marginX
+            const lineY = rowTopPx(targetY)
+            for (const rect of tileRects) {
+                if (pxX < rect.left || pxX > rect.right) {
+                    continue
+                }
+                const bordersGap = Math.abs(rect.top - lineY) <= marginY || Math.abs(rect.bottom - lineY) <= marginY
+                if (bordersGap) {
+                    return Math.round(rect.left / colUnit)
                 }
             }
-            const snapped = Math.round(pxX / (colWidth + marginX))
+            const snapped = Math.round(pxX / colUnit)
             return Math.min(Math.max(snapped, 0), Math.max(0, cols - DEFAULT_INSERTED_TILE_SIZE.w))
         },
-        [layout, gridWidth, cols, marginX]
+        [tileRects, gridWidth, cols, marginX, marginY, rowTopPx]
     )
 
     if (!active) {
@@ -253,6 +271,13 @@ function InsertionStrip({
         const rect = stripRef.current?.getBoundingClientRect()
         if (rect) {
             const x = Math.min(Math.max(clientX - rect.left, BUTTON_EDGE_PADDING), gridWidth - BUTTON_EDGE_PADDING)
+            // Hide the "+" when the cursor is over a tile (not in a gap) — inserting there would land the
+            // affordance on top of a card. Only a real gap at the cursor is a valid insertion spot.
+            const inGap = segments.some((segment) => x >= segment.left && x <= segment.left + segment.width)
+            buttonRef.current.style.display = inGap ? '' : 'none'
+            if (!inGap) {
+                return
+            }
             lastXRef.current = x
             // Our Tailwind config sets `important: true`, so the `left-4` class is `left !important` and
             // would beat a plain inline `left`. Write with priority so the follow position actually wins.
