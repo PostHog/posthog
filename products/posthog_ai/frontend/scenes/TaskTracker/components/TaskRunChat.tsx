@@ -48,6 +48,8 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
             taskId={logicProps.taskId}
             runId={logicProps.runId}
             interaction="live"
+            threadListClassName="pt-4"
+            threadRowClassName="pr-4"
             composerValue={draft}
             onComposerChange={setDraft}
             onComposerSubmit={submit}
