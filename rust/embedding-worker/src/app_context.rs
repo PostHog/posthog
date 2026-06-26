@@ -76,7 +76,7 @@ impl AppContext {
             .time_to_live(Duration::from_secs(30))
             .build();
 
-        let recently_seen = build_store(&config).await;
+        let recently_seen = build_store(&config).await?;
 
         Ok(Self {
             health_registry,

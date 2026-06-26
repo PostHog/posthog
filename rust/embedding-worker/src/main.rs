@@ -84,25 +84,25 @@ async fn recently_seen_handler(
     State(context): State<Arc<AppContext>>,
     Json(request): Json<RecentlySeenRequest>,
 ) -> Json<RecentlySeenResponse> {
+    let requested_count = request.documents.len();
     let lookup = context
         .recently_seen
-        .lookup(request.team_id, request.documents.clone())
+        .lookup(request.team_id, request.documents)
         .await;
 
-    let results = request
-        .documents
+    let results: Vec<_> = lookup
         .into_iter()
-        .map(|key| {
-            let emitted_at = lookup.get(&key).copied().flatten();
-            RecentlySeenResult {
-                product: key.product,
-                document_type: key.document_type,
-                rendering: key.rendering,
-                document_id: key.document_id,
-                emitted_at,
-            }
+        .map(|(key, emitted_at)| RecentlySeenResult {
+            product: key.product,
+            document_type: key.document_type,
+            rendering: key.rendering,
+            document_id: key.document_id,
+            emitted_at,
         })
         .collect();
+
+    // We return a response for every key, even if the key was not found in the lookup.
+    assert_eq!(results.len(), requested_count);
 
     Json(RecentlySeenResponse { results })
 }
@@ -222,9 +222,7 @@ async fn main() {
             res.expect("We can emit to kafka");
         }
 
-        // Capture each document's emit time before `responses` is consumed. document_id
-        // isn't unique on its own, so key on the full (team, product, type, rendering, id)
-        // tuple — the same identity the recently-seen store uses.
+        // Capture each document's emit time before `responses` is consumed.
         let mut emitted_at: HashMap<(i32, DocumentKey), DateTime<Utc>> = HashMap::new();
         for response in &responses {
             let req = &response.request;
@@ -234,7 +232,9 @@ async fn main() {
                 rendering: req.rendering.clone(),
                 document_id: req.document_id.clone(),
             };
-            emitted_at.entry((req.team_id, key)).or_insert(req.timestamp);
+            emitted_at
+                .entry((req.team_id, key))
+                .or_insert(req.timestamp);
         }
 
         // Write the embedding records to CH
@@ -279,9 +279,9 @@ async fn main() {
         }
 
         // Record the documents we just emitted in the recently-seen store, so callers can
-        // cheaply check processing status. Derived from `records` (only documents that
-        // actually produced CH output), deduped to one entry per document. Best-effort:
-        // the batch is already committed, so a store failure must not affect ingestion.
+        // cheaply check processing status. Best effort - better to write the same document
+        // twice to CH (where it'll be de-duped anyway) than falsely advertise that we
+        // processed it
         let seen = dedup_seen(records.iter().filter_map(|record| {
             let key = DocumentKey {
                 product: record.product.clone(),
@@ -298,7 +298,7 @@ async fn main() {
                 })
         }));
         if !seen.is_empty() {
-            context.recently_seen.record(seen).await;
+            context.recently_seen.record(&seen).await;
         }
     }
 }
