@@ -91,15 +91,19 @@ function InsertionStrip({
 }): JSX.Element {
     const stripRef = useRef<HTMLDivElement>(null)
     const buttonRef = useRef<HTMLDivElement>(null)
+    // Freeze the follow while the pointer is pressed: a click emits tiny mousemoves between mousedown
+    // and mouseup, and repositioning the button mid-press moves it out from under the stationary cursor
+    // so mouseup lands elsewhere and the browser never fires `click` — that's the lost first click.
+    const pointerDownRef = useRef(false)
     const [menuOpen, setMenuOpen] = useState(false)
 
     const revealClass = menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
 
     // Move the "+" to follow the cursor by writing to the DOM directly — no setState, so the LemonMenu
-    // subtree never re-renders during a hover/move. A re-render landing between mousedown and the
-    // menu's click-to-open was eating the first click. Frozen while the menu is open.
+    // subtree never re-renders during a hover/move. Frozen while pressed (see pointerDownRef) and while
+    // the menu is open so it stays anchored under the popover.
     const followCursor = (clientX: number): void => {
-        if (menuOpen || !buttonRef.current) {
+        if (menuOpen || pointerDownRef.current || !buttonRef.current) {
             return
         }
         const rect = stripRef.current?.getBoundingClientRect()
@@ -122,6 +126,9 @@ function InsertionStrip({
             style={{ left: 0, width: gridWidth, top: topPx - HOVER_HIT_HEIGHT / 2, height: HOVER_HIT_HEIGHT }}
             onMouseEnter={(e) => followCursor(e.clientX)}
             onMouseMove={(e) => followCursor(e.clientX)}
+            onMouseDown={() => (pointerDownRef.current = true)}
+            onMouseUp={() => (pointerDownRef.current = false)}
+            onMouseLeave={() => (pointerDownRef.current = false)}
         >
             <div
                 className={clsx(
