@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { PointClickData, TooltipConfig, TooltipContext } from '@posthog/quill-charts'
+import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -16,6 +16,7 @@ import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import {
     buildRetentionLineChartConfig,
     buildRetentionSeries,
@@ -24,11 +25,11 @@ import {
 } from '../shared/retentionChartTransforms'
 import { RetentionTooltip } from '../shared/RetentionTooltip'
 
+const TOOLTIP_CONFIG = INSIGHT_TOOLTIP_CONFIG
+
 interface RetentionLineChartProps {
     inSharedMode?: boolean
 }
-
-const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 const EMPTY_GOAL_LINES: GoalLine[] = []
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
