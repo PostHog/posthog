@@ -1671,19 +1671,15 @@ describe('SessionBatchRecorder', () => {
             expect(mockOffsetManager.commit).toHaveBeenCalled()
         })
 
-        it('should drop session and continue flush when writer errors', async () => {
+        it('should propagate writer errors so the batch retries', async () => {
             const error = new Error('Write failed')
             mockWriter.writeSession.mockRejectedValueOnce(error)
 
             const message = createMessage('session1', [{ type: 1, timestamp: 1, data: {} }])
             await recorder.record(message)
 
-            const result = await recorder.flush()
-
-            expect(result).toEqual([])
-            expect(SessionBatchMetrics.incrementSessionsDroppedDuringFlush).toHaveBeenCalledTimes(1)
-            expect(mockWriter.finish).toHaveBeenCalled()
-            expect(mockOffsetManager.commit).toHaveBeenCalled()
+            await expect(recorder.flush()).rejects.toThrow('Write failed')
+            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
     })
 
