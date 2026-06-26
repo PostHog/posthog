@@ -306,6 +306,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             queued,
         }),
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
+        /** Number of insights enrolled in the current refresh cycle, captured up front. */
+        setRefreshTilesTotal: (total: number) => ({ total }),
         abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
@@ -1064,13 +1066,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cancelDashboardRefresh: () => ({}),
             },
         ],
-        // The number of insights enrolled in the current refresh cycle, captured up front when the
-        // batch is registered. Pinning the "X out of Y" denominator to this keeps Y constant for the
+        // The number of insights enrolled in the current refresh cycle, captured up front by the
+        // refresh listener. Pinning the "X out of Y" denominator to this keeps Y constant for the
         // whole cycle instead of letting it track the live, still-populating refreshStatus map.
         refreshTilesTotal: [
-            0 as number,
+            0,
             {
-                setRefreshStatuses: (_, { shortIds }) => shortIds.length,
+                setRefreshTilesTotal: (_, { total }) => total,
                 refreshDashboardItems: () => 0,
                 abortQuery: () => 0,
                 cancelDashboardRefresh: () => 0,
@@ -1849,7 +1851,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // refreshes that don't register a batch.
                 const total = refreshTilesTotal || Object.keys(refreshStatus).length
                 return {
-                    completed: Math.max(0, total - inFlight),
+                    completed: total - inFlight,
                     total,
                 }
             },
@@ -2412,6 +2414,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 await breakpoint()
                 actions.resetIntermittentFilters()
 
+                // Pin the progress denominator to the batch size before enrolling the insights
+                actions.setRefreshTilesTotal(tilesStaleCount)
                 // Set refresh status for all insights
                 actions.setRefreshStatuses(
                     sortedTilesToRefresh.map((tile) => tile.insight.short_id),

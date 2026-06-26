@@ -1103,6 +1103,82 @@ describe('dashboardLogic', () => {
                     })
             })
 
+            it('keeps refreshMetrics.total fixed while tiles drip to ready one at a time', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+
+                // Gate each insight fetch on its own barrier so tiles finish one at a time,
+                // mirroring the streaming load where tiles slowly become ready.
+                const gates: Record<string, { barrier: Promise<void>; release: () => void }> = {}
+                for (const shortId of [insight1.short_id, insight2.short_id]) {
+                    let release!: () => void
+                    const barrier = new Promise<void>((resolve): void => {
+                        release = resolve
+                    })
+                    gates[shortId] = { barrier, release }
+                }
+
+                const realGetInsightWithRetry =
+                    jest.requireActual<typeof dashboardUtils>('./dashboardUtils').getInsightWithRetry
+
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(
+                        async (
+                            ...args: Parameters<typeof realGetInsightWithRetry>
+                        ): ReturnType<typeof realGetInsightWithRetry> => {
+                            await gates[args[1].short_id].barrier
+                            return realGetInsightWithRetry(...args)
+                        }
+                    )
+
+                const poll = async (cond: () => boolean, message: string): Promise<void> => {
+                    const deadline = Date.now() + 5000
+                    while (!cond()) {
+                        if (Date.now() > deadline) {
+                            throw new Error(message)
+                        }
+                        await new Promise((r) => setTimeout(r, 0))
+                    }
+                }
+
+                // Y stays pinned at the up-front count for the whole drip; only X may move.
+                const waitForCompleted = async (expected: number): Promise<void> => {
+                    await poll(() => {
+                        expect(logic.values.refreshMetrics.total).toBe(2)
+                        return logic.values.refreshMetrics.completed >= expected
+                    }, `Timed out waiting for completed to reach ${expected}`)
+                    expect(logic.values.refreshMetrics).toEqual({ completed: expected, total: 2 })
+                }
+
+                try {
+                    // forceRefresh: true so both tiles enter the refresh loop
+                    const refreshDone = expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    // Both tiles are enrolled up front before any finishes
+                    await poll(
+                        () => getInsightWithRetrySpy.mock.calls.length >= 2,
+                        'Timed out waiting for insight fetches to start'
+                    )
+                    expect(logic.values.refreshMetrics).toEqual({ completed: 0, total: 2 })
+
+                    // First tile becomes ready — X climbs to 1, Y unchanged
+                    gates[insight1.short_id].release()
+                    await waitForCompleted(1)
+
+                    // Second tile becomes ready — X reaches Y, which never grew past the up-front count
+                    gates[insight2.short_id].release()
+                    await refreshDone
+                    expect(logic.values.refreshMetrics).toEqual({ completed: 2, total: 2 })
+                } finally {
+                    Object.values(gates).forEach(({ release }) => release())
+                    getInsightWithRetrySpy.mockRestore()
+                }
+            })
+
             it('save during in-flight dashboard refresh does not abort insight fetches', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
