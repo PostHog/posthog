@@ -7,9 +7,9 @@ from posthog.test.base import ClickhouseDestroyTablesMixin
 
 from posthog.clickhouse.client import sync_execute
 
-from products.demo.backend.matrix.manager import MatrixManager
-from products.demo.backend.matrix.matrix import Cluster, Matrix
-from products.demo.backend.matrix.models import SimPerson, SimSessionIntent
+from products.demo.backend.logic.matrix.manager import MatrixManager
+from products.demo.backend.logic.matrix.matrix import Cluster, Matrix
+from products.demo.backend.logic.matrix.models import SimPerson, SimSessionIntent
 
 
 class DummySessionIntent(SimSessionIntent):

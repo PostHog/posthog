@@ -9,9 +9,9 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from products.demo.backend.matrix.models import SimEvent
-from products.demo.backend.products.hedgebox.matrix import HedgeboxMatrix
-from products.demo.backend.products.hedgebox.taxonomy import (
+from products.demo.backend.logic.matrix.models import SimEvent
+from products.demo.backend.logic.products.hedgebox.matrix import HedgeboxMatrix
+from products.demo.backend.logic.products.hedgebox.taxonomy import (
     EVENT_DOWNGRADED_PLAN,
     EVENT_PAID_BILL,
     EVENT_SIGNED_UP,
@@ -181,9 +181,9 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
             ),
         ]
 
-    @patch("products.demo.backend.products.hedgebox.matrix.object_storage.write")
-    @patch("products.demo.backend.products.hedgebox.matrix.DataWarehouseTable.objects.create")
-    @patch("products.demo.backend.products.hedgebox.matrix.DataWarehouseTable.objects.filter")
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.object_storage.write")
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.DataWarehouseTable.objects.create")
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.DataWarehouseTable.objects.filter")
     def test_upsert_demo_data_warehouse_table_sets_csv_double_quotes_on_create(
         self, mock_filter, mock_create, _mock_write
     ):
@@ -206,8 +206,8 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
         mock_create.assert_called_once()
         assert mock_create.call_args.kwargs["options"] == {"csv_allow_double_quotes": True}
 
-    @patch("products.demo.backend.products.hedgebox.matrix.object_storage.write")
-    @patch("products.demo.backend.products.hedgebox.matrix.DataWarehouseTable.objects.filter")
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.object_storage.write")
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.DataWarehouseTable.objects.filter")
     def test_upsert_demo_data_warehouse_table_sets_csv_double_quotes_on_update(self, mock_filter, _mock_write):
         matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
         team = cast(Any, SimpleNamespace(pk=1))
@@ -257,7 +257,7 @@ class TestHedgeboxMatrixDemoOAuthApplication(SimpleTestCase):
             ("no_oidc_key", "", True, False, True),
         ]
     )
-    @patch("products.demo.backend.products.hedgebox.matrix.OAuthApplication.objects.create")
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.OAuthApplication.objects.create")
     def test_demo_oauth_app_only_created_in_local_dev(
         self,
         _name: str,
@@ -272,7 +272,7 @@ class TestHedgeboxMatrixDemoOAuthApplication(SimpleTestCase):
         user = cast(Any, SimpleNamespace())
 
         with override_settings(OIDC_RSA_PRIVATE_KEY=oidc_key, DEBUG=debug):
-            with patch("products.demo.backend.products.hedgebox.matrix.is_cloud", return_value=cloud):
+            with patch("products.demo.backend.logic.products.hedgebox.matrix.is_cloud", return_value=cloud):
                 matrix._set_up_demo_oauth_application(team, user)
 
         if should_skip:

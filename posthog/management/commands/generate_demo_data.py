@@ -23,11 +23,14 @@ from posthog.models.team.team import Team
 from posthog.products import Products
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
-from products.demo.backend.dashboard_template_seeds import seed_dev_dashboard_templates
-from products.demo.backend.matrix import Matrix, MatrixManager
-from products.demo.backend.matrix.persons_db_sync import get_group_type_mapping_count
-from products.demo.backend.products.hedgebox import HedgeboxMatrix
-from products.demo.backend.products.spikegpt import SpikeGPTMatrix
+from products.demo.backend.facade.api import (
+    HedgeboxMatrix,
+    Matrix,
+    MatrixManager,
+    SpikeGPTMatrix,
+    get_group_type_mapping_count,
+    seed_dev_dashboard_templates,
+)
 
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 

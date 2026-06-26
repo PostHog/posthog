@@ -9,7 +9,7 @@ from django.core.management.base import BaseCommand
 from posthog.models.data_color_theme import DataColorTheme
 
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
-from products.demo.backend.dashboard_template_seeds import seed_dev_dashboard_templates
+from products.demo.backend.facade.api import seed_dev_dashboard_templates
 
 # 0537 still references posthog.DataColorTheme which hasn't moved
 _migration_0537 = importlib.import_module("posthog.migrations.0537_data_color_themes")

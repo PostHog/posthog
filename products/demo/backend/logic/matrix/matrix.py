@@ -16,7 +16,7 @@ from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_t
 from posthog.models import Team, User
 from posthog.models.utils import UUIDT, uuid7
 
-from products.demo.backend.matrix.randomization import PropertiesProvider
+from products.demo.backend.logic.matrix.randomization import PropertiesProvider
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from .models import Effect, SimPerson, SimServerClient
