@@ -31,3 +31,14 @@ def test_fetch_page_retries_chunked_encoding_error():
 
     assert response.status_code == 200
     assert session.get.call_count == 2
+
+
+def test_fetch_page_reraises_chunked_encoding_error_after_exhausting_retries():
+    session = mock.Mock()
+    session.get.side_effect = [requests.exceptions.ChunkedEncodingError("Connection broken")] * 5
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(requests.exceptions.ChunkedEncodingError):
+            github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock())
+
+    assert session.get.call_count == 5
