@@ -530,7 +530,7 @@ class TestCalculateActivity(BaseTest):
             experiment=exp,
             metric_uuid="m1",
             fingerprint=recalc_fp,
-            query_from=exp.start_date,
+            query_from=query_to,
             query_to=query_to,
             status=ExperimentMetricResult.Status.COMPLETED,
             result={"already": "computed"},
@@ -545,8 +545,9 @@ class TestCalculateActivity(BaseTest):
         # The existing row is left untouched: same id, same result.
         rows = ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1", query_to=query_to)
         assert rows.count() == 1
-        assert rows.first().id == existing.id
-        assert rows.first().result == {"already": "computed"}
+        row = rows.get()
+        assert row.id == existing.id
+        assert row.result == {"already": "computed"}
 
     def test_recomputes_when_existing_result_has_a_different_fingerprint(self):
         # A config change yields a different recalc fingerprint, so the existing row does not match and the
@@ -558,7 +559,7 @@ class TestCalculateActivity(BaseTest):
             experiment=exp,
             metric_uuid="m1",
             fingerprint="stale-fingerprint-from-old-config",
-            query_from=exp.start_date,
+            query_from=query_to,
             query_to=query_to,
             status=ExperimentMetricResult.Status.COMPLETED,
             result={"stale": True},
@@ -582,7 +583,7 @@ class TestCalculateActivity(BaseTest):
             experiment=exp,
             metric_uuid="m1",
             fingerprint="legacy-fingerprint-from-a-prior-run",
-            query_from=exp.start_date,
+            query_from=query_to,
             query_to=query_to,
             status=ExperimentMetricResult.Status.COMPLETED,
             result={"stale": True},
@@ -592,7 +593,7 @@ class TestCalculateActivity(BaseTest):
             experiment_id=exp.id,
             metric_uuid="m1",
             recalc_fp="new-deterministic-fingerprint",
-            query_from=exp.start_date,
+            query_from=query_to,
             query_to=query_to,
             status=ExperimentMetricResult.Status.COMPLETED,
             result={"fresh": True},
@@ -601,7 +602,7 @@ class TestCalculateActivity(BaseTest):
 
         rows = ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1", query_to=query_to)
         assert rows.count() == 1
-        row = rows.first()
+        row = rows.get()
         assert row.fingerprint == "new-deterministic-fingerprint"
         assert row.result == {"fresh": True}
 
