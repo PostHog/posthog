@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.errors import QueryError
+from posthog.hogql.escape_sql import escape_snowflake_identifier
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.snowflake_functions import (
     SNOWFLAKE_FUNCTION_HANDLERS_LOWER,
@@ -84,6 +85,13 @@ class SnowflakePrinter(PostgresPrinter):
         if hasattr(table, "to_printed_snowflake"):
             return table.to_printed_snowflake(self.context)
         return super()._print_table(table)
+
+    def _print_identifier(self, name: str) -> str:
+        # Always double-quote. The base (Postgres) printer leaves simple lowercase identifiers
+        # unquoted, but Snowflake folds unquoted names to uppercase — an unquoted lowercase column
+        # would read a different column than the one resolved. Quoting pins the exact name, matching
+        # how table names are printed.
+        return escape_snowflake_identifier(name)
 
     # --- Function Calls
 
@@ -192,7 +200,11 @@ class SnowflakePrinter(PostgresPrinter):
             raise QueryError(f"formatDateTime requires a literal format string {self._dialect_error_suffix()}.")
         snowflake_format = self._translate_strftime_format(format_node.value)
         time_sql = self.visit(node.args[0])
-        return f"TO_CHAR({time_sql}, '{snowflake_format}')"
+        # The format is inlined into a single-quoted SQL literal, so any `'` it carries (a literal
+        # quote the user escaped as `''` in HogQL) must be re-escaped as `''` — otherwise it closes
+        # the string early, breaking the query or allowing injection.
+        escaped_format = snowflake_format.replace("'", "''")
+        return f"TO_CHAR({time_sql}, '{escaped_format}')"
 
     def _translate_strftime_format(self, fmt: str) -> str:
         # Translate ClickHouse/strftime %-specifiers to Snowflake TO_CHAR elements.
@@ -264,7 +276,7 @@ class SnowflakePrinter(PostgresPrinter):
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is not None:
-            raise QueryError("MATERIALIZED CTE hints are not supported in the SnowFlake dialect")
+            raise QueryError("MATERIALIZED CTE hints are not supported in the Snowflake dialect")
         if node.using_key is not None:
-            raise QueryError("USING KEY is not supported in the SnowFlake dialect")
+            raise QueryError("USING KEY is not supported in the Snowflake dialect")
         return super().visit_cte(node)

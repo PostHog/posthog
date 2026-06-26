@@ -7130,6 +7130,13 @@ SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
         "formatDateTime(now(), '%H\"%M')",
         'TO_CHAR(CURRENT_TIMESTAMP(), \'HH24""""MI\')',
     ),
+    # A literal single-quote (escaped `''` in HogQL) must be re-escaped as `''` so it can't close
+    # the surrounding SQL string literal — guards the formatDateTime injection vector.
+    (
+        "formatDateTime_escapes_single_quote",
+        "formatDateTime(now(), '%Y''T''%H')",
+        "TO_CHAR(CURRENT_TIMESTAMP(), 'YYYY\"''T''\"HH24')",
+    ),
     # Conditional / null
     ("if", "if(1, 2, 3)", "CASE WHEN 1 THEN 2 ELSE 3 END"),
     ("isNull", "isNull(1)", "(1 IS NULL)"),
@@ -7172,7 +7179,7 @@ SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
     ("rand", "rand()", "UNIFORM(0::float, 1::float, RANDOM())"),
     # Aggregation (no FILTER clause; CASE WHEN / COUNT_IF)
     ("countIf_1arg", "countIf(1)", "COUNT_IF(1)"),
-    ("countIf_2arg", "countIf(event, 1)", "COUNT(CASE WHEN 1 THEN events.event END)"),
+    ("countIf_2arg", "countIf(event, 1)", 'COUNT(CASE WHEN 1 THEN events."event" END)'),
     ("sumIf", "sumIf(1, 1)", "SUM(CASE WHEN 1 THEN 1 END)"),
     ("avgIf", "avgIf(1, 1)", "AVG(CASE WHEN 1 THEN 1 END)"),
     ("anyIf", "anyIf(1, 1)", "MIN(CASE WHEN 1 THEN 1 END)"),
@@ -7181,7 +7188,7 @@ SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
     ("uniq", "uniq(1)", "COUNT(DISTINCT 1)"),
     # Renames
     ("ifNull", "ifNull(1, 2)", "COALESCE(1, 2)"),
-    ("groupArray", "groupArray(event)", "ARRAY_AGG(events.event)"),
+    ("groupArray", "groupArray(event)", 'ARRAY_AGG(events."event")'),
     ("toTypeName", "toTypeName(1)", "TYPEOF(1)"),
     ("startsWith", "startsWith('a', 'b')", "STARTSWITH(%(hogql_val_0)s, %(hogql_val_1)s)"),
     ("now", "now()", "CURRENT_TIMESTAMP()"),

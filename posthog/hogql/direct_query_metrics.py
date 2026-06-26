@@ -1,9 +1,10 @@
-"""Prometheus metrics for direct-query execution (Postgres / MySQL / Snowflake).
+"""Prometheus metrics for direct-query execution.
 
 Direct queries run against a customer's own database over the network, so their
 latency and failure modes are independent of ClickHouse. These low-cardinality
 metrics make per-dialect error and timeout rates observable without leaking
-team-specific labels.
+team-specific labels. The instrumentation is dialect-agnostic (the dialect is a
+label); the Snowflake adapter is the only caller today.
 """
 
 from __future__ import annotations
