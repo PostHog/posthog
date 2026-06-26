@@ -12,6 +12,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import { getDefaultAnomalyDetectorConfig } from 'lib/components/Alerts/detectorConfigDefaults'
 import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
 import {
@@ -21,7 +22,7 @@ import {
     isHogQLAlertConfig,
     isTrendsAlertConfig,
 } from 'lib/components/Alerts/types'
-import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
+import { DetectorSelector } from 'lib/components/Alerts/views/DetectorSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -153,12 +154,10 @@ export function AlertDefinitionSection({
                     value={alertMode}
                     onChange={(value) => {
                         if (value === 'detector') {
-                            onSetAlertFormValue('detector_config', {
-                                type: 'zscore',
-                                threshold: 0.95,
-                                window: getDefaultWindow(alertForm.calculation_interval),
-                                preprocessing: { diffs_n: 1 },
-                            })
+                            onSetAlertFormValue(
+                                'detector_config',
+                                getDefaultAnomalyDetectorConfig(alertForm.calculation_interval)
+                            )
                         } else {
                             onSetAlertFormValue('detector_config', null)
                         }

@@ -104,6 +104,8 @@ export interface InsightCardProps extends Resizeable {
     tile?: DashboardTile<QueryBasedInsightModel>
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
+    /** Show a direct action for creating an anomaly detection alert for this saved insight. */
+    showCreateAnomalyAlertButton?: boolean
     /** Whether hovering near the card edge should hint that edit mode is available. */
     canEnterEditModeFromEdge?: boolean
     /** Called when the user clicks an edge hint to enter edit mode. */
@@ -149,6 +151,7 @@ function InsightCardInternal(
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         surveyOpportunity,
+        showCreateAnomalyAlertButton,
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
@@ -339,6 +342,7 @@ function InsightCardInternal(
                         variablesOverride={variablesOverride}
                         placement={placement}
                         surveyOpportunity={surveyOpportunity}
+                        showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
                         onDragHandleMouseDown={onDragHandleMouseDown}
                     />
                     {vizContent}

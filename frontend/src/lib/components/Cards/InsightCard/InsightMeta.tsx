@@ -1,11 +1,16 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import {
+    areAlertsSupportedForInsight,
+    areAnomalyAlertsSupportedForInsight,
+    insightAlertsLogic,
+} from 'lib/components/Alerts/insightAlertsLogic'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
@@ -36,7 +41,7 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { SurveyOpportunityButton } from 'scenes/surveys/components/SurveyOpportunityButton'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
-import { isSurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
+import { isSurveyableFunnelInsight, SurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -85,6 +90,7 @@ interface InsightMetaProps extends Pick<
     | 'variablesOverride'
     | 'placement'
     | 'surveyOpportunity'
+    | 'showCreateAnomalyAlertButton'
 > {
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
@@ -121,6 +127,7 @@ export function InsightMeta({
     moreButtons,
     placement,
     surveyOpportunity,
+    showCreateAnomalyAlertButton,
     onDragHandleMouseDown,
     persistDisplayOptions,
 }: InsightMetaProps): JSX.Element {
@@ -199,6 +206,10 @@ export function InsightMeta({
         hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
         funnelAlertsEnabled: !!featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS],
     })
+    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query, {
+        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
+        anomalyDetectionEnabled: !!featureFlags[FEATURE_FLAGS.ALERTS_ANOMALY_DETECTION],
+    })
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a
@@ -240,16 +251,11 @@ export function InsightMeta({
             </div>
         ) : null
 
-    const surveyOpportunityButton =
-        surveyOpportunity && isSurveyableFunnelInsight(insight) ? (
-            <SurveyOpportunityButton
-                insight={insight}
-                disableAutoPromptSubmit={true}
-                source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
-                fromProduct={ProductKey.PRODUCT_ANALYTICS}
-                tooltip="Create a survey to understand why users are dropping off"
-            />
-        ) : null
+    const surveyOpportunityInsight = surveyOpportunity && isSurveyableFunnelInsight(insight) ? insight : null
+    const anomalyAlertInsightShortId =
+        showCreateAnomalyAlertButton && canViewInsight && canCreateAnomalyAlertForInsight && short_id
+            ? (short_id as InsightShortId)
+            : null
 
     // If user can't view the insight, show minimal interface
     if (!canViewInsight) {
@@ -602,7 +608,15 @@ export function InsightMeta({
                         ? 'Rename, duplicate, export, refresh and more…'
                         : 'Duplicate, export, refresh and more…'
                 }
-                extraControls={surveyOpportunityButton ?? feedbackButtons}
+                extraControls={
+                    surveyOpportunityInsight || anomalyAlertInsightShortId || feedbackButtons ? (
+                        <InsightMetaExtraControls
+                            surveyOpportunityInsight={surveyOpportunityInsight}
+                            anomalyAlertInsightShortId={anomalyAlertInsightShortId}
+                            feedbackButtons={feedbackButtons}
+                        />
+                    ) : null
+                }
                 refreshControl={refreshControl}
             />
             {showDashboardAlertsMenuItem && insight.id ? (
@@ -617,6 +631,60 @@ export function InsightMeta({
                 />
             ) : null}
         </>
+    )
+}
+
+interface InsightMetaExtraControlsProps {
+    showLabel?: boolean
+    surveyOpportunityInsight?: SurveyableFunnelInsight | null
+    anomalyAlertInsightShortId?: InsightShortId | null
+    feedbackButtons?: JSX.Element | null
+}
+
+function CreateAnomalyAlertButton({
+    insightShortId,
+    showLabel,
+}: {
+    insightShortId: InsightShortId
+    showLabel?: boolean
+}): JSX.Element {
+    return (
+        <LemonButton
+            size="xsmall"
+            type="primary"
+            icon={<IconPulse />}
+            to={combineUrl(urls.insightAlert(insightShortId, 'new'), { alert_type: 'anomaly' }).url}
+            tooltip={!showLabel ? 'Create anomaly alert' : undefined}
+            data-attr="create-anomaly-alert-button"
+        >
+            {showLabel && 'Create anomaly alert'}
+        </LemonButton>
+    )
+}
+
+function InsightMetaExtraControls({
+    showLabel,
+    surveyOpportunityInsight,
+    anomalyAlertInsightShortId,
+    feedbackButtons,
+}: InsightMetaExtraControlsProps): JSX.Element {
+    return (
+        <div className="flex items-center gap-1">
+            {surveyOpportunityInsight ? (
+                <SurveyOpportunityButton
+                    insight={surveyOpportunityInsight}
+                    disableAutoPromptSubmit={true}
+                    source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
+                    fromProduct={ProductKey.PRODUCT_ANALYTICS}
+                    showLabel={showLabel}
+                    tooltip="Create a survey to understand why users are dropping off"
+                />
+            ) : null}
+            {anomalyAlertInsightShortId ? (
+                <CreateAnomalyAlertButton insightShortId={anomalyAlertInsightShortId} showLabel={showLabel} />
+            ) : null}
+            {feedbackButtons}
+        </div>
     )
 }
 

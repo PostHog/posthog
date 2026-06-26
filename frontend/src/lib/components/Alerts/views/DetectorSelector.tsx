@@ -24,25 +24,12 @@ import {
     ZScoreDetectorConfig,
 } from '~/queries/schema/schema-general'
 
-/** Default anomaly probability threshold for all detectors. Higher = fewer alerts. */
-const DEFAULT_THRESHOLD = 0.95
-
-/** Default window size based on how often the alert checks.
- *  Every 15 minutes: 672 (7 days), Hourly: 168 (7 days), Daily: 90, Weekly: 26 (6 months), Monthly: 12 (1 year). */
-export function getDefaultWindow(interval?: AlertCalculationInterval): number {
-    switch (interval) {
-        case AlertCalculationInterval.EVERY_15_MINUTES:
-            return 672
-        case AlertCalculationInterval.HOURLY:
-            return 168
-        case AlertCalculationInterval.WEEKLY:
-            return 26
-        case AlertCalculationInterval.MONTHLY:
-            return 12
-        default:
-            return 90
-    }
-}
+import {
+    DEFAULT_ANOMALY_DETECTION_THRESHOLD,
+    getDefaultEnsembleDetectorConfig,
+    getDefaultSingleDetectorConfigs,
+    getDefaultWindow,
+} from '../detectorConfigDefaults'
 
 interface DetectorSelectorProps {
     value: DetectorConfig | null
@@ -133,53 +120,6 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
 
 const SINGLE_DETECTOR_OPTIONS = DETECTOR_OPTIONS.filter((o) => o.value !== 'ensemble')
 
-function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorConfig> {
-    return {
-        zscore: { type: 'zscore', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
-        mad: { type: 'mad', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
-        iqr: { type: 'iqr', multiplier: 1.5, window },
-        threshold: { type: 'threshold' },
-        ecod: { type: 'ecod', threshold: DEFAULT_THRESHOLD, window },
-        copod: { type: 'copod', threshold: DEFAULT_THRESHOLD, window },
-        isolation_forest: {
-            type: 'isolation_forest',
-            threshold: DEFAULT_THRESHOLD,
-            n_estimators: 100,
-            window,
-            preprocessing: { diffs_n: 1, lags_n: 3 },
-        },
-        knn: {
-            type: 'knn',
-            threshold: DEFAULT_THRESHOLD,
-            n_neighbors: 5,
-            method: 'largest',
-            window,
-            preprocessing: { diffs_n: 1, lags_n: 3 },
-        },
-        lof: {
-            type: 'lof',
-            threshold: DEFAULT_THRESHOLD,
-            n_neighbors: 20,
-            window,
-            preprocessing: { diffs_n: 1, lags_n: 3 },
-        },
-        hbos: { type: 'hbos', threshold: DEFAULT_THRESHOLD, n_bins: 10, window },
-        ocsvm: { type: 'ocsvm', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1, lags_n: 3 } },
-        pca: { type: 'pca', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1, lags_n: 3 } },
-    }
-}
-
-function getDefaultEnsemble(window: number): EnsembleDetectorConfig {
-    return {
-        type: 'ensemble',
-        operator: EnsembleOperator.AND,
-        detectors: [
-            { type: 'zscore', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
-            { type: 'mad', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
-        ],
-    }
-}
-
 function Label({ text, tooltip }: { text: string; tooltip: string }): JSX.Element {
     return (
         <label className="text-xs font-semibold text-secondary mb-1 flex items-center gap-1">
@@ -201,7 +141,7 @@ function getSelectedType(value: DetectorConfig | null): string {
 export function DetectorSelector({ value, onChange, calculationInterval }: DetectorSelectorProps): JSX.Element {
     const selectedType = getSelectedType(value)
     const defaultWindow = getDefaultWindow(calculationInterval)
-    const defaultConfigs = getDefaultSingleConfigs(defaultWindow)
+    const defaultConfigs = getDefaultSingleDetectorConfigs(defaultWindow)
 
     const handleTypeChange = (type: string | null): void => {
         if (!type) {
@@ -210,7 +150,7 @@ export function DetectorSelector({ value, onChange, calculationInterval }: Detec
         }
 
         if (type === 'ensemble') {
-            onChange(getDefaultEnsemble(defaultWindow))
+            onChange(getDefaultEnsembleDetectorConfig(defaultWindow))
             return
         }
 
@@ -265,7 +205,7 @@ function EnsembleConfig({
     calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     const { operator, detectors } = config
-    const defaults = getDefaultSingleConfigs(getDefaultWindow(calculationInterval))
+    const defaults = getDefaultSingleDetectorConfigs(getDefaultWindow(calculationInterval))
 
     const handleOperatorChange = (newOperator: string): void => {
         onChange({ ...config, operator: newOperator as EnsembleOperator })
@@ -383,7 +323,10 @@ function SingleDetectorConfigSection({
             {(config.type === 'zscore' || config.type === 'mad') && (
                 <div className="grid grid-cols-2 gap-3">
                     <SensitivityInput
-                        value={(config as ZScoreDetectorConfig | MADDetectorConfig).threshold ?? DEFAULT_THRESHOLD}
+                        value={
+                            (config as ZScoreDetectorConfig | MADDetectorConfig).threshold ??
+                            DEFAULT_ANOMALY_DETECTION_THRESHOLD
+                        }
                         onChange={(val) => onChange({ ...config, threshold: val } as SingleDetectorConfig)}
                         tooltip={
                             config.type === 'zscore'
@@ -483,7 +426,7 @@ function SensitivityInput({
                 max={0.99}
                 step={0.05}
                 value={value}
-                onChange={(val) => onChange(val ? parseFloat(String(val)) : DEFAULT_THRESHOLD)}
+                onChange={(val) => onChange(val ? parseFloat(String(val)) : DEFAULT_ANOMALY_DETECTION_THRESHOLD)}
             />
         </div>
     )
@@ -533,7 +476,7 @@ function ECODConfig({
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? DEFAULT_THRESHOLD}
+                value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
@@ -555,7 +498,7 @@ function COPODConfig({
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? DEFAULT_THRESHOLD}
+                value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
@@ -577,7 +520,7 @@ function IsolationForestConfig({
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? DEFAULT_THRESHOLD}
+                value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
@@ -611,7 +554,7 @@ function KNNConfig({
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? DEFAULT_THRESHOLD}
+                value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
@@ -666,7 +609,7 @@ function LOFConfig({
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? DEFAULT_THRESHOLD}
+                value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
@@ -705,7 +648,7 @@ function HBOSConfig({
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? DEFAULT_THRESHOLD}
+                value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
@@ -742,7 +685,7 @@ function OCSVMConfig({
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? DEFAULT_THRESHOLD}
+                value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
@@ -766,7 +709,7 @@ function PCAConfig({
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
             <SensitivityInput
-                value={config.threshold ?? DEFAULT_THRESHOLD}
+                value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
                 tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />

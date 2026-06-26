@@ -48,6 +48,8 @@ interface EditAlertModalProps {
     onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
     onClose?: () => void
     insightLogicProps?: InsightLogicProps
+    defaultToAnomalyDetection?: boolean
+    insightName?: string | null
 }
 
 export function EditAlertModal({
@@ -58,6 +60,8 @@ export function EditAlertModal({
     onClose,
     onEditSuccess,
     insightLogicProps,
+    defaultToAnomalyDetection,
+    insightName,
 }: EditAlertModalProps): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
@@ -99,6 +103,8 @@ export function EditAlertModal({
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
         insightAlertKind,
+        defaultToAnomalyDetection: !alertId && defaultToAnomalyDetection,
+        insightName,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -375,7 +381,12 @@ export function EditAlertModal({
                             type="primary"
                             htmlType="submit"
                             loading={isAlertFormSubmitting}
-                            disabledReason={!alertFormChanged && !hasPendingNotifications && 'No changes to save'}
+                            disabledReason={
+                                !creatingNewAlert &&
+                                !alertFormChanged &&
+                                !hasPendingNotifications &&
+                                'No changes to save'
+                            }
                             onClick={() => setAlertFormSubmitAttempted()}
                         >
                             {creatingNewAlert ? 'Create alert' : 'Save'}

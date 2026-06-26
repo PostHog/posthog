@@ -47,6 +47,19 @@ export const areAlertsSupportedForInsight = (
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
 }
 
+export const areAnomalyAlertsSupportedForInsight = (
+    query?: Record<string, any> | null,
+    options: { hogqlAlertsEnabled?: boolean; anomalyDetectionEnabled?: boolean } = {}
+): boolean => {
+    if (!query || !options.anomalyDetectionEnabled) {
+        return false
+    }
+    if (isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null) {
+        return true
+    }
+    return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
+}
+
 // List only the insight types this account can actually alert on — naming a flag-gated type the
 // user doesn't have would disclose an unreleased feature.
 const alertableInsightTypesLabel = (options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean }): string =>

@@ -14,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import {
     AlertCalculationInterval,
     AlertConditionType,
+    DetectorConfig,
     GoalLine,
     HogQLAlertConfig,
     InsightThresholdType,
@@ -32,6 +33,7 @@ import type { alertFormLogicType } from './alertFormLogicType'
 import { getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
 import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
@@ -91,6 +93,10 @@ export interface AlertFormLogicProps {
     insightInterval?: IntervalType
     /** Selects the default config type for new alerts based on the insight's query kind. */
     insightAlertKind?: InsightAlertKind
+    /** Start new alerts in anomaly detection mode when opened from an anomaly-specific entrypoint. */
+    defaultToAnomalyDetection?: boolean
+    /** Used to prefill a human-readable name for anomaly alerts. */
+    insightName?: string | null
 }
 
 const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
@@ -173,6 +179,17 @@ function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id
     }
 }
 
+function defaultAlertName(props: AlertFormLogicProps, goalLines?: GoalLine[] | null): string {
+    if (props.defaultToAnomalyDetection) {
+        return props.insightName ? `Anomaly in ${props.insightName}` : 'Anomaly alert'
+    }
+    return goalLines && goalLines.length > 0 ? `Crossed ${goalLines[0].label}` : ''
+}
+
+function defaultDetectorConfig(props: AlertFormLogicProps, interval: AlertCalculationInterval): DetectorConfig | null {
+    return props.defaultToAnomalyDetection ? getDefaultAnomalyDetectorConfig(interval) : null
+}
+
 const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
     if (goalLines == null || goalLines.length == 0) {
         return {}
@@ -186,7 +203,7 @@ const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBou
 export const alertFormLogic = kea<alertFormLogicType>([
     path(['lib', 'components', 'Alerts', 'alertFormLogic']),
     props({} as AlertFormLogicProps),
-    key(({ alert }) => alert?.id ?? 'new'),
+    key(({ alert, defaultToAnomalyDetection }) => alert?.id ?? (defaultToAnomalyDetection ? 'new-anomaly' : 'new')),
 
     connect((props: AlertFormLogicProps) => ({
         values: [
@@ -254,34 +271,36 @@ export const alertFormLogic = kea<alertFormLogicType>([
         alertForm: {
             defaults: props.alert
                 ? alertToFormType(props.alert, props.insightId)
-                : ({
-                      id: undefined,
-                      name:
-                          values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
-                      created_by: null,
-                      created_at: '',
-                      enabled: true,
-                      config: defaultConfigForInsight(props.insightAlertKind),
-                      threshold: {
-                          configuration: {
-                              type: InsightThresholdType.ABSOLUTE,
-                              bounds: getThresholdBounds(values.goalLines),
+                : (() => {
+                      const calculationInterval = insightIntervalToAlertInterval(props.insightInterval)
+                      return {
+                          id: undefined,
+                          name: defaultAlertName(props, values.goalLines),
+                          created_by: null,
+                          created_at: '',
+                          enabled: true,
+                          config: defaultConfigForInsight(props.insightAlertKind),
+                          threshold: {
+                              configuration: {
+                                  type: InsightThresholdType.ABSOLUTE,
+                                  bounds: getThresholdBounds(values.goalLines),
+                              },
                           },
-                      },
-                      condition: {
-                          type: AlertConditionType.ABSOLUTE_VALUE,
-                      },
-                      subscribed_users: [],
-                      checks: [],
-                      calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
-                      skip_weekend: false,
-                      schedule_restriction: null,
-                      detector_config: null,
-                      investigation_agent_enabled: false,
-                      investigation_gates_notifications: false,
-                      investigation_inconclusive_action: 'notify',
-                      insight: props.insightId,
-                  } as AlertFormType),
+                          condition: {
+                              type: AlertConditionType.ABSOLUTE_VALUE,
+                          },
+                          subscribed_users: [],
+                          checks: [],
+                          calculation_interval: calculationInterval,
+                          skip_weekend: false,
+                          schedule_restriction: null,
+                          detector_config: defaultDetectorConfig(props, calculationInterval),
+                          investigation_agent_enabled: false,
+                          investigation_gates_notifications: false,
+                          investigation_inconclusive_action: 'notify',
+                          insight: props.insightId,
+                      } as AlertFormType
+                  })(),
             errors: (alert: AlertFormType) => getAlertFormValidationErrors(alert),
             submit: async (alert) => {
                 if (

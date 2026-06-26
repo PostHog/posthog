@@ -9,7 +9,12 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { alertsUnsupportedReason, areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
+import {
+    alertsUnsupportedReason,
+    areAlertsSupportedForInsight,
+    areAnomalyAlertsSupportedForInsight,
+    insightAlertsLogic,
+} from './insightAlertsLogic'
 import type { AlertType } from './types'
 
 const Insight42 = '42' as InsightShortId
@@ -28,6 +33,14 @@ const FUNNEL_QUERY = {
     source: {
         kind: NodeKind.FunnelsQuery,
         series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+    },
+}
+
+const HOGQL_QUERY = {
+    kind: NodeKind.DataVisualizationNode,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: 'select timestamp, count() from events group by timestamp order by timestamp',
     },
 }
 
@@ -209,6 +222,30 @@ describe('insightAlertsLogic', () => {
     })
 })
 
+describe('areAnomalyAlertsSupportedForInsight', () => {
+    it('returns false when anomaly detection is disabled', () => {
+        expect(areAnomalyAlertsSupportedForInsight(API_QUERY)).toBe(false)
+    })
+
+    it('returns true for trends insight viz when anomaly detection is enabled', () => {
+        expect(areAnomalyAlertsSupportedForInsight(API_QUERY, { anomalyDetectionEnabled: true })).toBe(true)
+    })
+
+    it('returns false for funnel insight viz even when anomaly detection is enabled', () => {
+        expect(areAnomalyAlertsSupportedForInsight(FUNNEL_QUERY, { anomalyDetectionEnabled: true })).toBe(false)
+    })
+
+    it('requires the SQL alerts flag for HogQL-backed insights', () => {
+        expect(areAnomalyAlertsSupportedForInsight(HOGQL_QUERY, { anomalyDetectionEnabled: true })).toBe(false)
+        expect(
+            areAnomalyAlertsSupportedForInsight(HOGQL_QUERY, {
+                anomalyDetectionEnabled: true,
+                hogqlAlertsEnabled: true,
+            })
+        ).toBe(true)
+    })
+})
+
 describe('areAlertsSupportedForInsight', () => {
     it('returns false when query is null or undefined', () => {
         expect(areAlertsSupportedForInsight(null)).toBe(false)
@@ -247,7 +284,7 @@ describe('alertsUnsupportedReason', () => {
         ['all three', { hogqlAlertsEnabled: true, funnelAlertsEnabled: true }, ['trends', 'SQL', 'funnel'], []],
     ])('lists only enabled types: %s', (_name, options, included, excluded) => {
         const reason = alertsUnsupportedReason(options)
-        included.forEach((type) => expect(reason).toContain(type))
-        excluded.forEach((type) => expect(reason).not.toContain(type))
+        expect(included.every((type) => reason.includes(type))).toBe(true)
+        expect(excluded.every((type) => !reason.includes(type))).toBe(true)
     })
 })
