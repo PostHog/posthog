@@ -92,6 +92,7 @@ GithubCommentMapping
 HealthIssue
 HogFlow
 HogFlowBatchJob
+HogFlowRevision
 HogFlowSchedule
 HogFlowTemplate
 HogFunction
