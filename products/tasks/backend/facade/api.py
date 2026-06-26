@@ -32,6 +32,7 @@ from posthog.event_usage import groups
 from posthog.models import User
 from posthog.models.integration import Integration
 
+from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
 from products.tasks.backend.models import (
@@ -827,6 +828,22 @@ def is_valid_sandbox_env_var_key(key: str) -> bool:
     return SandboxEnvironment.is_valid_env_var_key(key)
 
 
+def is_blocked_sandbox_env_var_key(key: str) -> bool:
+    return is_blocked_sandbox_env_key(key)
+
+
+def is_reserved_sandbox_env_var_key(key: str) -> bool:
+    return key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+
+
+def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
+    for key in environment_variables or {}:
+        if not SandboxEnvironment.is_valid_env_var_key(key):
+            raise ValueError(f"Invalid environment variable key: {key!r}")
+        if is_blocked_sandbox_env_key(key) or key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS:
+            raise ValueError(f"Environment variable key {key!r} is not allowed")
+
+
 def _accessible_sandbox_envs(team_id: int, user_id: int):
     return (
         SandboxEnvironment.objects.filter(team_id=team_id)
@@ -859,6 +876,7 @@ def create_sandbox_environment(
     private: bool,
 ) -> contracts.SandboxEnvironmentDTO:
     """Create a team environment owned by the user and return it as a DTO."""
+    _validate_user_sandbox_env_vars(environment_variables)
     env = SandboxEnvironment.objects.create(
         team_id=team_id,
         created_by_id=user_id,
@@ -880,6 +898,8 @@ def update_sandbox_environment(
     env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
     if env is None:
         return None
+    if "environment_variables" in fields:
+        _validate_user_sandbox_env_vars(fields["environment_variables"])
     for key, value in fields.items():
         setattr(env, key, value)
     env.save()

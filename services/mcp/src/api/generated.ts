@@ -16187,6 +16187,8 @@ export namespace Schemas {
      * * `Ikas` - Ikas
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
+     * * `AppLovin` - AppLovin
+     * * `Baserow` - Baserow
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16839,6 +16841,8 @@ export namespace Schemas {
       Ikas: 'Ikas',
       Talkwalker: 'Talkwalker',
       NextdoorAds: 'NextdoorAds',
+      AppLovin: 'AppLovin',
+      Baserow: 'Baserow',
     } as const;
 
     /**
@@ -17504,7 +17508,9 @@ export namespace Schemas {
        * * `LemonSqueezy` - LemonSqueezy
        * * `Ikas` - Ikas
        * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds */
+       * * `NextdoorAds` - NextdoorAds
+       * * `AppLovin` - AppLovin
+       * * `Baserow` - Baserow */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -18068,6 +18074,52 @@ export namespace Schemas {
       threshold?: number | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export interface DraftCustomManifestRequest {
+      /** Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model. */
+      source_name?: string;
+      /** URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy. */
+      docs_url?: string;
+      /** Raw API documentation or an OpenAPI/Swagger spec, pasted directly. Provide this or docs_url. */
+      docs_text?: string;
+    }
+
+    /**
+     * * `ok` - ok
+     * * `invalid` - invalid
+     * * `model_error` - model_error
+     */
+    export type DraftStatusEnum = typeof DraftStatusEnum[keyof typeof DraftStatusEnum];
+
+
+    export const DraftStatusEnum = {
+      Ok: 'ok',
+      Invalid: 'invalid',
+      ModelError: 'model_error',
+    } as const;
+
+    export interface DraftCustomManifestResponse {
+      /** 'ok' = a manifest validated; 'invalid' = a manifest was drafted but never validated within the budget (see error; manifest_json holds the last attempt to fix by hand); 'model_error' = the model returned no usable JSON.
+       *
+       * * `ok` - ok
+       * * `invalid` - invalid
+       * * `model_error` - model_error */
+      draft_status: DraftStatusEnum;
+      /**
+         * The drafted RESTAPIConfig manifest as a JSON string (non-secret), or null if none was produced.
+         * @nullable
+         */
+      manifest_json: string | null;
+      /** Names of the resources (tables) the validated manifest exposes. Empty unless draft_status is 'ok'. */
+      resource_names: string[];
+      /** How many draft→validate→repair rounds were run. */
+      attempts: number;
+      /**
+         * The last validation error when draft_status is not 'ok'; null on success.
+         * @nullable
+         */
+      error: string | null;
     }
 
     export interface DraftStatusResponse {
@@ -20407,6 +20459,12 @@ export namespace Schemas {
      * * `model_not_allowed` - Model not available on the trial plan
      * * `provider_key_deleted` - Provider API key was deleted
      * * `no_default_model` - No default model available for the selected provider
+     * * `provider_key_invalid` - Provider API key is invalid
+     * * `provider_key_permission_denied` - Provider API key lacks model access
+     * * `provider_key_quota_exceeded` - Provider API key quota exceeded
+     * * `provider_key_rate_limited` - Provider API key is rate limited
+     * * `model_not_found` - Model not found
+     * * `hog_error` - Hog evaluation code failed
      */
     export type StatusReasonEnum = typeof StatusReasonEnum[keyof typeof StatusReasonEnum];
 
@@ -20416,6 +20474,12 @@ export namespace Schemas {
       ModelNotAllowed: 'model_not_allowed',
       ProviderKeyDeleted: 'provider_key_deleted',
       NoDefaultModel: 'no_default_model',
+      ProviderKeyInvalid: 'provider_key_invalid',
+      ProviderKeyPermissionDenied: 'provider_key_permission_denied',
+      ProviderKeyQuotaExceeded: 'provider_key_quota_exceeded',
+      ProviderKeyRateLimited: 'provider_key_rate_limited',
+      ModelNotFound: 'model_not_found',
+      HogError: 'hog_error',
     } as const;
 
     /**
@@ -20494,7 +20558,10 @@ export namespace Schemas {
       provider: LLMProviderEnum;
       /** @maxLength 100 */
       model: string;
-      /** @nullable */
+      /**
+         * Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.
+         * @nullable
+         */
       provider_key_id?: string | null;
       /** @nullable */
       readonly provider_key_name: string | null;
@@ -20513,6 +20580,11 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status: EvaluationStatusEnum;
       readonly status_reason: StatusReasonEnum | null;
+      /**
+         * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
+         * @nullable
+         */
+      readonly status_reason_detail: string | null;
       /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
        *
        * * `llm_judge` - LLM as a judge
@@ -20589,13 +20661,13 @@ export namespace Schemas {
     }
 
     export interface EvaluationConfig {
-      /** Maximum number of llm_judge runs the team may execute on PostHog trial credits. */
+      /** Cap on trial runs — a getting-started affordance only, not for ongoing evals (use the team's own key). */
       readonly trial_eval_limit: number;
-      /** Number of llm_judge runs already consumed against the trial credit pool. */
+      /** Trial runs consumed (getting-started affordance only). */
       readonly trial_evals_used: number;
-      /** Number of trial evaluation runs remaining before the team must supply its own provider key. */
+      /** Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key. */
       readonly trial_evals_remaining: number;
-      /** Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits. */
+      /** Provider key used to run llm_judge evals; null if none configured yet. */
       readonly active_provider_key: LLMProviderKey | null;
       /** Timestamp when the evaluation config row was created. */
       readonly created_at: string;
@@ -22847,7 +22919,9 @@ export namespace Schemas {
        * * `LemonSqueezy` - LemonSqueezy
        * * `Ikas` - Ikas
        * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds */
+       * * `NextdoorAds` - NextdoorAds
+       * * `AppLovin` - AppLovin
+       * * `Baserow` - Baserow */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -27580,7 +27654,7 @@ export namespace Schemas {
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
-      /** Whether this model is available on PostHog's trial credits without bringing a provider key. */
+      /** True if the model can run without a provider key — for getting-started testing only; real evals should use the team's own key. */
       posthog_available: boolean;
     }
 
@@ -36884,6 +36958,11 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status?: EvaluationStatusEnum;
       readonly status_reason?: StatusReasonEnum | null;
+      /**
+         * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
+         * @nullable
+         */
+      readonly status_reason_detail?: string | null;
       /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
        *
        * * `llm_judge` - LLM as a judge
@@ -48708,7 +48787,9 @@ export namespace Schemas {
        * * `LemonSqueezy` - LemonSqueezy
        * * `Ikas` - Ikas
        * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds */
+       * * `NextdoorAds` - NextdoorAds
+       * * `AppLovin` - AppLovin
+       * * `Baserow` - Baserow */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -49400,7 +49481,9 @@ export namespace Schemas {
        * * `LemonSqueezy` - LemonSqueezy
        * * `Ikas` - Ikas
        * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds */
+       * * `NextdoorAds` - NextdoorAds
+       * * `AppLovin` - AppLovin
+       * * `Baserow` - Baserow */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -50084,7 +50167,9 @@ export namespace Schemas {
        * * `LemonSqueezy` - LemonSqueezy
        * * `Ikas` - Ikas
        * * `Talkwalker` - Talkwalker
-       * * `NextdoorAds` - NextdoorAds */
+       * * `NextdoorAds` - NextdoorAds
+       * * `AppLovin` - AppLovin
+       * * `Baserow` - Baserow */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;

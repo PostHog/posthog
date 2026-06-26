@@ -10,25 +10,51 @@ embeddable anywhere an agent run needs to be shown or interacted with. The stand
 > conventionally directly under `frontend/` with the prefix dropped. The word "sandbox" that remains is the
 > agent _runtime_ (`agent_runtime === 'sandbox'`), a real domain term — not the old codename.
 
-## 1. The public API is the barrel (`index.ts`)
+## 1. The public API is the `api/<module>` facade
 
-Every external consumer imports from `products/posthog_ai/frontend` (the barrel) — **never** from deep
-paths. The barrel is the contract; internal files can move freely behind it. The headline exports:
+Every external consumer imports from a domain-scoped **`api/<module>`** entry — **never** from deep paths
+(`components/...`, `logics/...`). The `api/` modules are the contract; internal files move freely behind
+them. There are four tiers, split along dependency/side-effect boundaries (not cosmetics — that's what
+preserves code-splitting). Consumers pick the **lowest tier** that does the job. The full decision table,
+import rule, and copy-paste recipes live in the consumer-facing [`README.md`](./README.md); the summary:
 
-- **`RunViewer`** — Radix-style compound for an embeddable run. `RunViewer.Root` binds the stream logic and
-  bootstraps the run; slots `RunViewer.Thread / .Prompt / .Composer / .Resources / .ContextUsage` compose a
-  custom layout. Calling `RunViewer` directly (`<RunViewer .../>`) renders the prepackaged default layout —
-  use that for the common embed.
-- **`Thread`** — Radix-style compound for the run thread. `Thread.Root` is the virtualized presenter; the
-  atoms `Thread.Message / .Markdown / .Reasoning / .Failure / .Activity / .ToolCall` are the same
-  presentational building blocks, exposed for bespoke threads.
-- **`Composer`** — logic-free compound input (`Composer.Root/Frame/Field/Placeholder/Textarea/Footer/Submit/
-Banner`). The caller owns `value`/`onChange`/`onSubmit`; every part is a styled slot.
-- **`runStreamLogic`** — the SSE stream + thread projection (see §3). **`runInteractionLogic`** — the
-  Max-agnostic follow-up/queue interaction facade.
-- Tool rendering: **`toolRegistry`**, `lookupToolRenderer`, `GenericMcpToolRenderer`,
-  `ToolActivity`, `DataToolRow`, `EditDiffRenderer`, and the diff/exec helpers.
-- Permission/question/resource surfaces, message presenters, and the folded-thread types.
+| Tier                           | Module                     | What's in it                                                                                                                                                           |
+| ------------------------------ | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**   | `api/run`                  | `RunViewer` (call directly → default layout), `RunComposer`                                                                                                            |
+| **2 — Compound primitives**    | `api/primitives`           | `RunViewer.Root` + slots, `Thread` + atoms, `ThreadView`, `Composer.*`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces |
+| **3 — Headless logic + types** | `api/logics` + `api/types` | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                         |
+| **4 — Extension seam**         | `api/tools`                | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                       |
+
+**Why the split, not one flat barrel:** the tool registry registers built-ins at module load — a top-level
+side effect that is _not_ tree-shaken. A single barrel statically re-exports it alongside the
+markdown/virtualization-heavy thread and the headless logics, so a consumer wanting only
+`isTerminalRunStatus` for a status badge would drag the registry + presenters into its chunk. Isolating the
+side-effectful registry in `api/tools` and keeping the headless lane (`api/logics` + `api/types`) free of
+React/registry imports is what keeps each consumer's bundle to its subtree.
+
+There is deliberately **no root `index.ts` barrel**: a single aggregate that re-exports every tier would
+re-fatten any consumer's chunk and undo the split. It also wouldn't match the repo norm — no other
+`products/*/frontend` ships a barrel; consumers import the specific path they need. Every public symbol is
+reached through an `api/<module>` entry; add new exports to the relevant tier module, not to a new barrel.
+
+The headline exports per module:
+
+- **`api/run`** — **`RunViewer`** (Radix-style compound; call directly for the default-layout embed, or use
+  `.Root` + slots `.Thread/.Prompt/.Composer/.Resources/.ContextUsage` for a custom layout) and
+  **`RunComposer`**.
+- **`api/primitives`** — **`Thread`** (Radix-style compound: `Thread.Root` is the virtualized presenter, the
+  atoms `Thread.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall` are the building blocks for
+  bespoke threads), **`Composer`** (logic-free compound input — the caller owns
+  `value`/`onChange`/`onSubmit`), activity primitives, message presenters, and the
+  permission/question/resource surfaces.
+- **`api/logics`** — **`runStreamLogic`** (SSE stream + thread projection, see §3),
+  **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), status helpers
+  (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), and thinking-message helpers. Imports only
+  `logics/*` + `utils/*` — never a component or the registry, so it's the clean headless lane.
+- **`api/types`** — folded-thread + tool domain types (pure types).
+- **`api/tools`** — **`toolRegistry`**, **`registerToolRenderers`** (the generic per-product seam, see §2),
+  `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, and the
+  diff/exec helpers. Isolated here because importing it pulls the side-effectful registry chunk.
 
 ## 2. Coupling boundary — couples to tasks runs, never to Max
 
@@ -42,12 +68,16 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
 
 - `runStreamLogic` keys on a generic `streamKey` (conversation id for Max, run/task id for a task
   viewer). Keep it generic — no Max-specific branching.
-- **Product-specific tool renderers live in Max, not here.** Renderers that display PostHog product entities
-  (insights, dashboards, recordings, error-tracking issues, notebooks, query results) live in
-  `scenes/max/messages/adapters` and register themselves into `toolRegistry` via
-  `registerMaxToolRenderers` (imported once by the Max scene). The shared registry only knows the built-ins,
-  the exec verbs, the question card, the generic MCP card, and the generic `EditDiffRenderer`. Surfaces that
-  never load Max (tasks, signals inbox) fall through to the generic card for those product keys — by design.
+- **Product-specific tool renderers live in the consuming product, not here — via the generic seam.**
+  `api/tools` exposes `toolRegistry` and the convenience wrapper **`registerToolRenderers(entries)`**: the
+  generic per-product mechanism for a product to plug in cards that display its own entities. A product
+  registers from its own scene's entrypoint; the shared registry stays free of product imports. **Max is
+  the first consumer of this pattern, not a special case** — its renderers (insights, dashboards,
+  recordings, error-tracking issues, notebooks, query results) live in `scenes/max/messages/adapters` and
+  call `registerToolRenderers` via `registerMaxToolRenderers` (imported once by the Max scene). The shared
+  registry only knows the built-ins, the exec verbs, the question card, the generic MCP card, and the
+  generic `EditDiffRenderer`. Surfaces without an adapter for a key (tasks, signals inbox) fall through to
+  the generic card — by design.
 - If Max needs something the surface doesn't express generically, **lift it to a generic prop/selector here
   and have Max adapt** — never special-case Max in this directory. Enforced by a grep gate:
   `grep -rE "scenes/max|maxThreadLogic|MaxUIContext" products/posthog_ai/frontend` must be empty.
@@ -89,7 +119,12 @@ loosely typed — guard at the parse boundary with runtime checks; never assume 
 ## 5. Layout
 
 ```text
-index.ts            # public API barrel (the contract)
+api/                # public API facade — the contract (import api/<module>, never deep paths)
+  run.ts            #   Tier 1: RunViewer, RunComposer
+  primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, presenters, perm/question/resource
+  logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, status + thinking helpers (headless)
+  types.ts          #   Tier 3: folded-thread + tool domain types (pure types)
+  tools.ts          #   Tier 4: toolRegistry + registerToolRenderers seam (side-effectful — isolated)
 components/         # RunViewer, Thread, Composer, permission/question/resource surfaces, activity, tool/
   composer/         #   the Composer compound
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
@@ -103,3 +138,18 @@ scenes/             # standalone scenes registered via ../manifest.tsx
   TaskTracker/      #   the runner scene (component, stories, scene logics, scene-specific components/)
 generated/          # auto-generated API types (mcp_tools / docs_search) — do not edit by hand
 ```
+
+## 6. Replacement-readiness
+
+This surface is the intended replacement for Max's **legacy LangGraph thread**. The design keeps the
+eventual switch clean, so build with it in mind:
+
+- **The new-vs-legacy switch is a consumer concern, not this surface's.** Max already routes
+  `conversation.agent_runtime === 'sandbox'` through `runStreamLogic` (keyed by `conversationId`) and renders
+  `threadItems` via this surface, while its LangGraph `EventSource` path renders Max's own thread. **This
+  surface must never branch on Max/LangGraph/conversation** — enforced by the §2 grep gate.
+- **For full replacement, what the LangGraph path owns that the surface doesn't express generically** —
+  agent modes, billing context, scene attachments/context — **stays in Max as a consumer** and feeds the
+  surface through generic props / the tool registry / `streamKey`. If the surface needs it, lift it to a
+  generic seam here; never special-case Max. The setting flips the default implementation **in Max**; this
+  surface's contract (the four tiers in §1) is unchanged whichever side of the switch is active.

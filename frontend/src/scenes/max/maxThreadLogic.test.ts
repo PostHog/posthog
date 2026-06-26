@@ -30,7 +30,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
-import { runStreamLogic } from 'products/posthog_ai/frontend'
+import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'

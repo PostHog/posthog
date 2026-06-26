@@ -21678,7 +21678,9 @@
                 "LemonSqueezy",
                 "Ikas",
                 "Talkwalker",
-                "NextdoorAds"
+                "NextdoorAds",
+                "AppLovin",
+                "Baserow"
             ],
             "type": "string"
         },
