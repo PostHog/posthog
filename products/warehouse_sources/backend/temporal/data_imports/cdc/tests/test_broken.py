@@ -4,10 +4,9 @@ from contextlib import contextmanager
 import pytest
 from unittest.mock import patch
 
-from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
-
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
 
 pytestmark = pytest.mark.django_db
 
