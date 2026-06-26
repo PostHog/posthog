@@ -14,6 +14,10 @@ class ReviewPRWorkflowInputs:
     `owner` / `repo` / `pr_number` are parsed from `pr_url` by the trigger so the workflow itself
     stays free of the GitHub-URL parsing dependency. `(team_id, user_id)` are the explicit identity
     the sandbox tasks run under (the PR's author and their team, when triggered in the cloud).
+
+    `publish` is the per-run gate that replaces the old global `PUBLISH_REVIEW_ENABLED`: the cloud
+    label trigger sets it true (post the review back to the PR); the eval CLI defaults it false.
+    Defaults to false so any caller that forgets it cannot accidentally post to GitHub.
     """
 
     team_id: int
@@ -22,6 +26,7 @@ class ReviewPRWorkflowInputs:
     owner: str
     repo: str
     pr_number: int
+    publish: bool = False
 
     @property
     def repository(self) -> str:

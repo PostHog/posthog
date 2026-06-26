@@ -11,10 +11,6 @@ MAX_CONCURRENT_SANDBOXES = 10
 # (a total wipeout — e.g. the sandbox layer down — must not look like a clean PR).
 FAN_OUT_FAILURE_FLOOR = 0.70
 
-# PUBLISH
-# When False, the run produces the local review report but does not post anything to GitHub.
-PUBLISH_REVIEW_ENABLED = False
-
 # Priorities surfaced in the review body's per-chunk count and published as inline comments
 # (CONSIDER is body-only context). Shared by the body renderer and the publisher so the two never drift.
 PUBLISHED_PRIORITIES = {IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX}

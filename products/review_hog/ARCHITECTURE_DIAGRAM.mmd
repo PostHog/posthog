@@ -62,9 +62,9 @@ flowchart TD
     %% ---- Stage 8: Build report (local) ----
     S7OUT --> S8["STAGE 8 · Build review body &nbsp;(LOCAL)<br/>build_review_body → markdown"]:::local
 
-    %% ---- Stage 9: Publish (gated off) ----
-    S8 --> S9["STAGE 9 · Publish review — GitHub API<br/>DB-driven: valid findings → inline comments + body"]:::gated
-    S9 --> RESULT["⚠ GATED OFF — PUBLISH_REVIEW_ENABLED=False<br/>(would post the PR review)"]:::gated
+    %% ---- Stage 9: Publish (per-run gate) ----
+    S8 --> S9["STAGE 9 · Publish review — GitHub API (installation token, head_sha-pinned)<br/>DB-driven: valid findings → inline comments + body"]:::gated
+    S9 --> RESULT["Per-run gate: posts only when inputs.publish=True<br/>(label trigger on; eval CLI off)"]:::gated
 
     %% ============================================================
     %% Persistence — Postgres single source of truth

@@ -17,6 +17,10 @@ class PRMetadata(BaseModel):
     author_association: str = "NONE"
     base_branch: str
     head_branch: str
+    # True when the PR head lives in a different repo than the base (a fork). Forks carry
+    # attacker-influenced head refs and their branch isn't on the base origin, so the review refuses
+    # them. Defaults false so a pre-field cached pr_meta.json still parses (treated as non-fork).
+    is_fork: bool = False
     # The PR head commit SHA — the exact code a review judges. Anchors the per-turn diff snapshot
     # and the report's head_sha watermark. Optional so a pre-snapshot cached pr_meta.json still parses.
     head_sha: str | None = None

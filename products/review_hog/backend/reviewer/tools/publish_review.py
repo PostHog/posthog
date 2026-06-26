@@ -1,4 +1,3 @@
-import os
 import logging
 
 from github import Github, GithubException
@@ -15,13 +14,29 @@ logger = logging.getLogger(__name__)
 
 
 def publish_review(
-    *, owner: str, repo: str, pr_number: int, team_id: int, report_id: str, pr_files: list[PRFile]
-) -> None:
+    *,
+    owner: str,
+    repo: str,
+    pr_number: int,
+    team_id: int,
+    report_id: str,
+    pr_files: list[PRFile],
+    token: str,
+    head_sha: str,
+    post_promo: bool,
+) -> bool:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
     The body is `ReviewReport.report_markdown` (rendered this turn); the inline comments are rebuilt
-    from the current valid finding/verdict rows, positioned against the PR's diff. Reads the DB, so
-    callers run it off the event loop (e.g. via `sync_to_async`).
+    from the current valid finding/verdict rows, positioned against the PR's diff. `token` is the
+    team's GitHub App installation token; `head_sha` pins the review to the exact reviewed commit so a
+    force-push between review and post can't misattribute comments. `post_promo` posts the one-time
+    "ReviewHog Alpha" feedback comment (the caller passes it only on the first publish for the report,
+    so it isn't re-posted every turn). Reads the DB, so callers run it off the event loop.
+
+    Returns True if a review was actually posted, False if there was nothing publishable — the caller
+    records the published-head watermark only on a real post, so a no-op turn doesn't block a later
+    turn (with a valid finding) from publishing at the same head.
     """
     logger.info(f"Publishing review for {owner}/{repo}#{pr_number}")
 
@@ -34,10 +49,11 @@ def publish_review(
 
     if not comments:
         logger.info("No publishable issues found, skipping review")
-        return
+        return False
 
     logger.info(f"Review: {len(body)} chars body, {len(comments)} inline comments")
-    _post_github_review(owner, repo, pr_number, body, comments)
+    _post_github_review(owner, repo, pr_number, body, comments, token=token, head_sha=head_sha, post_promo=post_promo)
+    return True
 
 
 def _build_diff_line_map(pr_files: list[PRFile]) -> dict[str, set[int]]:
@@ -205,34 +221,41 @@ def _post_github_review(
     pr_number: int,
     body: str,
     comments: list[ReviewComment],
+    *,
+    token: str,
+    head_sha: str,
+    post_promo: bool,
 ) -> None:
-    """Post the review to GitHub as a PR review."""
-    github_token = os.environ.get("GITHUB_TOKEN")
-    if not github_token:
-        raise ValueError("GITHUB_TOKEN environment variable not set.")
-
-    g = Github(github_token)
+    """Post the review to GitHub as a PR review, pinned to the reviewed `head_sha`."""
+    g = Github(token)
     repo_obj = g.get_repo(f"{owner}/{repo}")
     pr = repo_obj.get_pull(pr_number)
 
-    pr.create_issue_comment(
-        "ReviewHog Alpha \U0001f994 "
-        "If you find any issues helpful - "
-        'please reply "valid", "invalid", etc., '
-        "for evaluation purposes \U0001f64f"
-    )
+    if post_promo:
+        pr.create_issue_comment(
+            "ReviewHog Alpha \U0001f994 "
+            "If you find any issues helpful - "
+            'please reply "valid", "invalid", etc., '
+            "for evaluation purposes \U0001f64f"
+        )
+
+    # Pin the review to the exact commit we reviewed; without it GitHub posts against the PR's latest
+    # head, so a force-push between review and post would misplace the inline comments. Best-effort:
+    # if the commit can't be resolved (stale/unreachable head), post unpinned rather than failing.
+    review_kwargs: dict = {"body": body, "event": "COMMENT"}
+    if head_sha:
+        try:
+            review_kwargs["commit"] = repo_obj.get_commit(head_sha)
+        except GithubException as e:
+            logger.warning(f"Could not resolve head_sha {head_sha} to pin the review: {e}. Posting unpinned.")
 
     if comments:
         try:
-            pr.create_review(
-                body=body,
-                event="COMMENT",
-                comments=comments,
-            )
+            pr.create_review(comments=comments, **review_kwargs)
             logger.info(f"Review posted with {len(comments)} inline comments")
             return
         except GithubException as e:
             logger.warning(f"Failed to post review with inline comments: {e}. Posting review body only.")
 
-    pr.create_review(body=body, event="COMMENT")
+    pr.create_review(**review_kwargs)
     logger.info("Review posted (body only)")

@@ -19,6 +19,7 @@ from products.review_hog.backend.temporal.activities import (
     DedupResult,
     LoadedPerspectiveDTO,
     LoadedValidationSkillDTO,
+    PublishInput,
     ReviewChunkInput,
     ReviewMeta,
     ValidateIssueInput,
@@ -46,11 +47,12 @@ def _stage_kwargs() -> dict:
     }
 
 
-@pytest.mark.asyncio
-async def test_review_pr_workflow_runs_all_stages_and_fans_out():
+async def _run_full_review_pr_workflow(*, publish: bool) -> dict:
+    """Run `ReviewPRWorkflow` end-to-end with activity stand-ins; record what fanned out + published."""
     analyze_calls: list[int] = []
     review_calls: list[tuple[int, int]] = []
     validate_calls: list[str] = []
+    publish_calls: list[int] = []
 
     @activity.defn(name="validate_github_integration_activity")
     async def validate_integration(input) -> None:
@@ -112,7 +114,8 @@ async def test_review_pr_workflow_runs_all_stages_and_fans_out():
         return None
 
     @activity.defn(name="publish_review_activity")
-    async def publish(input) -> None:
+    async def publish_act(input: PublishInput) -> None:
+        publish_calls.append(input.pr_number)
         return None
 
     task_queue = str(uuid.uuid4())
@@ -140,22 +143,43 @@ async def test_review_pr_workflow_runs_all_stages_and_fans_out():
                 load_validation,
                 validate_issue,
                 build_body,
-                publish,
+                publish_act,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(
                 ReviewPRWorkflow.run,
-                ReviewPRWorkflowInputs(team_id=1, user_id=2, pr_url="u", owner="o", repo="r", pr_number=7),
+                ReviewPRWorkflowInputs(
+                    team_id=1, user_id=2, pr_url="u", owner="o", repo="r", pr_number=7, publish=publish
+                ),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
 
-    assert result == "rep-1"
+    return {
+        "result": result,
+        "analyze": analyze_calls,
+        "review": review_calls,
+        "validate": validate_calls,
+        "publish": publish_calls,
+    }
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_runs_all_stages_and_fans_out():
+    recorded = await _run_full_review_pr_workflow(publish=False)
+    assert recorded["result"] == "rep-1"
     # The analyze child fans out one activity per chunk; review fans out per (perspective × chunk).
-    assert sorted(analyze_calls) == [1, 2]
-    assert len(review_calls) == 6  # 3 perspectives × 2 chunks
-    assert validate_calls == ["issue-json"]  # one post-dedup issue
+    assert sorted(recorded["analyze"]) == [1, 2]
+    assert len(recorded["review"]) == 6  # 3 perspectives × 2 chunks
+    assert recorded["validate"] == ["issue-json"]  # one post-dedup issue
+    assert recorded["publish"] == []  # publish=False → never posts to GitHub
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_publishes_only_when_publish_true():
+    recorded = await _run_full_review_pr_workflow(publish=True)
+    assert recorded["publish"] == [7]  # publish=True → posts the review back to the PR
 
 
 @pytest.mark.asyncio

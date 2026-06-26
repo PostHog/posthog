@@ -19,14 +19,14 @@ from dataclasses import dataclass
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.review_hog.backend.reviewer.constants import PUBLISH_REVIEW_ENABLED
+from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspectives, sync_canonical_validation
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
@@ -205,6 +205,27 @@ def _github_integration_exists(team_id: int) -> bool:
     return Integration.objects.filter(team_id=team_id, kind="github").exists()
 
 
+def _installation_token(team_id: int, repository: str) -> str:
+    """Resolve the team's GitHub App installation token for `repository` (`owner/repo`).
+
+    Picks the installation that can actually access the repo and auto-refreshes an expired token.
+    This replaces the worker's old `GITHUB_TOKEN` env dependency — the credential is the team's
+    integration, resolved server-side.
+
+    `first_for_team_repository` probes the GitHub API, so a transient 5xx/rate-limit looks the same
+    as "no installation". The error is therefore left **retryable** (the activity's retry rides out
+    the blip); the genuinely-missing-integration case is already caught non-retryably up front by
+    `validate_github_integration_activity`, so a real misconfig still fails fast there.
+    """
+    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    if github is None:
+        raise ApplicationError(
+            f"Could not resolve a GitHub App installation for team {team_id} that can access {repository} "
+            "(no installation, or a transient GitHub API failure)."
+        )
+    return github.get_access_token()
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -221,9 +242,16 @@ async def validate_github_integration_activity(input: ValidateIntegrationInput) 
 
 def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     """Fetch the PR from GitHub, open/refresh the report, and snapshot this turn's inputs + diff."""
+    token = _installation_token(input.team_id, input.repository)
     pr_metadata, pr_comments, pr_files, diff = PRFetcher(
-        owner=input.owner, repo=input.repo, pr_number=input.pr_number
+        owner=input.owner, repo=input.repo, pr_number=input.pr_number, token=token
     ).fetch_pr_data()
+    if pr_metadata.is_fork:
+        raise ApplicationError(
+            f"Refusing to review fork PR #{input.pr_number} in {input.repository}: a fork's head ref is "
+            "attacker-influenced and its branch isn't on the base origin (the sandbox checkout would fail).",
+            non_retryable=True,
+        )
     head_sha = pr_metadata.head_sha or ""
     report_id = upsert_review_report(
         team_id=input.team_id, repository=input.repository, pr_url=input.pr_url, pr_metadata=pr_metadata
@@ -615,19 +643,44 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 
 
 def _publish(team_id: int, report_id: str, head_sha: str, owner: str, repo: str, pr_number: int) -> None:
+    report = ReviewReport.objects.for_team(team_id).get(id=report_id)
+    # Idempotency: publishing isn't naturally idempotent (it posts a review + a one-time promo
+    # comment), but it runs under at-least-once activity + parent retries. Skip if we already
+    # published this exact head, so a retry / re-trigger can't double-post.
+    if report.published_head_sha == head_sha:
+        logger.info(f"Review for {owner}/{repo}#{pr_number} already published at {head_sha}; skipping")
+        return
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
-    publish_review(owner=owner, repo=repo, pr_number=pr_number, team_id=team_id, report_id=report_id, pr_files=pr_files)
+    token = _installation_token(team_id, f"{owner}/{repo}")
+    posted = publish_review(
+        owner=owner,
+        repo=repo,
+        pr_number=pr_number,
+        team_id=team_id,
+        report_id=report_id,
+        pr_files=pr_files,
+        token=token,
+        head_sha=head_sha,
+        # The alpha promo comment is posted once per report (first real publish), not every turn.
+        post_promo=report.published_head_sha is None,
+    )
+    # Record the watermark only on an actual post: a no-op turn (no publishable findings) must not
+    # block a later turn from publishing at the same head, nor consume the one-time promo.
+    if posted:
+        report.published_head_sha = head_sha
+        report.save(update_fields=["published_head_sha", "updated_at"])
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def publish_review_activity(input: PublishInput) -> None:
-    """Publish the review to GitHub (DB-driven). Gated by `PUBLISH_REVIEW_ENABLED`."""
-    if not PUBLISH_REVIEW_ENABLED:
-        logger.info("Publishing disabled (PUBLISH_REVIEW_ENABLED=False)")
-        return
+    """Publish the review to GitHub (DB-driven).
+
+    The per-run publish gate lives in the workflow (`inputs.publish`): this activity is dispatched
+    only when publishing is enabled, so reaching here means publish.
+    """
     await database_sync_to_async(_publish, thread_sensitive=False)(
         input.team_id, input.report_id, input.head_sha, input.owner, input.repo, input.pr_number
     )

@@ -40,6 +40,10 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     last_run_at = models.DateTimeField(null=True, blank=True)
     # Watermark — what the latest turn already reviewed, so a re-run knows what changed.
     head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # Idempotency watermark — the head the review was last *published* to GitHub for (distinct from
+    # `head_sha`, what was reviewed). Publishing skips when this equals the current head, so an
+    # activity retry / re-trigger can't double-post the review or the one-time alpha promo comment.
+    published_head_sha = models.CharField(max_length=64, null=True, blank=True)
     last_seen_comment_id = models.BigIntegerField(null=True, blank=True)
     report_markdown = models.TextField(default="", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

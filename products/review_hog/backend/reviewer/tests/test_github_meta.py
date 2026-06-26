@@ -1,5 +1,3 @@
-import os
-
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
@@ -307,6 +305,7 @@ def _build_mock_pr(
     review_requests: tuple[list[Mock], list[Mock]] = ([], []),
     assignee: Mock | None = None,
     labels: list[Mock] | None = None,
+    is_fork: bool = False,
 ) -> MagicMock:
     """A PyGithub PullRequest mock wired with the attributes fetch_pr_data reads."""
     mock_pr = MagicMock()
@@ -320,7 +319,9 @@ def _build_mock_pr(
     mock_pr.user.login = "test-user"
     mock_pr.raw_data = {"author_association": "CONTRIBUTOR"}
     mock_pr.base.ref = "main"
+    mock_pr.base.repo.full_name = "owner/repo"
     mock_pr.head.ref = "feature-branch"
+    mock_pr.head.repo.full_name = "forker/repo" if is_fork else "owner/repo"
     mock_pr.head.sha = head_sha
     mock_pr.mergeable_state = "clean"
     mock_pr.get_review_requests.return_value = review_requests
@@ -361,7 +362,6 @@ def _build_mock_file(*, filename: str, status: str = "modified", patch: str | No
 
 
 class TestFetchPrData:
-    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_returns_four_tuple_with_metadata_comments_files_diff(self, mock_github_class: Mock) -> None:
         # The reviewable file's patch must surface in the diff snapshot under its header; the
@@ -377,7 +377,7 @@ class TestFetchPrData:
         mock_repo.get_pull.return_value = mock_pr
         mock_github_class.return_value.get_repo.return_value = mock_repo
 
-        fetcher = PRFetcher("owner", "repo", 456)
+        fetcher = PRFetcher("owner", "repo", 456, token="test-token")
         result = fetcher.fetch_pr_data()
 
         # 4-tuple contract: metadata, comments, files, diff
@@ -398,7 +398,6 @@ class TestFetchPrData:
         assert "=== src/module.py [modified] ===" in diff
         assert "+new line" in diff
 
-    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_writes_no_files(self, mock_github_class: Mock, tmp_path) -> None:
         # The fetcher has no review-dir / output path — nothing should land on disk.
@@ -408,12 +407,11 @@ class TestFetchPrData:
         mock_github_class.return_value.get_repo.return_value = mock_repo
 
         before = set(tmp_path.iterdir())
-        fetcher = PRFetcher("owner", "repo", 123)
+        fetcher = PRFetcher("owner", "repo", 123, token="test-token")
         fetcher.fetch_pr_data()
 
         assert set(tmp_path.iterdir()) == before
 
-    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_filtered_and_test_files_are_excluded(self, mock_github_class: Mock) -> None:
         # Test files and a lock file must be dropped from both pr_files and the diff snapshot.
@@ -428,7 +426,7 @@ class TestFetchPrData:
         mock_repo.get_pull.return_value = mock_pr
         mock_github_class.return_value.get_repo.return_value = mock_repo
 
-        fetcher = PRFetcher("owner", "repo", 789)
+        fetcher = PRFetcher("owner", "repo", 789, token="test-token")
         _, _, files, diff = fetcher.fetch_pr_data()
 
         assert [f.filename for f in files] == ["src/module.py"]
@@ -436,7 +434,6 @@ class TestFetchPrData:
         assert "yarn.lock" not in diff
         assert "=== src/module.py [modified] ===" in diff
 
-    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_missing_patch_recorded_explicitly_in_diff(self, mock_github_class: Mock) -> None:
         # GitHub omits the patch for binary/large files — the snapshot keeps the header with a marker
@@ -448,7 +445,7 @@ class TestFetchPrData:
         mock_repo.get_pull.return_value = mock_pr
         mock_github_class.return_value.get_repo.return_value = mock_repo
 
-        fetcher = PRFetcher("owner", "repo", 999)
+        fetcher = PRFetcher("owner", "repo", 999, token="test-token")
         _, _, files, diff = fetcher.fetch_pr_data()
 
         assert files[0].filename == "old_module.py"
@@ -456,7 +453,6 @@ class TestFetchPrData:
         assert "=== old_module.py [removed] ===" in diff
         assert "(no patch available" in diff
 
-    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_metadata_carries_assignee_labels_and_reviewers(self, mock_github_class: Mock) -> None:
         mock_assignee = MagicMock()
@@ -474,22 +470,32 @@ class TestFetchPrData:
         mock_repo.get_pull.return_value = mock_pr
         mock_github_class.return_value.get_repo.return_value = mock_repo
 
-        fetcher = PRFetcher("owner", "repo", 123)
+        fetcher = PRFetcher("owner", "repo", 123, token="test-token")
         metadata, _, _, _ = fetcher.fetch_pr_data()
 
         assert metadata.assignee == "assignee-user"
         assert metadata.labels == ["bug"]
         assert metadata.requested_reviewers == ["reviewer1"]
 
-    def test_no_github_token_raises(self) -> None:
-        # Token check happens in the constructor (client init), before any API call.
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            pytest.raises(ValueError, match="GITHUB_TOKEN environment variable not set"),
-        ):
-            PRFetcher("owner", "repo", 123)
+    @parameterized.expand([("non_fork", False), ("fork", True)])
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
+    def test_is_fork_reflects_head_vs_base_repo(self, _name: str, is_fork: bool, mock_github_class: Mock) -> None:
+        # is_fork drives the activity's fork rejection; it must mirror head.repo != base.repo.
+        mock_pr = _build_mock_pr(is_fork=is_fork)
+        mock_repo = MagicMock()
+        mock_repo.get_pull.return_value = mock_pr
+        mock_github_class.return_value.get_repo.return_value = mock_repo
 
-    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
+        fetcher = PRFetcher("owner", "repo", 123, token="test-token")
+        metadata, _, _, _ = fetcher.fetch_pr_data()
+
+        assert metadata.is_fork is is_fork
+
+    def test_no_github_token_raises(self) -> None:
+        # An empty installation token is rejected in the constructor, before any API call.
+        with pytest.raises(ValueError, match="GitHub installation token is required"):
+            PRFetcher("owner", "repo", 123, token="")
+
     @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
     def test_github_api_errors_propagate(self, mock_github_class: Mock) -> None:
         # A 404 (or 401) from the API surfaces as GithubException, not a swallowed empty result.
@@ -497,6 +503,6 @@ class TestFetchPrData:
         mock_repo.get_pull.side_effect = GithubException(404, {"message": "Not found"})
         mock_github_class.return_value.get_repo.return_value = mock_repo
 
-        fetcher = PRFetcher("owner", "repo", 123)
+        fetcher = PRFetcher("owner", "repo", 123, token="test-token")
         with pytest.raises(GithubException):
             fetcher.fetch_pr_data()

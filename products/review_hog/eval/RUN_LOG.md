@@ -22,6 +22,46 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
 
 ---
 
+## 2026-06-26 · Stage 5 — production label trigger (BUILT, not e2e'd)
+
+- **What landed (Phases 1–4):** non-blocking `start_review_pr_workflow` + per-run `publish` flag (retired
+  `PUBLISH_REVIEW_ENABLED`) + `--publish` on `run_review`; PAT → **GitHub App installation token** for fetch + publish
+  (worker no longer needs `GITHUB_TOKEN`); fork rejection (`PRMetadata.is_fork`, non-retryable, pre-report);
+  `head_sha`-pinned publish; shared-secret endpoint `POST /api/review_hog/trigger`; `.github/workflows/review-hog.yml`.
+- **Adversarial review** (4-dimension finder → per-finding skeptic verify): 11 raw → **7 confirmed → 4 distinct**, all
+  **fixed**: (A) re-trigger/`synchronize` raised `WorkflowAlreadyStartedError` → unhandled **500 / red CI check** →
+  fixed with `id_conflict_policy=USE_EXISTING`; (B) `_installation_token` marked transient GitHub failures
+  non-retryable → made retryable (missing-integration still fails fast in the validate activity); (C) `get_commit`
+  head_sha pin outside the try defeated the body-only fallback → made best-effort (post unpinned on failure); (D)
+  publish non-idempotent under at-least-once retries → **`ReviewReport.published_head_sha` watermark** (skip re-publish
+  same head; promo comment once per report). Migration `0005_reviewreport_published_head_sha`.
+- **Tests:** 224 product tests + ruff + tach green. New: `test_trigger_api.py` (10), `test_publish_review.py` (4),
+  `test_publish_idempotency.py` (4), publish-gate cases in `test_temporal_workflow.py`, fork-flag in
+  `test_github_meta.py`. (Local note: run product tests with `SANDBOX_PROVIDER=modal` — the local `.env`'s
+  `MODAL_DOCKER` + `DEBUG=False` makes the tasks sandbox module raise at import during full route discovery.)
+- **e2e via `manage.py run_review --publish` on #63625 (team 1/user 1), exit 0, report `019f0419…`:** full 9-stage
+  pipeline ran in the worker; **fetch resolved the installation token for team 1 (no `GITHUB_TOKEN` env)** ✅, fork gate
+  passed (non-fork), 1 chunk → analyze + 3 perspectives. **1 raw finding** (Logic & Correctness `database.py:1625`),
+  perspectives 2/3 found 0 → 1 post-dedup finding → validator marked it **`is_valid:False`** (dropped, "bug" but not
+  surfaced) ⇒ **0 publishable ⇒ nothing posted to the PR** (correct). Confirmed via the installation token: no
+  ReviewHog review/promo on #63625. So the live `create_review` HTTP path is **not** exercised end-to-end until a
+  finding survives validation (it is covered by `test_publish_review`). NOTE: #63625's head has moved to `2f1a8aee…`
+  (was frozen `243ddf40295c`), so it's no longer the old baseline code.
+- **Bug the e2e exposed + fixed:** `_publish` set `published_head_sha` even on a no-op publish (0 publishable),
+  "poisoning" the head — a later turn with a valid finding at the same head would `skip`, and the one-time promo was
+  consumed. Fix: `publish_review` returns whether it posted; `_publish` records the watermark **only on an actual
+  post**. (Worker must be restarted to pick this up — the #63625 run above used the pre-fix worker code.)
+- **e2e via `manage.py run_review --publish` on #66168 (team 1/user 1), exit 0, report `019f0428…` — FULL PUBLISH:**
+  7 chunks; 23 raw issues → 20 post-dedup → 20 validated → **6 `is_valid:True`** (oauth.py, run_wizard.py,
+  wizard_pr_agent_prompt.md). **Posted to the PR as `posthog-local-dev[bot]`** (verified by reading GitHub back via the
+  installation token): a `COMMENTED` review **pinned to `commit 4e71e3328eb6` = the reviewed `head_sha`** (head_sha pin
+  ✅), inline comments on the valid findings, and **1** "ReviewHog Alpha" promo comment (once-per-report gate ✅).
+  `published_head_sha == head_sha` ✅. This is the first end-to-end exercise of the live `create_review` HTTP path +
+  installation-token publish + head_sha pin + promo gate on a real PR. Next: Stage 5b (push a new commit to a labeled
+  PR → re-review → confirm the dedup skips ReviewHog's own prior inline comments).
+
+---
+
 ## 2026-06-25 · audit fixes — resilience (retries / 70% floor) — PR #63625 @ `243ddf40295c`
 
 - **ReviewHog under test:** post-audit resilience fixes — sandbox failures now **raise** so Temporal

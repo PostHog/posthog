@@ -28,14 +28,21 @@ class Command(BaseCommand):
             type=int,
             help="User the sandbox tasks run as (the PR's author, when triggered in the cloud)",
         )
+        parser.add_argument(
+            "--publish",
+            action="store_true",
+            help="Post the review back to the PR (default off — the CLI is for eval/debug runs)",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         # The CLI only triggers the workflow and blocks for the result — the review runs in the
-        # Temporal worker (which needs GITHUB_TOKEN in its env), and stage progress streams there.
+        # Temporal worker, and stage progress streams there.
         logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         pr_url = options["pr_url"]
         team_id = options["team_id"]
         user_id = options["user_id"]
-        self.stdout.write(self.style.MIGRATE_HEADING(f"ReviewHog ▶ starting · {pr_url} · team {team_id}"))
-        report_id = execute_review_pr_workflow(pr_url=pr_url, team_id=team_id, user_id=user_id)
+        publish = options["publish"]
+        mode = "publish" if publish else "no-publish"
+        self.stdout.write(self.style.MIGRATE_HEADING(f"ReviewHog ▶ starting · {pr_url} · team {team_id} · {mode}"))
+        report_id = execute_review_pr_workflow(pr_url=pr_url, team_id=team_id, user_id=user_id, publish=publish)
         self.stdout.write(self.style.SUCCESS(f"ReviewHog ✓ finished · report {report_id}"))

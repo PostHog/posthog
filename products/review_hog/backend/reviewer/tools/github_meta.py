@@ -1,4 +1,3 @@
-import os
 import re
 import logging
 
@@ -217,31 +216,23 @@ class PRParser:
 
 
 class PRFetcher:
-    def __init__(self, owner: str, repo: str, pr_number: int) -> None:
+    def __init__(self, owner: str, repo: str, pr_number: int, token: str) -> None:
         self.owner = owner
         self.repo = repo
         self.pr_number = pr_number
-        self.github_client = self.initialize_github_client()
+        self.github_client = self.initialize_github_client(token)
 
-    def initialize_github_client(self) -> Github:
-        # Check for GitHub token
-        github_token = os.environ.get("GITHUB_TOKEN")
-        if not github_token:
-            raise ValueError(
-                "GITHUB_TOKEN environment variable not set. Please set it to authenticate with GitHub API."
-            )
-        try:
-            # Initialize GitHub client
-            return Github(github_token)
-        except GithubException as e:
-            if e.status == 401:
-                raise ValueError("Invalid GitHub token. Please check your GITHUB_TOKEN environment variable.") from e
-            elif e.status == 404:
-                raise ValueError(f"PR #{self.pr_number} not found in repository {self.owner}/{self.repo}") from e
-            else:
-                raise ValueError(f"GitHub API error: {e.data.get('message', str(e))}") from e
+    def initialize_github_client(self, token: str) -> Github:
+        # `token` is the team's GitHub App installation token, resolved server-side by the caller.
+        if not token:
+            raise ValueError("A GitHub installation token is required to authenticate with the GitHub API.")
+        return Github(token)
 
     def fetch_pr_metadata(self, pr: PullRequest) -> PRMetadata:
+        # A missing head repo (deleted fork) counts as a fork — we can't trust/reach the head ref.
+        head_repo = pr.head.repo.full_name if pr.head.repo else None
+        base_repo = pr.base.repo.full_name if pr.base.repo else None
+        is_fork = head_repo is None or head_repo != base_repo
         return PRMetadata(
             number=pr.number,
             title=pr.title,
@@ -254,6 +245,7 @@ class PRFetcher:
             author_association=pr.raw_data.get("author_association", "NONE"),
             base_branch=pr.base.ref,
             head_branch=pr.head.ref,
+            is_fork=is_fork,
             head_sha=pr.head.sha,
             mergeable_state=pr.mergeable_state,
             requested_reviewers=[r.login for r in pr.get_review_requests()[0]],  # users

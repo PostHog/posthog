@@ -1305,14 +1305,20 @@ validation skills from feedback_ (learning across PRs) is a much larger effort, 
 
 ---
 
-### 🚀 Stage 5 — production trigger: label → review → publish (design — not yet built)
+### 🚀 Stage 5 — production trigger: label → review → publish (BUILT 2026-06-26)
 
-> **Status: design locked 2026-06-26 with the maintainer, NOT coded.** This is the **immediate next build** (it
-> precedes the Stage 4 loop) and **resolves Stage 4's deferred "triggers + publish identity" note**. The single-turn
-> `ReviewPRWorkflow` (Stage 3, step 15) is the body; this section is how it gets **started** in prod and how it
-> **publishes**. **Publish capability was validated 2026-06-26**: the GitHub App installation token posted a comment
-> to PR #64651 → HTTP 201, response header `X-Accepted-GitHub-Permissions: issues=write; pull_requests=write`. So
-> **no dedicated ReviewHog GitHub App is needed** — the existing integration's installation token can post reviews.
+> **Status: BUILT (Phases 1–4) 2026-06-26.** Code landed (uncommitted), 218 product tests + ruff + tach green. This
+> **resolves Stage 4's deferred "triggers + publish identity" note**. The single-turn `ReviewPRWorkflow` (Stage 3,
+> step 15) is the body; this section is how it gets **started** in prod and how it **publishes**. **Publish
+> capability was validated 2026-06-26**: the GitHub App installation token posted a comment to PR #64651 → HTTP 201,
+> header `X-Accepted-GitHub-Permissions: issues=write; pull_requests=write`. So **no dedicated ReviewHog GitHub App is
+> needed** — the existing integration's installation token posts reviews. **What changed vs the original design** (see
+> "Build order" below): the endpoint returns the **workflow id** (not a report id — the report row is created inside
+> the run's fetch activity, after the non-blocking start); fork rejection moved to the **Action gate + the fetch
+> activity** (authoritative, server-side) rather than the endpoint (which stays free of GitHub I/O); and the worker's
+> `GITHUB_TOKEN` env dependency is **gone** — fetch and publish both resolve the team's installation token
+> server-side. **Not yet:** Phase 5 label lifecycle (strip/keep-on-error/dismiss-on-push) and the Stage 5b
+> iterate-on-same-PR validation.
 
 **Goal (maintainer).** A maintainer adds the `reviewhog` label to a **non-fork** PR in `PostHog/posthog` → ReviewHog
 reviews it and **posts the review back to the PR**. v1 scope: **team 2** (the main team) in prod, `PostHog/posthog`
@@ -1329,9 +1335,10 @@ pipeline just built + hardened).
 ```text
 reviewhog label on a non-fork PostHog/posthog PR
   └─ .github/workflows/review-hog.yml   (gates: label==reviewhog, head.repo==base.repo, non-bot, non-draft, concurrency)
-       └─ one authenticated curl  →  POST /<review_hog>/trigger  {repo, pr_number}
-            └─ endpoint: verify shared secret · validate repo allowlist · reject forks
-                 · resolve team-2 integration + run user · start_workflow (NON-blocking) · 202 + report_id
+       └─ one authenticated curl  →  POST /api/review_hog/trigger  {repo, pr_number}   (Authorization: Bearer <secret>)
+            └─ endpoint: verify shared secret · validate repo allowlist (forks blocked upstream by the Action
+                 + downstream by the fetch activity) · resolve team-2 integration + run user
+                 · start_workflow (NON-blocking) · 202 + workflow_id
                       └─ ReviewPRWorkflow (Stage 3, unchanged)  — fetch/publish via the App installation token
                            └─ publish: head_sha-pinned COMMENT review posted to the PR
 ```
@@ -1372,49 +1379,65 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
   non-blocking, `publish=true` entry. Both drive the **same** `ReviewPRWorkflow` — the trigger work **adds** an entry
   point, it does not remove the CLI.
 
-**Build order (Phase 1 is internal — no GitHub posting — and safe to start first):**
+**Build order (as built — Phases 1–4 done; Phase 5 + Stage 5b pending):**
 
-1. **Trigger-ready (internal):** add `start_review_pr_workflow` using `client.start_workflow` (non-blocking; **keep
-   `manage.py run_review` + its blocking `execute_workflow` fully usable** for manual/eval runs, `client.py:45`);
-   thread `publish: bool` as a per-run workflow input (retire the global `PUBLISH_REVIEW_ENABLED`) **and expose it on
-   `run_review` as `--publish` (default off)** so the CLI can do everything the label can; swap the PAT → installation
-   token **inside the fetch activity** (it already has `team_id`), dropping the worker's `GITHUB_TOKEN` env dependency.
-2. **The endpoint** (shared-secret-gated, in a `review_hog` viewset + `routes.py` registration; run
-   `/improving-drf-endpoints` when building it): validate repo allowlist + reject forks, resolve team-2 integration +
-   run user, `start_workflow` with `publish=true`, return `202 + report_id`.
-3. **Publish for real:** swap the PAT → installation token in `_post_github_review` (`publish_review.py:202-214`) and
-   `PRFetcher` (`github_meta.py:228-235`); post the review **pinned to the reviewed `head_sha`**.
-4. **The Action:** `.github/workflows/review-hog.yml` (model on `pr-approval-agent.yml`).
-5. **Later (v2):** label lifecycle (strip-on-non-approval / keep-on-error / dismiss-stale-on-push) +
-   `synchronize` / `ready_for_review` events — copy Stamphog.
+1. ✅ **Trigger-ready (internal):** `start_review_pr_workflow` (`client.start_workflow`, non-blocking, returns the
+   workflow id) added alongside the still-blocking `execute_review_pr_workflow` the CLI uses; both share
+   `_build_inputs`. `publish: bool` threaded through `ReviewPRWorkflowInputs` (default `False`) → the workflow's
+   stage-9 gate is now `if inputs.publish` and the global `PUBLISH_REVIEW_ENABLED` constant is **deleted**;
+   `run_review` gained `--publish` (default off). The PAT → installation-token swap landed in the **fetch activity**
+   (`_installation_token(team_id, repository)` → `GitHubIntegration.first_for_team_repository(...).get_access_token()`),
+   dropping the worker's `GITHUB_TOKEN` env dependency.
+2. ✅ **The endpoint** (`products/review_hog/backend/api/trigger.py` + `routes.py`, mounted unscoped at
+   `/api/review_hog/trigger`): plain `viewsets.ViewSet`, `@action`-+-`@extend_schema`, shared-secret check
+   (`hmac.compare_digest` vs `settings.REVIEWHOG_TRIGGER_TOKEN`, fail-closed outside DEBUG/TEST), repo allowlist
+   (`{"posthog/posthog"}`, case-insensitive), team from `settings.REVIEWHOG_TEAM_ID`, run user from
+   `settings.REVIEWHOG_RUN_USER_ID` (fallback: the team's GitHub integration creator), `start_workflow` with
+   `publish=true`, returns **`202 + {workflow_id, status}`**. Fork rejection is **not** here (no GitHub I/O) — it's the
+   Action gate + the fetch activity.
+3. ✅ **Publish for real:** `_post_github_review` and `PRFetcher` now take a passed-in installation token (no env);
+   the review is **pinned to the reviewed `head_sha`** via `commit=repo_obj.get_commit(head_sha)`. Fork rejection is
+   authoritative in the **fetch activity** (`PRMetadata.is_fork`, non-retryable `ApplicationError` before the report
+   row is created).
+4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request [labeled, ready_for_review, synchronize]`,
+   `permissions: {}`, per-PR concurrency, `if:` gates (label + non-fork + non-bot + non-draft), one `curl` with the
+   bearer secret. `pull_request` (not `pull_request_target`) ⇒ forks get no secret ⇒ can't trigger.
+5. ⏳ **Later (v2):** label lifecycle (strip-on-non-approval / keep-on-error / dismiss-stale-on-push). (`synchronize` /
+   `ready_for_review` events are already wired in step 4.) Then **Stage 5b** (iterate-on-same-PR validation).
 
-**Prerequisites the maintainer provides (gate Phases 3–4):**
+**Deploy prerequisites the maintainer provides (before the prod label trigger works):**
 
 - ✅ **Team 2 (prod) has the `posthog` GitHub App installed** for `PostHog/posthog` (maintainer-confirmed 2026-06-26;
-  also satisfied locally on team 1 via `posthog-local-dev`). **Caveat to confirm before Phase 3 publish:** the
+  also satisfied locally on team 1 via `posthog-local-dev`). **Still confirm before turning publish on in prod:** the
   `pull_requests=write` validation (the duck comment) was on the **separate `posthog-local-dev` app** — confirm the
-  **prod `posthog`** app's installation also grants `pull_requests: write` (one API write, or its Permissions page).
-  If it's read-only (e.g. the error-tracking / PR-linking integration), publishing needs a permission bump or a
-  dedicated app.
-- **The shared secret `REVIEWHOG_TRIGGER_TOKEN`** — a value **we generate** (e.g. `openssl rand -hex 32`), placed in
-  **both** the PostHog deploy config (`settings.REVIEWHOG_TRIGGER_TOKEN`, which the endpoint checks the
-  `Authorization` header against) **and** a GitHub Actions secret of the same name (which the Action sends in that
-  header). It's a shared password between CI and the app — the only secret the Action carries.
-- **The run `user_id`** decided (`integration.created_by` on team 2, or a `REVIEWHOG_RUN_USER_ID` setting).
+  **prod `posthog`** app's installation also grants `pull_requests: write`. If it's read-only, publishing needs a
+  permission bump or a dedicated app.
+- **`settings.REVIEWHOG_TRIGGER_TOKEN`** — generate a value (`openssl rand -hex 32`), put it in **both** the PostHog
+  deploy config (env `REVIEWHOG_TRIGGER_TOKEN`, read in `posthog/settings/access.py`) **and** the GitHub Actions secret
+  `REVIEWHOG_TRIGGER_TOKEN`. Shared password between CI and the app; the only secret the Action carries. Unset =
+  endpoint fails closed (403) outside DEBUG/TEST.
+- **`settings.REVIEWHOG_TEAM_ID`** = `2` (env `REVIEWHOG_TEAM_ID`). Unset ⇒ the endpoint returns 503.
+- **`settings.REVIEWHOG_RUN_USER_ID`** — optional; unset falls back to the team-2 GitHub integration's `created_by`.
+- _(Optional)_ GitHub repo/org **variable** `REVIEWHOG_ENDPOINT_URL` to override the Action's default
+  `https://us.posthog.com/api/review_hog/trigger/`.
 
-**File pointers (where the work lands):**
+**File pointers (where the work landed):**
 
-- `backend/temporal/client.py:45` — `execute_workflow` (blocking, CLI) → add `start_review_pr_workflow`
-  (`start_workflow`, non-blocking).
-- `backend/reviewer/constants.py:11` — `PUBLISH_REVIEW_ENABLED` → per-run `publish` input on the workflow / activities.
-- `backend/temporal/activities.py` — `publish_review_activity` (publish gate), the fetch activity (resolve the
-  installation token from the team's integration).
-- `backend/reviewer/tools/github_meta.py:228-235` (`PRFetcher`) and `backend/reviewer/tools/publish_review.py:202-214`
-  (`_post_github_review`) — `os.environ['GITHUB_TOKEN']` PyGithub → installation token.
+- `backend/temporal/client.py` — `execute_review_pr_workflow` (blocking, CLI, returns report_id) + new
+  `start_review_pr_workflow` (`start_workflow`, non-blocking, returns workflow_id); shared `_build_inputs`.
+- `backend/temporal/types.py` — `ReviewPRWorkflowInputs.publish: bool = False`.
+- `backend/temporal/workflow.py` — stage-9 gate `if inputs.publish` (the `PUBLISH_REVIEW_ENABLED` constant is gone).
+- `backend/temporal/activities.py` — `_installation_token(team_id, repository)`; fetch activity resolves the token +
+  rejects forks (`PRMetadata.is_fork`, non-retryable); `_publish` forwards token + `head_sha`.
+- `backend/reviewer/tools/github_meta.py` (`PRFetcher(__init__ token=...)`, `is_fork` on `fetch_pr_metadata`) and
+  `backend/reviewer/tools/publish_review.py` (`publish_review` / `_post_github_review` take `token` + `head_sha`,
+  `commit=`-pinned) — env `GITHUB_TOKEN` fully removed.
 - `posthog/models/github_integration_base.py:1433` (`get_access_token`, auto-refresh) ·
-  `posthog/models/integration.py:2504` (`first_for_team_repository`) · `_github_api_post` at
-  `github_integration_base.py:324` (POST primitive if a new review-create helper is wanted).
-- **New:** `products/review_hog/backend/api/` viewset + `routes.py` `register_routes`; `.github/workflows/review-hog.yml`.
+  `posthog/models/integration.py:2505` (`first_for_team_repository`).
+- **New:** `products/review_hog/backend/api/trigger.py` + `backend/routes.py`; `posthog/settings/access.py` (3 settings);
+  `.github/workflows/review-hog.yml`. Tests: `backend/tests/test_trigger_api.py`,
+  `backend/reviewer/tests/test_publish_review.py`, publish-gate cases in `backend/tests/test_temporal_workflow.py`,
+  fork-flag case in `backend/reviewer/tests/test_github_meta.py`.
 - **Reference:** `.github/workflows/pr-approval-agent.yml` + `tools/pr-approval-agent/` (Stamphog).
 
 ---
@@ -1502,8 +1525,10 @@ flowchart TD
 
 1. **Parse PR URL** — `PRParser.parse_github_pr_url` regex-extracts `owner/repo/pr_number`; raises on a
    malformed URL.
-2. **Fetch PR data** — `PRFetcher(owner, repo, pr_number).fetch_pr_data()` (`tools/github_meta.py`, PyGithub,
-   needs `GITHUB_TOKEN`) returns `(pr_metadata, pr_comments, pr_files, diff)` **in-process** — no files. The
+2. **Fetch PR data** — `PRFetcher(owner, repo, pr_number, token).fetch_pr_data()` (`tools/github_meta.py`, PyGithub;
+   `token` is the team's GitHub App installation token, resolved server-side in the activity — no env `GITHUB_TOKEN`)
+   returns `(pr_metadata, pr_comments, pr_files, diff)` **in-process** — no files. The fetch activity rejects fork PRs
+   (`PRMetadata.is_fork`) non-retryably before opening the report. The
    `diff` is the reviewed files' raw unified patch (the point-in-time snapshot). Lockfiles, minified assets,
    snapshots, `*.schema.py`, `*.txt`, build dirs, and test files are filtered out. `branch =
 pr_metadata.head_branch` is threaded into every sandbox step. Then `bind_sandbox_identity` validates the
@@ -1555,9 +1580,11 @@ pr_metadata.head_branch` is threaded into every sandbox step. Then `bind_sandbox
     run watermark.
 11. **Publish** — `publish_review` (PyGithub, **DB-driven**) reads the body from `ReviewReport.report_markdown`
     and the inline comments from the valid finding/verdict rows (`load_valid_findings`), posts a standalone
-    "ReviewHog Alpha 🦔" feedback comment, then a PR review (`event="COMMENT"`) with inline comments for
-    `is_valid` `MUST_FIX`/`SHOULD_FIX` findings that land on a line present in the current diff (`CONSIDER`
-    dropped). Falls back to a body-only review on `GithubException`. Disabled by `PUBLISH_REVIEW_ENABLED=False`.
+    "ReviewHog Alpha 🦔" feedback comment, then a PR review (`event="COMMENT"`, **pinned to the reviewed `head_sha`**
+    via `commit=`) with inline comments for `is_valid` `MUST_FIX`/`SHOULD_FIX` findings that land on a line present in
+    the current diff (`CONSIDER` dropped). Falls back to a body-only review on `GithubException`. Authenticates with
+    the team's installation token. Gated **per run** by `inputs.publish` (the workflow only dispatches this stage when
+    publishing is on); the eval CLI defaults it off, the label trigger sets it on.
 
 ---
 
@@ -1710,12 +1737,15 @@ Per-run state by kind:
 
 **Configuration read at runtime:**
 
-- `GITHUB_TOKEN` (env) — required to fetch the PR and to publish the review. `split_pr_into_chunks.py` calls
-  `load_dotenv()`, so a `.env` works.
+- **GitHub auth** — the team's **GitHub App installation token**, resolved server-side per activity via
+  `GitHubIntegration.first_for_team_repository(team_id, repo).get_access_token()` (auto-refreshing). No `GITHUB_TOKEN`
+  env var; the worker no longer needs one.
 - `--team-id` / `--user-id` (CLI, required) — the team the review runs and persists under, and the user the
   sandbox tasks run as. `bind_sandbox_identity` binds them as a run-scoped identity (`contextvars`) after
   validating the team's `kind="github"` `Integration`. No `settings.DEBUG` branch or hardcoded ids remain.
   The sandbox `repository` is the PR's own `owner/repo`, derived from the PR URL.
+- **Prod label trigger** (settings, `posthog/settings/access.py`) — `REVIEWHOG_TRIGGER_TOKEN` (shared secret),
+  `REVIEWHOG_TEAM_ID` (the run team), `REVIEWHOG_RUN_USER_ID` (optional; falls back to the integration creator).
 
 ---
 

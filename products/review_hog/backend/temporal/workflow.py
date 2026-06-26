@@ -10,8 +10,8 @@ worker log (the former stdout banners).
 The fan-out children dispatch per-unit sandbox activities (each retried) under a fresh
 `asyncio.Semaphore` and `gather(return_exceptions=True)`, so a minority of failed units degrade
 best-effort; a near-total wipeout (> `FAN_OUT_FAILURE_FLOOR`) fails the run loudly instead of
-finalizing an empty review as success. Publishing stays gated off (`PUBLISH_REVIEW_ENABLED`) through
-the migration.
+finalizing an empty review as success. Publishing is per-run: the final stage posts to GitHub only
+when `inputs.publish` is set (the cloud label trigger), and is skipped for eval / CLI runs.
 """
 
 import json
@@ -24,11 +24,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from products.review_hog.backend.reviewer.constants import (
-    FAN_OUT_FAILURE_FLOOR,
-    MAX_CONCURRENT_SANDBOXES,
-    PUBLISH_REVIEW_ENABLED,
-)
+from products.review_hog.backend.reviewer.constants import FAN_OUT_FAILURE_FLOOR, MAX_CONCURRENT_SANDBOXES
 from products.review_hog.backend.temporal.activities import (
     AnalyzeChunkInput,
     BuildBodyInput,
@@ -405,7 +401,7 @@ class ReviewPRWorkflow:
         )
 
         workflow.logger.info("STAGE 9/9 · Publish review")
-        if PUBLISH_REVIEW_ENABLED:
+        if inputs.publish:
             await workflow.execute_activity(
                 publish_review_activity,
                 PublishInput(
@@ -420,7 +416,7 @@ class ReviewPRWorkflow:
                 retry_policy=_RETRY,
             )
         else:
-            workflow.logger.info("Publishing disabled (PUBLISH_REVIEW_ENABLED=False)")
+            workflow.logger.info("Publishing disabled for this run (publish=False)")
 
         workflow.logger.info(f"ReviewHog complete · report stored on ReviewReport {report_id}")
         return report_id
